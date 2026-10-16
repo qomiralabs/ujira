@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": true,
+    // Root scripts run directly under Node type stripping.
+    "erasableSyntaxOnly": true
+  },
+  // Every root level source file and everything under scripts/ must be listed
+  // here, otherwise the type-aware lint rejects it.
+  "include": ["*.js", "*.mjs", "*.cjs", "*.ts", "*.mts", "*.cts", "scripts/**/*"]
+}
