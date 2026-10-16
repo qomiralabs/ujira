@@ -13,6 +13,9 @@ import { beforeAll, describe, expect, it } from 'vitest';
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../../..');
 const MONEY_FILE = path.join(REPO_ROOT, 'packages/core/src/money/money.ts');
 const OUTSIDE_FILE = path.join(REPO_ROOT, 'packages/core/src/index.ts');
+// A second real file, so a ban narrowed to money.ts alone cannot pass.
+const SECOND_MONEY_FILE = path.join(REPO_ROOT, 'packages/core/src/money/currencies.ts');
+const MONEY_DIR = path.join(REPO_ROOT, 'packages/core/src/money');
 
 const HEADER = [
   '// Copyright (c) 2026 Qomira Labs. All rights reserved.',
@@ -93,6 +96,8 @@ const BANNED: [string, string][] = [
   ['fractional literal 1.25', 'export const x = 1.25;\n'],
   ['fractional literal .5', 'export const x = .5;\n'],
   ['fractional literal 1.0', 'export const x = 1.0;\n'],
+  ['negative exponent literal 1e-3', 'export const x = 1e-3;\n'],
+  ['negative exponent literal 15E-1', 'export const x = 15E-1;\n'],
 ];
 
 const ALLOWED: [string, string][] = [
@@ -145,6 +150,44 @@ describe('float ban in packages/core/src/money', () => {
     async (_label, code) => {
       const messages = await errorsFor(code, MONEY_FILE);
       expect(messages).toEqual([]);
+    },
+    120_000,
+  );
+
+  it.each([...BANNED, ...BYPASSES])(
+    'reports %s in a second money source file',
+    async (_label, code) => {
+      const messages = await errorsFor(code, SECOND_MONEY_FILE);
+      expect(banErrors(messages).length).toBeGreaterThan(0);
+    },
+    120_000,
+  );
+
+  // Files that do not exist on disk cannot be parsed with type information,
+  // so these check the resolved config instead of linting text.
+  it.each(['x.ts', 'x.tsx', 'x.mts', 'x.cts', 'nested/deeper/x.ts', 'nested/x.mts'])(
+    'applies the ban and ignores inline config for money/%s',
+    async (file) => {
+      const config = (await eslint.calculateConfigForFile(path.join(MONEY_DIR, file))) as {
+        rules: Record<string, unknown>;
+        linterOptions: { noInlineConfig?: boolean };
+      };
+      for (const rule of BAN_RULES) {
+        expect(config.rules[rule]).toBeDefined();
+        expect((config.rules[rule] as unknown[])[0]).toBe(2);
+      }
+      expect(config.linterOptions.noInlineConfig).toBe(true);
+    },
+    120_000,
+  );
+
+  it.each(['x.test.ts', 'x.test.mts', 'nested/x.test.cts'])(
+    'exempts the test file money/%s',
+    async (file) => {
+      const config = (await eslint.calculateConfigForFile(path.join(MONEY_DIR, file))) as {
+        rules: Record<string, unknown>;
+      };
+      expect(config.rules['ujira/no-number-arithmetic']).toBeUndefined();
     },
     120_000,
   );

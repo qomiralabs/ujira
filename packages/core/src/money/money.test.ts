@@ -309,6 +309,16 @@ describe('money factory', () => {
     expect(() => money(MAX + 1n, 'USD', -1)).toThrow(InvalidScaleError);
   });
 
+  it('checks the range last, after currency and scale', () => {
+    const tooLong = '1'.repeat(40);
+    expect(() => money(tooLong, loose('XXX'), 2)).toThrow(UnknownCurrencyError);
+    expect(() => money(tooLong, 'USD', 19)).toThrow(InvalidScaleError);
+    expect(() => money(String(MAX + 1n), loose('XXX'), 2)).toThrow(UnknownCurrencyError);
+    expect(() => money(String(MIN - 1n), 'USD', loose(1.5))).toThrow(InvalidScaleError);
+    expect(() => money(MIN - 1n, loose('XXX'), 2)).toThrow(UnknownCurrencyError);
+    expect(() => money(tooLong, 'USD', 2)).toThrow(MoneyOverflowError);
+  });
+
   it('returns a frozen value', () => {
     const m = usd(5n);
     expect(Object.isFrozen(m)).toBe(true);
