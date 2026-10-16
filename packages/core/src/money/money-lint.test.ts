@@ -44,6 +44,7 @@ const BAN_RULES = new Set([
   'no-restricted-globals',
   'no-restricted-properties',
   'no-restricted-syntax',
+  'ujira/no-number-arithmetic',
 ]);
 const banErrors = (messages: ESLint.LintResult['messages']): ESLint.LintResult['messages'] =>
   ruleErrors(messages).filter((msg) => msg.ruleId !== null && BAN_RULES.has(msg.ruleId));

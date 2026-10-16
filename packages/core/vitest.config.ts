@@ -12,7 +12,7 @@ export default defineConfig({
     include: ['src/**/*.test.ts'],
     coverage: {
       provider: 'v8',
-      include: ['src/**/*.ts'],
+      include: ['src/**/*.{ts,tsx,mts,cts}'],
       exclude: ['**/*.test.*', '**/*.d.ts'],
       reporter: [['text', { skipFull: false }]],
       thresholds: {

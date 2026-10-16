@@ -32,13 +32,11 @@ const CANONICAL_INTEGER = /^-?(0|[1-9][0-9]*)$/;
 // them, so a hostile megabyte of nines costs nothing.
 const MAX_I128_DIGITS = 39;
 
-function inRange(value: bigint): boolean {
-  return value >= I128_MIN && value <= I128_MAX;
-}
+const OVERFLOW_MESSAGE = 'amount is outside the signed 128 bit range';
 
 function checked(value: bigint): bigint {
-  if (!inRange(value)) {
-    throw new MoneyOverflowError('amount is outside the signed 128 bit range');
+  if (value < I128_MIN || value > I128_MAX) {
+    throw new MoneyOverflowError(OVERFLOW_MESSAGE);
   }
   return value;
 }
@@ -49,16 +47,29 @@ function parseAmount(amount: unknown): bigint | null {
   if (typeof amount !== 'string' || !CANONICAL_INTEGER.test(amount) || amount === '-0') {
     throw new InvalidAmountError('amount must be a bigint or a canonical integer string');
   }
-  const digits = amount.startsWith('-') ? amount.length - 1 : amount.length;
-  return digits > MAX_I128_DIGITS ? null : BigInt(amount);
+  const digits = amount.startsWith('-') ? amount.slice(1) : amount;
+  return digits.length > MAX_I128_DIGITS ? null : BigInt(amount);
+}
+
+function isScale(scale: unknown): scale is number {
+  return (
+    typeof scale === 'number' && Number.isSafeInteger(scale) && scale >= 0 && scale <= MAX_SCALE
+  );
 }
 
 function parseScale(scale: unknown): number {
-  if (typeof scale !== 'number' || !Number.isSafeInteger(scale) || scale < 0 || scale > MAX_SCALE) {
+  if (!isScale(scale)) {
     throw new InvalidScaleError(`scale must be an integer from 0 to ${String(MAX_SCALE)}`);
   }
   // Collapses -0 so Object.is and serialisers never see a signed zero.
   return scale === 0 ? 0 : scale;
+}
+
+function parseCurrency(currency: unknown): CurrencyCode {
+  if (!isCurrencyCode(currency)) {
+    throw new UnknownCurrencyError('unknown currency code');
+  }
+  return currency;
 }
 
 function build(amount: bigint, currency: CurrencyCode, scale: number): Money {
@@ -67,26 +78,35 @@ function build(amount: bigint, currency: CurrencyCode, scale: number): Money {
 
 export function money(amount: bigint | string, currency: CurrencyCode, scale: number): Money {
   const parsed = parseAmount(amount);
-  if (!isCurrencyCode(currency)) {
-    throw new UnknownCurrencyError('unknown currency code');
-  }
+  const code = parseCurrency(currency);
   const normalScale = parseScale(scale);
   if (parsed === null) {
-    throw new MoneyOverflowError('amount is outside the signed 128 bit range');
+    throw new MoneyOverflowError(OVERFLOW_MESSAGE);
   }
-  return build(parsed, currency, normalScale);
+  return build(parsed, code, normalScale);
 }
 
-// Values can arrive from untyped callers, so the amount type is checked at
-// runtime instead of trusting the Money annotation.
-function amountOf(value: Money): bigint {
-  const amount: unknown = value.amount;
+/**
+ * Operands can be rows from a mapper or anything an untyped caller passes,
+ * and a getter can answer differently on every read. So each field is read
+ * exactly once, validated like money() does, and only this copy is used.
+ */
+function snapshot(value: Money): Money {
+  const candidate: unknown = value;
+  if (typeof candidate !== 'object' || candidate === null) {
+    throw new InvalidAmountError('expected a money value');
+  }
+  const { amount, currency, scale } = candidate as Record<keyof Money, unknown>;
   if (typeof amount !== 'bigint') {
     throw new InvalidAmountError('money amount must be a bigint');
   }
-  return amount;
+  const code = parseCurrency(currency);
+  const normalScale = parseScale(scale);
+  return { amount: checked(amount), currency: code, scale: normalScale };
 }
 
+// Only ever called on validated snapshots, so the text it interpolates is a
+// known currency code or a small integer, never caller supplied.
 function assertSameUnit(a: Money, b: Money): void {
   if (a.currency !== b.currency) {
     throw new CurrencyMismatchError(`cannot combine ${a.currency} with ${b.currency}`);
@@ -98,50 +118,69 @@ function assertSameUnit(a: Money, b: Money): void {
   }
 }
 
-function operands(a: Money, b: Money): [bigint, bigint] {
-  const x = amountOf(a);
-  const y = amountOf(b);
-  assertSameUnit(a, b);
+function pair(a: Money, b: Money): [Money, Money] {
+  const x = snapshot(a);
+  const y = snapshot(b);
+  assertSameUnit(x, y);
   return [x, y];
 }
 
 export function add(a: Money, b: Money): Money {
-  const [x, y] = operands(a, b);
-  return build(x + y, a.currency, a.scale);
+  const [x, y] = pair(a, b);
+  return build(x.amount + y.amount, x.currency, x.scale);
 }
 
 export function subtract(a: Money, b: Money): Money {
-  const [x, y] = operands(a, b);
-  return build(x - y, a.currency, a.scale);
+  const [x, y] = pair(a, b);
+  return build(x.amount - y.amount, x.currency, x.scale);
 }
 
 export function multiply(a: Money, factor: bigint): Money {
-  const x = amountOf(a);
+  const x = snapshot(a);
   const k: unknown = factor;
   if (typeof k !== 'bigint') {
     throw new InvalidAmountError('factor must be a bigint');
   }
-  return build(x * k, a.currency, a.scale);
+  return build(x.amount * k, x.currency, x.scale);
 }
 
 export function negate(a: Money): Money {
-  return build(-amountOf(a), a.currency, a.scale);
+  const x = snapshot(a);
+  return build(-x.amount, x.currency, x.scale);
 }
 
 export function sum(items: readonly Money[]): Money {
-  const [first, ...rest] = items;
-  if (first === undefined) {
+  const list: unknown = items;
+  if (!Array.isArray(list)) {
+    throw new InvalidAmountError('sum expects an array of money values');
+  }
+  let total: Money | undefined;
+  // for of visits holes as undefined, so they fail validation like null does.
+  for (const item of list as readonly Money[]) {
+    const next = snapshot(item);
+    if (total === undefined) {
+      total = next;
+      continue;
+    }
+    assertSameUnit(total, next);
+    // Checking after every step matches repeated add, so a total that would
+    // dip out of range and come back still throws.
+    total = {
+      amount: checked(total.amount + next.amount),
+      currency: total.currency,
+      scale: total.scale,
+    };
+  }
+  if (total === undefined) {
     throw new InvalidAmountError('cannot sum an empty list, its currency is unknown');
   }
-  // Checking after every step matches add exactly, so a total that would
-  // dip out of range and come back still throws.
-  return rest.reduce(add, add(first, build(0n, first.currency, first.scale)));
+  return build(total.amount, total.currency, total.scale);
 }
 
 export function compare(a: Money, b: Money): -1 | 0 | 1 {
-  const [x, y] = operands(a, b);
-  if (x < y) return -1;
-  return x > y ? 1 : 0;
+  const [x, y] = pair(a, b);
+  if (x.amount < y.amount) return -1;
+  return x.amount > y.amount ? 1 : 0;
 }
 
 export function equals(a: Money, b: Money): boolean {
@@ -149,9 +188,9 @@ export function equals(a: Money, b: Money): boolean {
 }
 
 export function isZero(a: Money): boolean {
-  return amountOf(a) === 0n;
+  return snapshot(a).amount === 0n;
 }
 
 export function isNegative(a: Money): boolean {
-  return amountOf(a) < 0n;
+  return snapshot(a).amount < 0n;
 }
