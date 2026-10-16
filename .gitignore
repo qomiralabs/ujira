@@ -1,0 +1,50 @@
+# Internal files: never committed
+.internal/
+implementation.md
+CLAUDE.md
+.claude/
+*.internal.md
+/PRODUCT.md
+/DESIGN.md
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# OS and editors
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.log
+
+# Node, pnpm and Turborepo
+node_modules/
+.pnpm-store/
+.turbo/
+dist/
+/build/
+apps/*/build/
+packages/*/build/
+coverage/
+*.tsbuildinfo
+.eslintcache
+
+# Next.js
+.next/
+apps/*/out/
+packages/*/out/
+next-env.d.ts
+.vercel/
+
+# Playwright and Storybook
+playwright-report/
+blob-report/
+test-results/
+**/playwright/.cache/
+storybook-static/
+*storybook.log
