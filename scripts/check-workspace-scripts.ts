@@ -17,7 +17,18 @@ const IGNORED_FILES = new Set(['.DS_Store']);
 const REQUIRED_SCRIPTS = ['build', 'lint', 'typecheck', 'test'];
 // Every --max-warnings flag in the lint script and the value it sets.
 const MAX_WARNINGS_FLAG = /(?:^|\s)--max-warnings(?:=|\s+|(?=\s|$))(\S*)/g;
-const SUPPRESSION = [/\|\|/, /;\s*(true|:|exit\s+0)(\s|;|$)/];
+// The only shell operator a required script may use is `&&`, which stops at the
+// first failure. Pipes, `;`, `||`, background `&` and command substitution can
+// all let a failing command exit 0, so anything left once `&&` is removed fails.
+const AND_CHAIN = /&&/g;
+const FORBIDDEN_OPERATORS: readonly [string, RegExp][] = [
+  ['|', /\|/],
+  [';', /;/],
+  ['&', /&/],
+  ['`', /`/],
+  ['$(', /\$\(/],
+  ['newline', /[\r\n]/],
+];
 
 interface PackageJson {
   name?: string;
@@ -83,13 +94,19 @@ function checkScripts(manifestDir: string): void {
   const label = pkg.name ?? relative(ROOT, manifestDir);
   const scripts = pkg.scripts ?? {};
   for (const name of REQUIRED_SCRIPTS) {
-    const script = scripts[name]?.trim();
-    if (!script) {
+    const script = scripts[name];
+    if (!script?.trim()) {
       problems.push(`${label}: missing "${name}" script`);
       continue;
     }
-    if (SUPPRESSION.some((pattern) => pattern.test(script))) {
-      problems.push(`${label}: "${name}" script must not suppress failures`);
+    const withoutChains = script.replace(AND_CHAIN, ' ');
+    const found = FORBIDDEN_OPERATORS.filter(([, pattern]) => pattern.test(withoutChains)).map(
+      ([operator]) => operator,
+    );
+    if (found.length > 0) {
+      problems.push(
+        `${label}: "${name}" script may only chain commands with &&, found ${found.join(', ')}`,
+      );
     }
   }
   const lint = scripts['lint'];
