@@ -5,11 +5,11 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    projects: ['packages/*'],
+    projects: ['packages/*', 'apps/*'],
     reporters: ['verbose'],
     coverage: {
       provider: 'v8',
-      include: ['packages/*/src/**/*.ts'],
+      include: ['packages/*/src/**/*.ts', 'apps/*/src/**/*.ts'],
       exclude: ['**/*.test.ts', '**/*.d.ts'],
       reporter: ['text', 'json-summary', 'lcov'],
       thresholds: {

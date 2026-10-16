@@ -27,7 +27,7 @@ Root commands:
 | `pnpm format:check` | Checks formatting with Prettier                                                                                    |
 | `pnpm test`         | Runs every package's tests in one Vitest run with an 85 percent coverage threshold                                 |
 
-Every source file starts with the proprietary license header below, with the year the file was created (any four digit year is accepted). `pnpm lint` fails on any source file without it, in a package or at the root. A source file that no `tsconfig.json` includes also fails lint, so nothing slips past the checks. Every package under `packages/` or `apps/` must define `build`, `lint`, `typecheck` and `test` scripts, and its `lint` script must pass `--max-warnings 0`.
+Every source file starts with the proprietary license header below, with the year the file was created (any four digit year is accepted). `pnpm lint` fails on any source file without it, in a package or at the root. A source file that no `tsconfig.json` includes also fails lint, so nothing slips past the checks. Every folder with a `package.json` under `packages/` or `apps/` must be a workspace member matched by a `<dir>/*` glob in `pnpm-workspace.yaml`, and must define `build`, `lint`, `typecheck` and `test` scripts that do not suppress failures (no `||` or `; true`). Its `lint` script must pass `--max-warnings 0`. Symlinked folders there are rejected.
 
 ```ts
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
