@@ -17,6 +17,14 @@ export default defineConfig({
         functions: 85,
         branches: 85,
         statements: 85,
+        // Money and other core primitives sit under every payout, so they
+        // carry a stricter bar than the rest of the repo.
+        'packages/core/src/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
       },
     },
   },

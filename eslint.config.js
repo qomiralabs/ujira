@@ -78,4 +78,51 @@ export default defineConfig(
       'no-console': 'warn',
     },
   },
+  {
+    // Money is integer minor units held in bigint. Anything that can produce a
+    // binary float is banned here so a rounding bug cannot get in by accident.
+    // Tests are exempt because they feed floats in to prove they are rejected.
+    files: ['packages/core/src/money/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        { name: 'parseFloat', message: 'Money never uses floats. Parse amounts as bigint.' },
+        { name: 'Math', message: 'Math works on floats. Use bigint arithmetic.' },
+      ],
+      'no-restricted-properties': [
+        'error',
+        {
+          object: 'Number',
+          property: 'parseFloat',
+          message: 'Money never uses floats. Parse amounts as bigint.',
+        },
+        { property: 'toFixed', message: 'toFixed rounds a float. Format from bigint instead.' },
+        {
+          property: 'toPrecision',
+          message: 'toPrecision rounds a float. Format from bigint instead.',
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'CallExpression[callee.type="Identifier"][callee.name="Number"]',
+          message: 'Number(...) converts to a float. Keep amounts as bigint.',
+        },
+        {
+          selector: 'NewExpression[callee.type="Identifier"][callee.name="Number"]',
+          message: 'Number(...) converts to a float. Keep amounts as bigint.',
+        },
+        {
+          // Matches the raw source text, so digits inside strings never match.
+          selector: 'Literal[raw=/^[0-9_]*[.][0-9_]*([eE][-+]?[0-9_]+)?$/]',
+          message: 'Fractional numeric literals are floats. Use bigint minor units.',
+        },
+        {
+          selector: 'Literal[raw=/^[0-9_]+[eE][-][0-9_]+$/]',
+          message: 'Negative exponent literals are floats. Use bigint minor units.',
+        },
+      ],
+    },
+  },
 );
