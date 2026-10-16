@@ -7,7 +7,7 @@ UJIRA: pay people anywhere in their own money. Services, router, API, dashboard 
 Requirements:
 
 - Node.js 24 LTS (the exact version is in `.nvmrc`; run `nvm use`)
-- pnpm 12.14.0 (pinned in the `packageManager` field of `package.json`; `corepack enable` picks it up)
+- pnpm 12.14.0 (pinned in the `packageManager` field of `package.json` with the SHA-512 of the npm registry tarball; `corepack enable` picks it up and refuses a download whose hash does not match). To bump pnpm, take `npm view pnpm@<version> dist.integrity`, drop the `sha512-` prefix, base64 decode it, hex encode the result and write `pnpm@<version>+sha512.<hex>`
 
 TypeScript is pinned to 6.0.3 because typescript-eslint 8 supports only `typescript <6.1.0`. Upgrade to TypeScript 7 once a typescript-eslint release lists it in its peer range.
 
@@ -36,7 +36,7 @@ Every source file starts with the proprietary license header below, with the yea
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every pull request and on pushes to `development`, `staging` and `main`. A single `Verify` job lints the workflow files with actionlint, installs with `pnpm install --frozen-lockfile`, then runs `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test` (the coverage report is uploaded as the `coverage` artifact) and `pnpm audit --prod`. Any failing step fails the run, and a newer push to the same ref cancels the run in progress.
+`.github/workflows/ci.yml` runs on every pull request and on pushes to `development`, `staging` and `main`. A single `Verify` job lints the workflow files with actionlint, installs with `pnpm install --frozen-lockfile`, then runs `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test`, `pnpm build` and `pnpm audit --prod`. The build runs because it compiles with each package's `tsconfig.build.json`, which typecheck does not use. The coverage report is uploaded as the `coverage` artifact even when tests fail, so a missed threshold can be inspected; a missing report is only an error when every earlier step passed. Any failing step fails the run, and a newer push to the same ref cancels the run in progress.
 
 Node.js comes from `.nvmrc` and pnpm from `packageManager`, and the pnpm store is cached on the hash of `pnpm-lock.yaml`. Every third-party action is pinned to a full commit SHA with its release tag in a trailing comment, and the workflow token is read only. To bump an action, resolve the new tag to its commit SHA (`gh api repos/<owner>/<repo>/git/ref/tags/<tag>`, dereferencing annotated tags) and update both the SHA and the comment.
 

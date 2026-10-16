@@ -62,13 +62,21 @@ jobs:
       - name: Test with coverage
         run: pnpm test
 
+      # Upload even when tests fail so a threshold miss can be inspected. A
+      # missing report is only an error when everything before this passed.
       - name: Upload coverage report
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage
           path: coverage/
-          if-no-files-found: error
+          if-no-files-found: ${{ job.status == 'success' && 'error' || 'ignore' }}
           retention-days: 14
+
+      # The build uses its own tsconfig, so typecheck passing does not prove
+      # the packages compile for release.
+      - name: Build
+        run: pnpm build
 
       - name: Audit production dependencies
         run: pnpm audit --prod
