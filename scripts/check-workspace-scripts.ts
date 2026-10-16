@@ -12,8 +12,11 @@ import { join, relative, sep } from 'node:path';
 const ROOT = join(import.meta.dirname, '..');
 const SCANNED_DIRS = ['packages', 'apps'];
 const SKIPPED_DIRS = new Set(['node_modules', 'dist', 'coverage', '.turbo']);
+// Finder metadata on macOS; ignored by git and never source.
+const IGNORED_FILES = new Set(['.DS_Store']);
 const REQUIRED_SCRIPTS = ['build', 'lint', 'typecheck', 'test'];
-const MAX_WARNINGS_ZERO = /(^|\s)--max-warnings(=|\s+)0(\s|$)/;
+// Every --max-warnings flag in the lint script and the value it sets.
+const MAX_WARNINGS_FLAG = /(?:^|\s)--max-warnings(?:=|\s+|(?=\s|$))(\S*)/g;
 const SUPPRESSION = [/\|\|/, /;\s*(true|:|exit\s+0)(\s|;|$)/];
 
 interface PackageJson {
@@ -90,8 +93,11 @@ function checkScripts(manifestDir: string): void {
     }
   }
   const lint = scripts['lint'];
-  if (lint && !MAX_WARNINGS_ZERO.test(lint)) {
-    problems.push(`${label}: "lint" script must pass --max-warnings 0`);
+  if (lint) {
+    const values = [...lint.matchAll(MAX_WARNINGS_FLAG)].map((match) => match[1]);
+    if (values.length !== 1 || values[0] !== '0') {
+      problems.push(`${label}: "lint" script must pass --max-warnings 0 exactly once`);
+    }
   }
 }
 
@@ -99,7 +105,21 @@ const globs = readWorkspaceGlobs();
 const manifests: string[] = [];
 for (const dir of SCANNED_DIRS) {
   const base = join(ROOT, dir);
-  if (existsSync(base)) findManifests(base, manifests);
+  if (!existsSync(base)) continue;
+  // Root lint and typecheck skip these folders, so anything directly inside
+  // them that is not a package would never be checked.
+  for (const entry of readdirSync(base)) {
+    if (IGNORED_FILES.has(entry)) continue;
+    const path = join(base, entry);
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink()) continue;
+    if (!stat.isDirectory()) {
+      problems.push(`${relative(ROOT, path)}: only package folders are allowed in ${dir}/`);
+    } else if (!existsSync(join(path, 'package.json'))) {
+      problems.push(`${relative(ROOT, path)}: folder has no package.json`);
+    }
+  }
+  findManifests(base, manifests);
 }
 
 for (const manifestDir of manifests) {

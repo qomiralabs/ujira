@@ -9,8 +9,8 @@ export default defineConfig({
     reporters: ['verbose'],
     coverage: {
       provider: 'v8',
-      include: ['packages/*/src/**/*.ts', 'apps/*/src/**/*.ts'],
-      exclude: ['**/*.test.ts', '**/*.d.ts'],
+      include: ['packages/*/src/**/*.{ts,tsx,mts,cts}', 'apps/*/src/**/*.{ts,tsx,mts,cts}'],
+      exclude: ['**/*.test.*', '**/*.d.ts'],
       reporter: ['text', 'json-summary', 'lcov'],
       thresholds: {
         lines: 85,
