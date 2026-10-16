@@ -165,7 +165,22 @@ describe('float ban in packages/core/src/money', () => {
 
   // Files that do not exist on disk cannot be parsed with type information,
   // so these check the resolved config instead of linting text.
-  it.each(['x.ts', 'x.tsx', 'x.mts', 'x.cts', 'nested/deeper/x.ts', 'nested/x.mts'])(
+  // Only *.test.ts files are run by vitest and left out of the build, so any
+  // other name, test helpers included, ships and must carry the ban.
+  it.each([
+    'x.ts',
+    'x.tsx',
+    'x.mts',
+    'x.cts',
+    'nested/deeper/x.ts',
+    'nested/x.mts',
+    'round.test.helpers.ts',
+    'nested/x.test.helpers.ts',
+    'x.test.mts',
+    'x.test.cts',
+    'x.test.tsx',
+    'x.spec.ts',
+  ])(
     'applies the ban and ignores inline config for money/%s',
     async (file) => {
       const config = (await eslint.calculateConfigForFile(path.join(MONEY_DIR, file))) as {
@@ -181,7 +196,7 @@ describe('float ban in packages/core/src/money', () => {
     120_000,
   );
 
-  it.each(['x.test.ts', 'x.test.mts', 'nested/x.test.cts'])(
+  it.each(['x.test.ts', 'nested/x.test.ts', 'nested/deeper/x.test.ts'])(
     'exempts the test file money/%s',
     async (file) => {
       const config = (await eslint.calculateConfigForFile(path.join(MONEY_DIR, file))) as {

@@ -155,7 +155,7 @@ export default defineConfig(
     // binary float is banned here so a rounding bug cannot get in by accident.
     // Tests are exempt because they feed floats in to prove they are rejected.
     files: ['packages/core/src/money/**/*.{ts,tsx,mts,cts}'],
-    ignores: ['**/*.test.*'],
+    ignores: ['**/*.test.ts'],
     // A disable comment in money source would switch the ban off for one line
     // without review, so inline config is ignored here.
     linterOptions: { noInlineConfig: true },

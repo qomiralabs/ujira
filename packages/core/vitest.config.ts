@@ -13,7 +13,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,tsx,mts,cts}'],
-      exclude: ['**/*.test.*', '**/*.d.ts'],
+      exclude: ['**/*.test.ts', '**/*.d.ts'],
       reporter: [['text', { skipFull: false }]],
       thresholds: {
         lines: 95,
