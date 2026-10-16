@@ -7,7 +7,9 @@ UJIRA: pay people anywhere in their own money. Services, router, API, dashboard 
 Requirements:
 
 - Node.js 24 LTS (the exact version is in `.nvmrc`; run `nvm use`)
-- pnpm 10.34.7 (pinned in the `packageManager` field of `package.json`; `corepack enable` picks it up)
+- pnpm 12.14.0 (pinned in the `packageManager` field of `package.json`; `corepack enable` picks it up)
+
+TypeScript is pinned to 6.0.3 because typescript-eslint 8 supports only `typescript <6.1.0`. Upgrade to TypeScript 7 once a typescript-eslint release lists it in its peer range.
 
 Install dependencies:
 
@@ -25,7 +27,7 @@ Root commands:
 | `pnpm format:check` | Checks formatting with Prettier                                      |
 | `pnpm test`         | Runs every package's tests through Vitest with coverage              |
 
-Every source file starts with the proprietary license header below. `pnpm lint` fails on any file without it.
+Every source file starts with the proprietary license header below, with the year the file was created (any four digit year is accepted). `pnpm lint` fails on any file without it.
 
 ```ts
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
