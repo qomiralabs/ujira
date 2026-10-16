@@ -1,6 +1,6 @@
 # Internal files: never committed
 .internal/
-implementation.md
+/implementation.md
 CLAUDE.md
 .claude/
 *.internal.md
@@ -17,16 +17,31 @@ CLAUDE.md
 # OS and editors
 .DS_Store
 .idea/
-.vscode/
+.vscode/*
+!.vscode/extensions.json
 *.swp
+*.log
 
-# Node and build output
+# Node, pnpm and Turborepo
 node_modules/
+.pnpm-store/
+.turbo/
 dist/
+build/
 coverage/
 *.tsbuildinfo
-.turbo/
+.eslintcache
+
+# Next.js
 .next/
+apps/*/out/
+next-env.d.ts
+.vercel/
+
+# Playwright and Storybook
 playwright-report/
+blob-report/
 test-results/
+playwright/.cache/
 storybook-static/
+*storybook.log
