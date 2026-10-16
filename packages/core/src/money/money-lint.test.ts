@@ -38,6 +38,44 @@ async function errorsFor(code: string, filePath: string): Promise<ESLint.LintRes
 const ruleErrors = (messages: ESLint.LintResult['messages']): ESLint.LintResult['messages'] =>
   messages.filter((msg) => msg.severity === 2 && msg.ruleId !== null);
 
+// The float ban is built from these core rules. Counting only them means an
+// unrelated type aware error (an unsafe any, say) can never stand in for it.
+const BAN_RULES = new Set([
+  'no-restricted-globals',
+  'no-restricted-properties',
+  'no-restricted-syntax',
+]);
+const banErrors = (messages: ESLint.LintResult['messages']): ESLint.LintResult['messages'] =>
+  ruleErrors(messages).filter((msg) => msg.ruleId !== null && BAN_RULES.has(msg.ruleId));
+
+// Ways around the first version of the ban.
+const BYPASSES: [string, string][] = [
+  ['globalThis.Math', 'export const x = globalThis.Math.floor(15);\n'],
+  ['globalThis.parseFloat', "export const x = globalThis.parseFloat('1.5');\n"],
+  ['unary plus on a string literal', "export const x = +'1.5';\n"],
+  ['unary plus on a value', 'export const toNumber = (s: string): number => +s;\n'],
+  ['number division of a value', 'export const half = (s: number): number => s / 2;\n'],
+  ['number division of literals', 'export const x = 5 / 10;\n'],
+  ['Number.parseInt', "export const x = Number.parseInt('15', 10);\n"],
+  ['parseInt', "export const x = parseInt('15', 10);\n"],
+  ['JSON.parse', "export const x: unknown = JSON.parse('1.5');\n"],
+];
+
+// Inline config must have no effect in money source, so these still report.
+const DISABLE_COMMENTS: [string, string][] = [
+  [
+    'eslint-disable-next-line',
+    '// eslint-disable-next-line no-restricted-syntax\nexport const x = 0.5;\n',
+  ],
+  ['eslint-disable-line', 'export const x = 0.5; // eslint-disable-line no-restricted-syntax\n'],
+  ['block eslint-disable', '/* eslint-disable */\nexport const x = 0.5;\n'],
+  [
+    'rule scoped eslint-disable',
+    "/* eslint-disable no-restricted-globals */\nexport const x = parseFloat('1.5');\n",
+  ],
+  ['inline rule config', '/* eslint no-restricted-syntax: "off" */\nexport const x = 0.5;\n'],
+];
+
 const BANNED: [string, string][] = [
   ['parseFloat', "export const x = parseFloat('1.5');\n"],
   ['Number.parseFloat', "export const x = Number.parseFloat('1.5');\n"],
@@ -70,15 +108,33 @@ describe('float ban in packages/core/src/money', () => {
   it('rejects parseFloat and fractional literals', async () => {
     const parse = await errorsFor("export const x = parseFloat('1.5');\n", MONEY_FILE);
     const literal = await errorsFor('export const x = 0.5;\n', MONEY_FILE);
-    expect(ruleErrors(parse).length).toBeGreaterThan(0);
-    expect(ruleErrors(literal).length).toBeGreaterThan(0);
+    expect(banErrors(parse).length).toBeGreaterThan(0);
+    expect(banErrors(literal).length).toBeGreaterThan(0);
   }, 120_000);
 
   it.each(BANNED)(
     'reports %s as an error',
     async (_label, code) => {
       const messages = await errorsFor(code, MONEY_FILE);
-      expect(ruleErrors(messages).length).toBeGreaterThan(0);
+      expect(banErrors(messages).length).toBeGreaterThan(0);
+    },
+    120_000,
+  );
+
+  it.each(BYPASSES)(
+    'reports the bypass %s as an error',
+    async (_label, code) => {
+      const messages = await errorsFor(code, MONEY_FILE);
+      expect(banErrors(messages).length).toBeGreaterThan(0);
+    },
+    120_000,
+  );
+
+  it.each(DISABLE_COMMENTS)(
+    'still reports the ban under the %s comment',
+    async (_label, code) => {
+      const messages = await errorsFor(code, MONEY_FILE);
+      expect(banErrors(messages).length).toBeGreaterThan(0);
     },
     120_000,
   );
