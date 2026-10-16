@@ -3,7 +3,11 @@
   "compilerOptions": {
     "noEmit": true,
     "allowJs": true,
-    "checkJs": true
+    "checkJs": true,
+    // Root scripts run directly under Node type stripping.
+    "erasableSyntaxOnly": true
   },
-  "include": ["eslint.config.js", "vitest.config.ts"]
+  // Every root level source file and everything under scripts/ must be listed
+  // here, otherwise the type-aware lint rejects it.
+  "include": ["*.js", "*.mjs", "*.cjs", "*.ts", "*.mts", "*.cts", "scripts/**/*"]
 }

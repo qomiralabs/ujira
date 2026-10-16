@@ -11,7 +11,7 @@
   "scripts": {
     "build": "turbo run build",
     "typecheck": "turbo run typecheck && tsc -p tsconfig.json",
-    "lint": "turbo run lint && eslint --max-warnings 0 eslint.config.js vitest.config.ts",
+    "lint": "node scripts/check-workspace-scripts.ts && turbo run lint && eslint --max-warnings 0 --ignore-pattern 'packages/**' --ignore-pattern 'apps/**' .",
     "test": "vitest run --coverage",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

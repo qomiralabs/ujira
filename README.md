@@ -19,15 +19,15 @@ pnpm install --frozen-lockfile
 
 Root commands:
 
-| Command             | What it does                                                         |
-| ------------------- | -------------------------------------------------------------------- |
-| `pnpm build`        | Builds every package through Turborepo                               |
-| `pnpm typecheck`    | Runs `tsc` in strict mode on every package and the root config files |
-| `pnpm lint`         | Runs ESLint with type-aware rules and `--max-warnings 0`             |
-| `pnpm format:check` | Checks formatting with Prettier                                      |
-| `pnpm test`         | Runs every package's tests through Vitest with coverage              |
+| Command             | What it does                                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `pnpm build`        | Builds every package through Turborepo                                                                             |
+| `pnpm typecheck`    | Runs `tsc` in strict mode on every package, root level files and `scripts/`                                        |
+| `pnpm lint`         | Checks package scripts, then runs type-aware ESLint with `--max-warnings 0` on packages, root files and `scripts/` |
+| `pnpm format:check` | Checks formatting with Prettier                                                                                    |
+| `pnpm test`         | Runs every package's tests in one Vitest run with an 85 percent coverage threshold                                 |
 
-Every source file starts with the proprietary license header below, with the year the file was created (any four digit year is accepted). `pnpm lint` fails on any file without it.
+Every source file starts with the proprietary license header below, with the year the file was created (any four digit year is accepted). `pnpm lint` fails on any source file without it, in a package or at the root. A source file that no `tsconfig.json` includes also fails lint, so nothing slips past the checks. Every package under `packages/` or `apps/` must define `build`, `lint`, `typecheck` and `test` scripts, and its `lint` script must pass `--max-warnings 0`.
 
 ```ts
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
