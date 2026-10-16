@@ -27,7 +27,9 @@ node_modules/
 .pnpm-store/
 .turbo/
 dist/
-build/
+/build/
+apps/*/build/
+packages/*/build/
 coverage/
 *.tsbuildinfo
 .eslintcache
@@ -35,6 +37,7 @@ coverage/
 # Next.js
 .next/
 apps/*/out/
+packages/*/out/
 next-env.d.ts
 .vercel/
 
@@ -42,6 +45,6 @@ next-env.d.ts
 playwright-report/
 blob-report/
 test-results/
-playwright/.cache/
+**/playwright/.cache/
 storybook-static/
 *storybook.log
