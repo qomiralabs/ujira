@@ -33,3 +33,11 @@ Every source file starts with the proprietary license header below, with the yea
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 ```
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every pull request and on pushes to `development`, `staging` and `main`. A single `Verify` job lints the workflow files with actionlint, installs with `pnpm install --frozen-lockfile`, then runs `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test` (the coverage report is uploaded as the `coverage` artifact) and `pnpm audit --prod`. Any failing step fails the run, and a newer push to the same ref cancels the run in progress.
+
+Node.js comes from `.nvmrc` and pnpm from `packageManager`, and the pnpm store is cached on the hash of `pnpm-lock.yaml`. Every third-party action is pinned to a full commit SHA with its release tag in a trailing comment, and the workflow token is read only. To bump an action, resolve the new tag to its commit SHA (`gh api repos/<owner>/<repo>/git/ref/tags/<tag>`, dereferencing annotated tags) and update both the SHA and the comment.
+
+Run the workflow linter locally with `actionlint` before pushing changes to `.github/workflows/`.
