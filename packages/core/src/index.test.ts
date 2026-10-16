@@ -7,6 +7,6 @@ import { PACKAGE_NAME } from './index.js';
 
 describe('@ujira/core', () => {
   it('exports its package name', () => {
-    expect(PACKAGE_NAME).toBe('@ujira/core');
+    expect(PACKAGE_NAME).toBe('@ujira/not-core');
   });
 });
