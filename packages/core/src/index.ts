@@ -3,5 +3,3 @@
 
 /** Package name, exported so consumers and tests can confirm the build wiring. */
 export const PACKAGE_NAME = '@ujira/core';
-
-console.log('ci warning probe');
