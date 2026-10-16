@@ -17,18 +17,84 @@ const IGNORED_FILES = new Set(['.DS_Store']);
 const REQUIRED_SCRIPTS = ['build', 'lint', 'typecheck', 'test'];
 // Every --max-warnings flag in the lint script and the value it sets.
 const MAX_WARNINGS_FLAG = /(?:^|\s)--max-warnings(?:=|\s+|(?=\s|$))(\S*)/g;
-// The only shell operator a required script may use is `&&`, which stops at the
-// first failure. Pipes, `;`, `||`, background `&` and command substitution can
-// all let a failing command exit 0, so anything left once `&&` is removed fails.
-const AND_CHAIN = /&&/g;
+// The only shell operator a required script may use to join commands is `&&`,
+// which stops at the first failure. Pipes, `;`, `||`, background `&`, command
+// and process substitution can all let a failing command exit 0, so anything
+// left once `&&` and redirection are removed fails. Redirection (`>`, `<`,
+// `2>&1`) is allowed because it does not change the exit code.
+const AND_CHAIN = '&&';
+const FD_DUPLICATION = /\d*[<>]&(?:\d+|-)/g;
 const FORBIDDEN_OPERATORS: readonly [string, RegExp][] = [
   ['|', /\|/],
   [';', /;/],
   ['&', /&/],
   ['`', /`/],
   ['$(', /\$\(/],
-  ['newline', /[\r\n]/],
+  ['<(', /<\(/],
+  ['>(', />\(/],
 ];
+const ENV_ASSIGNMENT = /^[A-Za-z_]\w*=/;
+// Commands that run another script, a shell or a wrapper whose exit code the
+// check cannot see. A required script has to run its tool directly.
+const INDIRECT_COMMANDS = new Set([
+  'pnpm',
+  'pnpx',
+  'npm',
+  'npx',
+  'yarn',
+  'bun',
+  'bunx',
+  'corepack',
+  'sh',
+  'bash',
+  'zsh',
+  'dash',
+  'ksh',
+  'fish',
+  'eval',
+  'exec',
+  'env',
+  'command',
+  'builtin',
+  'xargs',
+  'time',
+  'nohup',
+  'nice',
+  'timeout',
+  'source',
+  '.',
+]);
+const NODE_EVAL_FLAGS = /^(?:-e|-p|--eval|--print)(?:=|$)/;
+
+// Problems with one required script, worded to follow `"<name>" script`.
+function scriptProblems(script: string): string[] {
+  const found: string[] = [];
+  const reasons: string[] = [];
+  if (/[\r\n]/.test(script)) found.push('newline');
+  for (const segment of script.split(AND_CHAIN)) {
+    const command = segment.replace(FD_DUPLICATION, ' ');
+    for (const [operator, pattern] of FORBIDDEN_OPERATORS) {
+      if (pattern.test(command) && !found.includes(operator)) found.push(operator);
+    }
+    const words = command.trim().split(/\s+/);
+    const first = words.findIndex((word) => !ENV_ASSIGNMENT.test(word));
+    const word = (words[first] ?? '').replace(/['"\\]/g, '');
+    const program = word.slice(word.lastIndexOf('/') + 1);
+    if (word.startsWith('!')) {
+      reasons.push('must not negate a command with !');
+    } else if (word.startsWith('(') || word.startsWith('{')) {
+      reasons.push(`must not group commands with ${word.charAt(0)}`);
+    } else if (INDIRECT_COMMANDS.has(program)) {
+      reasons.push(`must run its tool directly, not through ${program}`);
+    } else if (program === 'node' && words.slice(first + 1).some((w) => NODE_EVAL_FLAGS.test(w))) {
+      reasons.push('must run its tool directly, not through node -e or -p');
+    }
+  }
+  if (found.length > 0) {
+    reasons.unshift(`may only chain commands with &&, found ${found.join(', ')}`);
+  }
+  return [...new Set(reasons)];
+}
 
 interface PackageJson {
   name?: string;
@@ -99,14 +165,8 @@ function checkScripts(manifestDir: string): void {
       problems.push(`${label}: missing "${name}" script`);
       continue;
     }
-    const withoutChains = script.replace(AND_CHAIN, ' ');
-    const found = FORBIDDEN_OPERATORS.filter(([, pattern]) => pattern.test(withoutChains)).map(
-      ([operator]) => operator,
-    );
-    if (found.length > 0) {
-      problems.push(
-        `${label}: "${name}" script may only chain commands with &&, found ${found.join(', ')}`,
-      );
+    for (const reason of scriptProblems(script)) {
+      problems.push(`${label}: "${name}" script ${reason}`);
     }
   }
   const lint = scripts['lint'];
