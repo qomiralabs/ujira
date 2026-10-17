@@ -10,12 +10,14 @@ import { describe, expect, it } from 'vitest';
 import * as generated from '../src/tokens/tokens.generated.js';
 import { ciede2000, colourDifference, contrastRatio, VISION } from './colour.ts';
 import {
+  cssString,
   generateOutputs,
   loadSources,
   OUTPUT_FILES,
   parseBrandTokens,
   parseSprite,
   parseSystemTokens,
+  renderTokensCss,
   resolveTokens,
 } from './generate.ts';
 
@@ -196,6 +198,65 @@ describe('design system source', () => {
     const broken = structuredClone(systemJson) as { viz: { dark: { categorical: string[] } } };
     broken.viz.dark.categorical.push('#5C8F9A');
     expect(() => parseSystemTokens(broken)).toThrow();
+  });
+});
+
+describe('font family names', () => {
+  function withFace(face: string): unknown {
+    const changed = structuredClone(systemJson) as { font: { sans: { face: string } } };
+    changed.font.sans.face = face;
+    return changed;
+  }
+
+  it('rejects a face that breaks out of the CSS string', () => {
+    expect(() => parseSystemTokens(withFace("Inter'), url(https://example.invalid/x"))).toThrow(
+      /font family name/,
+    );
+  });
+
+  it.each([
+    ['a double quote', 'Inter"'],
+    ['a backslash', 'Inter\\27'],
+    ['a newline', 'Inter\nx'],
+    ['a semicolon', 'Inter;'],
+    ['a brace', 'Inter}'],
+    ['a comment opener', 'Inter/*'],
+    ['a leading space', ' Inter'],
+    ['a trailing space', 'Inter '],
+    ['two spaces in a row', 'Inter  Tight'],
+    ['a name over 64 characters', 'A'.repeat(65)],
+    ['an empty name', ''],
+  ])('rejects a face with %s', (_name, face) => {
+    expect(() => parseSystemTokens(withFace(face))).toThrow(/font family name/);
+  });
+
+  it.each(['Inter', 'JetBrains Mono', 'Noto Sans-Display', 'Font 2', 'A'.repeat(64)])(
+    'accepts %s',
+    (face) => {
+      expect(parseSystemTokens(withFace(face)).font.sans.face).toBe(face);
+    },
+  );
+
+  it('quotes and escapes CSS strings', () => {
+    expect(cssString('Inter')).toBe("'Inter'");
+    expect(cssString("a'b")).toBe("'a\\27 b'");
+    expect(cssString('a\\b')).toBe("'a\\5c b'");
+    expect(cssString('a"b\nc')).toBe("'a\\22 b\\a c'");
+  });
+
+  it('escapes the face in the CSS even if validation is bypassed', () => {
+    const system = parseSystemTokens(systemJson);
+    const crafted = "Inter'), url(https://example.invalid/x";
+    const css = renderTokensCss(
+      resolveTokens(brand, {
+        ...system,
+        font: { ...system.font, sans: { ...system.font.sans, face: crafted } },
+      }),
+    );
+    const sans = rule(cssRules(css), ':root')['--ujira-font-sans'];
+    expect(sans).toBe(
+      "var(--ujira-font-inter, 'Inter\\27 ), url(https://example.invalid/x'), ui-sans-serif, system-ui, sans-serif",
+    );
   });
 });
 
