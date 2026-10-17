@@ -21,6 +21,8 @@ import type { CurrencyCode, MoneyError } from './index.js';
 const MAX = 2n ** 127n - 1n;
 const MIN = -(2n ** 127n);
 const NBSP = '\u00a0';
+// Display output uses the true minus sign in every locale.
+const MINUS = '\u2212';
 
 type ErrorClass = abstract new (message?: string) => MoneyError;
 const exported = (name: string): ErrorClass =>
@@ -100,7 +102,7 @@ describe('brand symbols in each home locale', () => {
 
   it('shows KSh, never Ksh or KES, for a negative amount too', () => {
     const s = formatMoney(money(-150_000n, 'KES', 2), { locale: 'en-KE' });
-    expect(s).toBe(`-KSh${NBSP}1,500.00`);
+    expect(s).toBe(`${MINUS}KSh${NBSP}1,500.00`);
   });
 });
 
@@ -145,7 +147,7 @@ describe('display scale', () => {
 
 describe('signs and extremes', () => {
   it('prints a negative amount with a minus sign', () => {
-    expect(formatMoney(money(-150n, 'USD', 2), { locale: 'en-US' })).toBe('-$1.50');
+    expect(formatMoney(money(-150n, 'USD', 2), { locale: 'en-US' })).toBe(`${MINUS}$1.50`);
   });
 
   it('never prints a negative zero', () => {
@@ -153,7 +155,7 @@ describe('signs and extremes', () => {
     expect(formatMoney(money(-5n, 'USD', 3), { locale: 'en-US' })).toBe('$0.00');
     expect(formatMoney(money(-1n, 'USDC', 6), { locale: 'en-US' })).toBe(`0.00${NBSP}USDC`);
     expect(formatMoney(money(-5n, 'USD', 3), { locale: 'en-US', rounding: 'half-up' })).toBe(
-      '-$0.01',
+      `${MINUS}$0.01`,
     );
   });
 
@@ -164,7 +166,7 @@ describe('signs and extremes', () => {
       `$${group(maxDigits.slice(0, -2))}.${maxDigits.slice(-2)}`,
     );
     expect(formatMoney(money(MIN, 'USD', 2), { locale: 'en-US' })).toBe(
-      `-$${group(minDigits.slice(0, -2))}.${minDigits.slice(-2)}`,
+      `${MINUS}$${group(minDigits.slice(0, -2))}.${minDigits.slice(-2)}`,
     );
     expect(formatMoney(money(MAX, 'USD', 0), { locale: 'en-US' })).toBe(`$${group(maxDigits)}.00`);
   });

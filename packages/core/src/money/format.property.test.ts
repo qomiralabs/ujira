@@ -49,12 +49,12 @@ function roundDiv(n: bigint, d: bigint, mode: RoundingMode): bigint {
   }
 }
 
-/** Reference en-US rendering of an amount in hundredths with a prefix symbol. */
+/** Reference en-US rendering of an amount in hundredths with a prefix symbol and U+2212 minus. */
 function enUS(hundredths: bigint, symbol: string): string {
   const negative = hundredths < 0n;
   const digits = (negative ? -hundredths : hundredths).toString().padStart(3, '0');
   const int = digits.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  return `${negative ? '-' : ''}${symbol}${int}.${digits.slice(-2)}`;
+  return `${negative ? '\u2212' : ''}${symbol}${int}.${digits.slice(-2)}`;
 }
 
 describe('format properties', () => {
@@ -117,7 +117,7 @@ describe('format properties', () => {
           const m = money(amount, 'NGN', 6);
           const a = formatMoney(m, { locale });
           expect(formatMoney(m, { locale })).toBe(a);
-          if (roundDiv(amount, 10n ** 4n, 'half-even') === 0n) expect(a).not.toContain('-');
+          if (roundDiv(amount, 10n ** 4n, 'half-even') === 0n) expect(a).not.toMatch(/[-\u2212]/);
         },
       ),
       RUNS,
