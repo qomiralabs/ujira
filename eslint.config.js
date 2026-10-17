@@ -46,6 +46,15 @@ const licenseHeader = {
   },
 };
 
+// Matches money.ts however the path is spelled: dot segments, doubled
+// slashes, any casing, with or without an extension. Slashes are written as
+// \x2F because the selector parser ends a regex at the first bare slash, and
+// one pattern serves both the static and the dynamic import rules.
+const MONEY_INTERNALS_SELECTOR = String.raw`(^|\x2F)money\x2F+(\.\x2F+)*money(\.d)?(\.[cm]?[jt]s)?$`;
+const MONEY_INTERNALS_PATH = new RegExp(MONEY_INTERNALS_SELECTOR, 'i');
+const CREATE_REQUIRE_MESSAGE =
+  'createRequire loads modules by path past the import fence. Use a static import.';
+
 const ARITHMETIC_OPERATORS = new Set(['+', '-', '*', '/', '%', '**']);
 const COMPOUND_OPERATORS = new Set(['+=', '-=', '*=', '/=', '%=', '**=']);
 
@@ -151,6 +160,53 @@ export default defineConfig(
       '@typescript-eslint/consistent-type-imports': 'error',
       '@typescript-eslint/no-import-type-side-effects': 'error',
       'no-console': 'warn',
+    },
+  },
+  {
+    // build and snapshot skip the public factory, so code outside the money
+    // module must go through money() and the operations instead.
+    files: ['packages/**/*.{ts,tsx,mts,cts}', 'apps/**/*.{ts,tsx,mts,cts}'],
+    ignores: ['packages/core/src/money/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          // A require made at runtime loads any file by path and no import
+          // rule sees what it loads.
+          paths: [
+            { name: 'node:module', message: CREATE_REQUIRE_MESSAGE },
+            { name: 'module', message: CREATE_REQUIRE_MESSAGE },
+          ],
+          patterns: [
+            {
+              regex: MONEY_INTERNALS_PATH.source,
+              importNames: ['build', 'snapshot'],
+              message: 'build and snapshot are internal to the money module. Use money().',
+            },
+          ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: `ImportExpression[source.value=/${MONEY_INTERNALS_SELECTOR}/i]`,
+          message:
+            'A dynamic import of money.ts exposes build and snapshot. Import money() statically.',
+        },
+        {
+          // A computed path cannot be checked against the fence at all.
+          selector: 'ImportExpression[source.type!="Literal"]',
+          message: 'Dynamic imports need a plain string path so the import fence can check them.',
+        },
+      ],
+      'no-restricted-properties': [
+        'error',
+        {
+          object: 'process',
+          property: 'getBuiltinModule',
+          message: CREATE_REQUIRE_MESSAGE,
+        },
+      ],
     },
   },
   {
