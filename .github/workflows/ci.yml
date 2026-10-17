@@ -66,8 +66,20 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
+      # The JUnit report names every test and its result, so a flaky or slow
+      # test can be identified from the artifact. It is written outside the
+      # checkout.
       - name: Test with coverage
-        run: pnpm test
+        run: pnpm test --reporter=verbose --reporter=junit --outputFile.junit="${RUNNER_TEMP}/vitest/junit.xml"
+
+      - name: Upload test report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vitest-junit
+          path: ${{ runner.temp }}/vitest/junit.xml
+          if-no-files-found: ${{ job.status == 'success' && 'error' || 'ignore' }}
+          retention-days: 14
 
       # Upload even when tests fail so a threshold miss can be inspected. A
       # missing report is only an error when everything before this passed.
