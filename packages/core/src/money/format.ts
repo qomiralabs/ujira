@@ -6,6 +6,7 @@ import type { FiatCurrencyCode } from './currencies.js';
 import { InvalidLocaleError } from './errors.js';
 import { multiply } from './money.js';
 import type { Money } from './money.js';
+import { readOption } from './options.js';
 import { toDecimalString } from './parse.js';
 import { parseRoundingMode, rescale } from './rescale.js';
 import type { RoundingMode } from './rescale.js';
@@ -27,15 +28,23 @@ const BRAND_SYMBOLS: Readonly<Record<FiatCurrencyCode, string>> = Object.freeze(
   GBP: '£',
 });
 
-const NBSP = ' ';
+const NBSP = '\u00a0';
+
+const MAX_LOCALE_LENGTH = 64;
 
 function readLocale(options: unknown): { locale: string; rounding: unknown } {
   if (typeof options !== 'object' || options === null) {
     throw new InvalidLocaleError('options with a locale are required');
   }
-  const { locale, rounding } = options as { locale?: unknown; rounding?: unknown };
+  const locale = readOption(options, 'locale');
+  const rounding = readOption(options, 'rounding');
   if (typeof locale !== 'string' || locale === '') {
     throw new InvalidLocaleError('locale must be a non empty language tag');
+  }
+  // Intl spends seconds on a megabyte tag before rejecting it, so length is
+  // checked first. Real tags, extensions included, fit easily.
+  if (locale.length > MAX_LOCALE_LENGTH) {
+    throw new InvalidLocaleError(`locale must be at most ${String(MAX_LOCALE_LENGTH)} characters`);
   }
   try {
     Intl.getCanonicalLocales(locale);
@@ -66,6 +75,11 @@ function displayDecimal(value: Money, displayScale: number, mode: RoundingMode):
  * number is formed and every digit of an i128 amount survives. Digits are
  * always ASCII. Fiat uses the brand symbol (KES shows KSh); tokens print the
  * locale's decimal format followed by a no break space and the asset code.
+ *
+ * The result is for display only. Right to left locales can include bidi
+ * control marks, so never parse it back, compare it or store it as data.
+ * Locales longer than 64 characters throw InvalidLocaleError before Intl is
+ * called, and option values inherited from Object.prototype are ignored.
  */
 export function formatMoney(
   m: Money,

@@ -5,6 +5,7 @@ import type { CurrencyCode } from './currencies.js';
 import { InvalidAmountError, InvalidRoundingModeError } from './errors.js';
 import { money, multiply } from './money.js';
 import type { Money } from './money.js';
+import { readOption } from './options.js';
 import { divideRounded, parseRoundingMode } from './rescale.js';
 import type { RoundingMode } from './rescale.js';
 
@@ -20,7 +21,7 @@ function readRounding(options: unknown): RoundingMode | undefined {
   if (typeof options !== 'object' || options === null) {
     throw new InvalidRoundingModeError('options must be an object');
   }
-  const { rounding } = options as { rounding?: unknown };
+  const rounding = readOption(options, 'rounding');
   return rounding === undefined ? undefined : parseRoundingMode(rounding);
 }
 
