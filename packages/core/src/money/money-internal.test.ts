@@ -134,4 +134,57 @@ describe('allocate rejects a weights length that is not a whole count', () => {
     const legs = allocate(usd(100n), withLength(2));
     expect(legs.map((leg) => leg.amount)).toEqual([50n, 50n]);
   });
+
+  it('reads the weights length exactly once', () => {
+    // A second read could report a different count than the one validated.
+    for (const items of [[1n], [1n, 1n, 1n], Array.from({ length: 16 }, () => 1n)]) {
+      let lengthReads = 0;
+      const proxy = new Proxy([...items], {
+        get(target, key, receiver) {
+          if (key === 'length') lengthReads += 1;
+          return Reflect.get(target, key, receiver) as unknown;
+        },
+      });
+      allocate(usd(100n), loose(proxy));
+      expect(lengthReads).toBe(1);
+    }
+  });
+
+  it('reads the length once even when the second read would grow it', () => {
+    let lengthReads = 0;
+    const proxy = new Proxy([1n, 1n], {
+      get(target, key, receiver) {
+        if (key === 'length') {
+          lengthReads += 1;
+          return lengthReads === 1 ? 2 : 16;
+        }
+        return Reflect.get(target, key, receiver) as unknown;
+      },
+    });
+    expect(allocate(usd(100n), loose(proxy)).map((leg) => leg.amount)).toEqual([50n, 50n]);
+    expect(lengthReads).toBe(1);
+  });
+});
+
+describe('allocate reports a negative total before any weight problem', () => {
+  // Every case below is an InvalidAllocationError, so only the message tells
+  // which check fired.
+  it.each([
+    ['empty weights', []],
+    ['a zero weight', [0n]],
+    ['a negative weight', [-1n]],
+    ['too many weights', Array.from({ length: 17 }, () => 1n)],
+    ['a number weight', [1]],
+    ['not an array', null],
+  ])('with %s', (_label, weights) => {
+    const err = thrown(() => allocate(usd(-1n), loose(weights)));
+    expect(err).toBeInstanceOf(InvalidAllocationError);
+    expect((err as MoneyError).message).toBe('cannot allocate a negative total');
+  });
+
+  it('reports the weight problem itself when the total is fine', () => {
+    const err = thrown(() => allocate(usd(1n), [0n]));
+    expect(err).toBeInstanceOf(InvalidAllocationError);
+    expect((err as MoneyError).message).not.toBe('cannot allocate a negative total');
+  });
 });
