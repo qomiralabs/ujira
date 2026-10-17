@@ -61,6 +61,7 @@ export interface ChainAdapterErrorJson {
   readonly waitFor: WaitFor;
   readonly specCode?: number;
   readonly specName?: string;
+  readonly issues?: readonly string[];
 }
 
 interface Defaults {
@@ -71,9 +72,12 @@ interface Defaults {
 
 // Transport and rail outages are worth another try. A submission that may
 // have landed is retryable too, but only after the step function reconciles
-// by hash, which is why it is the one code that defaults to landed unknown.
-// Messages are fixed text: callers branch on the code, and a message built
-// from input could carry an address or a provider response into a log.
+// by hash. An RPC timeout defaults to landed unknown for the same reason: if
+// the call was a send it may have gone through, and assuming it did not is
+// how a payout goes out twice.
+// Messages are fixed text per code: callers branch on the code, and a
+// message built from input could carry an address, a tenant or a provider
+// response into a log or an error tracker, so no constructor takes one.
 const DEFAULTS: Readonly<Record<ChainAdapterErrorCode, Defaults>> = {
   INVALID_INPUT: { retryable: false, landed: 'no', message: 'Invalid input' },
   UNSUPPORTED: { retryable: false, landed: 'no', message: 'Not supported on this network' },
@@ -85,7 +89,7 @@ const DEFAULTS: Readonly<Record<ChainAdapterErrorCode, Defaults>> = {
   },
   MANDATE_RULE: { retryable: false, landed: 'no', message: 'Mandate rule refused the call' },
   CHAIN_UNAVAILABLE: { retryable: true, landed: 'no', message: 'Chain unavailable' },
-  RPC_TIMEOUT: { retryable: true, landed: 'no', message: 'RPC call timed out' },
+  RPC_TIMEOUT: { retryable: true, landed: 'unknown', message: 'RPC call timed out' },
   RPC_LAGGING: { retryable: true, landed: 'no', message: 'RPC endpoint is behind' },
   RPC_RATE_LIMITED: {
     retryable: true,
@@ -124,6 +128,14 @@ const DEFAULTS: Readonly<Record<ChainAdapterErrorCode, Defaults>> = {
   INTERNAL: { retryable: false, landed: 'no', message: 'Internal chain adapter error' },
 };
 
+/** The fixed message for each code. */
+export const CHAIN_ADAPTER_ERROR_MESSAGES: Readonly<Record<ChainAdapterErrorCode, string>> =
+  Object.freeze(
+    Object.fromEntries(
+      CHAIN_ADAPTER_ERROR_CODES.map((code) => [code, DEFAULTS[code].message]),
+    ) as Record<ChainAdapterErrorCode, string>,
+  );
+
 const LANDED: ReadonlySet<unknown> = new Set<unknown>(['no', 'yes', 'unknown']);
 const WAIT_FOR: ReadonlySet<unknown> = new Set<unknown>([
   'none',
@@ -135,7 +147,25 @@ const WAIT_FOR: ReadonlySet<unknown> = new Set<unknown>([
   null,
 ]);
 
-function checkOptions(options: ChainAdapterErrorOptions): string | undefined {
+// Options are plain data read from own data properties, so a getter or a
+// prototype cannot answer differently from what was checked.
+function readOptions(options: unknown): Record<string, unknown> | undefined {
+  if (options === undefined) return {};
+  if (typeof options !== 'object' || options === null || Array.isArray(options)) {
+    return undefined;
+  }
+  const proto: unknown = Object.getPrototypeOf(options);
+  if (proto !== Object.prototype && proto !== null) return undefined;
+  const copy: Record<string, unknown> = {};
+  for (const key of Object.keys(options)) {
+    const descriptor = Object.getOwnPropertyDescriptor(options, key);
+    if (descriptor === undefined || !('value' in descriptor)) return undefined;
+    copy[key] = descriptor.value;
+  }
+  return copy;
+}
+
+function badOption(options: Record<string, unknown>): string | undefined {
   const { network, landed, retryAfterMs, waitFor, retryable } = options;
   if (network !== undefined && network !== null && !isNetworkId(network)) return 'network';
   if (landed !== undefined && !LANDED.has(landed)) return 'landed';
@@ -144,7 +174,7 @@ function checkOptions(options: ChainAdapterErrorOptions): string | undefined {
   if (
     retryAfterMs !== undefined &&
     retryAfterMs !== null &&
-    !(Number.isSafeInteger(retryAfterMs) && retryAfterMs >= 0)
+    !(typeof retryAfterMs === 'number' && Number.isSafeInteger(retryAfterMs) && retryAfterMs >= 0)
   ) {
     return 'retryAfterMs';
   }
@@ -162,30 +192,30 @@ export abstract class ChainAdapterError extends Error {
 
   protected constructor(
     code: ChainAdapterErrorCode,
-    message: string | undefined,
-    options: ChainAdapterErrorOptions,
+    rawOptions: unknown,
+    fallback: { readonly retryable?: boolean; readonly waitFor?: WaitFor } = {},
   ) {
     const defaults = DEFAULTS[code];
-    super(
-      message ?? defaults.message,
-      options.cause === undefined ? undefined : { cause: options.cause },
-    );
+    const options = readOptions(rawOptions);
+    const cause = options?.['cause'];
+    super(defaults.message, cause === undefined ? undefined : { cause });
     // An error that cannot be stored on a job would be lost exactly when it
     // matters, so bad options fail where they are written.
-    const bad = checkOptions(options);
-    if (bad !== undefined) {
-      throw new InvalidInputError(`Invalid chain adapter error option: ${bad}`);
+    const bad = options === undefined ? 'options' : badOption(options);
+    if (options === undefined || bad !== undefined) {
+      throw new InvalidInputError({ issues: [`errorOptions.${bad ?? 'options'} (invalid)`] });
     }
+    const read = options as ChainAdapterErrorOptions;
     this.code = code;
-    this.network = options.network ?? null;
-    this.retryable = options.retryable ?? defaults.retryable;
-    this.landed = options.landed ?? defaults.landed;
-    this.retryAfterMs = options.retryAfterMs ?? null;
+    this.network = read.network ?? null;
+    this.retryable = read.retryable ?? fallback.retryable ?? defaults.retryable;
+    this.landed = read.landed ?? defaults.landed;
+    this.retryAfterMs = read.retryAfterMs ?? null;
     // null is a real value here, distinct from leaving the option out.
-    this.waitFor = options.waitFor === undefined ? 'none' : options.waitFor;
+    this.waitFor = read.waitFor !== undefined ? read.waitFor : (fallback.waitFor ?? 'none');
   }
 
-  /** The job form. The message stays out, since it may name an address. */
+  /** The job form. */
   toJSON(): ChainAdapterErrorJson {
     return {
       code: this.code,
@@ -202,192 +232,242 @@ export function isChainAdapterError(value: unknown): value is ChainAdapterError 
   return value instanceof ChainAdapterError;
 }
 
+// "path (code)": the path is field names, indexes and network IDs, and the
+// code a lower snake case reason. Neither has room for a value.
+const ISSUE = /^[A-Za-z0-9_.:]{1,96} \([a-z_]{1,48}\)$/;
+const MAX_ISSUES = 10;
+
+export interface InvalidInputErrorOptions extends ChainAdapterErrorOptions {
+  /** What was wrong and where, as "path (code)". Never the value itself. */
+  readonly issues?: readonly string[];
+}
+
+function readIssues(options: unknown): readonly string[] | undefined {
+  const read = readOptions(options);
+  if (read === undefined) return [];
+  const list = read['issues'] ?? [];
+  if (
+    !Array.isArray(list) ||
+    list.length > MAX_ISSUES ||
+    !list.every((issue): issue is string => typeof issue === 'string' && ISSUE.test(issue))
+  ) {
+    return undefined;
+  }
+  return Object.freeze([...list]);
+}
+
+function withoutIssues(options: unknown): unknown {
+  const read = readOptions(options);
+  if (read === undefined) return options;
+  return Object.fromEntries(Object.entries(read).filter(([key]) => key !== 'issues'));
+}
+
 // Each class spells its name, because minifiers rename classes and the name
 // is what shows up in logs and error trackers.
 
 export class InvalidInputError extends ChainAdapterError {
   override readonly name = 'InvalidInputError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('INVALID_INPUT', message, options);
+  readonly issues: readonly string[];
+
+  constructor(options?: InvalidInputErrorOptions) {
+    super('INVALID_INPUT', withoutIssues(options));
+    const issues = readIssues(options);
+    if (issues === undefined) {
+      // A malformed list is a bug at the throw site; replacing it keeps
+      // whatever it held out of the error.
+      throw new InvalidInputError({ issues: ['errorOptions.issues (invalid)'] });
+    }
+    this.issues = issues;
+  }
+
+  override toJSON(): ChainAdapterErrorJson {
+    return { ...super.toJSON(), issues: this.issues };
   }
 }
 
 export class UnsupportedError extends ChainAdapterError {
   override readonly name = 'UnsupportedError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('UNSUPPORTED', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('UNSUPPORTED', options);
   }
 }
 
 export class TenantMismatchError extends ChainAdapterError {
   override readonly name = 'TenantMismatchError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('TENANT_MISMATCH', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('TENANT_MISMATCH', options);
   }
 }
 
 export class MandateUntrustedError extends ChainAdapterError {
   override readonly name = 'MandateUntrustedError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('MANDATE_UNTRUSTED', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('MANDATE_UNTRUSTED', options);
   }
 }
 
 export class ChainUnavailableError extends ChainAdapterError {
   override readonly name = 'ChainUnavailableError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('CHAIN_UNAVAILABLE', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('CHAIN_UNAVAILABLE', options);
   }
 }
 
+/**
+ * An RPC call that did not answer in time. Defaults to landed unknown, since
+ * a send may have gone through; a read that sent nothing passes landed
+ * 'no'.
+ */
 export class RpcTimeoutError extends ChainAdapterError {
   override readonly name = 'RpcTimeoutError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('RPC_TIMEOUT', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('RPC_TIMEOUT', options);
   }
 }
 
+/** Every endpoint is behind the height a read needs. Nothing was sent. */
 export class RpcLaggingError extends ChainAdapterError {
   override readonly name = 'RpcLaggingError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('RPC_LAGGING', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('RPC_LAGGING', options);
   }
 }
 
+/** The endpoint refused the call, so nothing was accepted. */
 export class RpcRateLimitedError extends ChainAdapterError {
   override readonly name = 'RpcRateLimitedError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('RPC_RATE_LIMITED', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('RPC_RATE_LIMITED', options);
   }
 }
 
 /** Definitely not landed: bad sequence, fee too low, malformed, failed simulation. */
 export class SubmissionRejectedError extends ChainAdapterError {
   override readonly name = 'SubmissionRejectedError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('SUBMISSION_REJECTED', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('SUBMISSION_REJECTED', options);
   }
 }
 
 /** May have landed. Reconcile by hash and mandate state before any retry. */
 export class SubmissionUnknownError extends ChainAdapterError {
   override readonly name = 'SubmissionUnknownError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('SUBMISSION_UNKNOWN', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('SUBMISSION_UNKNOWN', options);
   }
 }
 
 export class SignedPayloadMismatchError extends ChainAdapterError {
   override readonly name = 'SignedPayloadMismatchError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('SIGNED_PAYLOAD_MISMATCH', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('SIGNED_PAYLOAD_MISMATCH', options);
   }
 }
 
 export class SigningRequestExpiredError extends ChainAdapterError {
   override readonly name = 'SigningRequestExpiredError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('SIGNING_REQUEST_EXPIRED', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('SIGNING_REQUEST_EXPIRED', options);
   }
 }
 
 export class SponsorDeniedError extends ChainAdapterError {
   override readonly name = 'SponsorDeniedError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('SPONSOR_DENIED', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('SPONSOR_DENIED', options);
   }
 }
 
 export class SponsorUnfundedError extends ChainAdapterError {
   override readonly name = 'SponsorUnfundedError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('SPONSOR_UNFUNDED', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('SPONSOR_UNFUNDED', options);
   }
 }
 
 export class ExecutorUnfundedError extends ChainAdapterError {
   override readonly name = 'ExecutorUnfundedError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('EXECUTOR_UNFUNDED', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('EXECUTOR_UNFUNDED', options);
   }
 }
 
 /** Bad address, missing trustline, or a tag the destination needs but the network cannot carry. */
 export class DestinationInvalidError extends ChainAdapterError {
   override readonly name = 'DestinationInvalidError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('DESTINATION_INVALID', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('DESTINATION_INVALID', options);
   }
 }
 
 export class QuoteExpiredError extends ChainAdapterError {
   override readonly name = 'QuoteExpiredError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('QUOTE_EXPIRED', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('QUOTE_EXPIRED', options);
   }
 }
 
 export class QuoteUnavailableError extends ChainAdapterError {
   override readonly name = 'QuoteUnavailableError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('QUOTE_UNAVAILABLE', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('QUOTE_UNAVAILABLE', options);
   }
 }
 
 export class LiquidityUnavailableError extends ChainAdapterError {
   override readonly name = 'LiquidityUnavailableError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('LIQUIDITY_UNAVAILABLE', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('LIQUIDITY_UNAVAILABLE', options);
   }
 }
 
 export class RailUnavailableError extends ChainAdapterError {
   override readonly name = 'RailUnavailableError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('RAIL_UNAVAILABLE', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('RAIL_UNAVAILABLE', options);
   }
 }
 
 export class RailRejectedError extends ChainAdapterError {
   override readonly name = 'RailRejectedError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('RAIL_REJECTED', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('RAIL_REJECTED', options);
   }
 }
 
 export class RailTimeoutError extends ChainAdapterError {
   override readonly name = 'RailTimeoutError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('RAIL_TIMEOUT', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('RAIL_TIMEOUT', options);
   }
 }
 
 export class RailActionRequiredError extends ChainAdapterError {
   override readonly name = 'RailActionRequiredError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('RAIL_ACTION_REQUIRED', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('RAIL_ACTION_REQUIRED', options);
   }
 }
 
 /** Failover refused: the attempt on the other network is not provably dead. */
 export class CrossChainLiveError extends ChainAdapterError {
   override readonly name = 'CrossChainLiveError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('CROSS_CHAIN_LIVE', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('CROSS_CHAIN_LIVE', options);
   }
 }
 
 export class ReorgedError extends ChainAdapterError {
   override readonly name = 'ReorgedError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('REORGED', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('REORGED', options);
   }
 }
 
 export class InternalError extends ChainAdapterError {
   override readonly name = 'InternalError';
-  constructor(message?: string, options: ChainAdapterErrorOptions = {}) {
-    super('INTERNAL', message, options);
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('INTERNAL', options);
   }
 }
 
@@ -407,7 +487,7 @@ export class MandateRuleError extends ChainAdapterError {
   readonly specCode: number;
   readonly specName: string;
 
-  constructor(specCode: number, specName: string, options: ChainAdapterErrorOptions = {}) {
+  constructor(specCode: number, specName: string, options?: ChainAdapterErrorOptions) {
     const valid =
       Number.isSafeInteger(specCode) &&
       specCode >= 0 &&
@@ -415,12 +495,11 @@ export class MandateRuleError extends ChainAdapterError {
       specName.length <= 64 &&
       SPEC_NAME.test(specName);
     const waitFor = valid ? MANDATE_RULE_WAITS.get(specName) : undefined;
-    super('MANDATE_RULE', undefined, {
+    super('MANDATE_RULE', options, {
       retryable: waitFor !== undefined,
       waitFor: waitFor ?? 'none',
-      ...options,
     });
-    if (!valid) throw new InvalidInputError('Invalid mandate spec error');
+    if (!valid) throw new InvalidInputError({ issues: ['mandateRule (invalid)'] });
     this.specCode = specCode;
     this.specName = specName;
   }

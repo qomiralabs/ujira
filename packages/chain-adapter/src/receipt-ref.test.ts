@@ -109,7 +109,15 @@ describe('receipt references', () => {
     for (const parts of bad) {
       expect(thrown(() => formatReceiptRef(parts))).toBeInstanceOf(InvalidInputError);
     }
-    for (const parts of [null, undefined, 'ref', Object.create({ network: 'eip155:42220' })]) {
+    const own = { network: 'eip155:42220', txHash: EVM_HASH, eventIndex: 1 };
+    for (const parts of [
+      null,
+      undefined,
+      'ref',
+      Object.create({ network: 'eip155:42220' }),
+      // Own fields that would pass, on an object that is not plain.
+      Object.assign(new Date(0), own),
+    ]) {
       expect(thrown(() => formatReceiptRef(parts as never))).toBeInstanceOf(InvalidInputError);
     }
   });

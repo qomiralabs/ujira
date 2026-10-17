@@ -153,7 +153,7 @@ describe('chain adapter errors', () => {
   it('gives every code its own fixed message', () => {
     const messages = CHAIN_ADAPTER_ERROR_CODES.map((code) => CHAIN_ADAPTER_ERROR_MESSAGES[code]);
     expect(new Set(messages).size).toBe(messages.length);
-    for (const message of messages) expect(message).toMatch(/^[A-Z][a-z ]+$/);
+    for (const message of messages) expect(message).toMatch(/^[A-Z][A-Za-z ]+$/);
     expect(Object.isFrozen(CHAIN_ADAPTER_ERROR_MESSAGES)).toBe(true);
   });
 

@@ -5,6 +5,7 @@ export { networksConfigSchema, parseNetworksConfig } from './config.js';
 export type { EvmNetworkConfig, NetworksConfig, StellarNetworkConfig } from './config.js';
 export {
   CHAIN_ADAPTER_ERROR_CODES,
+  CHAIN_ADAPTER_ERROR_MESSAGES,
   ChainAdapterError,
   ChainUnavailableError,
   CrossChainLiveError,
@@ -39,6 +40,7 @@ export type {
   ChainAdapterErrorCode,
   ChainAdapterErrorJson,
   ChainAdapterErrorOptions,
+  InvalidInputErrorOptions,
   Landed,
   WaitFor,
 } from './errors.js';

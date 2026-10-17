@@ -31,7 +31,7 @@ import {
 import type { ChainAdapter, NetworkId, NetworksConfig } from './index.js';
 
 function unsupported(): never {
-  throw new UnsupportedError('not in this fake');
+  throw new UnsupportedError();
 }
 
 function fakeAdapter(network: NetworkId, overrides: Partial<ChainAdapter> = {}): ChainAdapter {

@@ -22,24 +22,27 @@ export function createChainAdapterRegistry(
   for (const adapter of options.adapters) {
     // Wiring mistakes surface at startup, not on the first payout.
     if (!isNetworkId(adapter.network)) {
-      throw new InvalidInputError('Chain adapter for an unknown network');
+      throw new InvalidInputError({ issues: ['adapter.network (unknown)'] });
     }
     // Typed as the current version, but an adapter built against an older
     // copy of this package can still be passed in at runtime.
     const version: number = adapter.interfaceVersion;
     if (version !== CHAIN_ADAPTER_INTERFACE_VERSION) {
-      throw new InvalidInputError('Chain adapter built for another interface version', {
+      throw new InvalidInputError({
         network: adapter.network,
+        issues: ['adapter.interfaceVersion (unsupported)'],
       });
     }
     if (adapter.chain !== chainOf(adapter.network)) {
-      throw new InvalidInputError('Chain adapter chain does not match its network', {
+      throw new InvalidInputError({
         network: adapter.network,
+        issues: ['adapter.chain (mismatch)'],
       });
     }
     if (byNetwork.has(adapter.network)) {
-      throw new InvalidInputError('Two chain adapters for one network', {
+      throw new InvalidInputError({
         network: adapter.network,
+        issues: ['adapter.network (duplicate)'],
       });
     }
     byNetwork.set(adapter.network, adapter);
@@ -52,7 +55,7 @@ export function createChainAdapterRegistry(
     get(network) {
       const adapter = isNetworkId(network) ? byNetwork.get(network) : undefined;
       if (adapter === undefined || !enabled(options.config(), adapter.network)) {
-        throw new UnsupportedError('Network is not enabled', {
+        throw new UnsupportedError({
           network: isNetworkId(network) ? network : null,
         });
       }

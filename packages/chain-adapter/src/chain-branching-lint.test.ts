@@ -21,8 +21,9 @@
  * - no member access by a chain or network key, computed or not, and no
  *   computed lookup into an object literal keyed by one.
  * A literal counts however it is wrapped (as, as const, satisfies, an angle
- * bracket assertion, a non null assertion, optional chaining) and when it
- * is reached through a const binding in the same file.
+ * bracket assertion or a non null assertion), through optional chaining, and
+ * when it is reached through a const binding in the same file. A let is not
+ * followed, since it can be reassigned.
  * Inside packages/chain-adapter the same code passes. Snippets are linted
  * in memory under real file paths so the scoped config applies.
  */
@@ -265,6 +266,11 @@ describe('the chain branching rule', () => {
       "export const f = (s: string) => ['stellarx'].includes(s) || Object.is(s, 'x');\n",
     ],
     ['a chain ID in arithmetic', 'export const f = (id: number) => id + 42220;\n'],
+    [
+      // A let can be reassigned, so only const bindings are followed.
+      'a let binding',
+      "let X = 'celo';\nX = String(Date.now());\nexport const f = (s: string) => s === X;\n",
+    ],
     ['other literals', "export const f = (s: string) => s === 'stellarx' || s === 'eip155:1';\n"],
     ['a lookalike package', "import { z } from 'zod';\nexport const s: unknown = z;\n"],
     ['a package named like viem', "export const f = () => import('viem-lite');\n"],

@@ -7,6 +7,7 @@ import globals from 'globals';
 import ts from 'typescript';
 import tseslint from 'typescript-eslint';
 
+import { isChainModule } from './packages/chain-adapter/src/chain-modules.ts';
 import { lintProjects } from './scripts/workspace.ts';
 
 // The year on the copyright line is the year the file was created, so any
@@ -190,33 +191,194 @@ const noNumberConversion = {
   },
 };
 
-// Chain SDKs, their subpaths, and ABI files. Only the chain adapter may load
-// them, so every other package stays chain agnostic.
-const CHAIN_SDK_MODULE =
-  /^(?:@stellar\/stellar-sdk|@stellar\/stellar-base|viem|@mento-protocol\/mento-sdk)(?:\/.*)?$/;
-const CHAIN_ABI_MODULE = /(?:^|\/)abis?(?:\/|$)|\.abi(?:\.[cm]?[jt]s|\.json)?$/i;
-// Chain names and the CAIP-2 IDs of the networks UJIRA runs on.
-const CHAIN_LITERAL = /^(?:stellar|celo|stellar:(?:pubnet|testnet)|eip155:(?:42220|11142220))$/;
+// Chain names, the CAIP-2 IDs of the networks UJIRA runs on (and the
+// retired Alfajores testnet), and the same Celo chain IDs as numbers.
+const CHAIN_NAME = /^(?:stellar|celo|stellar:(?:pubnet|testnet)|eip155:(?:42220|44787|11142220))$/;
+const CHAIN_IDS = new Set(['42220', '44787', '11142220']);
 const EQUALITY_OPERATORS = new Set(['==', '===', '!=', '!==']);
+const MEMBERSHIP_METHODS = new Set(['includes', 'has', 'indexOf', 'lastIndexOf']);
+// Type only wrappers that leave the value as it was.
+const WRAPPERS = new Set([
+  'TSAsExpression',
+  'TSSatisfiesExpression',
+  'TSTypeAssertion',
+  'TSNonNullExpression',
+]);
+// Enough for any honest chain of const aliases, and a bound on hostile ones.
+const MAX_ALIAS_DEPTH = 8;
 
-/** @param {unknown} node @returns {string | undefined} */
-function staticString(node) {
-  const n =
-    /** @type {{ type?: string, value?: unknown, expressions?: unknown[], quasis?: { value: { cooked: string | null } }[] } | null | undefined} */ (
-      node
+/** @typedef {{ type: string } & Record<string, unknown>} AstNode */
+
+/** @param {unknown} value @returns {value is AstNode} */
+function isNode(value) {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (/** @type {{ type?: unknown }} */ (value).type) === 'string'
+  );
+}
+
+/** @param {unknown} node @param {string} key @returns {AstNode | undefined} */
+function child(node, key) {
+  const value = isNode(node) ? node[key] : undefined;
+  return isNode(value) ? value : undefined;
+}
+
+/** @param {unknown} node @param {string} key @returns {AstNode[]} */
+function children(node, key) {
+  const value = isNode(node) ? node[key] : undefined;
+  return Array.isArray(value) ? value.filter(isNode) : [];
+}
+
+/** @param {unknown} node @param {string} key @returns {unknown} */
+function field(node, key) {
+  return isNode(node) ? node[key] : undefined;
+}
+
+/** @param {unknown} node @returns {AstNode | undefined} */
+function unwrap(node) {
+  let current = isNode(node) ? node : undefined;
+  while (current !== undefined && WRAPPERS.has(current.type)) {
+    current = child(current, 'expression');
+  }
+  return current;
+}
+
+/**
+ * Follows type wrappers and const bindings in this file to the expression
+ * that gives the value, so `const CELO = 'celo'` compares like 'celo' does.
+ * @param {import('eslint').Rule.RuleContext} context
+ * @param {unknown} node
+ * @returns {AstNode | undefined}
+ */
+function resolve(context, node) {
+  let current = unwrap(node);
+  for (let depth = 0; depth < MAX_ALIAS_DEPTH && current?.type === 'Identifier'; depth += 1) {
+    const name = field(current, 'name');
+    let scope = /** @type {import('eslint').Scope.Scope | null} */ (
+      context.sourceCode.getScope(
+        /** @type {import('eslint').Rule.Node} */ (/** @type {unknown} */ (current)),
+      )
     );
-  if (n?.type === 'Literal' && typeof n.value === 'string') return n.value;
-  if (n?.type === 'TemplateLiteral' && n.expressions?.length === 0) {
-    return n.quasis?.[0]?.value.cooked ?? undefined;
+    let variable;
+    while (scope !== null && variable === undefined) {
+      variable = typeof name === 'string' ? scope.set.get(name) : undefined;
+      scope = scope.upper;
+    }
+    const [definition] = variable?.defs ?? [];
+    if (
+      definition === undefined ||
+      variable?.defs.length !== 1 ||
+      definition.type !== 'Variable' ||
+      field(definition.parent, 'kind') !== 'const'
+    ) {
+      return current;
+    }
+    const init = unwrap(field(definition.node, 'init'));
+    if (init === undefined) return current;
+    current = init;
+  }
+  return current;
+}
+
+/** @param {AstNode | undefined} node @returns {string | undefined} */
+function staticString(node) {
+  if (node?.type === 'Literal' && typeof node['value'] === 'string') return node['value'];
+  if (node?.type === 'TemplateLiteral' && children(node, 'expressions').length === 0) {
+    // The quasi's value is a plain { raw, cooked } record, not a node.
+    const quasi = /** @type {{ value?: { cooked?: unknown } } | undefined} */ (
+      children(node, 'quasis')[0]
+    );
+    const cooked = quasi?.value?.cooked;
+    return typeof cooked === 'string' ? cooked : undefined;
   }
   return undefined;
 }
 
 /**
+ * @param {import('eslint').Rule.RuleContext} context
+ * @param {unknown} node
+ */
+function isChainLiteral(context, node) {
+  const value = resolve(context, node);
+  const text = staticString(value);
+  if (text !== undefined) return CHAIN_NAME.test(text);
+  if (value?.type !== 'Literal') return false;
+  if (typeof value['bigint'] === 'string') return CHAIN_IDS.has(value['bigint']);
+  return typeof value['value'] === 'number' && CHAIN_IDS.has(String(value['value']));
+}
+
+/**
+ * Whether an array, a Set or Map built from one, or an object literal holds
+ * a chain or network literal as an element or key.
+ * @param {import('eslint').Rule.RuleContext} context
+ * @param {unknown} node
+ * @returns {boolean}
+ */
+function holdsChainLiteral(context, node) {
+  const value = resolve(context, node);
+  if (value?.type === 'ArrayExpression') {
+    return children(value, 'elements').some(
+      (element) => isChainLiteral(context, element) || holdsChainLiteral(context, element),
+    );
+  }
+  if (value?.type === 'NewExpression') {
+    const callee = field(child(value, 'callee'), 'name');
+    return (
+      (callee === 'Set' || callee === 'Map') &&
+      holdsChainLiteral(context, children(value, 'arguments')[0])
+    );
+  }
+  if (value?.type === 'ObjectExpression') {
+    return children(value, 'properties').some((property) => {
+      const key = child(property, 'key');
+      if (field(property, 'computed') === true) return isChainLiteral(context, key);
+      const name = key?.type === 'Identifier' ? field(key, 'name') : field(key, 'value');
+      return typeof name === 'string' && CHAIN_NAME.test(name);
+    });
+  }
+  return false;
+}
+
+/**
+ * require in every spelling that loads a module by name: the global, an
+ * alias of it, module.require, and the function createRequire returns.
+ * @param {import('eslint').Rule.RuleContext} context
+ * @param {unknown} callee
+ */
+function isRequire(context, callee) {
+  const direct = unwrap(callee);
+  if (direct?.type === 'Identifier' && field(direct, 'name') === 'require') return true;
+  if (
+    direct?.type === 'MemberExpression' &&
+    field(child(direct, 'object'), 'name') === 'module' &&
+    field(child(direct, 'property'), 'name') === 'require'
+  ) {
+    return true;
+  }
+  const value = resolve(context, callee);
+  if (value?.type === 'Identifier') return field(value, 'name') === 'require';
+  if (value?.type === 'CallExpression') {
+    const inner = unwrap(child(value, 'callee'));
+    const name =
+      inner?.type === 'MemberExpression'
+        ? field(child(inner, 'property'), 'name')
+        : field(inner, 'name');
+    return name === 'createRequire';
+  }
+  return false;
+}
+
+/**
  * Keeps chain knowledge inside the chain adapter: no chain SDK or ABI import
- * and no branch on a chain or network literal anywhere else. A comparison
+ * and no branch on a chain or network value anywhere else. A comparison
  * against 'stellar' is how a second chain path starts; the adapter interface
  * is where that difference belongs.
+ *
+ * The rule reads syntax, not types. It sees literals however they are
+ * wrapped and through const bindings in the same file, but not a constant
+ * imported from another module, a value built by concatenation or by a
+ * string method, or a lookup through a Map or a function.
  * @type {import('eslint').Rule.RuleModule}
  */
 const noChainBranching = {
@@ -231,25 +393,17 @@ const noChainBranching = {
     },
   },
   create(context) {
+    /** @param {unknown} node @param {'sdk' | 'compare'} messageId */
+    const report = (node, messageId) => {
+      context.report({ node: /** @type {import('eslint').Rule.Node} */ (node), messageId });
+    };
     /** @param {unknown} source @param {unknown} node */
     const checkModule = (source, node) => {
-      const name = staticString(source);
-      if (name !== undefined && (CHAIN_SDK_MODULE.test(name) || CHAIN_ABI_MODULE.test(name))) {
-        context.report({
-          node: /** @type {import('eslint').Rule.Node} */ (node),
-          messageId: 'sdk',
-        });
-      }
+      const name = staticString(resolve(context, source));
+      if (name !== undefined && isChainModule(name)) report(node, 'sdk');
     };
-    /** @param {unknown} node */
-    const isChainLiteral = (node) => {
-      const value = staticString(node);
-      return value !== undefined && CHAIN_LITERAL.test(value);
-    };
-    // ESLint's own node types stop at ESTree, so the TypeScript only forms are
-    // described here by the fields read.
-    /** @typedef {{ source?: unknown, argument?: { literal?: unknown } }} ImportTypeNode */
-    /** @typedef {{ expression?: unknown }} ExternalModuleNode */
+    // ESLint's own node types stop at ESTree, so the TypeScript only forms
+    // are read through the generic accessors above.
     return {
       ImportDeclaration(node) {
         checkModule(node.source, node);
@@ -263,27 +417,54 @@ const noChainBranching = {
       ImportExpression(node) {
         checkModule(node.source, node);
       },
-      /** @param {ImportTypeNode} node */
+      /** @param {unknown} node */
       TSImportType(node) {
-        checkModule(node.source ?? node.argument?.literal, node);
+        checkModule(child(node, 'source') ?? child(child(node, 'argument'), 'literal'), node);
       },
-      /** @param {ExternalModuleNode} node */
+      /** @param {unknown} node */
       TSExternalModuleReference(node) {
-        checkModule(node.expression, node);
+        checkModule(child(node, 'expression'), node);
       },
       CallExpression(node) {
-        if (node.callee.type === 'Identifier' && node.callee.name === 'require') {
+        const { callee } = node;
+        if (isRequire(context, callee)) {
           checkModule(node.arguments[0], node);
+          return;
         }
+        const target = unwrap(callee);
+        if (target?.type !== 'MemberExpression' || field(target, 'computed') === true) return;
+        const method = field(child(target, 'property'), 'name');
+        const object = child(target, 'object');
+        if (method === 'is' && field(object, 'name') === 'Object') {
+          if (node.arguments.some((arg) => isChainLiteral(context, arg))) report(node, 'compare');
+          return;
+        }
+        if (typeof method !== 'string' || !MEMBERSHIP_METHODS.has(method)) return;
+        if (
+          node.arguments.some((arg) => isChainLiteral(context, arg)) ||
+          holdsChainLiteral(context, object)
+        ) {
+          report(node, 'compare');
+        }
+      },
+      MemberExpression(node) {
+        if (node.computed) {
+          if (isChainLiteral(context, node.property) || holdsChainLiteral(context, node.object)) {
+            report(node, 'compare');
+          }
+          return;
+        }
+        const name = field(node.property, 'name');
+        if (typeof name === 'string' && CHAIN_NAME.test(name)) report(node, 'compare');
       },
       BinaryExpression(node) {
         if (!EQUALITY_OPERATORS.has(node.operator)) return;
-        if (isChainLiteral(node.left) || isChainLiteral(node.right)) {
-          context.report({ node, messageId: 'compare' });
+        if (isChainLiteral(context, node.left) || isChainLiteral(context, node.right)) {
+          report(node, 'compare');
         }
       },
       SwitchCase(node) {
-        if (isChainLiteral(node.test)) context.report({ node, messageId: 'compare' });
+        if (isChainLiteral(context, node.test)) report(node, 'compare');
       },
     };
   },

@@ -76,6 +76,7 @@ export type Finality = 'none' | 'included' | 'safe' | 'final';
 // ---------------------------------------------------------------------------
 // The adapter
 
+/** Required on every call that can reach a network, so the trace ID always travels. */
 export interface CallOptions {
   /** The caller's deadline. Adapters also apply their own per call timeouts. */
   readonly signal?: AbortSignal;
@@ -90,32 +91,32 @@ export interface ChainAdapter {
   readonly chain: Chain;
 
   capabilities(): AdapterCapabilities;
-  health(opts?: CallOptions): Promise<ChainHealth>;
+  health(opts: CallOptions): Promise<ChainHealth>;
   /** Throws InvalidInputError for anything that is not an address on this network. */
   parseAddress(raw: string): ChainAddress;
 
   readMandate(
     req: { readonly scope: TenantScope; readonly mandate: MandateRef },
-    opts?: CallOptions,
+    opts: CallOptions,
   ): Promise<MandateSnapshot>;
-  prepareMandateAction(req: MandateActionRequest, opts?: CallOptions): Promise<SigningRequest>;
-  submitSigned(req: SignedSubmission, opts?: CallOptions): Promise<SubmissionRef>;
+  prepareMandateAction(req: MandateActionRequest, opts: CallOptions): Promise<SigningRequest>;
+  submitSigned(req: SignedSubmission, opts: CallOptions): Promise<SubmissionRef>;
 
-  fundingInstructions(req: {
-    readonly scope: TenantScope;
-    readonly mandate: MandateRef;
-  }): Promise<FundingInstructions>;
-  prepareFunding(req: PrepareFundingRequest, opts?: CallOptions): Promise<SigningRequest>;
-  scanDeposits(req: DepositScanRequest, opts?: CallOptions): Promise<DepositScanPage>;
+  fundingInstructions(
+    req: { readonly scope: TenantScope; readonly mandate: MandateRef },
+    opts: CallOptions,
+  ): Promise<FundingInstructions>;
+  prepareFunding(req: PrepareFundingRequest, opts: CallOptions): Promise<SigningRequest>;
+  scanDeposits(req: DepositScanRequest, opts: CallOptions): Promise<DepositScanPage>;
 
-  quote(req: QuoteRequest, opts?: CallOptions): Promise<Quote>;
-  pay(req: PayRequest, opts?: CallOptions): Promise<PayStep>;
-  payBatch(req: PayBatchRequest, opts?: CallOptions): Promise<BatchStep>;
-  status(req: StatusRequest, opts?: CallOptions): Promise<PayoutChainStatus>;
-  proveDead(req: ProveDeadRequest, opts?: CallOptions): Promise<DeadProof | null>;
+  quote(req: QuoteRequest, opts: CallOptions): Promise<Quote>;
+  pay(req: PayRequest, opts: CallOptions): Promise<PayStep>;
+  payBatch(req: PayBatchRequest, opts: CallOptions): Promise<BatchStep>;
+  status(req: StatusRequest, opts: CallOptions): Promise<PayoutChainStatus>;
+  proveDead(req: ProveDeadRequest, opts: CallOptions): Promise<DeadProof | null>;
 
-  receipt(req: ReceiptRequest, opts?: CallOptions): Promise<ChainReceipt>;
-  verifyReceipt(ref: ReceiptRef, opts?: CallOptions): Promise<ReceiptVerification>;
+  receipt(req: ReceiptRequest, opts: CallOptions): Promise<ChainReceipt>;
+  verifyReceipt(ref: ReceiptRef, opts: CallOptions): Promise<ReceiptVerification>;
 }
 
 export interface ChainAdapterRegistry {
@@ -139,85 +140,188 @@ export interface AdapterPorts {
   readonly config: () => NetworksConfig;
 }
 
+/** Every operation the adapter submits: mandate calls and the adapter's own steps. */
 export type SubmissionOp =
-  'request' | 'request_batch' | 'execute' | 'execute_batch' | 'fund' | MandateAction['op'];
+  | 'create'
+  | 'request'
+  | 'request_batch'
+  | 'approve'
+  | 'reject'
+  | 'cancel'
+  | 'cancel_batch'
+  | 'execute'
+  | 'execute_batch'
+  | 'pause'
+  | 'resume'
+  | 'revoke'
+  | 'withdraw'
+  | 'sweep'
+  | 'recover_token'
+  | 'update_limits'
+  | 'add_role'
+  | 'remove_role'
+  | 'set_approvals_required'
+  | 'set_recovery_threshold'
+  | 'allow_recipients'
+  | 'disallow_recipients'
+  | 'set_attestation_policy'
+  | 'propose_principal'
+  | 'accept_principal'
+  | 'cancel_principal_proposal'
+  | 'lower_fee_cap'
+  | 'recovery_revoke'
+  | 'recovery_rotate_agent'
+  | 'fund'
+  | 'create_funding_account'
+  | 'funding_sweep'
+  | 'trustline'
+  | 'ttl_extend'
+  | 'restore'
+  | 'forwarder_deploy'
+  | 'forwarder_arm'
+  | 'forwarder_forward'
+  | 'forwarder_unswapped';
 
-/** Live states hold the one live submission per mandate, payout and op. */
+/**
+ * Lifecycle of one write ahead submission. built, broadcast and unknown are
+ * live, and at most one submission per network, mandate, payout and op may
+ * be live. States only move forward: built to broadcast, broadcast to any
+ * of landed, failed, unknown, expired or replaced, and unknown to landed,
+ * failed or expired.
+ */
 export type SubmissionState =
-  'built' | 'broadcast' | 'unknown' | 'landed' | 'rejected' | 'replaced';
+  /** Recorded before broadcast, with the signature. */
+  | 'built'
+  /** Sent, with no result yet. */
+  | 'broadcast'
+  /** A timeout or an ambiguous status. Reconcile before any retry. */
+  | 'unknown'
+  /** Included with success. Finality is tracked separately. */
+  | 'landed'
+  /** Included and failed, or definitely rejected. */
+  | 'failed'
+  /** Can provably never land: its validity window passed and was observed. */
+  | 'expired'
+  /** Superseded by a replacement that reused the nonce. */
+  | 'replaced';
 
 /** Write ahead record of a chain submission, stored before broadcast. */
 export interface SubmissionRecord {
   readonly scope: TenantScope;
   readonly network: NetworkId;
   readonly txHash: string;
-  readonly mandate: string;
-  readonly payoutId: PayoutId | null;
   readonly op: SubmissionOp;
-  readonly attempt: number;
-  readonly signerAddress: ChainAddress;
+  /**
+   * The mandate contract address as the chain writes it: a C strkey on
+   * Stellar, a checksummed 0x address on Celo. Null for steps that touch no
+   * mandate, such as a funding account.
+   */
+  readonly mandate: string | null;
+  readonly payoutId: PayoutId | null;
+  readonly attempt: number | null;
+  /** The signing account, in the same chain encoding as `mandate`. */
+  readonly signerAddress: string;
   readonly sequenceOrNonce: bigint;
-  /** Stellar envelope validity; null on Celo, where a nonce replaces it. */
+  /** Stellar envelope validity; null on Celo, where the nonce governs replacement. */
   readonly maxTime: UnixSeconds | null;
-  readonly landedAtHeight: bigint | null;
   readonly state: SubmissionState;
+  readonly landedAtHeight: bigint | null;
   readonly errorCode: ChainAdapterErrorCode | null;
+  /** The mandate spec error code when the mandate refused the call. */
+  readonly specCode: number | null;
+  /** The submission this one replaced, for a fee bump that reused the nonce. */
+  readonly replacesTxHash: string | null;
   readonly correlationId: string;
+  readonly createdAt: UnixSeconds;
 }
 
-export interface SubmissionPatch {
-  readonly state?: SubmissionState;
-  readonly landedAtHeight?: bigint | null;
-  readonly errorCode?: ChainAdapterErrorCode | null;
-}
+export type SubmissionPatch = Partial<
+  Pick<SubmissionRecord, 'state' | 'landedAtHeight' | 'errorCode' | 'specCode'>
+>;
 
 /** A Stellar channel account or Celo executor account, leased to one job at a time. */
 export interface ExecutorLease {
-  readonly leaseId: string;
   readonly network: NetworkId;
   readonly address: ChainAddress;
+  /** The key manager's ID for the account's key. */
+  readonly keyId: string;
+  /** The next sequence or nonce to use, read from chain when the previous lease expired. */
   readonly sequenceOrNonce: bigint;
+  /**
+   * Fencing token, new on every lease. releaseExecutor refuses a stale one,
+   * so a job that outlived its lease cannot write a sequence back over the
+   * job that holds the account now.
+   */
+  readonly leaseId: string;
   readonly expiresAt: UnixSeconds;
+}
+
+/** An address plus an optional tag. Two destinations are equal only if both match. */
+export interface Destination {
+  readonly address: ChainAddress;
+  readonly tag: bigint | null;
 }
 
 /** Off chain delivery record per leg, such as an anchor transaction. No KYC fields. */
 export interface LegDeliveryRecord {
   readonly scope: TenantScope;
   readonly legKey: LegKey;
+  readonly network: NetworkId;
   readonly rail: RailId;
+  /** Anchor or partner ID, 'forwarder' or 'wallet'. */
   readonly provider: string;
-  readonly providerRef: string;
-  readonly live: boolean;
-  readonly state: DeliveryState;
-  readonly destination: ChainAddress | null;
-  readonly tag: bigint | null;
+  /** Anchor transaction ID, forwarder address or order ID. */
+  readonly providerRef: string | null;
+  readonly destination: Destination;
   readonly quoteId: QuoteId | null;
+  readonly state: DeliveryState;
   /** Scrubbed provider status, kept for support. Never branched on outside the adapter. */
-  readonly rawStatus: string;
+  readonly rawStatus: string | null;
+  /** At most one live record per leg key and provider. */
+  readonly live: boolean;
   readonly expiresAt: UnixSeconds | null;
   readonly updatedAt: UnixSeconds;
 }
 
+/**
+ * The adapter's only storage. Every call that reads or writes a tenant's
+ * row takes the tenant, so an implementation can run inside the tenant's
+ * own transaction and never look a tenant up from the row it is reading.
+ */
 export interface AdapterStore {
   /** Called before broadcast. Unique on network and transaction hash. */
   recordSubmission(s: SubmissionRecord): Promise<void>;
-  updateSubmission(network: NetworkId, txHash: string, patch: SubmissionPatch): Promise<void>;
+  updateSubmission(
+    scope: TenantScope,
+    network: NetworkId,
+    txHash: string,
+    patch: SubmissionPatch,
+  ): Promise<void>;
   liveSubmission(key: {
+    readonly scope: TenantScope;
     readonly network: NetworkId;
+    /** Chain encoded, as in SubmissionRecord. */
     readonly mandate: string;
     readonly payoutId: PayoutId;
     readonly op: SubmissionOp;
   }): Promise<SubmissionRecord | null>;
+  /**
+   * Platform operation: the reconciliation sweep reads unresolved
+   * submissions across every tenant on purpose, and each record it returns
+   * carries its own scope for the follow up calls.
+   */
   unresolvedSubmissions(
     network: NetworkId,
     olderThanSeconds: number,
     limit: number,
   ): Promise<readonly SubmissionRecord[]>;
+  /** Platform operation: executor accounts are UJIRA's own and belong to no tenant. */
   leaseExecutor(network: NetworkId, leaseSeconds: number): Promise<ExecutorLease>;
+  /** Platform operation. Refuses a lease whose leaseId is no longer current. */
   releaseExecutor(lease: ExecutorLease, next: { readonly sequenceOrNonce: bigint }): Promise<void>;
   /** Unique on leg key, provider and provider reference. */
   upsertDelivery(d: LegDeliveryRecord): Promise<void>;
-  liveDelivery(legKey: LegKey): Promise<LegDeliveryRecord | null>;
+  liveDelivery(scope: TenantScope, legKey: LegKey): Promise<LegDeliveryRecord | null>;
 }
 
 export type SponsoredIntent =
@@ -320,34 +424,34 @@ export interface ChainHealth {
 // ---------------------------------------------------------------------------
 // Mandate structs, mirroring the contract spec with core types
 
-/** 1 allowlist, 2 attested, 3 both. */
-export type RecipientMode = 1 | 2 | 3;
-
 export interface LimitsInput {
   readonly totalBudget: TokenAmount;
   readonly perPaymentCap: TokenAmount;
   readonly perRecipientDailyCap: TokenAmount;
+  /** May be zero, meaning every payout needs approval. */
   readonly approvalThreshold: TokenAmount;
-  readonly payoutTtlSeconds: bigint;
+  readonly payoutTtlSeconds: number;
   readonly expiresAt: UnixSeconds;
 }
 
 export interface MandateConfigInput {
   readonly principal: ChainAddress;
+  /** Resolved to the network's token contract by the adapter. */
   readonly asset: TokenAsset;
-  readonly recipientMode: RecipientMode;
+  readonly recipientMode: 'allowlist' | 'attested' | 'both';
   readonly tenantRef: Bytes32;
   readonly agents: readonly ChainAddress[];
   readonly approvers: readonly ChainAddress[];
   readonly approvalsRequired: number;
   readonly guardians: readonly ChainAddress[];
   readonly executors: readonly ChainAddress[];
-  readonly limits: LimitsInput;
   readonly recovery: readonly ChainAddress[];
   readonly recoveryThreshold: number;
-  /** Uncompressed secp256k1 key, 65 bytes starting 0x04, or empty in allowlist mode. */
-  readonly attester: Uint8Array;
+  readonly limits: LimitsInput;
+  /** Uncompressed secp256k1 key, 65 bytes starting 0x04; null in allowlist mode. */
+  readonly attester: Uint8Array | null;
   readonly countryPolicyHash: Bytes32;
+  /** The fee cap in basis points. The fee address comes from the factory. */
   readonly maxFeeBps: number;
 }
 
@@ -359,11 +463,9 @@ export interface MandateConfigView extends MandateConfigInput {
   readonly proposedPrincipal: ChainAddress | null;
 }
 
-/** A destination is an address plus an optional tag; both must match to be equal. */
 export interface AllowEntryInput {
   readonly recipientRef: Bytes32;
-  readonly destination: ChainAddress;
-  readonly tag?: bigint;
+  readonly destination: Destination;
 }
 
 export interface AttestationInput {
@@ -376,7 +478,7 @@ export interface AttestationInput {
 // ---------------------------------------------------------------------------
 // Mandate administration and signing
 
-export type MandateRole = 'agent' | 'approver' | 'guardian' | 'executor';
+export type RoleName = 'agent' | 'approver' | 'guardian' | 'executor' | 'recovery';
 
 export type MandateAction =
   | {
@@ -398,10 +500,22 @@ export type MandateAction =
   | { readonly op: 'update_limits'; readonly limits: LimitsInput }
   | {
       readonly op: 'add_role' | 'remove_role';
-      readonly role: MandateRole;
+      readonly role: RoleName;
       readonly account: ChainAddress;
     }
   | { readonly op: 'set_approvals_required'; readonly n: number }
+  | { readonly op: 'set_recovery_threshold'; readonly n: number }
+  /** Lower only, to any value below the current cap. */
+  | { readonly op: 'lower_fee_cap'; readonly maxFeeBps: number }
+  | { readonly op: 'cancel_principal_proposal' }
+  /** Signed by a recovery member. */
+  | { readonly op: 'recovery_revoke' }
+  /** Signed by a recovery member. A null `new` removes the agent. */
+  | {
+      readonly op: 'recovery_rotate_agent';
+      readonly old: ChainAddress;
+      readonly new: ChainAddress | null;
+    }
   | {
       readonly op: 'allow_recipients' | 'disallow_recipients';
       readonly entries: readonly AllowEntryInput[];
@@ -650,6 +764,11 @@ export interface PayRequest {
   readonly recipientRef: Bytes32;
   readonly taskRef: Bytes32;
   readonly total: TokenAmount;
+  /**
+   * The take rate on top of total, in the same asset; zero when there is
+   * none. The recipient receives exactly total.
+   */
+  readonly fee: TokenAmount;
   /** Must sum exactly to total. */
   readonly legs: readonly PayoutLegInput[];
   /** After this the request can be proven dead and retried elsewhere. */

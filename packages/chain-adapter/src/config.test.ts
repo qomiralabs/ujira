@@ -250,7 +250,7 @@ describe('parseNetworksConfig', () => {
     ],
     ['an inherited network', Object.create({ 'eip155:42220': celo() }) as unknown],
     ['an inherited nested field', { 'eip155:42220': inheritsMento() }],
-    ['a class instance', { 'eip155:42220': Object.assign(new (class Box {})(), celo()) }],
+    ['a class instance', { 'eip155:42220': Object.assign(new Date(0), celo()) }],
     ['a missing USDm', withChange('eip155:42220', 'assets', { USDC: { token: ADDR(3) } })],
     ['a fee as a number', withChange('stellar:pubnet', 'feeSponsor.maxFeePerTxStroops', 1_000_000)],
     ['a negative fee', withChange('stellar:pubnet', 'feeSponsor.maxFeePerTxStroops', '-1')],

@@ -4,6 +4,7 @@
 import { z } from 'zod';
 
 import { InvalidInputError } from './errors.js';
+import { isEip55Address } from './keccak.js';
 
 // The networks section of the routing configuration. Only this package
 // reads it; the router validates the chain agnostic sections itself.
@@ -85,14 +86,24 @@ const stellarAccount = z.string().refine((s) => isStrkey(s, STRKEY_ACCOUNT), {
 const stellarContract = z.string().refine((s) => isStrkey(s, STRKEY_CONTRACT), {
   message: 'not a Stellar contract',
 });
-const evmAddress = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
+// The same reasoning as for strkeys: an address with a wrong letter is
+// another account, so the EIP-55 checksum must hold. The zero address is
+// where tokens go to be burned and is never a factory or a token.
+const ZERO_ADDRESS = `0x${'0'.repeat(40)}`;
+const evmAddress = z
+  .string()
+  .refine((s) => s !== ZERO_ADDRESS && isEip55Address(s), { message: 'not a checksummed address' });
 
-function uniqueList<T extends z.ZodType<string>>(item: T) {
+// Duplicates are compared through `normalize`, so two spellings of one EVM
+// address count as one.
+function uniqueList<T extends z.ZodType<string>>(item: T, normalize = (v: string) => v) {
   return z
     .array(item)
     .min(1)
     .max(16)
-    .refine((list) => new Set(list).size === list.length, { message: 'duplicate entry' });
+    .refine((list) => new Set(list.map(normalize)).size === list.length, {
+      message: 'duplicate entry',
+    });
 }
 
 // Explorer links are templates filled at read time, so stored references
@@ -175,7 +186,9 @@ const stellarNetwork = z.strictObject({
 const evmNetwork = z.strictObject({
   ...common,
   feeCurrencyDirectory: evmAddress,
-  trustedFactories: z.strictObject({ '1': uniqueList(evmAddress) }),
+  trustedFactories: z.strictObject({
+    '1': uniqueList(evmAddress, (v) => v.toLowerCase()),
+  }),
   assets: z.strictObject({
     USDC: z.strictObject({ token: evmAddress }),
     USDm: z.strictObject({ token: evmAddress }),
@@ -229,22 +242,69 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
+// Paths are built from schema keys and indexes only. A key that does not
+// fit the safe issue shape is reported as its parent rather than echoed.
+const SAFE_SEGMENT = /^[A-Za-z0-9_:]{1,32}$/;
+
+const MAX_DEPTH = 16;
+
+/**
+ * The first place `value` stops being plain data, or undefined. zod reads
+ * fields with ordinary property access, which follows prototypes and runs
+ * getters, so anything but own data properties on plain objects and arrays
+ * is refused before the schema looks at it.
+ */
+function notPlainData(value: unknown, path: string, depth: number): string | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  if (depth > MAX_DEPTH) return `${path} (too_deep)`;
+  const proto: unknown = Object.getPrototypeOf(value);
+  const plain = Array.isArray(value)
+    ? proto === Array.prototype
+    : proto === Object.prototype || proto === null;
+  if (!plain) return `${path} (not_plain)`;
+  for (const key of Reflect.ownKeys(value)) {
+    if (Array.isArray(value) && key === 'length') continue;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (typeof key !== 'string' || descriptor === undefined || !('value' in descriptor)) {
+      return `${path} (not_plain)`;
+    }
+    // A key that does not look like a schema key is never echoed; the
+    // issue then points at its parent.
+    const next = SAFE_SEGMENT.test(key) ? `${path}.${key}`.slice(0, 96) : path;
+    const inner = notPlainData(descriptor.value, next, depth + 1);
+    if (inner !== undefined) return inner;
+  }
+  return undefined;
+}
+
+function issuePath(path: readonly PropertyKey[]): string {
+  const parts = ['networks'];
+  for (const segment of path) {
+    const text = String(segment);
+    if (!SAFE_SEGMENT.test(text)) break;
+    parts.push(text);
+  }
+  return parts.join('.').slice(0, 96);
+}
+
 /**
  * Validates the networks section and returns a frozen snapshot. A bad
- * document throws InvalidInputError naming paths and issue codes only.
+ * document throws InvalidInputError whose issues name paths and issue codes
+ * only, never a value.
  */
 export function parseNetworksConfig(input: unknown): NetworksConfig {
+  const unsafe = notPlainData(input, 'networks', 0);
+  if (unsafe !== undefined) {
+    throw new InvalidInputError({ issues: [unsafe] });
+  }
   const result = networksConfigSchema.safeParse(input);
   if (!result.success) {
     // zod messages can quote what was received, and a misplaced secret is
     // exactly the mistake this catches, so only paths and codes are kept.
-    const listed = result.error.issues.slice(0, MAX_LISTED_ISSUES).map((issue) => {
-      const where = issue.path.length === 0 ? '(root)' : issue.path.map(String).join('.');
-      return `${where} (${issue.code})`;
-    });
-    const more = result.error.issues.length - listed.length;
-    const tail = more > 0 ? ` and ${String(more)} more` : '';
-    throw new InvalidInputError(`Invalid networks config at ${listed.join(', ')}${tail}`);
+    const issues = result.error.issues
+      .slice(0, MAX_LISTED_ISSUES)
+      .map((issue) => `${issuePath(issue.path)} (${issue.code})`);
+    throw new InvalidInputError({ issues });
   }
   return deepFreeze(result.data);
 }

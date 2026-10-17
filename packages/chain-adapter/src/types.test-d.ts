@@ -169,7 +169,7 @@ expectTypeOf<
   | 'recovery_revoke'
   | 'recovery_rotate_agent'
 >().toExtend<MandateAction['op']>();
-expectTypeOf<Extract<MandateAction, { op: 'add_role' }>['role']>().toEqualTypeOf<RoleName>();
+expectTypeOf<Extract<MandateAction, { role: unknown }>['role']>().toEqualTypeOf<RoleName>();
 expectTypeOf<
   Extract<MandateAction, { op: 'recovery_rotate_agent' }>['new']
 >().toEqualTypeOf<ChainAddress | null>();
