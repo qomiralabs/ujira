@@ -12,7 +12,13 @@ Requirements:
 To bump pnpm, update both pins in the same change:
 
 1. `package.json`: take `npm view pnpm@<version> dist.integrity`, drop the `sha512-` prefix, base64 decode it, hex encode the result and write `pnpm@<version>+sha512.<hex>` to `packageManager`.
-2. `.github/workflows/ci.yml`: set `PNPM_VERSION` to `<version>`, and set `PNPM_EXE_SHA512` to the same conversion of `npm view @pnpm/exe.linux-x64@<version> dist.integrity` (for example `node -p "Buffer.from('<base64>', 'base64').toString('hex')"`). The setup step also fails if `PNPM_VERSION` does not match `packageManager`.
+2. `.github/workflows/ci.yml`: set `PNPM_VERSION` to `<version>`, and set `PNPM_EXE_SHA512` to the same conversion of `npm view @pnpm/exe.linux-x64@<version> dist.integrity` (for example `node -p "Buffer.from('<base64>', 'base64').toString('hex')"`). Then set `PNPM_BINARY_SHA512` to the SHA-512 of the `package/pnpm` file inside that tarball (`tar -xzf exe.linux-x64-<version>.tgz package/pnpm && sha512sum package/pnpm`), after checking the tarball against `PNPM_EXE_SHA512`.
+
+CI checks these pins in three ways:
+
+- `node scripts/check-package-manager.ts "$PNPM_VERSION"` parses `package.json` with a strict JSON parser (`scripts/strict-json.ts`) that rejects duplicate keys at any depth, so a second `packageManager` key cannot hide behind the first, and fails unless `packageManager` is `pnpm@$PNPM_VERSION+sha512.<128 hex>`.
+- Every step that runs pnpm starts with `scripts/assert-pnpm.sh`, which fails unless `pnpm` on `PATH` is `${RUNNER_TEMP}/pnpm/pnpm`, hashes to `PNPM_BINARY_SHA512` and reports `PNPM_VERSION`. A step that only uses an action, such as the pnpm cache in `actions/setup-node`, cannot run the script; the setup step asserts the binary just before it.
+- `scripts/check-workflow-pnpm.sh` fails on any workflow step whose `run` script calls pnpm without running `scripts/assert-pnpm.sh` first. `scripts/check-workflow-pnpm.test.sh` and `scripts/assert-pnpm.test.sh` test both scripts.
 
 TypeScript is pinned to 6.0.3 because typescript-eslint 8 supports only `typescript <6.1.0`. Upgrade to TypeScript 7 once a typescript-eslint release lists it in its peer range.
 
