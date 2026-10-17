@@ -13,6 +13,7 @@ import {
   formatViolation,
   normalizeRepository,
   parseSpdx,
+  PROD_FONT_PACKAGES,
   renderNotices,
   type InstalledPackage,
   type NoticeEntry,
@@ -87,7 +88,6 @@ describe('check-licenses', () => {
       'CC0-1.0',
       'BlueOak-1.0.0',
       'Python-2.0',
-      'OFL-1.1',
     ]) {
       expect(evaluateLicense(id, 'prod'), id).toEqual({ ok: true });
     }
@@ -104,6 +104,39 @@ describe('check-licenses', () => {
   ])('rejects %s in dev and production', (id) => {
     expect(evaluateLicense(id, 'prod').ok).toBe(false);
     expect(evaluateLicense(id, 'dev').ok).toBe(false);
+  });
+
+  it('rejects OFL-1.1 on a production package that is not an allowlisted font', () => {
+    expect(PROD_FONT_PACKAGES.has('icon-kit')).toBe(false);
+    expect(
+      findViolations([pkg('OFL-1.1', 'icon-kit')], 'prod', WORKSPACE).map(formatViolation),
+    ).toEqual([
+      'icon-kit@1.0.0 (prod): license "OFL-1.1": "OFL-1.1" not allowed in prod dependencies (font licenses are allowed in production only for packages in PROD_FONT_PACKAGES)',
+    ]);
+    expect(evaluateLicense('OFL-1.1', 'prod').ok).toBe(false);
+  });
+
+  it('accepts OFL-1.1 on an allowlisted production font package', () => {
+    const fonts = PROD_FONT_PACKAGES as Set<string>;
+    fonts.add('@fontsource/test-font');
+    try {
+      expect(findViolations([pkg('OFL-1.1', '@fontsource/test-font')], 'prod', WORKSPACE)).toEqual(
+        [],
+      );
+      expect(evaluateLicense('OFL-1.1 AND GPL-3.0', 'prod', '@fontsource/test-font').ok).toBe(
+        false,
+      );
+    } finally {
+      fonts.delete('@fontsource/test-font');
+    }
+  });
+
+  it('starts with an empty production font allowlist', () => {
+    expect([...PROD_FONT_PACKAGES]).toEqual([]);
+  });
+
+  it('accepts OFL-1.1 on any dev package', () => {
+    expect(findViolations([pkg('OFL-1.1', 'icon-kit')], 'dev', WORKSPACE)).toEqual([]);
   });
 
   it('accepts (MIT OR GPL-3.0)', () => {

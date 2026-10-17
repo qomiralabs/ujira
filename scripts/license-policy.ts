@@ -19,14 +19,29 @@ export const PROD_ALLOWED: ReadonlySet<string> = new Set([
   'CC0-1.0',
   'BlueOak-1.0.0',
   'Python-2.0',
-  // Fonts only in practice, but the license itself permits commercial use.
-  'OFL-1.1',
 ]);
 
-export const DEV_ALLOWED: ReadonlySet<string> = new Set([...PROD_ALLOWED, 'MPL-2.0']);
+// Licenses accepted in production only for the font packages listed below.
+export const FONT_LICENSES: ReadonlySet<string> = new Set(['OFL-1.1']);
 
-export function allowlistFor(scope: Scope): ReadonlySet<string> {
-  return scope === 'prod' ? PROD_ALLOWED : DEV_ALLOWED;
+// Production packages allowed to use a font license. Adding a package here
+// needs a license review: confirm it ships font files only, not code.
+export const PROD_FONT_PACKAGES: ReadonlySet<string> = new Set<string>([]);
+
+// Dev dependencies never ship, so font licenses are not restricted there.
+export const DEV_ALLOWED: ReadonlySet<string> = new Set([
+  ...PROD_ALLOWED,
+  ...FONT_LICENSES,
+  'MPL-2.0',
+]);
+
+const PROD_FONT_ALLOWED: ReadonlySet<string> = new Set([...PROD_ALLOWED, ...FONT_LICENSES]);
+
+export function allowlistFor(scope: Scope, packageName?: string): ReadonlySet<string> {
+  if (scope === 'dev') return DEV_ALLOWED;
+  return packageName !== undefined && PROD_FONT_PACKAGES.has(packageName)
+    ? PROD_FONT_ALLOWED
+    : PROD_ALLOWED;
 }
 
 // One entry of `pnpm licenses list --json`, grouped under its license key.
@@ -181,7 +196,9 @@ const MISSING = new Set([
 
 export type Decision = { ok: true } | { ok: false; reason: string };
 
-export function evaluateLicense(license: string, scope: Scope): Decision {
+// `packageName` matters only for font licenses in production; without it a
+// font license is treated as coming from a non font package.
+export function evaluateLicense(license: string, scope: Scope, packageName?: string): Decision {
   const value = license.trim();
   if (MISSING.has(value.toLowerCase()) || /^see license in /i.test(value)) {
     return { ok: false, reason: value === '' ? 'no license' : `no usable license ("${value}")` };
@@ -193,11 +210,14 @@ export function evaluateLicense(license: string, scope: Scope): Decision {
     if (error instanceof SpdxSyntaxError) return { ok: false, reason: error.message };
     throw error;
   }
-  const blocked = blockers(tree, allowlistFor(scope));
+  const blocked = blockers(tree, allowlistFor(scope, packageName));
   if (blocked.length === 0) return { ok: true };
+  const fontHint = blocked.some((id) => FONT_LICENSES.has(id))
+    ? ' (font licenses are allowed in production only for packages in PROD_FONT_PACKAGES)'
+    : '';
   return {
     ok: false,
-    reason: `${blocked.map((id) => `"${id}"`).join(', ')} not allowed in ${scope} dependencies`,
+    reason: `${blocked.map((id) => `"${id}"`).join(', ')} not allowed in ${scope} dependencies${fontHint}`,
   };
 }
 
@@ -227,7 +247,7 @@ export function findViolations(
   const violations: Violation[] = [];
   for (const pkg of packages) {
     if (isWorkspacePackage(pkg, workspaceNames)) continue;
-    const decision = evaluateLicense(pkg.license, scope);
+    const decision = evaluateLicense(pkg.license, scope, pkg.name);
     if (!decision.ok) {
       violations.push({
         name: pkg.name,
