@@ -32,6 +32,24 @@ const NBSP = '\u00a0';
 
 const DOLLAR_SIGN = '$';
 
+// First strong isolate and pop directional isolate. Wrapped around the
+// appended code in right to left text so the Latin letters keep to
+// themselves and cannot move the "$" or the digits around them.
+const FSI = '\u2068';
+const PDI = '\u2069';
+
+// Node 24 ships Intl.Locale#getTextInfo; the TypeScript library does not
+// declare it yet, so only the part used here is typed.
+interface LocaleTextInfo {
+  getTextInfo(): { direction?: string };
+}
+
+/** Whether `locale` (already validated) writes right to left, from its Intl text info. */
+function isRightToLeft(locale: string): boolean {
+  const info = (new Intl.Locale(locale) as unknown as LocaleTextInfo).getTextInfo();
+  return info.direction === 'rtl';
+}
+
 /**
  * Whether formatMoney follows a "$" amount with its ISO code. 'never' is the
  * default and today's output; 'whenAmbiguous' is for principal views whose
@@ -152,7 +170,13 @@ function typeset(parts: readonly Intl.NumberFormatPart[], symbol: string): strin
  * "$" (USD, COP, MXN) is followed by a no break space and its ISO code, for
  * example "$1,500.00 COP". The default, 'never', keeps the plain symbol.
  * Other currencies and tokens are never changed. Any other value throws
- * InvalidFormatOptionError after the locale and rounding checks.
+ * InvalidFormatOptionError after the locale and rounding checks. In right to
+ * left locales the code sits between U+2068 and U+2069 so positive and
+ * negative amounts lay out the same way; left to right output has no
+ * isolate characters. Principal views decide once from their corridors:
+ *
+ *   const currencyCode = dollarSignAmbiguous(corridorCurrencies) ? 'whenAmbiguous' : 'never';
+ *   formatMoney(amount, { locale, currencyCode });
  *
  * The result is for display only. Right to left locales can include bidi
  * control marks, so never parse it back, compare it or store it as data.
@@ -192,7 +216,9 @@ export function formatMoney(
   const symbol = BRAND_SYMBOLS[fiat.code];
   const formatted = typeset(parts, symbol);
   // Only "$" is shared between currencies, so only "$" amounts get the code.
-  return codeDisplay === 'whenAmbiguous' && symbol === DOLLAR_SIGN
-    ? `${formatted}${NBSP}${fiat.code}`
-    : formatted;
+  if (codeDisplay !== 'whenAmbiguous' || symbol !== DOLLAR_SIGN) return formatted;
+  // Left to right text is left exactly as it was; only right to left text
+  // needs the isolate to lay positive and negative amounts out the same way.
+  const code = isRightToLeft(locale) ? `${FSI}${fiat.code}${PDI}` : fiat.code;
+  return `${formatted}${NBSP}${code}`;
 }
