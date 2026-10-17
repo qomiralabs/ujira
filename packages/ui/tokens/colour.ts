@@ -65,6 +65,21 @@ function simulate(rgb: Rgb, vision: Vision): Rgb {
   return [row(r0), row(r1), row(r2)];
 }
 
+const fromLinear = (c: number): number => {
+  const s = c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055;
+  return 255 * s;
+};
+
+/**
+ * The colour a person with the given vision sees for a hex colour, as
+ * unrounded 8 bit sRGB channels. Exported so the simulation can be checked
+ * against published reference values.
+ */
+export function simulateHex(value: string, vision: Vision): [number, number, number] {
+  const [r, g, b] = simulate(linearRgb(value), vision);
+  return [fromLinear(r), fromLinear(g), fromLinear(b)];
+}
+
 type Lab = readonly [number, number, number];
 
 // CIE L*a*b* from linear sRGB, D65 white.
