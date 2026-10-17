@@ -3,7 +3,7 @@
 
 import type { CurrencyCode } from './currencies.js';
 import { InvalidAmountError, InvalidRoundingModeError } from './errors.js';
-import { money, multiply } from './money.js';
+import { money, multiply, powerOfTen } from './money.js';
 import type { Money } from './money.js';
 import { readOption } from './options.js';
 import { divideRounded, parseRoundingMode } from './rescale.js';
@@ -64,8 +64,10 @@ export function parseMoney(
     throw new InvalidAmountError('amount has more fraction digits than the scale allows');
   }
   const exact = sign * BigInt(whole + fraction);
-  const dropped = BigInt(fraction.length) - BigInt(unit.scale);
-  return money(divideRounded(exact, 10n ** dropped, mode), unit.currency, unit.scale);
+  // One zero per dropped digit gives the divisor as text, so its size never
+  // passes through a number.
+  const divisor = BigInt(`1${fraction.slice(unit.scale).replace(/[0-9]/g, '0')}`);
+  return money(divideRounded(exact, divisor, mode), unit.currency, unit.scale);
 }
 
 /**
@@ -76,7 +78,7 @@ export function toDecimalString(m: Money): string {
   const value = multiply(m, 1n);
   const negative = value.amount < 0n;
   const magnitude = negative ? -value.amount : value.amount;
-  const unit = 10n ** BigInt(value.scale);
+  const unit = powerOfTen(value.scale);
   const whole = (magnitude / unit).toString();
   const sign = negative ? '-' : '';
   if (value.scale === 0) return sign + whole;
