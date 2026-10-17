@@ -300,3 +300,52 @@ describe('float ban in packages/core/src/money', () => {
     expect(messages).toEqual([]);
   }, 120_000);
 });
+
+// build and snapshot skip the public factory, so only the money module may
+// reach them. Everything else must go through money() and the operations.
+describe('money internals stay inside the money module', () => {
+  const ALLOCATE_FILE = path.join(REPO_ROOT, 'packages/core/src/money/allocate.ts');
+  const importErrors = (messages: ESLint.LintResult['messages']): ESLint.LintResult['messages'] =>
+    messages.filter((msg) => msg.ruleId === 'no-restricted-imports');
+
+  it.each([
+    ['build', "import { build } from './money/money.js';\nexport const b = build;\n"],
+    ['snapshot', "import { snapshot } from './money/money.js';\nexport const s = snapshot;\n"],
+    [
+      'a renamed build',
+      "import { build as mint } from './money/money.js';\nexport const b = mint;\n",
+    ],
+    [
+      'a namespace import',
+      "import * as internals from './money/money.js';\nexport const m = internals;\n",
+    ],
+    ['a re-export', "export { build } from './money/money.js';\n"],
+  ])(
+    'reports %s imported from money.ts outside the money module',
+    async (_label, code) => {
+      const messages = await errorsFor(code, OUTSIDE_FILE);
+      expect(importErrors(messages).length).toBeGreaterThan(0);
+    },
+    120_000,
+  );
+
+  it('allows the public API from money.ts outside the money module', async () => {
+    const messages = await errorsFor(
+      "import { money } from './money/money.js';\nexport const m = money;\n",
+      OUTSIDE_FILE,
+    );
+    expect(importErrors(messages)).toEqual([]);
+  }, 120_000);
+
+  it.each([ALLOCATE_FILE, SECOND_MONEY_FILE])(
+    'allows build and snapshot inside the money module at %s',
+    async (file) => {
+      const messages = await errorsFor(
+        "import { build, snapshot } from './money.js';\nexport const b = [build, snapshot];\n",
+        file,
+      );
+      expect(importErrors(messages)).toEqual([]);
+    },
+    120_000,
+  );
+});
