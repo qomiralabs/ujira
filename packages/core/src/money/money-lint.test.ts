@@ -351,6 +351,115 @@ describe('money internals stay inside the money module', () => {
     120_000,
   );
 
+  // Each of these passed lint and typecheck before the fence covered them.
+  // Any rule that blocks the path counts, since the point is that none lints clean.
+  const FENCE_RULES = new Set([
+    'no-restricted-imports',
+    'no-restricted-syntax',
+    'no-restricted-properties',
+    '@typescript-eslint/no-require-imports',
+  ]);
+  const fenceErrors = (messages: ESLint.LintResult['messages']): ESLint.LintResult['messages'] =>
+    messages.filter((msg) => msg.ruleId !== null && FENCE_RULES.has(msg.ruleId));
+
+  it.each([
+    [
+      'an awaited dynamic import',
+      "const internals = await import('./money/money.js');\nexport const b: unknown = internals;\n",
+    ],
+    [
+      'a dynamic import with then',
+      "export const p = import('./money/money.js').then((m) => m.snapshot);\n",
+    ],
+    [
+      'a dynamic import of money.ts',
+      "export const p: Promise<unknown> = import('./money/money.ts');\n",
+    ],
+    [
+      'a dynamic import with a dot segment',
+      "export const p: Promise<unknown> = import('./money/./money.js');\n",
+    ],
+    [
+      'a dynamic import with a doubled slash',
+      "export const p: Promise<unknown> = import('./money//money.js');\n",
+    ],
+    [
+      'a dynamic import from a template literal',
+      'export const p: Promise<unknown> = import(`./money/money.js`);\n',
+    ],
+    [
+      'a dynamic import from a computed path',
+      "const where = './money/' + 'money.js';\nexport const p: Promise<unknown> = import(where);\n",
+    ],
+    [
+      'a static import with a dot segment',
+      "import { build } from './money/./money.js';\nexport const b = build;\n",
+    ],
+    [
+      'a static import with a doubled slash',
+      "import { build } from './money//money.js';\nexport const b = build;\n",
+    ],
+    [
+      'a static import with a parent dot segment',
+      "import { snapshot } from '../src/money/./money.js';\nexport const s = snapshot;\n",
+    ],
+    [
+      'a static import with different casing',
+      "import { build } from './Money/MONEY.js';\nexport const b = build;\n",
+    ],
+    [
+      'a dynamic import with different casing',
+      "export const p: Promise<unknown> = import('./Money/money.JS');\n",
+    ],
+    [
+      'createRequire from node:module',
+      "import { createRequire } from 'node:module';\nexport const m: unknown = createRequire(import.meta.url)('./money/money.js');\n",
+    ],
+    [
+      'createRequire from module',
+      "import { createRequire } from 'module';\nexport const r = createRequire;\n",
+    ],
+    [
+      'a namespace import of node:module',
+      "import * as nodeModule from 'node:module';\nexport const r = nodeModule.createRequire;\n",
+    ],
+    [
+      'a default import of node:module',
+      "import nodeModule from 'node:module';\nexport const r = nodeModule.createRequire;\n",
+    ],
+    [
+      'node:module through getBuiltinModule',
+      "export const m: unknown = process.getBuiltinModule('node:module');\n",
+    ],
+    ['require', "export const m: unknown = require('./money/money.js');\n"],
+  ])(
+    'reports %s outside the money module',
+    async (_label, code) => {
+      const messages = await errorsFor(code, OUTSIDE_FILE);
+      expect(fenceErrors(messages).length).toBeGreaterThan(0);
+    },
+    120_000,
+  );
+
+  it.each([
+    [
+      'a dynamic import of the public money index',
+      "export const p: Promise<unknown> = import('./money/index.js');\n",
+    ],
+    ['a dynamic import of a package', "export const p: Promise<unknown> = import('node:path');\n"],
+    [
+      'a static import of a sibling named like money',
+      "import { money } from './money/index.js';\nexport const m = money;\n",
+    ],
+  ])(
+    'allows %s outside the money module',
+    async (_label, code) => {
+      const messages = await errorsFor(code, OUTSIDE_FILE);
+      expect(fenceErrors(messages)).toEqual([]);
+    },
+    120_000,
+  );
+
   it('allows the public API from money.ts outside the money module', async () => {
     const messages = await errorsFor(
       "import { money } from './money/money.js';\nexport const m = money;\n",

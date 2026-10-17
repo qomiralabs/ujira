@@ -10,7 +10,13 @@ import { describe, expect, it } from 'vitest';
 import * as root from '../index.js';
 import { allocate } from './allocate.js';
 import * as moneyIndex from './index.js';
-import { InvalidScaleError, MoneyOverflowError, UnknownCurrencyError, money } from './index.js';
+import {
+  InvalidAmountError,
+  InvalidScaleError,
+  MoneyOverflowError,
+  UnknownCurrencyError,
+  money,
+} from './index.js';
 import type { Money, MoneyError } from './index.js';
 import { build } from './money.js';
 
@@ -64,6 +70,34 @@ describe('build validates what it mints', () => {
   it('checks currency before scale before range', () => {
     expectMoneyError(() => build(MAX + 1n, loose('BTC'), 1.5), UnknownCurrencyError);
     expectMoneyError(() => build(MAX + 1n, 'USD', 1.5), InvalidScaleError);
+  });
+
+  // The bigint parameter type is gone after a cast or an untyped call, and
+  // relational operators compare a number with a bigint without complaint,
+  // so the range check alone would let 0.5 through as a frozen Money.
+  it.each([
+    ['an integer number', 5],
+    ['a fractional number', 0.5],
+    ['a negative fractional number', -1.25],
+    ['a number past i128', 2 ** 200],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['a numeric string', '5'],
+    ['a fractional string', '0.5'],
+    ['a boxed bigint', Object(5n)],
+    ['null', null],
+    ['undefined', undefined],
+  ])('rejects %s as the amount', (_label, amount) => {
+    expectMoneyError(() => build(loose(amount), 'USD', 2), InvalidAmountError);
+  });
+
+  it('rejects a number cast to bigint', () => {
+    expectMoneyError(() => build(5 as unknown as bigint, 'USD', 2), InvalidAmountError);
+  });
+
+  it('checks the amount type after currency and scale', () => {
+    expectMoneyError(() => build(loose(0.5), loose('BTC'), 2), UnknownCurrencyError);
+    expectMoneyError(() => build(loose(0.5), 'USD', 1.5), InvalidScaleError);
   });
 
   it('mints a frozen value at the exact boundaries', () => {
