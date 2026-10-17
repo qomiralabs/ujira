@@ -184,11 +184,21 @@ export default defineConfig(
     linterOptions: { noInlineConfig: true },
     rules: {
       'ujira/no-number-arithmetic': 'error',
+      // eval and its relatives run code no rule here can see, so a float
+      // computation hidden in a string would pass every other check.
+      'no-eval': ['error', { allowIndirect: false }],
+      'no-implied-eval': 'error',
       'no-restricted-globals': [
         'error',
         { name: 'parseFloat', message: 'Money never uses floats. Parse amounts as bigint.' },
         { name: 'Math', message: 'Math works on floats. Use bigint arithmetic.' },
         { name: 'parseInt', message: 'parseInt returns a number. Parse amounts as bigint.' },
+        { name: 'eval', message: 'eval runs code the float ban cannot check.' },
+        { name: 'Reflect', message: 'Reflect can fetch banned globals by name.' },
+        { name: 'Float32Array', message: 'Float arrays hold floats. Use bigint.' },
+        { name: 'Float64Array', message: 'Float arrays hold floats. Use bigint.' },
+        { name: 'DataView', message: 'DataView reads floats from bytes. Use bigint.' },
+        { name: 'performance', message: 'performance.now returns a float.' },
       ],
       'no-restricted-properties': [
         'error',
@@ -241,6 +251,36 @@ export default defineConfig(
           object: 'global',
           property: 'Number',
           message: 'Number converts to a float. Keep amounts as bigint.',
+        },
+        {
+          object: 'globalThis',
+          property: 'eval',
+          message: 'eval runs code the float ban cannot check.',
+        },
+        {
+          object: 'global',
+          property: 'eval',
+          message: 'eval runs code the float ban cannot check.',
+        },
+        {
+          object: 'globalThis',
+          property: 'Reflect',
+          message: 'Reflect can fetch banned globals by name.',
+        },
+        {
+          object: 'Number',
+          property: 'EPSILON',
+          message: 'Number.EPSILON is a float.',
+        },
+        {
+          object: 'Number',
+          property: 'MIN_VALUE',
+          message: 'Number.MIN_VALUE is a float.',
+        },
+        {
+          object: 'Number',
+          property: 'MAX_VALUE',
+          message: 'Number.MAX_VALUE is past the safe integer range.',
         },
         {
           object: 'JSON',
