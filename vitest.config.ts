@@ -11,13 +11,21 @@ export default defineConfig({
       provider: 'v8',
       reportOnFailure: true,
       include: ['packages/*/src/**/*.{ts,tsx,mts,cts}', 'apps/*/src/**/*.{ts,tsx,mts,cts}'],
-      exclude: ['**/*.test.*', '**/*.d.ts'],
+      exclude: ['**/*.test.ts', '**/*.d.ts'],
       reporter: ['text', 'json-summary', 'lcov'],
       thresholds: {
         lines: 85,
         functions: 85,
         branches: 85,
         statements: 85,
+        // Money and other core primitives sit under every payout, so they
+        // carry a stricter bar than the rest of the repo.
+        'packages/core/src/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
       },
     },
   },
