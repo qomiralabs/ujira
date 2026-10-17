@@ -5,12 +5,25 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    projects: ['packages/*', 'apps/*'],
+    projects: [
+      'packages/*',
+      'apps/*',
+      { test: { name: 'scripts', include: ['scripts/**/*.test.ts'] } },
+    ],
     reporters: ['verbose'],
     coverage: {
       provider: 'v8',
       reportOnFailure: true,
-      include: ['packages/*/src/**/*.{ts,tsx,mts,cts}', 'apps/*/src/**/*.{ts,tsx,mts,cts}'],
+      include: [
+        'packages/*/src/**/*.{ts,tsx,mts,cts}',
+        'apps/*/src/**/*.{ts,tsx,mts,cts}',
+        // Pure helpers of the root scripts. The entry points only do I/O and
+        // are exercised by running them.
+        'scripts/license-policy.ts',
+        'scripts/license-tree.ts',
+        'scripts/lockfile.ts',
+        'scripts/pnpm-command.ts',
+      ],
       exclude: ['**/*.test.ts', '**/*.d.ts'],
       reporter: ['text', 'json-summary', 'lcov'],
       thresholds: {
