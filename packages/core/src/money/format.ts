@@ -38,16 +38,50 @@ const DOLLAR_SIGN = '$';
 const FSI = '\u2068';
 const PDI = '\u2069';
 
-// Node 24 ships Intl.Locale#getTextInfo; the TypeScript library does not
-// declare it yet, so only the part used here is typed.
+// Scripts written right to left, for engines that cannot report a locale's
+// direction themselves.
+const RTL_SCRIPTS: ReadonlySet<unknown> = new Set<unknown>([
+  'Arab',
+  'Hebr',
+  'Thaa',
+  'Syrc',
+  'Nkoo',
+  'Adlm',
+  'Mand',
+  'Samr',
+  'Rohg',
+]);
+
+// Text info is newer than Intl.Locale itself: some engines have only the
+// older textInfo accessor and some have neither, and the TypeScript library
+// declares neither yet, so both are optional here.
 interface LocaleTextInfo {
-  getTextInfo(): { direction?: string };
+  getTextInfo?: () => { direction?: string };
+  readonly textInfo?: { direction?: string };
 }
 
-/** Whether `locale` (already validated) writes right to left, from its Intl text info. */
+function reportedDirection(locale: Intl.Locale): string | undefined {
+  const info = locale as unknown as LocaleTextInfo;
+  if (typeof info.getTextInfo === 'function') return info.getTextInfo().direction;
+  return info.textInfo?.direction;
+}
+
+/**
+ * Whether `locale` (already validated) writes right to left: from the
+ * engine's text info when it has any, otherwise from the locale's likely
+ * script. The answer only decides whether the code is isolated, so if even
+ * that lookup fails the amount is formatted left to right rather than not
+ * at all.
+ */
 function isRightToLeft(locale: string): boolean {
-  const info = (new Intl.Locale(locale) as unknown as LocaleTextInfo).getTextInfo();
-  return info.direction === 'rtl';
+  try {
+    const parsed = new Intl.Locale(locale);
+    const direction = reportedDirection(parsed);
+    if (direction !== undefined) return direction === 'rtl';
+    return RTL_SCRIPTS.has(parsed.maximize().script);
+  } catch {
+    return false;
+  }
 }
 
 /**
