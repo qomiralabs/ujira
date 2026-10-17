@@ -870,13 +870,13 @@ describe('review: inflation limits', () => {
 
 describe('review: deceptive file names', () => {
   it.each([
-    ['a leading byte order mark', '﻿brand.png', '"\\xef\\xbb\\xbfbrand.png"'],
-    ['a right to left override', 'a‮gnp.svg', '"a\\xe2\\x80\\xaegnp.svg"'],
-    ['a left to right embedding', 'a‪b.png', '"a\\xe2\\x80\\xaab.png"'],
-    ['a first strong isolate', 'a⁨b.png', '"a\\xe2\\x81\\xa8b.png"'],
-    ['a pop directional isolate', 'a⁩b.png', '"a\\xe2\\x81\\xa9b.png"'],
-    ['a line separator', 'a b.png', '"a\\xe2\\x80\\xa8b.png"'],
-    ['a paragraph separator', 'a b.png', '"a\\xe2\\x80\\xa9b.png"'],
+    ['a leading byte order mark', '\uFEFFbrand.png', '"\\xef\\xbb\\xbfbrand.png"'],
+    ['a right to left override', 'a\u202Egnp.svg', '"a\\xe2\\x80\\xaegnp.svg"'],
+    ['a left to right embedding', 'a\u202Ab.png', '"a\\xe2\\x80\\xaab.png"'],
+    ['a first strong isolate', 'a\u2068b.png', '"a\\xe2\\x81\\xa8b.png"'],
+    ['a pop directional isolate', 'a\u2069b.png', '"a\\xe2\\x81\\xa9b.png"'],
+    ['a line separator', 'a\u2028b.png', '"a\\xe2\\x80\\xa8b.png"'],
+    ['a paragraph separator', 'a\u2029b.png', '"a\\xe2\\x80\\xa9b.png"'],
   ])('escapes %s', (_name, name, shown) => {
     expect(showPath(Buffer.from(name))).toBe(shown);
   });
