@@ -1,0 +1,126 @@
+// Copyright (c) 2026 Qomira Labs. All rights reserved.
+// Proprietary and confidential. Unauthorized copying is prohibited.
+
+// The API contract for formatMoney is documented at the top of parse.test.ts.
+
+import fc from 'fast-check';
+import { describe, expect, it } from 'vitest';
+
+import { formatMoney } from './format.js';
+import { money } from './index.js';
+import type { CurrencyCode } from './index.js';
+import { parseMoney } from './parse.js';
+import type { RoundingMode } from './rescale.js';
+
+const MAX = 2n ** 127n - 1n;
+const MIN = -(2n ** 127n);
+const NBSP = '\u00a0';
+const MODES: readonly RoundingMode[] = ['half-even', 'half-up', 'floor', 'ceil', 'trunc'];
+
+// Fixed seed so a failure reproduces on every machine. Bump numRuns locally to
+// search harder, never lower it to make a run pass.
+const RUNS = { seed: 0xf0a7, numRuns: 1000 } as const;
+
+const i128 = fc.oneof(
+  fc.bigInt({ min: MIN, max: MAX }),
+  fc.bigInt({ min: -100_000n, max: 100_000n }),
+  fc.constantFrom(MIN, -1n, 0n, 1n, MAX),
+);
+
+function roundDiv(n: bigint, d: bigint, mode: RoundingMode): bigint {
+  const q = n / d;
+  if (n % d === 0n) return q;
+  const down = n < 0n ? q - 1n : q;
+  const up = down + 1n;
+  const twice = 2n * (n - down * d);
+  switch (mode) {
+    case 'floor':
+      return down;
+    case 'ceil':
+      return up;
+    case 'trunc':
+      return q;
+    case 'half-up':
+      if (twice === d) return n < 0n ? down : up;
+      return twice < d ? down : up;
+    case 'half-even':
+      if (twice === d) return down % 2n === 0n ? down : up;
+      return twice < d ? down : up;
+  }
+}
+
+/** Reference en-US rendering of an amount in hundredths with a prefix symbol. */
+function enUS(hundredths: bigint, symbol: string): string {
+  const negative = hundredths < 0n;
+  const digits = (negative ? -hundredths : hundredths).toString().padStart(3, '0');
+  const int = digits.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${negative ? '-' : ''}${symbol}${int}.${digits.slice(-2)}`;
+}
+
+describe('format properties', () => {
+  it('parse then format round trips for any two decimal USD amount', () => {
+    fc.assert(
+      fc.property(i128, (amount) => {
+        const negative = amount < 0n;
+        const digits = (negative ? -amount : amount).toString().padStart(3, '0');
+        const text = `${negative ? '-' : ''}${digits.slice(0, -2)}.${digits.slice(-2)}`;
+        const m = parseMoney(text, 'USD', 2);
+        expect(formatMoney(m, { locale: 'en-US' })).toBe(enUS(amount, '$'));
+      }),
+      RUNS,
+    );
+  });
+
+  it('display rounding matches the bigint reference for every mode and scale', () => {
+    fc.assert(
+      fc.property(
+        i128,
+        fc.integer({ min: 0, max: 18 }),
+        fc.constantFrom(...MODES),
+        fc.constantFrom<[CurrencyCode, string]>(['USD', '$'], ['NGN', '₦'], ['GBP', '£']),
+        (amount, scale, mode, [currency, symbol]) => {
+          const m = money(amount, currency, scale);
+          const shown =
+            scale >= 2
+              ? roundDiv(amount, 10n ** BigInt(scale - 2), mode)
+              : amount * 10n ** BigInt(2 - scale);
+          if (shown > MAX || shown < MIN) return;
+          expect(formatMoney(m, { locale: 'en-US', rounding: mode })).toBe(enUS(shown, symbol));
+        },
+      ),
+      RUNS,
+    );
+  });
+
+  it('token amounts show two decimals and the asset code', () => {
+    fc.assert(
+      fc.property(
+        i128,
+        fc.constantFrom<[CurrencyCode, number]>(['USDC', 6], ['USDC', 7], ['USDm', 18]),
+        (amount, [asset, scale]) => {
+          const shown = roundDiv(amount, 10n ** BigInt(scale - 2), 'half-even');
+          expect(formatMoney(money(amount, asset, scale), { locale: 'en-US' })).toBe(
+            `${enUS(shown, '')}${NBSP}${asset}`,
+          );
+        },
+      ),
+      RUNS,
+    );
+  });
+
+  it('is deterministic across locales and never prints a negative zero', () => {
+    fc.assert(
+      fc.property(
+        fc.bigInt({ min: -10_000n, max: 10_000n }),
+        fc.constantFrom('en-NG', 'en-KE', 'pt-BR', 'es-CO', 'en-IN', 'de-DE'),
+        (amount, locale) => {
+          const m = money(amount, 'NGN', 6);
+          const a = formatMoney(m, { locale });
+          expect(formatMoney(m, { locale })).toBe(a);
+          if (roundDiv(amount, 10n ** 4n, 'half-even') === 0n) expect(a).not.toContain('-');
+        },
+      ),
+      RUNS,
+    );
+  });
+});
