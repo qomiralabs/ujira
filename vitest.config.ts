@@ -20,6 +20,7 @@ export default defineConfig({
         // Pure helpers of the root scripts. The entry points only do I/O and
         // are exercised by running them.
         'scripts/embedded-metadata.ts',
+        'scripts/invisible-characters.ts',
         'scripts/license-policy.ts',
         'scripts/license-tree.ts',
         'scripts/lockfile.ts',

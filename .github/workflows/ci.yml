@@ -100,6 +100,11 @@ jobs:
           scripts/assert-pnpm.sh
           pnpm metadata:check
 
+      # Literal bidirectional controls and invisible characters can make code
+      # read differently from how it runs.
+      - name: Check invisible characters
+        run: pnpm invisible:check
+
       - name: Typecheck
         run: |
           scripts/assert-pnpm.sh
