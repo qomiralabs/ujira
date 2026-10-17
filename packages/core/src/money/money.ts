@@ -78,7 +78,13 @@ function parseCurrency(currency: unknown): CurrencyCode {
 export function build(amount: bigint, currency: CurrencyCode, scale: number): Money {
   const code = parseCurrency(currency);
   const normalScale = parseScale(scale);
-  return Object.freeze({ amount: checked(amount), currency: code, scale: normalScale });
+  // The range check uses < and >, which compare a number or a string with a
+  // bigint without throwing, so the type has to be checked on its own.
+  const value: unknown = amount;
+  if (typeof value !== 'bigint') {
+    throw new InvalidAmountError('money amount must be a bigint');
+  }
+  return Object.freeze({ amount: checked(value), currency: code, scale: normalScale });
 }
 
 export function money(amount: bigint | string, currency: CurrencyCode, scale: number): Money {
