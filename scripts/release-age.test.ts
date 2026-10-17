@@ -3,9 +3,11 @@
 
 // Proves that the release age settings in pnpm-workspace.yaml make a frozen
 // install fail on a lockfile entry that is too new. The repository's own
-// workspace file is copied into a fixture project whose single dependency is
-// served by a registry stub on 127.0.0.1, so the real pnpm runs the same
-// check CI runs, without touching the network.
+// minimumReleaseAge settings are copied into a fixture project whose single
+// dependency is served by a registry stub on 127.0.0.1, so the real pnpm runs
+// the same check CI runs, without touching the network. Other workspace
+// settings, such as overrides, are left out: they would not match the
+// fixture lockfile.
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -22,6 +24,20 @@ import { resolvePnpmCommand } from './pnpm-command.ts';
 
 const ROOT = join(import.meta.dirname, '..');
 const WORKSPACE = readFileSync(join(ROOT, 'pnpm-workspace.yaml'), 'utf8');
+
+// The top level minimumReleaseAge* keys of a workspace file, each with the
+// indented lines and comments under it, in file order.
+function releaseAgeSettings(yaml: string): string {
+  const kept: string[] = [];
+  let keep = false;
+  for (const line of yaml.split('\n')) {
+    if (/^[A-Za-z]/.test(line)) keep = line.startsWith('minimumReleaseAge');
+    if (keep && !line.startsWith('#')) kept.push(line);
+  }
+  return `${kept.join('\n').trimEnd()}\n`;
+}
+
+const SETTINGS = releaseAgeSettings(WORKSPACE);
 const NAME = 'release-age-fixture';
 const VERSION = '1.0.0';
 const DAY = 24 * 60 * 60 * 1000;
@@ -144,7 +160,7 @@ async function frozenInstall(extra = ''): Promise<Result> {
         dependencies: { [NAME]: VERSION },
       }),
     );
-    writeFileSync(join(dir, 'pnpm-workspace.yaml'), WORKSPACE + extra);
+    writeFileSync(join(dir, 'pnpm-workspace.yaml'), `packages: []\n${SETTINGS}${extra}`);
     writeFileSync(join(dir, 'pnpm-lock.yaml'), lockfile());
     const command = resolvePnpmCommand(
       process.env['npm_execpath'],
@@ -227,6 +243,15 @@ describe('minimum release age', { timeout: 60_000 }, () => {
     const result = await frozenInstall(`  - '${NAME}@${VERSION}'\n`);
     expect(result.output).not.toContain('ERR_PNPM');
     expect(result.code).toBe(0);
+  });
+
+  it('copies every release age setting, with the exclude list last', () => {
+    expect(SETTINGS).toMatch(/^minimumReleaseAge: 20160$/m);
+    expect(SETTINGS).toMatch(/^minimumReleaseAgeIgnoreMissingTime: false$/m);
+    expect(SETTINGS).toMatch(/^minimumReleaseAgeExcludePrune: true$/m);
+    expect(SETTINGS).not.toMatch(/^(overrides|allowBuilds|packages):/m);
+    const keys = [...SETTINGS.matchAll(/^([A-Za-z]\w*):/gm)].map((m) => m[1]);
+    expect(keys.at(-1)).toBe('minimumReleaseAgeExclude');
   });
 
   it('keeps the exclude list to exact versions', () => {
