@@ -108,6 +108,26 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
+      # The build uses its own tsconfig, so typecheck passing does not prove
+      # the packages compile for release. It runs before the tests, and so
+      # does every other check: test files are member code, and once they
+      # have run, ignored folders such as node_modules may have changed.
+      - name: Build
+        run: pnpm build
+
+      # Gate steps may only write ignored output such as dist/. A change to a
+      # tracked or new file means a step rewrote something later steps read.
+      - name: Working tree unchanged after build
+        run: |
+          changes="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$changes" ]; then
+            echo "$changes"
+            exit 1
+          fi
+
+      - name: Audit production dependencies
+        run: pnpm audit --prod
+
       # The JUnit report names every test and its result, so a flaky or slow
       # test can be identified from the artifact. It is written outside the
       # checkout.
@@ -133,21 +153,3 @@ jobs:
           path: coverage/
           if-no-files-found: ${{ job.status == 'success' && 'error' || 'ignore' }}
           retention-days: 14
-
-      # The build uses its own tsconfig, so typecheck passing does not prove
-      # the packages compile for release.
-      - name: Build
-        run: pnpm build
-
-      # Gate steps may only write ignored output such as dist/. A change to a
-      # tracked or new file means a step rewrote something later steps read.
-      - name: Working tree unchanged after build
-        run: |
-          changes="$(git status --porcelain --untracked-files=all)"
-          if [ -n "$changes" ]; then
-            echo "$changes"
-            exit 1
-          fi
-
-      - name: Audit production dependencies
-        run: pnpm audit --prod

@@ -7,6 +7,8 @@ import globals from 'globals';
 import ts from 'typescript';
 import tseslint from 'typescript-eslint';
 
+import { lintProjects } from './scripts/workspace.ts';
+
 // The year on the copyright line is the year the file was created, so any
 // four digit year is accepted. Everything else must match exactly.
 const HEADER_PATTERNS = [
@@ -207,7 +209,9 @@ export default defineConfig(
       sourceType: 'module',
       globals: { ...globals.node },
       parserOptions: {
-        projectService: true,
+        // An explicit list rather than the nearest tsconfig to each file, so
+        // lint sees the same program as typecheck.
+        project: lintProjects(import.meta.dirname),
         tsconfigRootDir: import.meta.dirname,
       },
     },

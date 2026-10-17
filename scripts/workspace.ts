@@ -174,3 +174,12 @@ export function testProjects(
     },
   }));
 }
+
+// The tsconfig files the type-aware lint uses: the root one and one per
+// member. Given to ESLint as an explicit list, so a tsconfig anywhere else in
+// the tree can never change the types lint sees for a file.
+export function lintProjects(root: string): string[] {
+  const { globs, problems } = readWorkspaceGlobs(root);
+  if (problems.length > 0) throw new Error(problems.join('\n'));
+  return ['./tsconfig.json', ...listMembers(root, globs).map((m) => `./${m.path}/tsconfig.json`)];
+}

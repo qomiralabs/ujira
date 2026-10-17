@@ -277,13 +277,15 @@ function scriptsProblems(manifestDir: string, label: string): string[] {
 // are reported, not followed, so nothing can hide behind one.
 function findManifests(root: string, dir: string, found: string[], problems: string[]): void {
   for (const entry of readdirSync(dir).sort()) {
-    if (SKIPPED_DIRS.has(entry)) continue;
     const path = join(dir, entry);
     const stat = lstatSync(path);
+    // Checked before the skip list: a symlink named dist or node_modules would
+    // otherwise send a build's output, or a tool lookup, somewhere else.
     if (stat.isSymbolicLink()) {
       problems.push(`${relative(root, path)}: symlinks are not allowed in workspace folders`);
       continue;
     }
+    if (SKIPPED_DIRS.has(entry)) continue;
     if (!stat.isDirectory()) continue;
     if (existsSync(join(path, 'package.json'))) found.push(path);
     findManifests(root, path, found, problems);
@@ -294,6 +296,57 @@ export interface CheckOptions {
   // Member paths relative to the root as pnpm sees them. When given, they
   // must match the members the checks find.
   pnpmMembers?: readonly string[];
+  // Paths git tracks as symlinks (mode 120000), relative to the root.
+  trackedSymlinks?: readonly string[];
+}
+
+// Every path the git index records as a symlink. A tracked symlink is a file
+// to git, so an ignored name such as dist does not keep it out of a commit.
+export function trackedSymlinks(root: string): string[] {
+  const out = execFileSync('git', ['ls-files', '-s', '-z'], { cwd: root, encoding: 'utf8' });
+  return out
+    .split('\0')
+    .filter((entry) => entry.startsWith('120000 '))
+    .map((entry) => entry.slice(entry.indexOf('\t') + 1))
+    .sort();
+}
+
+const TSCONFIG_NAME = /^(?:tsconfig.*\.json|jsconfig\.json)$/;
+const FORMATTER_NAME = /^(?:\.prettierrc(?:\..+)?|prettier\.config\..+|\.editorconfig)$/;
+const WALK_SKIPPED = new Set(['.git', ...SKIPPED_DIRS]);
+
+// TypeScript and Prettier both look for their config next to each file and
+// then upward, so a config anywhere in the tree can change what lint sees or
+// how a file is formatted. Only the root files and the two tsconfig files at
+// each member root are allowed.
+function configFileProblems(root: string, memberPaths: readonly string[]): string[] {
+  const allowedTsconfigs = new Set([
+    'tsconfig.json',
+    'tsconfig.base.json',
+    ...memberPaths.flatMap((path) => [`${path}/tsconfig.json`, `${path}/tsconfig.build.json`]),
+  ]);
+  const problems: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir).sort()) {
+      const path = join(dir, entry);
+      const stat = lstatSync(path);
+      if (stat.isDirectory()) {
+        if (!WALK_SKIPPED.has(entry)) walk(path);
+        continue;
+      }
+      const rel = relative(root, path).split(sep).join('/');
+      if (TSCONFIG_NAME.test(entry) && !allowedTsconfigs.has(rel)) {
+        problems.push(
+          `${rel}: only the root tsconfig.json, tsconfig.base.json and the two at each member root are allowed`,
+        );
+      }
+      if (FORMATTER_NAME.test(entry) && rel !== '.prettierrc.json') {
+        problems.push(`${rel}: formatter configuration lives only in the root .prettierrc.json`);
+      }
+    }
+  };
+  walk(root);
+  return problems;
 }
 
 export function checkWorkspace(root: string, options: CheckOptions = {}): string[] {
@@ -361,6 +414,11 @@ export function checkWorkspace(root: string, options: CheckOptions = {}): string
     }
     const label = pkg.name ?? path;
     problems.push(...lifecycleProblems(pkg.scripts ?? {}, label));
+    if (Object.hasOwn(pkg, 'prettier')) {
+      problems.push(
+        `${label}: package.json must not set "prettier"; formatter configuration lives only in the root .prettierrc.json`,
+      );
+    }
     if (usesNext(pkg as Record<string, unknown>, manifestDir)) {
       problems.push(
         `${label}: Next.js apps are not built by the root gate yet; extend scripts/gate.ts first`,
@@ -369,6 +427,21 @@ export function checkWorkspace(root: string, options: CheckOptions = {}): string
     problems.push(...scriptsProblems(manifestDir, label));
     problems.push(...tsconfigProblems(manifestDir, label));
   }
+  for (const path of options.trackedSymlinks ?? []) {
+    if (SCANNED_DIRS.some((dir) => path.startsWith(`${dir}/`))) {
+      problems.push(`${path}: tracked symlinks are not allowed in workspace members`);
+    }
+  }
+  // Package folders that are not members already fail above, so their root
+  // tsconfig files are not reported twice.
+  const packageFolders = SCANNED_DIRS.flatMap((dir) => {
+    const base = join(root, dir);
+    if (!existsSync(base)) return [];
+    return readdirSync(base)
+      .filter((entry) => existsSync(join(base, entry, 'package.json')))
+      .map((entry) => `${dir}/${entry}`);
+  });
+  problems.push(...configFileProblems(root, [...members.map((m) => m.path), ...packageFolders]));
   return problems;
 }
 
@@ -414,7 +487,10 @@ if (import.meta.main) {
   const root = join(import.meta.dirname, '..');
   let problems: string[];
   try {
-    problems = checkWorkspace(root, { pnpmMembers: pnpmMembers(root) });
+    problems = checkWorkspace(root, {
+      pnpmMembers: pnpmMembers(root),
+      trackedSymlinks: trackedSymlinks(root),
+    });
   } catch (error) {
     problems = [error instanceof Error ? error.message : String(error)];
   }

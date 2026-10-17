@@ -12,7 +12,8 @@
 
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { join, relative } from 'node:path';
+import { existsSync, lstatSync, realpathSync } from 'node:fs';
+import { dirname, join, relative, sep } from 'node:path';
 
 import {
   buildOrder,
@@ -34,22 +35,47 @@ export interface Step {
 
 // The exact tsc invocations for a task. Only the project file differs between
 // members; no flag comes from the member.
+// A build that fails must not leave output behind, inside dist or next to a
+// source outside rootDir.
+function buildStep(m: Member): Step {
+  return {
+    label: `${m.name} build`,
+    args: ['-p', join(m.dir, 'tsconfig.build.json'), '--noEmitOnError'],
+  };
+}
+
+// The member's dist, when it exists, must be a real folder inside the member,
+// so the build cannot write through a link into node_modules or elsewhere.
+function distProblem(memberDir: string): string | undefined {
+  const dist = join(memberDir, 'dist');
+  if (!existsSync(dist) && !isLink(dist)) return undefined;
+  const stat = lstatSync(dist);
+  const real = realpathSync(dist);
+  const inside = real.startsWith(realpathSync(memberDir) + sep);
+  return stat.isDirectory() && !stat.isSymbolicLink() && inside
+    ? undefined
+    : 'dist must be a folder inside the member';
+}
+
+function isLink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
 export function plan(task: Task, root: string, members: readonly Member[]): Step[] {
   const ordered = buildOrder(members);
   if (task === 'build') {
-    return ordered.map((m) => ({
-      label: `${m.name} build`,
-      args: ['-p', join(m.dir, 'tsconfig.build.json')],
-    }));
+    return ordered.map(buildStep);
   }
   // Members typecheck against the built output of the members they depend on,
   // so those are built first.
   const names = new Set(members.map((m) => m.name));
   const needed = new Set(members.flatMap((m) => workspaceDependencies(m, names)));
   return [
-    ...ordered
-      .filter((m) => needed.has(m.name))
-      .map((m) => ({ label: `${m.name} build`, args: ['-p', join(m.dir, 'tsconfig.build.json')] })),
+    ...ordered.filter((m) => needed.has(m.name)).map(buildStep),
     { label: 'root typecheck', args: ['-p', join(root, 'tsconfig.json'), '--noEmit'] },
     ...ordered.map((m) => ({
       label: `${m.name} typecheck`,
@@ -76,6 +102,15 @@ export function run(task: Task, root: string, io: Io): number {
     io.out(
       `> tsc ${step.args.map((a) => (a.startsWith(root) ? relative(root, a) : a)).join(' ')}\n`,
     );
+    const project = step.args[1] ?? '';
+    if (project.endsWith('tsconfig.build.json')) {
+      const problem = distProblem(dirname(project));
+      if (problem !== undefined) {
+        failed.push(step.label);
+        io.err(`${step.label.slice(0, -' build'.length)}: ${problem}\n`);
+        break;
+      }
+    }
     if (io.tsc(step.args) !== 0) {
       failed.push(step.label);
       // A failed build leaves later members without the output they need.
