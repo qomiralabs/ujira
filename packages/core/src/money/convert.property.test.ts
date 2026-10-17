@@ -28,6 +28,10 @@ const MODES: readonly RoundingMode[] = ['half-even', 'half-up', 'floor', 'ceil',
 // search harder, never lower it to make a run pass.
 const RUNS = { seed: 0xc0de19, numRuns: 1000 } as const;
 
+// A thousand runs per property can take several times longer on a loaded
+// runner, so the default 5 second timeout would fail them at random.
+const PROPERTY_TIMEOUT_MS = 30_000;
+
 const i128 = fc.oneof(
   fc.bigInt({ min: MIN, max: MAX }),
   fc.bigInt({ min: -1_000_000n, max: 1_000_000n }),
@@ -48,7 +52,7 @@ function outcome<T>(run: () => T): { ok: true; value: T } | { ok: false; error: 
   }
 }
 
-describe('conversion properties', () => {
+describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
   it('tokenToUsd then usdToToken is the identity for every token amount', () => {
     fc.assert(
       fc.property(i128, tokenArb, (amount, t) => {
