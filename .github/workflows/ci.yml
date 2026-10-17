@@ -50,6 +50,11 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # Provenance manifests and XMP packets in images can name the program
+      # that made them and never show up in a text diff.
+      - name: Check embedded metadata
+        run: pnpm metadata:check
+
       - name: Typecheck
         run: pnpm typecheck
 
