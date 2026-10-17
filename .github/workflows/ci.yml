@@ -159,9 +159,11 @@ jobs:
           pnpm audit --prod
 
       # Test files are member code, so the checkout, node_modules included,
-      # is mounted read-only for this step: even the runner user cannot patch
-      # an installed tool or a source file from a test. The JUnit report, the
-      # coverage report and the Vitest cache are written outside the checkout.
+      # is mounted read-only for this step against ordinary writes from a
+      # test. It does not stop a test that uses sudo to remount, or writes to
+      # the pnpm store outside the checkout; those are a known gap tracked
+      # separately. The JUnit report, the coverage report and the Vitest cache
+      # are written outside the checkout.
       # The JUnit report names every test and its result, so a flaky or slow
       # test can be identified from the artifact.
       - name: Test with coverage
@@ -174,7 +176,9 @@ jobs:
           pnpm test --coverage.reportsDirectory="${RUNNER_TEMP}/coverage" --reporter=verbose --reporter=junit --outputFile.junit="${RUNNER_TEMP}/vitest/junit.xml"
 
       # A backstop for the read-only mount: nothing in the checkout, tracked,
-      # untracked or ignored, may change while the tests run.
+      # untracked or ignored, may change while the tests run. It compares
+      # ctime, which touch cannot set back; a privileged writer can still
+      # hide a change, as noted above.
       - name: Working tree and node_modules unchanged after test
         if: ${{ !cancelled() }}
         run: |
@@ -183,7 +187,7 @@ jobs:
             echo "$changes"
             exit 1
           fi
-          newer="$(find . -mindepth 1 -path ./.git -prune -o -newer "${RUNNER_TEMP}/before-test" -print)"
+          newer="$(find . -mindepth 1 -path ./.git -prune -o -cnewer "${RUNNER_TEMP}/before-test" -print)"
           if [ -n "$newer" ]; then
             echo "$newer"
             exit 1

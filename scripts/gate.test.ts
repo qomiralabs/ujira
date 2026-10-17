@@ -486,7 +486,9 @@ describe('gate', () => {
         (step) => step.name === 'Working tree and node_modules unchanged after test',
       );
       expect(check?.run).toContain('git status --porcelain --untracked-files=all');
-      expect(check?.run).toContain('-newer');
+      // ctime, which touch cannot set back, unlike the mtime -newer reads.
+      expect(check?.run).toContain('-cnewer');
+      expect(check?.run).not.toMatch(/ -newer /);
     });
   });
 
