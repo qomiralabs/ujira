@@ -18,7 +18,7 @@ import {
   money,
 } from './index.js';
 import type { Money, MoneyError } from './index.js';
-import { build } from './money.js';
+import { MAX_SCALE, build, powerOfTen } from './money.js';
 
 const MAX = 2n ** 127n - 1n;
 const MIN = -(2n ** 127n);
@@ -220,5 +220,27 @@ describe('allocate reports a negative total before any weight problem', () => {
     const err = thrown(() => allocate(usd(1n), [0n]));
     expect(err).toBeInstanceOf(InvalidAllocationError);
     expect((err as MoneyError).message).not.toBe('cannot allocate a negative total');
+  });
+});
+
+describe('powerOfTen', () => {
+  it('returns 10 to every scale from 0 to MAX_SCALE', () => {
+    let expected = 1n;
+    for (let scale = 0; scale <= MAX_SCALE; scale += 1) {
+      expect(powerOfTen(scale)).toBe(expected);
+      expected *= 10n;
+    }
+  });
+
+  it.each([-1, 19, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'throws InvalidScaleError for %s instead of converting it',
+    (scale) => {
+      expectMoneyError(() => powerOfTen(scale), InvalidScaleError);
+    },
+  );
+
+  it('is not exported from the money index or the package root', () => {
+    expect((moneyIndex as Record<string, unknown>)['powerOfTen']).toBeUndefined();
+    expect((root as Record<string, unknown>)['powerOfTen']).toBeUndefined();
   });
 });

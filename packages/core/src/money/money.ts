@@ -11,6 +11,7 @@ import {
   ScaleMismatchError,
   UnknownCurrencyError,
 } from './errors.js';
+import { isPlainRecord, readOwnField } from './options.js';
 
 // Soroban stores amounts as i128, so anything wider could never settle there.
 export const I128_MIN: bigint = -(2n ** 127n);
@@ -18,6 +19,27 @@ export const I128_MAX: bigint = 2n ** 127n - 1n;
 
 // USDm on Celo uses 18 decimals, the widest token we settle.
 export const MAX_SCALE = 18;
+
+// 10^0 through 10^MAX_SCALE, built from bigint exponents so that no number
+// is ever converted to a bigint.
+const POWERS_OF_TEN: readonly bigint[] = Object.freeze(
+  [0n, 1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n, 9n, 10n, 11n, 12n, 13n, 14n, 15n, 16n, 17n, 18n].map(
+    (exponent) => 10n ** exponent,
+  ),
+);
+
+/**
+ * 10 to the power of a scale, as a bigint. A table lookup rather than
+ * BigInt(scale), so a scale that is not a whole number from 0 to MAX_SCALE
+ * throws instead of being converted.
+ */
+export function powerOfTen(scale: number): bigint {
+  const power = POWERS_OF_TEN[scale];
+  if (power === undefined) {
+    throw new InvalidScaleError(`scale must be an integer from 0 to ${String(MAX_SCALE)}`);
+  }
+  return power;
+}
 
 /** An amount in minor units at `scale`. Build it with `money`, never by hand. */
 export interface Money {
@@ -104,10 +126,12 @@ export function money(amount: bigint | string, currency: CurrencyCode, scale: nu
  */
 export function snapshot(value: Money): Money {
   const candidate: unknown = value;
-  if (typeof candidate !== 'object' || candidate === null) {
-    throw new InvalidAmountError('expected a money value');
+  if (!isPlainRecord(candidate)) {
+    throw new InvalidAmountError('expected a plain money value');
   }
-  const { amount, currency, scale } = candidate as Record<keyof Money, unknown>;
+  const amount = readOwnField(candidate, 'amount');
+  const currency = readOwnField(candidate, 'currency');
+  const scale = readOwnField(candidate, 'scale');
   if (typeof amount !== 'bigint') {
     throw new InvalidAmountError('money amount must be a bigint');
   }
@@ -166,9 +190,11 @@ export function sum(items: readonly Money[]): Money {
     throw new InvalidAmountError('sum expects an array of money values');
   }
   let total: Money | undefined;
-  // for of visits holes as undefined, so they fail validation like null does.
-  for (const item of list as readonly Money[]) {
-    const next = snapshot(item);
+  // A hole is read as missing rather than through Array.prototype, so it
+  // fails validation like null does even if that prototype is polluted.
+  for (const index of list.keys()) {
+    const item: unknown = Object.hasOwn(list, index) ? list[index] : undefined;
+    const next = snapshot(item as Money);
     if (total === undefined) {
       total = next;
       continue;

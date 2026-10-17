@@ -6,7 +6,7 @@ import type { CurrencyCode, FiatCurrencyCode } from './currencies.js';
 import { InvalidFormatOptionError, InvalidLocaleError, UnknownCurrencyError } from './errors.js';
 import { multiply } from './money.js';
 import type { Money } from './money.js';
-import { readOption } from './options.js';
+import { isPlainRecord, readOwnField } from './options.js';
 import { toDecimalString } from './parse.js';
 import { parseRoundingMode, rescale } from './rescale.js';
 import type { RoundingMode } from './rescale.js';
@@ -86,12 +86,12 @@ function readLocale(options: unknown): {
   rounding: unknown;
   currencyCode: unknown;
 } {
-  if (typeof options !== 'object' || options === null) {
+  if (!isPlainRecord(options)) {
     throw new InvalidLocaleError('options with a locale are required');
   }
-  const locale = readOption(options, 'locale');
-  const rounding = readOption(options, 'rounding');
-  const currencyCode = readOption(options, 'currencyCode');
+  const locale = readOwnField(options, 'locale');
+  const rounding = readOwnField(options, 'rounding');
+  const currencyCode = readOwnField(options, 'currencyCode');
   if (typeof locale !== 'string' || locale === '') {
     throw new InvalidLocaleError('locale must be a non empty language tag');
   }
@@ -157,7 +157,7 @@ function typeset(parts: readonly Intl.NumberFormatPart[], symbol: string): strin
  * The result is for display only. Right to left locales can include bidi
  * control marks, so never parse it back, compare it or store it as data.
  * Locales longer than 64 characters throw InvalidLocaleError before Intl is
- * called, and option values inherited from Object.prototype are ignored.
+ * called, and option bags must be plain objects whose values come from their own fields.
  */
 export function formatMoney(
   m: Money,
