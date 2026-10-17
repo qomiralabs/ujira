@@ -99,3 +99,29 @@ describe('toDecimalString stays ASCII for data', () => {
     expect(toDecimalString(money(-123_456_789n, 'EUR', 2))).not.toContain(MINUS);
   });
 });
+
+describe('token amounts keep ASCII digits', () => {
+  // Locales whose default numbering system is not latn. The first case
+  // checks that assumption, so an ICU change cannot make the test vacuous.
+  const NON_LATN = ['ar-EG', 'fa-IR', 'bn-BD', 'mr-IN', 'my-MM', 'ne-NP'];
+
+  it.each(NON_LATN)('%s does not default to latn digits', (locale) => {
+    expect(new Intl.NumberFormat(locale).resolvedOptions().numberingSystem).not.toBe('latn');
+  });
+
+  it.each(NON_LATN)('formats USDC and USDm with ASCII digits only in %s', (locale) => {
+    const cases: [bigint, CurrencyCode, number][] = [
+      [1_234_567n, 'USDC', 6],
+      [12_345_678n, 'USDC', 7],
+      [-1_234_567n, 'USDC', 6],
+      [1_234n * 10n ** 16n, 'USDm', 18],
+    ];
+    for (const [amount, currency, scale] of cases) {
+      const s = formatMoney(money(amount, currency, scale), { locale });
+      // Strip ASCII digits; nothing else in the output may be a digit.
+      expect(s.replace(/[0-9]/g, '')).not.toMatch(/\p{Nd}/u);
+      expect(s).toMatch(/[0-9]/);
+      expect(s.endsWith(`${NBSP}${currency}`)).toBe(true);
+    }
+  });
+});
