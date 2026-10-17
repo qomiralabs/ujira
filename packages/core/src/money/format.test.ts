@@ -344,7 +344,7 @@ describe('currency code for ambiguous dollar signs', () => {
 
   it('appends the code after a negative amount and with any rounding', () => {
     expect(formatMoney(money(-150n, 'USD', 2), { locale: 'en-US', ...ambiguous })).toBe(
-      `−$1.50${NBSP}USD`,
+      `${MINUS}$1.50${NBSP}USD`,
     );
     expect(
       formatMoney(money(1005n, 'MXN', 3), { locale: 'en-US', rounding: 'ceil', ...ambiguous }),
