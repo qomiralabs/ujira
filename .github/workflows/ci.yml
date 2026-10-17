@@ -54,7 +54,13 @@ jobs:
           grep -Fq "\"packageManager\": \"pnpm@${PNPM_VERSION}+sha512." package.json
           bin="$(realpath "$(command -v pnpm)")"
           echo "pnpm resolves to ${bin}"
-          echo "${PNPM_EXE_SHA512}  ${bin}" | sha512sum --check --strict
+          actual="$(sha512sum "${bin}" | cut -d ' ' -f 1)"
+          if [ "${actual}" != "${PNPM_EXE_SHA512}" ]; then
+            echo "pnpm binary hash mismatch: expected ${PNPM_EXE_SHA512}, got ${actual}"
+            ls -l "${bin}"
+            file "${bin}"
+            exit 1
+          fi
           test "$(pnpm --version)" = "${PNPM_VERSION}"
 
       - name: Set up Node.js
