@@ -72,10 +72,13 @@ function parseCurrency(currency: unknown): CurrencyCode {
   return currency;
 }
 
-// Exported for sibling modules such as allocate; the money index does not
-// re-export it, so it is not part of the public API.
+// Exported for sibling modules such as allocate. Lint keeps it inside the
+// money module and the indexes never re-export it. It validates on its own
+// anyway, so a caller in this module cannot mint a value money() would refuse.
 export function build(amount: bigint, currency: CurrencyCode, scale: number): Money {
-  return Object.freeze({ amount: checked(amount), currency, scale });
+  const code = parseCurrency(currency);
+  const normalScale = parseScale(scale);
+  return Object.freeze({ amount: checked(amount), currency: code, scale: normalScale });
 }
 
 export function money(amount: bigint | string, currency: CurrencyCode, scale: number): Money {

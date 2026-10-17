@@ -154,6 +154,26 @@ export default defineConfig(
     },
   },
   {
+    // build and snapshot skip the public factory, so code outside the money
+    // module must go through money() and the operations instead.
+    files: ['packages/**/*.{ts,tsx,mts,cts}', 'apps/**/*.{ts,tsx,mts,cts}'],
+    ignores: ['packages/core/src/money/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/money/money', '**/money/money.js', '**/money/money.ts'],
+              importNames: ['build', 'snapshot'],
+              message: 'build and snapshot are internal to the money module. Use money().',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // Money is integer minor units held in bigint. Anything that can produce a
     // binary float is banned here so a rounding bug cannot get in by accident.
     // Tests are exempt because they feed floats in to prove they are rejected.

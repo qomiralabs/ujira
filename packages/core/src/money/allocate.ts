@@ -24,7 +24,14 @@ function readWeights(weights: readonly bigint[]): bigint[] {
     throw new InvalidAllocationError('weights must be an array');
   }
   const length: unknown = list.length;
-  if (typeof length !== 'number' || length === 0 || length > MAX_ALLOCATION_LEGS) {
+  // A proxy can report any length, so only a whole count in range is
+  // trusted before a single weight is read.
+  if (
+    typeof length !== 'number' ||
+    !Number.isSafeInteger(length) ||
+    length < 1 ||
+    length > MAX_ALLOCATION_LEGS
+  ) {
     throw new InvalidAllocationError(
       `weights must hold 1 to ${String(MAX_ALLOCATION_LEGS)} entries`,
     );
