@@ -85,3 +85,83 @@ describe('left to right output is unchanged', () => {
     );
   });
 });
+
+/**
+ * Runs `run` with parts of Intl.Locale.prototype removed or broken, the way
+ * an engine without text info looks, and puts them back afterwards.
+ */
+function withLocaleApi(
+  changes: { getTextInfo?: 'remove'; textInfo?: 'remove'; maximize?: 'throw' },
+  run: () => void,
+): void {
+  const proto = Intl.Locale.prototype as unknown as Record<string, unknown>;
+  const saved = new Map<string, PropertyDescriptor>();
+  for (const key of ['getTextInfo', 'textInfo', 'maximize']) {
+    const descriptor = Object.getOwnPropertyDescriptor(proto, key);
+    if (descriptor !== undefined) saved.set(key, descriptor);
+  }
+  try {
+    if (changes.getTextInfo === 'remove') delete proto['getTextInfo'];
+    if (changes.textInfo === 'remove') delete proto['textInfo'];
+    if (changes.maximize === 'throw') {
+      Object.defineProperty(proto, 'maximize', {
+        configurable: true,
+        value: () => {
+          throw new RangeError('maximize is unavailable');
+        },
+      });
+    }
+    run();
+  } finally {
+    for (const [key, descriptor] of saved) Object.defineProperty(proto, key, descriptor);
+  }
+}
+
+describe('direction lookup on engines without text info', () => {
+  const amounts = [150_000n, -150_000n];
+  const render = (locale: string): string[] =>
+    amounts.map((amount) => formatMoney(money(amount, 'COP', 2), { locale, ...ambiguous }));
+  const LOCALES = ['ar-EG', 'ur-PK', 'en-US'];
+  // Taken with the full API in place, before any test changes the prototype.
+  const expected = new Map(LOCALES.map((locale) => [locale, render(locale)]));
+
+  it('finds right to left isolates in the baseline for ar-EG and ur-PK only', () => {
+    expect(expected.get('ar-EG')?.every((s) => s.includes(FSI))).toBe(true);
+    expect(expected.get('ur-PK')?.every((s) => s.includes(FSI))).toBe(true);
+    expect(expected.get('en-US')?.some((s) => s.includes(FSI))).toBe(false);
+  });
+
+  it.each(LOCALES)('gives the same output with getTextInfo removed in %s', (locale) => {
+    withLocaleApi({ getTextInfo: 'remove' }, () => {
+      expect(render(locale)).toEqual(expected.get(locale));
+    });
+    // With the script fallback broken as well, only the textInfo accessor can answer.
+    withLocaleApi({ getTextInfo: 'remove', maximize: 'throw' }, () => {
+      expect(render(locale)).toEqual(expected.get(locale));
+    });
+  });
+
+  it.each(LOCALES)(
+    'gives the same output with getTextInfo and textInfo both removed in %s',
+    (locale) => {
+      withLocaleApi({ getTextInfo: 'remove', textInfo: 'remove' }, () => {
+        expect(render(locale)).toEqual(expected.get(locale));
+      });
+    },
+  );
+
+  it('never throws, and falls back to plain left to right output, when nothing is available', () => {
+    withLocaleApi({ getTextInfo: 'remove', textInfo: 'remove', maximize: 'throw' }, () => {
+      for (const locale of LOCALES) {
+        for (const s of render(locale)) expect(s).not.toMatch(/[\u2068\u2069]/);
+      }
+    });
+  });
+
+  it('restores the Intl.Locale API after each case', () => {
+    const proto = Intl.Locale.prototype as unknown as Record<string, unknown>;
+    expect(typeof proto['maximize']).toBe('function');
+    expect(typeof proto['getTextInfo']).toBe('function');
+    expect(Object.getOwnPropertyDescriptor(proto, 'textInfo')).toBeDefined();
+  });
+});
