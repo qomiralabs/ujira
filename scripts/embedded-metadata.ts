@@ -13,7 +13,7 @@
 // the file, so a crafted file cannot stall the check.
 
 import { extname } from 'node:path';
-import { crc32, inflateSync } from 'node:zlib';
+import { crc32, inflateSync, type ZlibOptions } from 'node:zlib';
 
 export type Format = 'svg' | 'png' | 'jpeg' | 'other';
 
@@ -68,6 +68,9 @@ const PNG_MAX_CHUNK_LENGTH = 0x7fffffff;
 // Compressed text chunks are inflated up to this size; anything larger is
 // reported instead of read, so a small chunk cannot exhaust memory.
 const PNG_MAX_INFLATED = 16 * 1024 * 1024;
+// Total inflated text per file, so many chunks just under the cap cannot add
+// up to gigabytes.
+const PNG_MAX_INFLATED_PER_FILE = 64 * 1024 * 1024;
 const PNG_EXTENSIONS = new Set(['.png']);
 
 const JPEG_SOI = 0xd8;
@@ -339,14 +342,43 @@ export function parsePng(data: Buffer): ParsedPng {
   }
 }
 
-function inflateText(chunk: PngChunk, compressed: Buffer): Buffer {
+// What is left of the per file inflation budget while one file is read.
+interface InflateBudget {
+  left: number;
+}
+
+function newBudget(): InflateBudget {
+  return { left: PNG_MAX_INFLATED_PER_FILE };
+}
+
+// With `info: true`, inflateSync also returns the engine, whose bytesWritten
+// is the number of compressed bytes it consumed. The Node typings do not
+// describe that overload.
+const inflateWithInfo = inflateSync as unknown as (
+  data: Buffer,
+  options: ZlibOptions & { info: true },
+) => { buffer: Buffer; engine: { bytesWritten: number } };
+
+function inflateText(chunk: PngChunk, compressed: Buffer, budget: InflateBudget): Buffer {
+  const at = `${chunk.type} chunk at byte ${String(chunk.start)}`;
+  let result;
   try {
-    return inflateSync(compressed, { maxOutputLength: PNG_MAX_INFLATED });
+    result = inflateWithInfo(compressed, { maxOutputLength: PNG_MAX_INFLATED, info: true });
   } catch {
+    throw new MalformedFileError(`${at} does not inflate within ${String(PNG_MAX_INFLATED)} bytes`);
+  }
+  // inflate stops at the end of the first zlib stream and ignores the rest,
+  // so anything after it would never be scanned.
+  if (result.engine.bytesWritten !== compressed.length) {
+    throw new MalformedFileError(`${at} has data after its zlib stream`);
+  }
+  budget.left -= result.buffer.length;
+  if (budget.left < 0) {
     throw new MalformedFileError(
-      `${chunk.type} chunk at byte ${String(chunk.start)} does not inflate within ${String(PNG_MAX_INFLATED)} bytes`,
+      `text chunks inflate past ${String(PNG_MAX_INFLATED_PER_FILE)} bytes in total`,
     );
   }
+  return result.buffer;
 }
 
 interface PngText {
@@ -356,7 +388,7 @@ interface PngText {
 
 // The keyword and the text of a tEXt, zTXt or iTXt chunk, inflated when it is
 // compressed. Undefined for any other chunk.
-function pngText(chunk: PngChunk): PngText | undefined {
+function pngText(chunk: PngChunk, budget: InflateBudget): PngText | undefined {
   if (chunk.type !== 'tEXt' && chunk.type !== 'zTXt' && chunk.type !== 'iTXt') return undefined;
   const at = `${chunk.type} chunk at byte ${String(chunk.start)}`;
   const nul = chunk.data.indexOf(0);
@@ -366,7 +398,7 @@ function pngText(chunk: PngChunk): PngText | undefined {
   if (chunk.type === 'tEXt') return { keyword, text: rest };
   if (chunk.type === 'zTXt') {
     if (rest[0] !== 0) throw new MalformedFileError(`${at} has an unknown compression method`);
-    return { keyword, text: inflateText(chunk, rest.subarray(1)) };
+    return { keyword, text: inflateText(chunk, rest.subarray(1), budget) };
   }
   // iTXt: compression flag, method, language tag, translated keyword, text.
   const language = rest.indexOf(0, 2);
@@ -375,23 +407,37 @@ function pngText(chunk: PngChunk): PngText | undefined {
   const text = rest.subarray(translated + 1);
   if (rest[0] === 0) return { keyword, text };
   if (rest[1] !== 0) throw new MalformedFileError(`${at} has an unknown compression method`);
-  return { keyword, text: inflateText(chunk, text) };
+  return { keyword, text: inflateText(chunk, text, budget) };
 }
 
 // Some converters store profiles as `Raw profile type <name>` text: a name
-// line, a length line, then the profile in hex.
+// line, a length line, then the profile in hex. The header is read line by
+// line rather than with one regular expression, whose overlapping whitespace
+// runs made it quadratic on crafted input.
 function decodeRawProfile(keyword: string, text: Buffer): Buffer | undefined {
   if (!/^Raw profile type /i.test(keyword)) return undefined;
-  const match = /^\s*\S+\s*\n\s*\d+\s*\n([0-9a-f\s]*)$/i.exec(text.toString('latin1'));
-  if (!match) return undefined;
-  const hex = (match[1] ?? '').replace(/\s+/g, '');
-  return hex.length % 2 === 0 ? Buffer.from(hex, 'hex') : undefined;
+  const body = text.toString('latin1');
+  // Blank lines may come before the name line.
+  let start = 0;
+  let nameEnd = body.indexOf('\n');
+  while (nameEnd !== -1 && body.slice(start, nameEnd).trim() === '') {
+    start = nameEnd + 1;
+    nameEnd = body.indexOf('\n', start);
+  }
+  if (nameEnd === -1) return undefined;
+  const lengthEnd = body.indexOf('\n', nameEnd + 1);
+  if (lengthEnd === -1 || !/^\d+$/.test(body.slice(nameEnd + 1, lengthEnd).trim())) {
+    return undefined;
+  }
+  const hex = body.slice(lengthEnd + 1).replace(/\s+/g, '');
+  if (hex.length % 2 !== 0 || !/^[0-9a-f]*$/i.test(hex)) return undefined;
+  return Buffer.from(hex, 'hex');
 }
 
 // Why a PNG chunk must go, or undefined when it is kept.
-function pngChunkFinding(chunk: PngChunk): string | undefined {
+function pngChunkFinding(chunk: PngChunk, budget: InflateBudget): string | undefined {
   if (chunk.type.toLowerCase() === 'cabx') return `PNG ${chunk.type} chunk (C2PA manifest)`;
-  const text = pngText(chunk);
+  const text = pngText(chunk, budget);
   if (!text) return undefined;
   if (text.keyword === PNG_XMP_KEYWORD) return `PNG ${chunk.type} chunk holds an XMP packet`;
   const decoded = decodeRawProfile(text.keyword, text.text);
@@ -404,8 +450,9 @@ function pngChunkFinding(chunk: PngChunk): string | undefined {
 function pngFindings(data: Buffer): string[] {
   const { chunks, end } = parsePng(data);
   const found: string[] = [];
+  const budget = newBudget();
   for (const chunk of chunks) {
-    const finding = pngChunkFinding(chunk);
+    const finding = pngChunkFinding(chunk, budget);
     if (finding && !found.includes(finding)) found.push(finding);
   }
   if (end < data.length) found.push(`PNG has ${String(data.length - end)} bytes after IEND`);
@@ -414,8 +461,9 @@ function pngFindings(data: Buffer): string[] {
 
 function stripPng(data: Buffer): Buffer {
   const { chunks } = parsePng(data);
+  const budget = newBudget();
   const kept = chunks
-    .filter((chunk) => pngChunkFinding(chunk) === undefined)
+    .filter((chunk) => pngChunkFinding(chunk, budget) === undefined)
     .map((chunk) => data.subarray(chunk.start, chunk.end));
   return Buffer.concat([PNG_SIGNATURE, ...kept]);
 }
@@ -602,23 +650,35 @@ export function stripEmbeddedMetadata(path: string, data: Buffer): Buffer {
   return stripped;
 }
 
-// C0 and C1 control characters, plus the quote and backslash used to escape.
+// Format characters (byte order mark, bidirectional controls, zero width
+// characters) and the line and paragraph separators, which can make a name
+// look like another file or break a log line.
+const DECEPTIVE_IN_NAME = /[\p{Cf}\u2028\u2029]/u;
+
+// C0 and C1 control characters, deceptive characters, and the quote and
+// backslash used to escape.
 function isUnsafeInName(character: string): boolean {
   const point = character.codePointAt(0) ?? 0;
   return (
-    point < 0x20 || (point >= 0x7f && point <= 0x9f) || character === '"' || character === '\\'
+    point < 0x20 ||
+    (point >= 0x7f && point <= 0x9f) ||
+    DECEPTIVE_IN_NAME.test(character) ||
+    character === '"' ||
+    character === '\\'
   );
 }
 
 /**
  * A file name safe to print in a log. Names that are valid UTF-8 without
- * control characters are shown as they are; anything else is quoted with
+ * control or deceptive characters are shown as they are; anything else is quoted with
  * every unsafe byte escaped, so a name cannot start a new log line or forge a
  * CI workflow command.
  */
 export function showPath(name: Buffer): string {
   try {
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(name);
+    // ignoreBOM keeps a leading byte order mark in the text so it is escaped
+    // instead of silently dropped.
+    const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(name);
     if (!Array.from(text).some(isUnsafeInName)) return text;
   } catch {
     // Not UTF-8: escaped below.

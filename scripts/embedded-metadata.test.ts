@@ -788,3 +788,96 @@ describe('review: command line', () => {
     expect(readFileSync(target).equals(pngWith(pngChunk('caBX', manifest())))).toBe(true);
   });
 });
+
+describe('review: inflation limits', () => {
+  const MIB = 1024 * 1024;
+
+  it('reports a zTXt chunk that inflates past the per chunk cap', () => {
+    const bomb = xmpZtxt('Comment', Buffer.alloc(16 * MIB + 1, 0x61));
+    const [finding] = findEmbeddedMetadata('icon.png', pngWith(bomb));
+    expect(finding).toBe(
+      'not a valid png: zTXt chunk at byte 33 does not inflate within 16777216 bytes',
+    );
+  });
+
+  it('accepts a zTXt chunk that inflates to exactly the per chunk cap', () => {
+    const data = pngWith(xmpZtxt('Comment', Buffer.alloc(16 * MIB, 0x61)));
+    expect(findEmbeddedMetadata('icon.png', data)).toEqual([]);
+  });
+
+  it('reports a file whose text chunks inflate past the per file budget', () => {
+    const chunk = xmpZtxt('Comment', Buffer.alloc(13 * MIB, 0x61));
+    const data = pngWith(chunk, chunk, chunk, chunk, chunk);
+    expect(findEmbeddedMetadata('icon.png', data)).toEqual([
+      'not a valid png: text chunks inflate past 67108864 bytes in total',
+    ]);
+    expect(() => stripEmbeddedMetadata('icon.png', data)).toThrow('in total');
+    expect(findEmbeddedMetadata('icon.png', pngWith(chunk, chunk, chunk, chunk))).toEqual([]);
+  });
+
+  it.each([
+    ['zTXt', (stream: Buffer) => Buffer.concat([Buffer.from('Comment\0\0', 'latin1'), stream])],
+    [
+      'iTXt',
+      (stream: Buffer) =>
+        Buffer.concat([Buffer.from('Comment\0', 'latin1'), Buffer.from([1, 0, 0, 0]), stream]),
+    ],
+  ])('reports bytes after the zlib stream in %s as not valid', (type, body) => {
+    const stream = Buffer.concat([deflateSync(Buffer.from('ok')), deflateSync(xmpPacket())]);
+    const data = pngWith(pngChunk(type, body(stream)));
+    expect(findEmbeddedMetadata('icon.png', data)).toEqual([
+      `not a valid png: ${type} chunk at byte 33 has data after its zlib stream`,
+    ]);
+    expect(() => stripEmbeddedMetadata('icon.png', data)).toThrow('data after its zlib stream');
+  });
+
+  it('parses a large adversarial raw profile header in linear time', () => {
+    const text = Buffer.from(`a${' \n'.repeat(512 * 1024)}`, 'latin1');
+    const chunk = pngChunk(
+      'tEXt',
+      Buffer.concat([Buffer.from('Raw profile type xmp\0', 'latin1'), text]),
+    );
+    const started = Date.now();
+    expect(findEmbeddedMetadata('icon.png', pngWith(chunk))).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('still decodes a raw profile with padded header lines', () => {
+    const hex = Buffer.from(xmpPacket()).toString('hex');
+    const text = Buffer.from(`\n  xmp  \n   ${String(hex.length / 2)}  \n${hex}\n`, 'latin1');
+    const data = pngWith(
+      pngChunk('tEXt', Buffer.concat([Buffer.from('Raw profile type xmp\0', 'latin1'), text])),
+    );
+    expect(findEmbeddedMetadata('icon.png', data)).toEqual(['PNG tEXt chunk holds an XMP packet']);
+  });
+
+  it.each([
+    ['no name line', '\n'],
+    ['no length line', '\nxmp'],
+    ['a length that is not a number', '\nxmp\nabc\n00'],
+    ['hex of odd length', '\nxmp\n1\n0'],
+    ['text that is not hex', '\nxmp\n1\nzz'],
+  ])('ignores a raw profile with %s', (_name, body) => {
+    const data = pngWith(
+      pngChunk(
+        'tEXt',
+        Buffer.concat([Buffer.from('Raw profile type xmp\0', 'latin1'), Buffer.from(body)]),
+      ),
+    );
+    expect(findEmbeddedMetadata('icon.png', data)).toEqual([]);
+  });
+});
+
+describe('review: deceptive file names', () => {
+  it.each([
+    ['a leading byte order mark', '﻿brand.png', '"\\xef\\xbb\\xbfbrand.png"'],
+    ['a right to left override', 'a‮gnp.svg', '"a\\xe2\\x80\\xaegnp.svg"'],
+    ['a left to right embedding', 'a‪b.png', '"a\\xe2\\x80\\xaab.png"'],
+    ['a first strong isolate', 'a⁨b.png', '"a\\xe2\\x81\\xa8b.png"'],
+    ['a pop directional isolate', 'a⁩b.png', '"a\\xe2\\x81\\xa9b.png"'],
+    ['a line separator', 'a b.png', '"a\\xe2\\x80\\xa8b.png"'],
+    ['a paragraph separator', 'a b.png', '"a\\xe2\\x80\\xa9b.png"'],
+  ])('escapes %s', (_name, name, shown) => {
+    expect(showPath(Buffer.from(name))).toBe(shown);
+  });
+});

@@ -52,7 +52,7 @@ Design tools can embed a signed provenance manifest (C2PA, a JUMBF box) or an XM
 - JPEG: APP11 JUMBF segments of a C2PA manifest (every segment of the box, other APP11 boxes are kept), APP1 XMP segments, including ones between progressive scans, and data after `EOI`.
 - Any other file: a raw or base64 C2PA JUMBF box or an XMP packet.
 
-A PNG or JPEG that cannot be parsed (bad signature, bad chunk CRC, truncated segment, no `EOI`, text that does not inflate) is reported too, and so is a `.png`, `.jpg` or `.jpeg` file that does not start like one. Plain `<metadata>` text, `<title>` and ordinary PNG text chunks are allowed. Every scan is linear in the file size.
+A PNG or JPEG that cannot be parsed (bad signature, bad chunk CRC, truncated segment, no `EOI`, text that does not inflate, data after a zlib stream, a text chunk inflating past 16 MiB or a file's text chunks inflating past 64 MiB in total) is reported too, and so is a `.png`, `.jpg` or `.jpeg` file that does not start like one. Plain `<metadata>` text, `<title>` and ordinary PNG text chunks are allowed. Every scan is linear in the file size.
 
 Before committing brand assets, run `pnpm metadata:strip <file...>`. It parses PNG chunks and JPEG segments and copies everything it keeps byte for byte, so pixel data is never decoded or recompressed, and it removes only the flagged SVG elements and namespace declarations. It writes a file only when the result passes the check, refuses symlinks and anything that is not a regular file, and refuses formats other than SVG, PNG and JPEG. Compressed files such as `.svgz` are not decompressed, so their contents are not checked; commit SVG uncompressed.
 
