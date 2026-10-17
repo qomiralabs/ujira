@@ -171,6 +171,19 @@ describe('chain adapter errors', () => {
     }
   });
 
+  it('refuses options that could not be stored on a job', () => {
+    const bad: object[] = [
+      { network: 'eip155:1' },
+      { landed: 'maybe' },
+      { waitFor: 'tomorrow' },
+      { retryable: 'yes' },
+    ];
+    for (const options of bad) {
+      expect(thrown(() => new RpcTimeoutError('x', options))).toBeInstanceOf(InvalidInputError);
+    }
+    expect(new RpcTimeoutError('x', { network: null, waitFor: null }).waitFor).toBeNull();
+  });
+
   it('serializes to the job form without the message', () => {
     const err = new SponsorDeniedError('principal 1234 over cap', { network: 'stellar:pubnet' });
     expect(err.toJSON()).toEqual({

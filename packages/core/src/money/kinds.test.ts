@@ -73,7 +73,7 @@ describe('the compiler and the runtime keep the kinds apart', () => {
   it('keeps one asset on two chains as two values', () => {
     expect(() => add(celo, stellar)).toThrow(TokenMismatchError);
     const legs: TokenAmount[] = allocate(celo, [1n, 1n]);
-    expect(legs.every((leg) => leg.chain === 'celo')).toBe(true);
+    expect(legs.map((leg) => leg.chain)).toEqual(['celo', 'celo']);
   });
 
   it('lets a priced conversion take either kind as its source', () => {

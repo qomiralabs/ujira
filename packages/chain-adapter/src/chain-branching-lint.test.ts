@@ -37,9 +37,15 @@ const RULE = 'ujira/no-chain-branching';
 
 let eslint: ESLint;
 
-beforeAll(() => {
+// The first typed lint builds the TypeScript program for the whole
+// workspace, which can take longer than one test's timeout under coverage.
+// Doing it here once keeps that cost out of whichever test happens to run
+// first.
+beforeAll(async () => {
   eslint = new ESLint({ cwd: REPO_ROOT });
-});
+  await eslint.lintText(`${HEADER}export {};\n`, { filePath: PAYOUTS_FILE });
+  await eslint.lintText(`${HEADER}export {};\n`, { filePath: ADAPTER_FILE });
+}, 120_000);
 
 async function ruleHits(code: string, filePath: string): Promise<number> {
   const [result] = await eslint.lintText(HEADER + code, { filePath });

@@ -115,7 +115,7 @@ function withChange(
   const keys = dotted.split('.');
   const last = keys.pop();
   if (last === undefined) throw new Error('empty path');
-  let node = doc as Record<string, unknown>;
+  let node = doc;
   for (const key of keys) node = node[key] as Record<string, unknown>;
   if (value === undefined) Reflect.deleteProperty(node, last);
   else node[last] = value;

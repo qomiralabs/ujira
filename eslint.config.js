@@ -190,6 +190,105 @@ const noNumberConversion = {
   },
 };
 
+// Chain SDKs, their subpaths, and ABI files. Only the chain adapter may load
+// them, so every other package stays chain agnostic.
+const CHAIN_SDK_MODULE =
+  /^(?:@stellar\/stellar-sdk|@stellar\/stellar-base|viem|@mento-protocol\/mento-sdk)(?:\/.*)?$/;
+const CHAIN_ABI_MODULE = /(?:^|\/)abis?(?:\/|$)|\.abi(?:\.[cm]?[jt]s|\.json)?$/i;
+// Chain names and the CAIP-2 IDs of the networks UJIRA runs on.
+const CHAIN_LITERAL = /^(?:stellar|celo|stellar:(?:pubnet|testnet)|eip155:(?:42220|11142220))$/;
+const EQUALITY_OPERATORS = new Set(['==', '===', '!=', '!==']);
+
+/** @param {unknown} node @returns {string | undefined} */
+function staticString(node) {
+  const n =
+    /** @type {{ type?: string, value?: unknown, expressions?: unknown[], quasis?: { value: { cooked: string | null } }[] } | null | undefined} */ (
+      node
+    );
+  if (n?.type === 'Literal' && typeof n.value === 'string') return n.value;
+  if (n?.type === 'TemplateLiteral' && n.expressions?.length === 0) {
+    return n.quasis?.[0]?.value.cooked ?? undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Keeps chain knowledge inside the chain adapter: no chain SDK or ABI import
+ * and no branch on a chain or network literal anywhere else. A comparison
+ * against 'stellar' is how a second chain path starts; the adapter interface
+ * is where that difference belongs.
+ * @type {import('eslint').Rule.RuleModule}
+ */
+const noChainBranching = {
+  meta: {
+    type: 'problem',
+    docs: { description: 'Keep chain SDKs and chain comparisons inside the chain adapter' },
+    schema: [],
+    messages: {
+      sdk: 'Chain SDKs and ABIs load only in packages/chain-adapter. Call the adapter instead.',
+      compare:
+        'Branching on a chain or network belongs in packages/chain-adapter. Ask the adapter or the router config instead.',
+    },
+  },
+  create(context) {
+    /** @param {unknown} source @param {unknown} node */
+    const checkModule = (source, node) => {
+      const name = staticString(source);
+      if (name !== undefined && (CHAIN_SDK_MODULE.test(name) || CHAIN_ABI_MODULE.test(name))) {
+        context.report({
+          node: /** @type {import('eslint').Rule.Node} */ (node),
+          messageId: 'sdk',
+        });
+      }
+    };
+    /** @param {unknown} node */
+    const isChainLiteral = (node) => {
+      const value = staticString(node);
+      return value !== undefined && CHAIN_LITERAL.test(value);
+    };
+    // ESLint's own node types stop at ESTree, so the TypeScript only forms are
+    // described here by the fields read.
+    /** @typedef {{ source?: unknown, argument?: { literal?: unknown } }} ImportTypeNode */
+    /** @typedef {{ expression?: unknown }} ExternalModuleNode */
+    return {
+      ImportDeclaration(node) {
+        checkModule(node.source, node);
+      },
+      ExportNamedDeclaration(node) {
+        checkModule(node.source, node);
+      },
+      ExportAllDeclaration(node) {
+        checkModule(node.source, node);
+      },
+      ImportExpression(node) {
+        checkModule(node.source, node);
+      },
+      /** @param {ImportTypeNode} node */
+      TSImportType(node) {
+        checkModule(node.source ?? node.argument?.literal, node);
+      },
+      /** @param {ExternalModuleNode} node */
+      TSExternalModuleReference(node) {
+        checkModule(node.expression, node);
+      },
+      CallExpression(node) {
+        if (node.callee.type === 'Identifier' && node.callee.name === 'require') {
+          checkModule(node.arguments[0], node);
+        }
+      },
+      BinaryExpression(node) {
+        if (!EQUALITY_OPERATORS.has(node.operator)) return;
+        if (isChainLiteral(node.left) || isChainLiteral(node.right)) {
+          context.report({ node, messageId: 'compare' });
+        }
+      },
+      SwitchCase(node) {
+        if (isChainLiteral(node.test)) context.report({ node, messageId: 'compare' });
+      },
+    };
+  },
+};
+
 export default defineConfig(
   {
     // Output folders only where the tools write them, at the root and at each
@@ -237,6 +336,7 @@ export default defineConfig(
           'license-header': licenseHeader,
           'no-number-arithmetic': noNumberArithmetic,
           'no-number-conversion': noNumberConversion,
+          'no-chain-branching': noChainBranching,
         },
       },
     },
@@ -320,6 +420,15 @@ export default defineConfig(
         { object: 'globalThis', property: 'process', message: CREATE_REQUIRE_MESSAGE },
         { object: 'global', property: 'process', message: CREATE_REQUIRE_MESSAGE },
       ],
+    },
+  },
+  {
+    // Only the chain adapter knows which chain it is on. Core, payouts, the
+    // router and every app reach a chain through it.
+    files: ['packages/**/*.{ts,tsx,mts,cts}', 'apps/**/*.{ts,tsx,mts,cts}'],
+    ignores: ['packages/chain-adapter/**'],
+    rules: {
+      'ujira/no-chain-branching': 'error',
     },
   },
   {

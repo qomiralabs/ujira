@@ -42,7 +42,7 @@ import type {
 } from './index.js';
 
 // The top level shapes callers hold. None may be any.
-type ExportedTypes = {
+interface ExportedTypes {
   adapter: ChainAdapter;
   ports: AdapterPorts;
   store: AdapterStore;
@@ -65,7 +65,7 @@ type ExportedTypes = {
   errorJson: ChainAdapterErrorJson;
   submission: SubmissionRecord;
   config: NetworksConfig;
-};
+}
 
 expectTypeOf<ExportedTypes>().not.toBeAny();
 expectTypeOf<

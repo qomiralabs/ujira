@@ -61,9 +61,9 @@ function fakeAdapter(network: NetworkId, overrides: Partial<ChainAdapter> = {}):
 
 // The registry only reads `enabled`, so the rest of each entry is not built.
 function configWith(enabled: Partial<Record<NetworkId, boolean>>): NetworksConfig {
-  return Object.fromEntries(
-    Object.entries(enabled).map(([network, on]) => [network, { enabled: on }]),
-  ) as unknown as NetworksConfig;
+  const config: Record<string, { enabled: boolean }> = {};
+  for (const [network, on] of Object.entries(enabled)) config[network] = { enabled: on };
+  return config;
 }
 
 function thrown(run: () => unknown): unknown {

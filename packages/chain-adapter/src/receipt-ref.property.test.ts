@@ -12,8 +12,8 @@ import { InvalidInputError, NETWORK_IDS, formatReceiptRef, parseReceiptRef } fro
 // Fixed seed so a failure reproduces on every machine.
 const RUNS = { seed: 0x7ec1, numRuns: 200 } as const;
 
-const hex = (length: number) =>
-  fc.string({ unit: fc.constantFrom(...'0123456789abcdef'), minLength: length, maxLength: length });
+const hexDigit = fc.integer({ min: 0, max: 15 }).map((n) => n.toString(16));
+const hex = (length: number) => fc.string({ unit: hexDigit, minLength: length, maxLength: length });
 
 const partsArb = fc.constantFrom(...NETWORK_IDS).chain((network) =>
   fc.record({

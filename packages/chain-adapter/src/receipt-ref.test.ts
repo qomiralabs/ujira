@@ -78,6 +78,9 @@ describe('receipt references', () => {
     ['a trailing colon', `ujira:tx:v1:eip155:42220:${EVM_HASH}:1:`],
     ['whitespace', ` ujira:tx:v1:eip155:42220:${EVM_HASH}:1`],
     ['an empty string', ''],
+    ['a missing network', `ujira:tx:v1:${EVM_HASH}:1`],
+    ['an empty network and hash', 'ujira:tx:v1::1'],
+    ['the prefix alone', 'ujira:tx:v1:'],
   ])('refuses %s', (_label, text) => {
     expect(thrown(() => parseReceiptRef(text))).toBeInstanceOf(InvalidInputError);
   });
@@ -88,6 +91,8 @@ describe('receipt references', () => {
     expect(err).toBeInstanceOf(InvalidInputError);
     expect((err as Error).message.length).toBeLessThan(200);
     expect((err as Error).message).not.toContain('xxxx');
+    // Refused by the length cap, before any splitting or matching.
+    expect((err as Error).message).toContain('too long');
   });
 
   it('refuses non strings and bad parts when formatting', () => {

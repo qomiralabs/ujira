@@ -60,7 +60,7 @@ export default defineConfig({
         'scripts/pnpm-command.ts',
         'scripts/strict-json.ts',
       ],
-      exclude: ['**/*.test.ts', '**/*.d.ts'],
+      exclude: ['**/*.test.ts', '**/*.test-d.ts', '**/*.d.ts'],
       reporter: ['text', 'json-summary', 'lcov'],
       thresholds: {
         lines: 85,
@@ -70,6 +70,14 @@ export default defineConfig({
         // Money and other core primitives sit under every payout, so they
         // carry a stricter bar than the rest of the repo.
         'packages/core/src/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
+        // The chain adapter is the only code that touches a chain, so it
+        // carries the same bar.
+        'packages/chain-adapter/src/**': {
           lines: 95,
           functions: 95,
           branches: 95,
