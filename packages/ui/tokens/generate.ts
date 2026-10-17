@@ -108,8 +108,20 @@ const vizModeSchema = z.strictObject({
   'tooltip-text': colourRef,
 });
 
+// Font family names are written into shipped CSS, so only plain names are
+// accepted: letters and digits in words joined by single spaces or hyphens,
+// at most 64 characters. Quotes, backslashes, punctuation and control
+// characters can never reach the stylesheet.
+const FONT_FAMILY_NAME = /^[A-Za-z0-9]+(?:[ -][A-Za-z0-9]+)*$/;
+
 const fontSchema = z.strictObject({
-  face: z.string().min(1),
+  face: z
+    .string()
+    .max(64, 'font family name is longer than 64 characters')
+    .regex(
+      FONT_FAMILY_NAME,
+      'font family name may only hold letters and digits joined by single spaces or hyphens',
+    ),
   variable: z.string().regex(/^--ujira-font-[a-z0-9-]+$/),
   fallback: z.array(z.string().regex(/^[\w-]+$/)).min(1),
 });
@@ -339,8 +351,24 @@ function paletteDeclarations(tokens: ResolvedTokens): Declaration[] {
   ];
 }
 
+/**
+ * A single quoted CSS string. Quotes, backslashes and every character outside
+ * printable ASCII are written as CSS hex escapes, so the value can never end
+ * the string early, whatever passed validation.
+ */
+export function cssString(value: string): string {
+  let escaped = '';
+  for (const character of value) {
+    const point = character.codePointAt(0) ?? 0;
+    const plain =
+      point >= 0x20 && point < 0x7f && character !== "'" && character !== '"' && character !== '\\';
+    escaped += plain ? character : `\\${point.toString(16)} `;
+  }
+  return `'${escaped}'`;
+}
+
 function fontStack(font: SystemTokens['font']['display']): string {
-  return [`var(${font.variable}, '${font.face}')`, ...font.fallback].join(', ');
+  return [`var(${font.variable}, ${cssString(font.face)})`, ...font.fallback].join(', ');
 }
 
 function block(
