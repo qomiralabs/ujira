@@ -110,7 +110,7 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
         modeArb,
         (amount, currency, from, to, mode) => {
           const m = moneyAt(amount, currency, from);
-          const one = { numerator: 1n, denominator: 1n };
+          const one = { base: currency, quote: currency, numerator: 1n, denominator: 1n };
           const viaRescale = outcome(() => rescale(m, to, mode));
           const viaRate = outcome(() => convertMoney(m, one, { currency, scale: to }, mode));
           expect(viaRate.ok).toBe(viaRescale.ok);
@@ -132,7 +132,7 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
         scaleArb,
         modeArb,
         (amount, low, extra, numerator, denominator, to, mode) => {
-          const rate = { numerator, denominator };
+          const rate = { base: 'USD', quote: 'NGN', numerator, denominator } as const;
           const coarse = moneyAt(amount, 'USD', low);
           const fine = moneyAt(amount * 10n ** BigInt(extra), 'USD', low + extra);
           // Both refuse or both give the same value; large rates can overflow.
@@ -156,12 +156,11 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
         modeArb,
         (micros, numerator, denominator, to, mode) => {
           // micros is the value in millionths of a dollar, exact on every token.
-          const rate = { numerator, denominator };
           const results = SETTLEMENT_TOKENS.map((t) =>
             outcome(() =>
               convertMoney(
                 tokenAmount(micros * 10n ** BigInt(t.tokenScale - 6), t.asset, t.chain),
-                rate,
+                { base: t.asset, quote: 'NGN', numerator, denominator },
                 { currency: 'NGN', scale: to },
                 mode,
               ),
@@ -190,13 +189,18 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
           const m = moneyAt(amount, currency, scale);
           const one = convertMoney(
             m,
-            { numerator: 1n, denominator: 1n },
+            { base: currency, quote: currency, numerator: 1n, denominator: 1n },
             { currency, scale },
             mode,
           );
           expect(one).toEqual(m);
           const r = outcome(() =>
-            convertMoney(m, { numerator, denominator }, { currency, scale }, 'floor'),
+            convertMoney(
+              m,
+              { base: currency, quote: currency, numerator, denominator },
+              { currency, scale },
+              'floor',
+            ),
           );
           // Only the result is bounded, never the product on the way.
           if (!inRange(roundReference(amount * numerator, denominator, 'floor'))) {
@@ -254,7 +258,10 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
             from.kind === 'fiat'
               ? moneyAt(amount, 'USD', from.scale)
               : tokenAmount(amount, from.asset, from.chain);
-          const rate = parseRate(text);
+          const rate = parseRate(text, {
+            base: from.kind === 'fiat' ? 'USD' : from.asset,
+            quote: to.kind === 'fiat' ? 'EUR' : to.asset,
+          });
           const r = outcome(() =>
             to.kind === 'fiat'
               ? convertMoney(src, rate, { currency: 'EUR', scale: to.scale }, mode)
@@ -283,7 +290,8 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
         modeArb,
         (amount, from, to, numerator, denominator, mode) => {
           const source = tokenAmount(amount, from.asset, from.chain);
-          const r = convertToToken(source, { numerator, denominator }, to, mode);
+          const rate = { base: from.asset, quote: to.asset, numerator, denominator };
+          const r = convertToToken(source, rate, to, mode);
           expect(r.asset).toBe(to.asset);
           expect(r.chain).toBe(to.chain);
           expect(r.scale).toBe(to.tokenScale);

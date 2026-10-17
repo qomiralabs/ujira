@@ -76,9 +76,18 @@ describe('the compiler and the runtime keep the kinds apart', () => {
   });
 
   it('lets a priced conversion take either kind as its source', () => {
-    const one = { numerator: 1n, denominator: 1n };
-    const fromToken: Money = convertMoney(celo, one, { currency: 'USD', scale: 6 }, 'trunc');
-    const fromFiat: Money = convertMoney(usd, one, { currency: 'USD' }, 'trunc');
+    const fromToken: Money = convertMoney(
+      celo,
+      { base: 'USDC', quote: 'USD', numerator: 1n, denominator: 1n },
+      { currency: 'USD', scale: 6 },
+      'trunc',
+    );
+    const fromFiat: Money = convertMoney(
+      usd,
+      { base: 'USD', quote: 'USD', numerator: 1n, denominator: 1n },
+      { currency: 'USD' },
+      'trunc',
+    );
     expect(fromToken).toEqual(moneyAt(1_230_000n, 'USD', 6));
     expect(fromFiat).toEqual(usd);
   });
