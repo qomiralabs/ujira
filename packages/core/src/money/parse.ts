@@ -5,7 +5,7 @@ import type { CurrencyCode } from './currencies.js';
 import { InvalidAmountError, InvalidRoundingModeError } from './errors.js';
 import { money, multiply } from './money.js';
 import type { Money } from './money.js';
-import { readOption } from './options.js';
+import { isPlainRecord, readOwnField } from './options.js';
 import { divideRounded, parseRoundingMode } from './rescale.js';
 import type { RoundingMode } from './rescale.js';
 
@@ -18,10 +18,10 @@ const MAX_INPUT_LENGTH = 100;
 
 function readRounding(options: unknown): RoundingMode | undefined {
   if (options === undefined) return undefined;
-  if (typeof options !== 'object' || options === null) {
-    throw new InvalidRoundingModeError('options must be an object');
+  if (!isPlainRecord(options)) {
+    throw new InvalidRoundingModeError('options must be a plain object');
   }
-  const rounding = readOption(options, 'rounding');
+  const rounding = readOwnField(options, 'rounding');
   return rounding === undefined ? undefined : parseRoundingMode(rounding);
 }
 

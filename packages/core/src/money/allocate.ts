@@ -39,7 +39,8 @@ function readWeights(weights: readonly bigint[]): bigint[] {
   const read: bigint[] = [];
   for (const i of LEG_INDICES) {
     if (i >= length) break;
-    const weight: unknown = (list as readonly unknown[])[i];
+    // A hole is missing, never a value inherited from Array.prototype.
+    const weight: unknown = Object.hasOwn(list, i) ? (list as readonly unknown[])[i] : undefined;
     if (typeof weight !== 'bigint' || weight <= 0n) {
       throw new InvalidAllocationError('every weight must be a bigint greater than zero');
     }

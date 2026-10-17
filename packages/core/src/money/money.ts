@@ -11,6 +11,7 @@ import {
   ScaleMismatchError,
   UnknownCurrencyError,
 } from './errors.js';
+import { isPlainRecord, readOwnField } from './options.js';
 
 // Soroban stores amounts as i128, so anything wider could never settle there.
 export const I128_MIN: bigint = -(2n ** 127n);
@@ -104,10 +105,12 @@ export function money(amount: bigint | string, currency: CurrencyCode, scale: nu
  */
 export function snapshot(value: Money): Money {
   const candidate: unknown = value;
-  if (typeof candidate !== 'object' || candidate === null) {
-    throw new InvalidAmountError('expected a money value');
+  if (!isPlainRecord(candidate)) {
+    throw new InvalidAmountError('expected a plain money value');
   }
-  const { amount, currency, scale } = candidate as Record<keyof Money, unknown>;
+  const amount = readOwnField(candidate, 'amount');
+  const currency = readOwnField(candidate, 'currency');
+  const scale = readOwnField(candidate, 'scale');
   if (typeof amount !== 'bigint') {
     throw new InvalidAmountError('money amount must be a bigint');
   }
@@ -166,9 +169,11 @@ export function sum(items: readonly Money[]): Money {
     throw new InvalidAmountError('sum expects an array of money values');
   }
   let total: Money | undefined;
-  // for of visits holes as undefined, so they fail validation like null does.
-  for (const item of list as readonly Money[]) {
-    const next = snapshot(item);
+  // A hole is read as missing rather than through Array.prototype, so it
+  // fails validation like null does even if that prototype is polluted.
+  for (const index of list.keys()) {
+    const item: unknown = Object.hasOwn(list, index) ? list[index] : undefined;
+    const next = snapshot(item as Money);
     if (total === undefined) {
       total = next;
       continue;
