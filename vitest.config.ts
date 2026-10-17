@@ -9,17 +9,19 @@ import { defineConfig } from 'vitest/config';
 
 import { testProjects } from './scripts/workspace.ts';
 
+// Outside node_modules and the checkout, so the test step can run on a
+// read-only checkout. One folder per checkout path keeps worktrees apart.
+const hash = createHash('sha256')
+  .update(import.meta.dirname)
+  .digest('hex')
+  .slice(0, 12);
+const CACHE_DIR = join(tmpdir(), `ujira-vitest-${hash}`);
+
 export default defineConfig({
-  // Outside node_modules and the checkout, so the test step can run on a
-  // read-only checkout. One folder per checkout path keeps worktrees apart.
-  cacheDir: join(
-    tmpdir(),
-    `ujira-vitest-${createHash('sha256')
-      .update(import.meta.dirname)
-      .digest('hex')
-      .slice(0, 12)}`,
-  ),
+  cacheDir: CACHE_DIR,
   test: {
+    // Transformed modules, by default node_modules/.vitest-cache.
+    fsModuleCachePath: join(CACHE_DIR, 'modules'),
     // Member projects are defined here rather than loaded from each member's
     // vitest.config, so code in a member cannot change what this run checks.
     projects: [
