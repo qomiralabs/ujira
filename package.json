@@ -15,7 +15,8 @@
     "test": "vitest run --coverage",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "licenses:check": "node scripts/check-licenses.ts"
+    "licenses:check": "node scripts/check-licenses.ts",
+    "invisible:check": "node scripts/check-invisible-characters.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

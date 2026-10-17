@@ -57,6 +57,11 @@ jobs:
           pnpm licenses:check
           git diff --exit-code THIRD_PARTY_NOTICES.md
 
+      # Literal bidirectional controls and invisible characters can make code
+      # read differently from how it runs.
+      - name: Check invisible characters
+        run: pnpm invisible:check
+
       - name: Typecheck
         run: pnpm typecheck
 
