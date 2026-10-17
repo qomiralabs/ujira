@@ -2,7 +2,7 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 import { InvalidRoundingModeError } from './errors.js';
-import { money, multiply } from './money.js';
+import { money, multiply, powerOfTen } from './money.js';
 import type { Money } from './money.js';
 
 /**
@@ -60,9 +60,10 @@ export function rescale(m: Money, toScale: number, rounding: RoundingMode): Mone
   const value = multiply(m, 1n);
   const target = money(0n, value.currency, toScale).scale;
   const mode = parseRoundingMode(rounding);
-  const shift = BigInt(target) - BigInt(value.scale);
-  if (shift >= 0n) {
-    return money(value.amount * 10n ** shift, value.currency, target);
+  const from = powerOfTen(value.scale);
+  const to = powerOfTen(target);
+  if (target >= value.scale) {
+    return money(value.amount * (to / from), value.currency, target);
   }
-  return money(divideRounded(value.amount, 10n ** -shift, mode), value.currency, target);
+  return money(divideRounded(value.amount, from / to, mode), value.currency, target);
 }

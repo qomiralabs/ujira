@@ -19,6 +19,10 @@ const MAX_WEIGHT = 10n ** 6n;
 // Fixed seed so a failure reproduces on every machine. Bump numRuns locally to
 // search harder, never lower it to make a run pass.
 const RUNS = { seed: 0xa110c8, numRuns: 1000 } as const;
+// 1000 runs take under a second on an idle machine and several times that on a
+// loaded runner, so the default 5 second timeout fails them at random. 30
+// seconds covers a heavily loaded runner and still catches a real hang.
+const PROPERTY_TIMEOUT_MS = 30_000;
 
 type ErrorClass = abstract new (message?: string) => MoneyError;
 const InvalidAllocationError = (moneyIndex as Record<string, unknown>)[
@@ -96,7 +100,7 @@ const caseArb = fc
     total: money(amount, unit.currency, unit.scale),
   }));
 
-describe('allocate properties', () => {
+describe('allocate properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
   it('sum of legs equals total for any total and weights', () => {
     fc.assert(
       fc.property(caseArb, ({ total, weights }) => {

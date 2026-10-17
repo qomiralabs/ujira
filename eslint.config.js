@@ -55,6 +55,46 @@ const MONEY_INTERNALS_PATH = new RegExp(MONEY_INTERNALS_SELECTOR, 'i');
 const CREATE_REQUIRE_MESSAGE =
   'createRequire loads modules by path past the import fence. Use a static import.';
 
+const RUNTIME_LOADERS_MESSAGE =
+  'node:module, vm and worker_threads load or run code past every lint rule. Use a static import.';
+// node:module, vm and worker_threads, with or without the node: prefix.
+const RUNTIME_LOADERS_SELECTOR = String.raw`^(node:)?(module|vm|worker_threads)$`;
+
+/**
+ * Returns a predicate telling whether an ESTree node has a number type,
+ * including unions, intersections and generics constrained to number.
+ * Throws when the file was parsed without type information, because a rule
+ * that silently passes then would let every float through.
+ * @param {import('eslint').Rule.RuleContext} context
+ * @param {string} ruleName
+ * @returns {(node: unknown) => boolean}
+ */
+function numberTypeOracle(context, ruleName) {
+  /** @type {unknown} */
+  const rawServices = context.sourceCode.parserServices;
+  const services =
+    /** @type {{ program?: ts.Program | null, esTreeNodeToTSNodeMap?: { get(node: unknown): ts.Node } } | undefined} */ (
+      rawServices
+    );
+  const program = services?.program;
+  const nodeMap = services?.esTreeNodeToTSNodeMap;
+  if (!program || !nodeMap) {
+    throw new Error(`${ruleName} needs type information`);
+  }
+  const checker = program.getTypeChecker();
+
+  /** @param {ts.Type} type @returns {boolean} */
+  const involvesNumber = (type) => {
+    const resolved = checker.getBaseConstraintOfType(type) ?? type;
+    // A branded number such as `number & { brand: 'cents' }` is still a number.
+    if (resolved.isUnion() || resolved.isIntersection()) {
+      return resolved.types.some(involvesNumber);
+    }
+    return (resolved.flags & ts.TypeFlags.NumberLike) !== 0;
+  };
+  return (node) => involvesNumber(checker.getTypeAtLocation(nodeMap.get(node)));
+}
+
 const ARITHMETIC_OPERATORS = new Set(['+', '-', '*', '/', '%', '**']);
 const COMPOUND_OPERATORS = new Set(['+=', '-=', '*=', '/=', '%=', '**=']);
 
@@ -74,31 +114,7 @@ const noNumberArithmetic = {
     },
   },
   create(context) {
-    /** @type {unknown} */
-    const rawServices = context.sourceCode.parserServices;
-    const services =
-      /** @type {{ program?: ts.Program | null, esTreeNodeToTSNodeMap?: { get(node: unknown): ts.Node } } | undefined} */ (
-        rawServices
-      );
-    const program = services?.program;
-    const nodeMap = services?.esTreeNodeToTSNodeMap;
-    if (!program || !nodeMap) {
-      // Silently passing without types would let every float through.
-      throw new Error('ujira/no-number-arithmetic needs type information');
-    }
-    const checker = program.getTypeChecker();
-
-    /** @param {ts.Type} type @returns {boolean} */
-    const involvesNumber = (type) => {
-      const resolved = checker.getBaseConstraintOfType(type) ?? type;
-      // A branded number such as `number & { brand: 'cents' }` is still a number.
-      if (resolved.isUnion() || resolved.isIntersection()) {
-        return resolved.types.some(involvesNumber);
-      }
-      return (resolved.flags & ts.TypeFlags.NumberLike) !== 0;
-    };
-    /** @param {unknown} node @returns {boolean} */
-    const isNumber = (node) => involvesNumber(checker.getTypeAtLocation(nodeMap.get(node)));
+    const isNumber = numberTypeOracle(context, 'ujira/no-number-arithmetic');
 
     return {
       BinaryExpression(node) {
@@ -122,6 +138,51 @@ const noNumberArithmetic = {
           return;
         }
         if (isNumber(arg)) context.report({ node, messageId: 'number' });
+      },
+    };
+  },
+};
+
+const FORMAT_METHODS = new Set(['format', 'formatToParts', 'formatRange', 'formatRangeToParts']);
+
+/**
+ * BigInt(n) of a number is only exact when n already is, and Intl rounds a
+ * number argument through a binary float before it formats. A string or a
+ * bigint argument is exact, so only number typed arguments are reported.
+ * @type {import('eslint').Rule.RuleModule}
+ */
+const noNumberConversion = {
+  meta: {
+    type: 'problem',
+    docs: { description: 'Disallow BigInt of a number and formatting a number' },
+    schema: [],
+    messages: {
+      bigint: 'BigInt of a number is only as exact as the number. Parse from a string instead.',
+      format: 'Formatting a number rounds through a float. Pass an exact decimal string.',
+    },
+  },
+  create(context) {
+    const isNumber = numberTypeOracle(context, 'ujira/no-number-conversion');
+    return {
+      CallExpression(node) {
+        const { callee } = node;
+        const args = node.arguments.filter((arg) => arg.type !== 'SpreadElement');
+        if (callee.type === 'Identifier' && callee.name === 'BigInt') {
+          const [first] = args;
+          if (first !== undefined && isNumber(first)) {
+            context.report({ node, messageId: 'bigint' });
+          }
+          return;
+        }
+        if (
+          callee.type === 'MemberExpression' &&
+          !callee.computed &&
+          callee.property.type === 'Identifier' &&
+          FORMAT_METHODS.has(callee.property.name) &&
+          args.some((arg) => isNumber(arg))
+        ) {
+          context.report({ node, messageId: 'format' });
+        }
       },
     };
   },
@@ -152,7 +213,11 @@ export default defineConfig(
     },
     plugins: {
       ujira: {
-        rules: { 'license-header': licenseHeader, 'no-number-arithmetic': noNumberArithmetic },
+        rules: {
+          'license-header': licenseHeader,
+          'no-number-arithmetic': noNumberArithmetic,
+          'no-number-conversion': noNumberConversion,
+        },
       },
     },
     rules: {
@@ -160,6 +225,9 @@ export default defineConfig(
       '@typescript-eslint/consistent-type-imports': 'error',
       '@typescript-eslint/no-import-type-side-effects': 'error',
       'no-console': 'warn',
+      // eval runs code that no rule here can see, in any file.
+      'no-eval': ['error', { allowIndirect: false }],
+      'no-implied-eval': 'error',
     },
   },
   {
@@ -167,6 +235,9 @@ export default defineConfig(
     // module must go through money() and the operations instead.
     files: ['packages/**/*.{ts,tsx,mts,cts}', 'apps/**/*.{ts,tsx,mts,cts}'],
     ignores: ['packages/core/src/money/**'],
+    // A disable comment would switch the fence off for one line without
+    // review, so inline config has no effect in fenced source.
+    linterOptions: { noInlineConfig: true },
     rules: {
       'no-restricted-imports': [
         'error',
@@ -176,6 +247,10 @@ export default defineConfig(
           paths: [
             { name: 'node:module', message: CREATE_REQUIRE_MESSAGE },
             { name: 'module', message: CREATE_REQUIRE_MESSAGE },
+            { name: 'node:vm', message: RUNTIME_LOADERS_MESSAGE },
+            { name: 'vm', message: RUNTIME_LOADERS_MESSAGE },
+            { name: 'node:worker_threads', message: RUNTIME_LOADERS_MESSAGE },
+            { name: 'worker_threads', message: RUNTIME_LOADERS_MESSAGE },
           ],
           patterns: [
             {
@@ -194,9 +269,16 @@ export default defineConfig(
             'A dynamic import of money.ts exposes build and snapshot. Import money() statically.',
         },
         {
-          // A computed path cannot be checked against the fence at all.
+          // A computed path cannot be checked against the fence at all. This
+          // applies to every fenced file, so a future app loading messages by
+          // locale with a template path will need a static map instead.
           selector: 'ImportExpression[source.type!="Literal"]',
           message: 'Dynamic imports need a plain string path so the import fence can check them.',
+        },
+        {
+          // The paths option above only sees static imports.
+          selector: `ImportExpression[source.value=/${RUNTIME_LOADERS_SELECTOR}/]`,
+          message: RUNTIME_LOADERS_MESSAGE,
         },
       ],
       'no-restricted-properties': [
@@ -206,6 +288,9 @@ export default defineConfig(
           property: 'getBuiltinModule',
           message: CREATE_REQUIRE_MESSAGE,
         },
+        // Reaching process through the global object would skip the entry above.
+        { object: 'globalThis', property: 'process', message: CREATE_REQUIRE_MESSAGE },
+        { object: 'global', property: 'process', message: CREATE_REQUIRE_MESSAGE },
       ],
     },
   },
@@ -220,8 +305,12 @@ export default defineConfig(
     linterOptions: { noInlineConfig: true },
     rules: {
       'ujira/no-number-arithmetic': 'error',
+      'ujira/no-number-conversion': 'error',
       // eval and its relatives run code no rule here can see, so a float
-      // computation hidden in a string would pass every other check.
+      // computation hidden in a string would pass every other check. The
+      // eval bans are layered on purpose: no-eval, the eval global, the
+      // globalThis and global properties and no-implied-eval each close a
+      // different spelling. Do not remove one as a duplicate of another.
       'no-eval': ['error', { allowIndirect: false }],
       'no-implied-eval': 'error',
       'no-restricted-globals': [
@@ -235,6 +324,12 @@ export default defineConfig(
         { name: 'Float64Array', message: 'Float arrays hold floats. Use bigint.' },
         { name: 'DataView', message: 'DataView reads floats from bytes. Use bigint.' },
         { name: 'performance', message: 'performance.now returns a float.' },
+        { name: 'Atomics', message: 'Atomics reads typed arrays, floats included. Use bigint.' },
+        { name: 'Float16Array', message: 'Float arrays hold floats. Use bigint.' },
+        // The global object reaches every banned global by name, through an
+        // alias, a computed key or nesting such as globalThis.global.Math.
+        { name: 'globalThis', message: 'The global object reaches banned globals by name.' },
+        { name: 'global', message: 'The global object reaches banned globals by name.' },
       ],
       'no-restricted-properties': [
         'error',
@@ -318,6 +413,36 @@ export default defineConfig(
           property: 'MAX_VALUE',
           message: 'Number.MAX_VALUE is past the safe integer range.',
         },
+        ...['call', 'apply', 'bind'].map((property) => ({
+          object: 'Number',
+          property,
+          message: 'Number converts to a float however it is called. Keep amounts as bigint.',
+        })),
+        ...['asIntN', 'asUintN'].map((property) => ({
+          object: 'BigInt',
+          property,
+          message: 'BigInt wrapping silently changes the amount. Check the range instead.',
+        })),
+        ...[
+          'readDoubleLE',
+          'readDoubleBE',
+          'readFloatLE',
+          'readFloatBE',
+          'writeDoubleLE',
+          'writeDoubleBE',
+          'writeFloatLE',
+          'writeFloatBE',
+          'getFloat16',
+          'getFloat32',
+          'getFloat64',
+          'setFloat16',
+          'setFloat32',
+          'setFloat64',
+        ].map((property) => ({ property, message: 'Float reads and writes on bytes are floats.' })),
+        {
+          property: 'toLocaleString',
+          message: 'toLocaleString formats through a number. Use formatMoney.',
+        },
         {
           object: 'JSON',
           property: 'parse',
@@ -343,7 +468,7 @@ export default defineConfig(
           // Catches aliasing such as `const N = Number`; member access like
           // Number.isSafeInteger stays allowed.
           selector:
-            'Identifier[name="Number"]:not(MemberExpression > Identifier.object):not(MemberExpression[computed=false] > Identifier.property):not(CallExpression > Identifier.callee):not(NewExpression > Identifier.callee)',
+            'Identifier[name="Number"]:not(MemberExpression > Identifier.object):not(MemberExpression[computed=false] > Identifier.property):not(CallExpression > Identifier.callee):not(NewExpression > Identifier.callee):not(Property[computed=false][shorthand=false] > Identifier.key):not(PropertyDefinition[computed=false] > Identifier.key):not(MethodDefinition[computed=false] > Identifier.key):not(TSPropertySignature[computed=false] > Identifier.key):not(TSMethodSignature[computed=false] > Identifier.key)',
           message: 'Number used as a value converts to a float. Keep amounts as bigint.',
         },
         {
@@ -358,6 +483,16 @@ export default defineConfig(
         {
           selector: 'Literal[raw=/^[0-9_]+[eE][-][0-9_]+$/]',
           message: 'Negative exponent literals are floats. Use bigint minor units.',
+        },
+        {
+          // 1e21 and up print in exponent form and lose integer precision.
+          selector: 'Literal[raw=/^[0-9_]+[eE][+]?[0-9_]+$/]',
+          message: 'Exponent literals are floats past 2^53. Use bigint minor units.',
+        },
+        {
+          // Static, dynamic and re-export forms of the runtime loaders.
+          selector: `:matches(ImportDeclaration, ImportExpression, ExportAllDeclaration, ExportNamedDeclaration)[source.value=/${RUNTIME_LOADERS_SELECTOR}/]`,
+          message: RUNTIME_LOADERS_MESSAGE,
         },
       ],
     },
