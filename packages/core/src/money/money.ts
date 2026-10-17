@@ -20,6 +20,27 @@ export const I128_MAX: bigint = 2n ** 127n - 1n;
 // USDm on Celo uses 18 decimals, the widest token we settle.
 export const MAX_SCALE = 18;
 
+// 10^0 through 10^MAX_SCALE, built from bigint exponents so that no number
+// is ever converted to a bigint.
+const POWERS_OF_TEN: readonly bigint[] = Object.freeze(
+  [0n, 1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n, 9n, 10n, 11n, 12n, 13n, 14n, 15n, 16n, 17n, 18n].map(
+    (exponent) => 10n ** exponent,
+  ),
+);
+
+/**
+ * 10 to the power of a scale, as a bigint. A table lookup rather than
+ * BigInt(scale), so a scale that is not a whole number from 0 to MAX_SCALE
+ * throws instead of being converted.
+ */
+export function powerOfTen(scale: number): bigint {
+  const power = POWERS_OF_TEN[scale];
+  if (power === undefined) {
+    throw new InvalidScaleError(`scale must be an integer from 0 to ${String(MAX_SCALE)}`);
+  }
+  return power;
+}
+
 /** An amount in minor units at `scale`. Build it with `money`, never by hand. */
 export interface Money {
   readonly amount: bigint;

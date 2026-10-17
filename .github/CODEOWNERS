@@ -1,0 +1,3 @@
+# Every amount UJIRA moves passes through the money module, so changes there
+# need review from its owner.
+/packages/core/src/money/ @Divine572
