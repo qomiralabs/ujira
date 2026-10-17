@@ -8,8 +8,8 @@ import { describe, expect, it } from 'vitest';
 
 import { allocate } from './allocate.js';
 import * as moneyIndex from './index.js';
-import { MoneyOverflowError, money } from './index.js';
-import type { CurrencyCode, MoneyError } from './index.js';
+import { MoneyOverflowError, SETTLEMENT_TOKENS, money, moneyAt, tokenAmount } from './index.js';
+import type { Chain, FiatCurrencyCode, Money, MoneyError, TokenAsset } from './index.js';
 
 const MAX = 2n ** 127n - 1n;
 const MIN = -(2n ** 127n);
@@ -25,7 +25,7 @@ const InvalidAllocationError = (moneyIndex as Record<string, unknown>)[
   'InvalidAllocationError'
 ] as ErrorClass;
 
-const CODES: CurrencyCode[] = [
+const CODES: FiatCurrencyCode[] = [
   'USD',
   'NGN',
   'KES',
@@ -38,8 +38,6 @@ const CODES: CurrencyCode[] = [
   'MXN',
   'EUR',
   'GBP',
-  'USDC',
-  'USDm',
 ];
 
 function thrown(run: () => unknown): unknown {
@@ -60,10 +58,33 @@ function at<T>(xs: readonly T[], i: number): T {
   return x;
 }
 
-const unitArb = fc.record({
-  currency: fc.constantFrom(...CODES),
-  scale: fc.integer({ min: 0, max: 18 }),
-});
+// Totals are fiat at a scale from the minor unit (2) to 18, or a token on a
+// chain at its decimals, so every property covers both kinds of legs.
+type Unit =
+  | { kind: 'fiat'; currency: FiatCurrencyCode; scale: number }
+  | { kind: 'token'; asset: TokenAsset; chain: Chain; scale: number };
+
+const unitArb: fc.Arbitrary<Unit> = fc.oneof(
+  fc.record({
+    kind: fc.constant('fiat' as const),
+    currency: fc.constantFrom(...CODES),
+    scale: fc.integer({ min: 2, max: 18 }),
+  }),
+  fc
+    .constantFrom(...SETTLEMENT_TOKENS)
+    .map((t) => ({ kind: 'token' as const, asset: t.asset, chain: t.chain, scale: t.tokenScale })),
+);
+
+// allocate has one overload per kind; the Money one carries both here so a
+// single property can run over fiat and token totals alike.
+const make = (amount: bigint, unit: Unit): Money =>
+  unit.kind === 'fiat'
+    ? moneyAt(amount, unit.currency, unit.scale)
+    : (tokenAmount(amount, unit.asset, unit.chain) as unknown as Money);
+
+/** Every field of a value except the amount. */
+const unitOf = (value: object): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'amount'));
 
 const weightArb = fc.oneof(
   fc.bigInt({ min: 1n, max: MAX_WEIGHT }),
@@ -93,7 +114,7 @@ const caseArb = fc
   })
   .map(({ weights, unit, amount }) => ({
     weights,
-    total: money(amount, unit.currency, unit.scale),
+    total: make(amount, unit),
   }));
 
 describe('allocate properties', () => {
@@ -175,14 +196,13 @@ describe('allocate properties', () => {
     );
   });
 
-  it("every leg has the total's currency and scale", () => {
+  it("every leg has the total's currency and scale, or asset and chain", () => {
     fc.assert(
       fc.property(caseArb, ({ total, weights }) => {
         for (const leg of allocate(total, weights)) {
-          expect(leg.currency).toBe(total.currency);
-          expect(leg.scale).toBe(total.scale);
+          expect(unitOf(leg)).toEqual(unitOf(total));
           expect(Object.isFrozen(leg)).toBe(true);
-          expect(Object.keys(leg).sort()).toEqual(['amount', 'currency', 'scale']);
+          expect(Object.keys(leg).sort()).toEqual(Object.keys(total).sort());
           expect(typeof leg.amount).toBe('bigint');
         }
       }),
@@ -196,10 +216,7 @@ describe('allocate properties', () => {
         const before = [...weights];
         const first = allocate(total, weights);
         const second = allocate(total, [...weights]);
-        const third = allocate(
-          money(total.amount, total.currency, total.scale),
-          Object.freeze([...weights]),
-        );
+        const third = allocate({ ...total }, Object.freeze([...weights]));
         expect(second).toEqual(first);
         expect(third).toEqual(first);
         expect(weights).toEqual(before);
@@ -218,7 +235,7 @@ describe('allocate properties', () => {
       });
     fc.assert(
       fc.property(scaledArb, ({ weights, k, amount }) => {
-        const total = money(amount, 'USD', 2);
+        const total = money(amount, 'USD');
         const plain = allocate(total, weights);
         const scaled = allocate(
           total,
@@ -237,7 +254,7 @@ describe('allocate properties', () => {
         fc.oneof(fc.bigInt({ min: 1n, max: MAX }), fc.constantFrom(1n, MAX)),
         unitArb,
         (amount, weight, unit) => {
-          const total = money(amount, unit.currency, unit.scale);
+          const total = make(amount, unit);
           expect(allocate(total, [weight])).toEqual([total]);
         },
       ),
@@ -262,7 +279,7 @@ describe('allocate properties', () => {
         wideTotal,
         fc.array(wideWeight, { minLength: 1, maxLength: MAX_LEGS }),
         (amount, weights) => {
-          const total = money(amount, 'USDC', 6);
+          const total = tokenAmount(amount, 'USDC', 'celo');
           const overflows = sumOf(weights) > MAX || weights.slice(1).some((x) => amount * x > MAX);
           const err = thrown(() => {
             const legs = allocate(total, weights);
@@ -287,7 +304,7 @@ describe('allocate properties', () => {
         weightsArb,
         (amount, weights) => {
           expect(InvalidAllocationError).toBeTypeOf('function');
-          expect(thrown(() => allocate(money(amount, 'USD', 2), weights))).toBeInstanceOf(
+          expect(thrown(() => allocate(money(amount, 'USD'), weights))).toBeInstanceOf(
             InvalidAllocationError,
           );
         },
@@ -322,7 +339,7 @@ describe('allocate properties', () => {
     fc.assert(
       fc.property(fc.bigInt({ min: 0n, max: MAX }), listArb, (amount, list) => {
         expect(InvalidAllocationError).toBeTypeOf('function');
-        const err = thrown(() => allocate(money(amount, 'NGN', 2), list as readonly bigint[]));
+        const err = thrown(() => allocate(money(amount, 'NGN'), list as readonly bigint[]));
         expect(err).toBeInstanceOf(InvalidAllocationError);
       }),
       RUNS,

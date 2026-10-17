@@ -32,8 +32,10 @@ import {
   InvalidAmountError,
   InvalidScaleError,
   MoneyError,
+  KindMismatchError,
   MoneyOverflowError,
   ScaleMismatchError,
+  TokenMismatchError,
   UnknownCurrencyError,
   add,
   compare,
@@ -41,12 +43,14 @@ import {
   isNegative,
   isZero,
   money,
+  moneyAt,
   multiply,
   negate,
   subtract,
   sum,
+  tokenAmount,
 } from './index.js';
-import type { CurrencyCode, Money } from './index.js';
+import type { FiatCurrencyCode, Money, TokenAmount } from './index.js';
 
 const MAX = 2n ** 127n - 1n;
 const MIN = -(2n ** 127n);
@@ -66,11 +70,9 @@ const CODES: readonly string[] = [
   'MXN',
   'EUR',
   'GBP',
-  'USDC',
-  'USDm',
 ];
 
-const usd = (amount: bigint): Money => money(amount, 'USD', 2);
+const usd = (amount: bigint): Money => money(amount, 'USD');
 
 // Hands the operations values the type system would refuse.
 function forge(value: unknown): Money {
@@ -100,22 +102,32 @@ function expectValidMoney(value: Money): void {
   expect(value.amount >= MIN && value.amount <= MAX).toBe(true);
   expect(CODES.includes(value.currency)).toBe(true);
   expect(Number.isSafeInteger(value.scale)).toBe(true);
-  expect(value.scale >= 0 && value.scale <= 18).toBe(true);
+  expect(value.scale >= 2 && value.scale <= 18).toBe(true);
 }
 
 /**
  * An operand whose fields answer from a list, one entry per read, sticking on
  * the last entry. Reads are counted per field.
  */
-function sequenced(fields: { amount: unknown[]; currency: unknown[]; scale: unknown[] }): {
+function sequenced(fields: {
+  kind?: 'fiat';
+  amount: unknown[];
+  currency: unknown[];
+  scale: unknown[];
+}): {
   value: Money;
-  reads: { amount: number; currency: number; scale: number };
+  reads: { kind: number; amount: number; currency: number; scale: number };
 } {
-  const reads = { amount: 0, currency: 0, scale: 0 };
+  const reads = { kind: 0, amount: 0, currency: 0, scale: 0 };
   const value = new Proxy(
     {},
     {
       get(_target, key) {
+        // Every operand says it is fiat; only the other fields vary per read.
+        if (key === 'kind') {
+          reads.kind += 1;
+          return 'fiat';
+        }
         if (key === 'amount' || key === 'currency' || key === 'scale') {
           reads[key] += 1;
           const list = fields[key];
@@ -128,64 +140,65 @@ function sequenced(fields: { amount: unknown[]; currency: unknown[]; scale: unkn
   return { value: forge(value), reads };
 }
 
-const expectReadOnce = (reads: { amount: number; currency: number; scale: number }): void => {
-  expect(reads.amount).toBeLessThanOrEqual(1);
-  expect(reads.currency).toBeLessThanOrEqual(1);
-  expect(reads.scale).toBeLessThanOrEqual(1);
+const expectReadOnce = (reads: Record<string, number>): void => {
+  expect(reads['kind'] ?? 0).toBeLessThanOrEqual(1);
+  expect(reads['amount']).toBeLessThanOrEqual(1);
+  expect(reads['currency']).toBeLessThanOrEqual(1);
+  expect(reads['scale']).toBeLessThanOrEqual(1);
 };
 
 describe('forged operands with bad fields (HIGH 1)', () => {
   it('add rejects an unknown currency with a fractional scale', () => {
-    const forged = forge({ amount: 5n, currency: 'BTC', scale: 1.5 });
+    const forged = forge({ kind: 'fiat', amount: 5n, currency: 'BTC', scale: 1.5 });
     expectMoneyError(() => add(forged, forged), UnknownCurrencyError);
   });
 
   it('add rejects a fractional scale on a known currency', () => {
-    const forged = forge({ amount: 5n, currency: 'USD', scale: 1.5 });
+    const forged = forge({ kind: 'fiat', amount: 5n, currency: 'USD', scale: 1.5 });
     expectMoneyError(() => add(forged, usd(1n)), InvalidScaleError);
     expectMoneyError(() => add(usd(1n), forged), InvalidScaleError);
   });
 
   it('equals rejects a string scale even when both sides match', () => {
-    const forged = forge({ amount: 5n, currency: 'USD', scale: '2' });
+    const forged = forge({ kind: 'fiat', amount: 5n, currency: 'USD', scale: '2' });
     expectMoneyError(() => equals(forged, forged), InvalidScaleError);
   });
 
   it('compare rejects an operand outside i128', () => {
-    const huge = forge({ amount: 2n ** 200n, currency: 'USD', scale: 2 });
+    const huge = forge({ kind: 'fiat', amount: 2n ** 200n, currency: 'USD', scale: 2 });
     expectMoneyError(() => compare(huge, usd(1n)), MoneyOverflowError);
     expectMoneyError(() => compare(usd(1n), huge), MoneyOverflowError);
     expectMoneyError(
-      () => compare(forge({ amount: MAX + 1n, currency: 'USD', scale: 2 }), usd(1n)),
+      () => compare(forge({ kind: 'fiat', amount: MAX + 1n, currency: 'USD', scale: 2 }), usd(1n)),
       MoneyOverflowError,
     );
     expectMoneyError(
-      () => compare(forge({ amount: MIN - 1n, currency: 'USD', scale: 2 }), usd(1n)),
+      () => compare(forge({ kind: 'fiat', amount: MIN - 1n, currency: 'USD', scale: 2 }), usd(1n)),
       MoneyOverflowError,
     );
   });
 
   it('isZero rejects an unknown currency and a negative scale', () => {
     expectMoneyError(
-      () => isZero(forge({ amount: 0n, currency: 'NOPE', scale: -7 })),
+      () => isZero(forge({ kind: 'fiat', amount: 0n, currency: 'NOPE', scale: -7 })),
       UnknownCurrencyError,
     );
     expectMoneyError(
-      () => isZero(forge({ amount: 0n, currency: 'USD', scale: -7 })),
+      () => isZero(forge({ kind: 'fiat', amount: 0n, currency: 'USD', scale: -7 })),
       InvalidScaleError,
     );
   });
 
   it('isNegative rejects an operand outside i128', () => {
     expectMoneyError(
-      () => isNegative(forge({ amount: -(2n ** 200n), currency: 'USD', scale: 2 })),
+      () => isNegative(forge({ kind: 'fiat', amount: -(2n ** 200n), currency: 'USD', scale: 2 })),
       MoneyOverflowError,
     );
   });
 
-  const unknownCurrency = forge({ amount: 1n, currency: 'BTC', scale: 2 });
-  const badScale = forge({ amount: 1n, currency: 'USD', scale: 19 });
-  const outOfRange = forge({ amount: MAX + 1n, currency: 'USD', scale: 2 });
+  const unknownCurrency = forge({ kind: 'fiat', amount: 1n, currency: 'BTC', scale: 2 });
+  const badScale = forge({ kind: 'fiat', amount: 1n, currency: 'USD', scale: 19 });
+  const outOfRange = forge({ kind: 'fiat', amount: MAX + 1n, currency: 'USD', scale: 2 });
 
   const unaryOps: [string, (m: Money) => unknown][] = [
     ['multiply', (m) => multiply(m, 1n)],
@@ -224,31 +237,35 @@ describe('forged operands with bad fields (HIGH 1)', () => {
 
     it('validates both operands before comparing units', () => {
       // A mismatch error would otherwise be raised from unvalidated text.
-      expectMoneyError(() => op(money(1n, 'NGN', 2), unknownCurrency), UnknownCurrencyError);
+      expectMoneyError(() => op(money(1n, 'NGN'), unknownCurrency), UnknownCurrencyError);
       expectMoneyError(
-        () => op(money(1n, 'USDC', 6), forge({ amount: 1n, currency: 'USDC', scale: 6.5 })),
+        () =>
+          op(
+            moneyAt(1n, 'USD', 6),
+            forge({ kind: 'fiat', amount: 1n, currency: 'USD', scale: 6.5 }),
+          ),
         InvalidScaleError,
       );
     });
   });
 
   it('accepts a well formed plain object, as a row mapper would produce', () => {
-    const row = forge({ amount: 250n, currency: 'KES', scale: 2 });
-    const r = add(row, money(50n, 'KES', 2));
-    expect(r).toEqual(money(300n, 'KES', 2));
+    const row = forge({ kind: 'fiat', amount: 250n, currency: 'KES', scale: 2 });
+    const r = add(row, money(50n, 'KES'));
+    expect(r).toEqual(money(300n, 'KES'));
     expectValidMoney(r);
   });
 
   it('never mints a result from a forged operand that carries extra fields', () => {
-    const row = forge({ amount: 1n, currency: 'USD', scale: 2, chain: 'stellar' });
+    const row = forge({ kind: 'fiat', amount: 1n, currency: 'USD', scale: 2, chain: 'stellar' });
     const r = negate(row);
-    expect(Object.keys(r).sort()).toEqual(['amount', 'currency', 'scale']);
+    expect(Object.keys(r).sort()).toEqual(['amount', 'currency', 'kind', 'scale']);
   });
 });
 
 describe('operands whose fields change between reads (HIGH 1)', () => {
   it('add never relabels USD as NGN', () => {
-    const flip = sequenced({ amount: [100n], currency: ['USD', 'NGN'], scale: [2] });
+    const flip = sequenced({ kind: 'fiat', amount: [100n], currency: ['USD', 'NGN'], scale: [2] });
     const err = thrown(() => {
       const r = add(flip.value, usd(1n));
       expect(r).toEqual(usd(101n));
@@ -258,7 +275,7 @@ describe('operands whose fields change between reads (HIGH 1)', () => {
   });
 
   it('add never relabels USD as NGN when the flipping operand is second', () => {
-    const flip = sequenced({ amount: [100n], currency: ['USD', 'NGN'], scale: [2] });
+    const flip = sequenced({ kind: 'fiat', amount: [100n], currency: ['USD', 'NGN'], scale: [2] });
     const err = thrown(() => {
       const r = add(usd(1n), flip.value);
       expect(r).toEqual(usd(101n));
@@ -267,28 +284,28 @@ describe('operands whose fields change between reads (HIGH 1)', () => {
     expectReadOnce(flip.reads);
   });
 
-  it('add never moves USDC from scale 6 to 18', () => {
-    const flip = sequenced({ amount: [100n], currency: ['USDC'], scale: [6, 18] });
+  it('add never moves USD from scale 6 to 18', () => {
+    const flip = sequenced({ kind: 'fiat', amount: [100n], currency: ['USD'], scale: [6, 18] });
     const err = thrown(() => {
-      const r = add(flip.value, money(1n, 'USDC', 6));
-      expect(r).toEqual(money(101n, 'USDC', 6));
+      const r = add(flip.value, moneyAt(1n, 'USD', 6));
+      expect(r).toEqual(moneyAt(101n, 'USD', 6));
     });
     if (err !== undefined) expect(err).toBeInstanceOf(MoneyError);
     expectReadOnce(flip.reads);
   });
 
-  it('subtract never moves USDC from scale 6 to 18', () => {
-    const flip = sequenced({ amount: [100n], currency: ['USDC'], scale: [6, 18] });
+  it('subtract never moves USD from scale 6 to 18', () => {
+    const flip = sequenced({ kind: 'fiat', amount: [100n], currency: ['USD'], scale: [6, 18] });
     const err = thrown(() => {
-      const r = subtract(flip.value, money(1n, 'USDC', 6));
-      expect(r).toEqual(money(99n, 'USDC', 6));
+      const r = subtract(flip.value, moneyAt(1n, 'USD', 6));
+      expect(r).toEqual(moneyAt(99n, 'USD', 6));
     });
     if (err !== undefined) expect(err).toBeInstanceOf(MoneyError);
     expectReadOnce(flip.reads);
   });
 
   it('negate never relabels to an unknown currency', () => {
-    const flip = sequenced({ amount: [7n], currency: ['USD', 'BTC'], scale: [2] });
+    const flip = sequenced({ kind: 'fiat', amount: [7n], currency: ['USD', 'BTC'], scale: [2] });
     const err = thrown(() => {
       const r = negate(flip.value);
       expect(r).toEqual(usd(-7n));
@@ -298,7 +315,7 @@ describe('operands whose fields change between reads (HIGH 1)', () => {
   });
 
   it('multiply never carries a scale that changed after validation', () => {
-    const flip = sequenced({ amount: [7n], currency: ['USD'], scale: [2, 1.5] });
+    const flip = sequenced({ kind: 'fiat', amount: [7n], currency: ['USD'], scale: [2, 1.5] });
     const err = thrown(() => {
       const r = multiply(flip.value, 3n);
       expect(r).toEqual(usd(21n));
@@ -308,7 +325,12 @@ describe('operands whose fields change between reads (HIGH 1)', () => {
   });
 
   it('multiply never uses an amount that changed after validation', () => {
-    const flip = sequenced({ amount: [7n, 2n ** 200n], currency: ['USD'], scale: [2] });
+    const flip = sequenced({
+      kind: 'fiat',
+      amount: [7n, 2n ** 200n],
+      currency: ['USD'],
+      scale: [2],
+    });
     const err = thrown(() => {
       const r = multiply(flip.value, 1n);
       expect(r).toEqual(usd(7n));
@@ -318,8 +340,18 @@ describe('operands whose fields change between reads (HIGH 1)', () => {
   });
 
   it('sum never relabels its seed or any item', () => {
-    const first = sequenced({ amount: [1n], currency: ['USD', 'NGN'], scale: [2, 6] });
-    const later = sequenced({ amount: [2n], currency: ['USD', 'NGN'], scale: [2, 6] });
+    const first = sequenced({
+      kind: 'fiat',
+      amount: [1n],
+      currency: ['USD', 'NGN'],
+      scale: [2, 6],
+    });
+    const later = sequenced({
+      kind: 'fiat',
+      amount: [2n],
+      currency: ['USD', 'NGN'],
+      scale: [2, 6],
+    });
     const err = thrown(() => {
       const r = sum([first.value, usd(10n), later.value]);
       expect(r).toEqual(usd(13n));
@@ -331,22 +363,22 @@ describe('operands whose fields change between reads (HIGH 1)', () => {
 
   it('compare never answers across a currency that flipped to match', () => {
     // Snapshot is USD against NGN, so the only consistent outcome is a throw.
-    const flip = sequenced({ amount: [1n], currency: ['USD', 'NGN'], scale: [2] });
-    expectMoneyError(() => compare(flip.value, money(1n, 'NGN', 2)), MoneyError);
+    const flip = sequenced({ kind: 'fiat', amount: [1n], currency: ['USD', 'NGN'], scale: [2] });
+    expectMoneyError(() => compare(flip.value, money(1n, 'NGN')), MoneyError);
     expectReadOnce(flip.reads);
   });
 
   it('equals never answers across a scale that flipped to match', () => {
-    const flip = sequenced({ amount: [1n], currency: ['USDC'], scale: [6, 7] });
-    expectMoneyError(() => equals(flip.value, money(1n, 'USDC', 7)), MoneyError);
+    const flip = sequenced({ kind: 'fiat', amount: [1n], currency: ['USD'], scale: [6, 7] });
+    expectMoneyError(() => equals(flip.value, moneyAt(1n, 'USD', 7)), MoneyError);
     expectReadOnce(flip.reads);
   });
 
   it('isZero and isNegative read the amount once', () => {
-    const zero = sequenced({ amount: [0n, 5n], currency: ['USD'], scale: [2] });
+    const zero = sequenced({ kind: 'fiat', amount: [0n, 5n], currency: ['USD'], scale: [2] });
     expect(isZero(zero.value)).toBe(true);
     expectReadOnce(zero.reads);
-    const neg = sequenced({ amount: [-1n, 1n], currency: ['USD'], scale: [2] });
+    const neg = sequenced({ kind: 'fiat', amount: [-1n, 1n], currency: ['USD'], scale: [2] });
     expect(isNegative(neg.value)).toBe(true);
     expectReadOnce(neg.reads);
   });
@@ -364,8 +396,8 @@ describe('operands whose fields change between reads (HIGH 1)', () => {
       (a) => isNegative(a),
     ];
     for (const op of ops) {
-      const a = sequenced({ amount: [3n], currency: ['USD'], scale: [2] });
-      const b = sequenced({ amount: [4n], currency: ['USD'], scale: [2] });
+      const a = sequenced({ kind: 'fiat', amount: [3n], currency: ['USD'], scale: [2] });
+      const b = sequenced({ kind: 'fiat', amount: [4n], currency: ['USD'], scale: [2] });
       op(a.value, b.value);
       expectReadOnce(a.reads);
       expectReadOnce(b.reads);
@@ -389,12 +421,19 @@ describe('forged operand property (HIGH 1)', () => {
     fc.integer({ min: -5, max: 40 }),
     fc.constantFrom<unknown>(1.5, Number.NaN, Number.POSITIVE_INFINITY, -0, '2', 2n, null),
   );
-  const forgedArb = fc.record({ amount: amountArb, currency: currencyArb, scale: scaleArb });
+  const forgedArb = fc.record({
+    kind: fc.constant('fiat' as const),
+    amount: amountArb,
+    currency: currencyArb,
+    scale: scaleArb,
+  });
 
+  // Every launch currency has two minor digits, so a fiat scale runs 2 to 18.
   const isScale = (s: unknown): s is number =>
-    typeof s === 'number' && Number.isSafeInteger(s) && s >= 0 && s <= 18;
+    typeof s === 'number' && Number.isSafeInteger(s) && s >= 2 && s <= 18;
 
   function expectedError(f: {
+    kind: 'fiat';
     amount: unknown;
     currency: unknown;
     scale: unknown;
@@ -412,7 +451,9 @@ describe('forged operand property (HIGH 1)', () => {
         const forged = forge({ ...f });
         const Expected = expectedError(f);
         const partner =
-          Expected === null ? money(1n, f.currency as CurrencyCode, f.scale as number) : usd(1n);
+          Expected === null
+            ? moneyAt(1n, f.currency as FiatCurrencyCode, f.scale as number)
+            : usd(1n);
         const runs: (() => unknown)[] = [
           () => add(forged, partner),
           () => add(partner, forged),
@@ -461,7 +502,12 @@ describe('error messages from hostile operands (LOW 3)', () => {
 
   describe.each(ops)('%s', (_name, op) => {
     it('rejects a currency with a newline without echoing it', () => {
-      const forged = forge({ amount: 1n, currency: 'USD\nlevel=info msg=paid', scale: 2 });
+      const forged = forge({
+        kind: 'fiat',
+        amount: 1n,
+        currency: 'USD\nlevel=info msg=paid',
+        scale: 2,
+      });
       for (const run of [() => op(forged, usd(1n)), () => op(usd(1n), forged)]) {
         const err = expectMoneyError(run, MoneyError);
         expectSafeMessage(err);
@@ -470,12 +516,12 @@ describe('error messages from hostile operands (LOW 3)', () => {
     });
 
     it('rejects a one megabyte currency with a bounded message', () => {
-      const forged = forge({ amount: 1n, currency: 'U'.repeat(1_000_000), scale: 2 });
+      const forged = forge({ kind: 'fiat', amount: 1n, currency: 'U'.repeat(1_000_000), scale: 2 });
       expectSafeMessage(expectMoneyError(() => op(usd(1n), forged), MoneyError));
     });
 
     it('rejects a Symbol currency with a MoneyError, not a TypeError', () => {
-      const forged = forge({ amount: 1n, currency: Symbol('USD'), scale: 2 });
+      const forged = forge({ kind: 'fiat', amount: 1n, currency: Symbol('USD'), scale: 2 });
       expectSafeMessage(expectMoneyError(() => op(forged, usd(1n)), UnknownCurrencyError));
       expectSafeMessage(expectMoneyError(() => op(usd(1n), forged), UnknownCurrencyError));
     });
@@ -497,11 +543,11 @@ describe('error messages from hostile operands (LOW 3)', () => {
         },
       };
       expectMoneyError(
-        () => op(forge({ amount: 1n, currency: hostile, scale: 2 }), usd(1n)),
+        () => op(forge({ kind: 'fiat', amount: 1n, currency: hostile, scale: 2 }), usd(1n)),
         UnknownCurrencyError,
       );
       expectMoneyError(
-        () => op(usd(1n), forge({ amount: 1n, currency: 'USD', scale: hostile })),
+        () => op(usd(1n), forge({ kind: 'fiat', amount: 1n, currency: 'USD', scale: hostile })),
         InvalidScaleError,
       );
       expect(calls).toEqual([]);
@@ -510,20 +556,23 @@ describe('error messages from hostile operands (LOW 3)', () => {
 
   it('keeps genuine mismatch messages bounded and on one line', () => {
     expectSafeMessage(
-      expectMoneyError(() => add(usd(1n), money(1n, 'NGN', 2)), CurrencyMismatchError),
+      expectMoneyError(() => add(usd(1n), money(1n, 'NGN')), CurrencyMismatchError),
     );
     expectSafeMessage(
-      expectMoneyError(() => add(money(1n, 'USDC', 6), money(1n, 'USDC', 7)), ScaleMismatchError),
+      expectMoneyError(() => add(usd(1n), moneyAt(1n, 'USD', 7)), ScaleMismatchError),
+    );
+    expectSafeMessage(
+      expectMoneyError(
+        () => add(tokenAmount(1n, 'USDC', 'celo'), tokenAmount(1n, 'USDC', 'stellar')),
+        TokenMismatchError,
+      ),
     );
   });
 
   it('keeps factory messages free of the rejected input', () => {
-    const err = expectMoneyError(
-      () => money(1n, 'USD\nlevel=info' as never, 2),
-      UnknownCurrencyError,
-    );
+    const err = expectMoneyError(() => money(1n, 'USD\nlevel=info' as never), UnknownCurrencyError);
     expectSafeMessage(err);
-    const amountErr = expectMoneyError(() => money('1\nlevel=info', 'USD', 2), InvalidAmountError);
+    const amountErr = expectMoneyError(() => money('1\nlevel=info', 'USD'), InvalidAmountError);
     expectSafeMessage(amountErr);
     expect(amountErr.message).not.toContain('level=info');
   });
@@ -578,5 +627,123 @@ describe('null, undefined and holes (LOW 4)', () => {
     for (const bad of [null, undefined, 5n, 'USD', 1, true]) {
       expectMoneyError(() => op(forge(bad)), InvalidAmountError);
     }
+  });
+});
+
+/** A token operand whose fields answer from a list, one entry per read. */
+function sequencedToken(fields: {
+  amount: unknown[];
+  asset: unknown[];
+  chain: unknown[];
+  scale: unknown[];
+}): { value: TokenAmount; reads: Record<string, number> } {
+  const reads: Record<string, number> = { kind: 0, amount: 0, asset: 0, chain: 0, scale: 0 };
+  const value = new Proxy(
+    {},
+    {
+      get(_target, key) {
+        if (key === 'kind') {
+          reads['kind'] = (reads['kind'] ?? 0) + 1;
+          return 'token';
+        }
+        if (key === 'amount' || key === 'asset' || key === 'chain' || key === 'scale') {
+          const n = (reads[key] ?? 0) + 1;
+          reads[key] = n;
+          const list = fields[key];
+          return list[Math.min(n, list.length) - 1];
+        }
+        return undefined;
+      },
+    },
+  );
+  return { value: value as TokenAmount, reads };
+}
+
+describe('forged token operands', () => {
+  const celo = (amount: bigint): TokenAmount => tokenAmount(amount, 'USDC', 'celo');
+  const forgeToken = (value: unknown): TokenAmount => value as TokenAmount;
+
+  it('rejects a token row whose scale disagrees with the token table', () => {
+    for (const scale of [6.5, 7, 18, 2, '6', null]) {
+      const row = forgeToken({ kind: 'token', amount: 1n, asset: 'USDC', chain: 'celo', scale });
+      expectMoneyError(() => add(row, celo(1n)), InvalidScaleError);
+    }
+  });
+
+  it('rejects an unknown asset, chain or pair', () => {
+    for (const [asset, chain] of [
+      ['USDm', 'stellar'],
+      ['USDC', 'ethereum'],
+      ['usdc', 'celo'],
+      [null, 'celo'],
+      ['USDC', undefined],
+    ] as const) {
+      const row = forgeToken({ kind: 'token', amount: 1n, asset, chain, scale: 6 });
+      expectMoneyError(() => negate(row), UnknownCurrencyError);
+    }
+  });
+
+  it('reads the amount type before the pair and the pair before the scale', () => {
+    expectMoneyError(
+      () => isZero(forgeToken({ kind: 'token', amount: 1, asset: 'X', chain: 'Y', scale: 0 })),
+      InvalidAmountError,
+    );
+    expectMoneyError(
+      () => isZero(forgeToken({ kind: 'token', amount: 1n, asset: 'X', chain: 'Y', scale: 0 })),
+      UnknownCurrencyError,
+    );
+  });
+
+  it('rejects a token labelled as fiat and fiat labelled as a token', () => {
+    expectMoneyError(
+      () => add(forge({ kind: 'fiat', amount: 1n, currency: 'USDC', scale: 6 }), usd(1n)),
+      UnknownCurrencyError,
+    );
+    expectMoneyError(
+      () => add(forgeToken({ kind: 'token', amount: 1n, currency: 'USD', scale: 2 }), celo(1n)),
+      UnknownCurrencyError,
+    );
+  });
+
+  it('never moves a token to another chain when the chain changes between reads', () => {
+    const flip = sequencedToken({
+      amount: [100n],
+      asset: ['USDC'],
+      chain: ['celo', 'stellar'],
+      scale: [6, 7],
+    });
+    const err = thrown(() => {
+      expect(add(flip.value, celo(1n))).toEqual(celo(101n));
+    });
+    if (err !== undefined) expect(err).toBeInstanceOf(MoneyError);
+    for (const n of Object.values(flip.reads)) expect(n).toBeLessThanOrEqual(1);
+  });
+
+  it('every operation reads each token field at most once', () => {
+    const ops: ((a: TokenAmount, b: TokenAmount) => unknown)[] = [
+      add,
+      subtract,
+      compare,
+      equals,
+      (a, b) => sum([a, b]),
+      (a) => multiply(a, 2n),
+      (a) => negate(a),
+      (a) => isZero(a),
+      (a) => isNegative(a),
+    ];
+    for (const op of ops) {
+      const fields = { amount: [3n], asset: ['USDm'], chain: ['celo'], scale: [18] };
+      const a = sequencedToken(fields);
+      const b = sequencedToken(fields);
+      op(a.value, b.value);
+      for (const n of [...Object.values(a.reads), ...Object.values(b.reads)]) {
+        expect(n).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it('never combines a forged token with fiat', () => {
+    const row = forgeToken({ kind: 'token', amount: 1n, asset: 'USDC', chain: 'celo', scale: 6 });
+    expectMoneyError(() => add(usd(1n), row as unknown as Money), KindMismatchError);
   });
 });

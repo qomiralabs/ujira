@@ -24,16 +24,23 @@
  *   InvalidRoundingModeError  code 'INVALID_ROUNDING'
  *   InvalidLocaleError        code 'INVALID_LOCALE'
  *
- * parseMoney(input: string, currency: CurrencyCode, scale: number,
- *            options?: { rounding?: RoundingMode }): Money
+ * parseMoney(input: string, currency: FiatCurrencyCode,
+ *            options?: { scale?: number; rounding?: RoundingMode }): Money
+ *   options.scale defaults to the currency's minor unit and may be finer, up
+ *   to 18, never coarser (InvalidScaleError). A bare number in place of the
+ *   options throws InvalidScaleError, since it is a scale passed the old way.
+ * parseTokenAmount(input: string, asset: TokenAsset, chain: Chain,
+ *                  options?: { rounding?: RoundingMode }): TokenAmount
+ *   Same grammar and rules, always at the token's decimals on that chain;
+ *   an unknown asset and chain pair throws UnknownCurrencyError.
  *   Grammar, ASCII only: /^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/
  *     no exponent, no thousands or other separators, no leading +, no
  *     whitespace anywhere, no empty integer or fraction part, no leading
  *     zeros, no unicode digits, at most 100 characters.
  *     A negative zero ("-0", "-0.00") is rejected, as money() rejects "-0".
  *   Validation order: input is a string, then length, then grammar
- *   (InvalidAmountError), then currency (UnknownCurrencyError), then scale
- *   (InvalidScaleError, integer 0..18), then options.rounding when present
+ *   (InvalidAmountError), then currency (UnknownCurrencyError), then
+ *   options.scale (InvalidScaleError), then options.rounding when present
  *   (InvalidRoundingModeError), then fraction length, then range.
  *   A fraction shorter than scale is padded. A fraction longer than scale
  *   throws InvalidAmountError, even when the extra digits are zeros, unless
@@ -44,25 +51,32 @@
  *   Error messages never echo the input and are at most 200 characters with
  *   no line breaks.
  *
- * toDecimalString(m: Money): string
+ * toDecimalString(m: Money | TokenAmount): string
  *   Canonical plain decimal with exactly m.scale fraction digits: 1230 at
  *   scale 2 is "12.30", -5 at scale 2 is "-0.05", 7 at scale 0 is "7".
  *   Never a negative zero.
  *
  * rescale(m: Money, toScale: number, rounding: RoundingMode): Money
+ *   Fiat only: a token amount throws KindMismatchError, because its scale
+ *   never changes. toScale runs from the currency's minor unit to 18.
  *   Validation order: snapshot of m, then toScale (InvalidScaleError), then
  *   rounding (InvalidRoundingModeError, required on every call, even when
  *   scaling up). Scaling up multiplies exactly and throws MoneyOverflowError
  *   outside i128. Scaling down divides by a power of ten with the mode. The
  *   result keeps the currency and is frozen.
+ * toMinor(m: Money, rounding: RoundingMode): Money
+ *   rescale to the currency's minor unit, the only way to make a working
+ *   scale value storable as a fiat amount.
  *
  * formatMoney(m: Money, options: { locale: string; rounding?: RoundingMode }): string
- *   Rescales m down to the display scale with rescale (default rounding
- *   half-even), then formats the decimal string from toDecimalString with
- *   Intl.NumberFormat. A stored scale below the display scale is padded on
- *   the decimal string, so formatMoney never overflows on a valid Money
- *   (I128_MAX at scale 0 still prints with ".00"). A JavaScript number is
- *   never formed, so every digit of an i128 amount survives.
+ * formatTokenAmount(t: TokenAmount, options: { locale: string; rounding?: RoundingMode }): string
+ *   formatMoney takes fiat only and formatTokenAmount tokens only; the other
+ *   kind throws KindMismatchError before the options are read.
+ *   Rounds the value to the display scale (default rounding half-even),
+ *   then formats the exact decimal string with Intl.NumberFormat. Every
+ *   stored scale is at least the display scale, so formatting only ever
+ *   drops digits and never overflows. A JavaScript number is never formed,
+ *   so every digit of an i128 amount survives.
  *   Display scale: fiat minorUnits (2 for every launch currency); tokens use
  *   the shared displayScale (2).
  *   Fiat: style currency, currencyDisplay narrowSymbol, exactly two fraction
@@ -92,9 +106,11 @@ import {
   MoneyOverflowError,
   UnknownCurrencyError,
   money,
+  moneyAt,
+  tokenAmount,
 } from './index.js';
-import type { Money } from './index.js';
-import { parseMoney, toDecimalString } from './parse.js';
+import type { Money, TokenAmount } from './index.js';
+import { parseMoney, parseTokenAmount, toDecimalString } from './parse.js';
 import type { RoundingMode } from './rescale.js';
 
 const MAX = 2n ** 127n - 1n;
@@ -133,10 +149,16 @@ function expectSafeMessage(err: MoneyError): void {
 
 function expectMoney(value: Money, amount: bigint, currency: string, scale: number): void {
   expect(Object.isFrozen(value)).toBe(true);
-  expect(Object.keys(value).sort()).toEqual(['amount', 'currency', 'scale']);
+  expect(Object.keys(value).sort()).toEqual(['amount', 'currency', 'kind', 'scale']);
   expect(value.amount).toBe(amount);
   expect(value.currency).toBe(currency);
   expect(value.scale).toBe(scale);
+}
+
+function expectToken(value: TokenAmount, amount: bigint, expected: TokenAmount): void {
+  expect(Object.isFrozen(value)).toBe(true);
+  expect(value).toEqual(expected);
+  expect(value.amount).toBe(amount);
 }
 
 describe('exports', () => {
@@ -144,7 +166,10 @@ describe('exports', () => {
     const fromRoot = root as Record<string, unknown>;
     for (const name of [
       'parseMoney',
+      'parseTokenAmount',
       'toDecimalString',
+      'toMinor',
+      'formatTokenAmount',
       'rescale',
       'formatMoney',
       'ROUNDING_MODES',
@@ -187,37 +212,65 @@ describe('parseMoney accepts the strict grammar', () => {
     ['12.30', 2, 1230n],
     ['-12.30', 2, -1230n],
     ['-0.05', 2, -5n],
-    ['0.5', 1, 5n],
-    ['7', 0, 7n],
+    ['0.5', 3, 500n],
+    ['7', 2, 700n],
     ['1234567890', 2, 123456789000n],
     ['0.000000000000000001', 18, 1n],
     ['1.000000000000000000', 18, 10n ** 18n],
-    ['170141183460469231731687303715884105727', 0, MAX],
-    ['-170141183460469231731687303715884105728', 0, MIN],
+    ['17014118346046923173168730371588410.5727', 4, MAX],
+    ['-17014118346046923173168730371588410.5728', 4, MIN],
     ['1701411834604692317316873037158841057.27', 2, MAX],
     ['-170141183460469231731.687303715884105728', 18, MIN],
   ];
 
   it.each(cases)('parses %s at scale %d', (input, scale, amount) => {
-    expectMoney(parseMoney(input, 'USD', scale), amount, 'USD', scale);
+    expectMoney(parseMoney(input, 'USD', { scale }), amount, 'USD', scale);
   });
 
-  it('keeps the currency it was given, fiat or token', () => {
-    expectMoney(parseMoney('20000', 'NGN', 2), 2_000_000n, 'NGN', 2);
-    expectMoney(parseMoney('1.234567', 'USDC', 6), 1_234_567n, 'USDC', 6);
-    expectMoney(parseMoney('1.2345678', 'USDC', 7), 12_345_678n, 'USDC', 7);
-    expectMoney(parseMoney('5', 'USDm', 18), 5n * 10n ** 18n, 'USDm', 18);
+  it('keeps the currency it was given', () => {
+    expectMoney(parseMoney('20000', 'NGN'), 2_000_000n, 'NGN', 2);
+    expectMoney(parseMoney('20000', 'NGN', { scale: 6 }), 20_000_000_000n, 'NGN', 6);
+  });
+
+  it('parses token amounts at the token decimals on each chain', () => {
+    expectToken(
+      parseTokenAmount('1.234567', 'USDC', 'celo'),
+      1_234_567n,
+      tokenAmount(1_234_567n, 'USDC', 'celo'),
+    );
+    expectToken(
+      parseTokenAmount('1.2345678', 'USDC', 'stellar'),
+      12_345_678n,
+      tokenAmount(12_345_678n, 'USDC', 'stellar'),
+    );
+    expectToken(
+      parseTokenAmount('5', 'USDm', 'celo'),
+      5n * 10n ** 18n,
+      tokenAmount(5n * 10n ** 18n, 'USDm', 'celo'),
+    );
+  });
+
+  it('refuses token assets as fiat and unknown token pairs', () => {
+    expectMoneyError(() => parseMoney('1', loose('USDC')), UnknownCurrencyError);
+    expectMoneyError(() => parseTokenAmount('1', 'USDm', loose('stellar')), UnknownCurrencyError);
+    expectMoneyError(() => parseTokenAmount('1', loose('USD'), 'celo'), UnknownCurrencyError);
+  });
+
+  it('rounds token excess digits only with a mode', () => {
+    expectMoneyError(() => parseTokenAmount('0.0000005', 'USDC', 'celo'), InvalidAmountError);
+    expect(parseTokenAmount('0.0000005', 'USDC', 'celo', { rounding: 'half-up' }).amount).toBe(1n);
+    expect(parseTokenAmount('0.0000005', 'USDC', 'stellar').amount).toBe(5n);
   });
 
   it('equals money() for the same value', () => {
-    expect(parseMoney('-42.07', 'KES', 2)).toEqual(money(-4207n, 'KES', 2));
+    expect(parseMoney('-42.07', 'KES')).toEqual(money(-4207n, 'KES'));
   });
 });
 
 describe('parseMoney rejects malformed input', () => {
   it('rejects 1e3, 1,000, +1, " 1", "1.", ".5" and ""', () => {
     for (const input of ['1e3', '1,000', '+1', ' 1', '1.', '.5', '']) {
-      expectMoneyError(() => parseMoney(input, 'USD', 2), InvalidAmountError);
+      expectMoneyError(() => parseMoney(input, 'USD'), InvalidAmountError);
     }
   });
 
@@ -279,22 +332,22 @@ describe('parseMoney rejects malformed input', () => {
   ];
 
   it.each(malformed)('rejects %j', (input) => {
-    expectMoneyError(() => parseMoney(input, 'USD', 2), InvalidAmountError);
+    expectMoneyError(() => parseMoney(input, 'USD'), InvalidAmountError);
   });
 
   it('rejects a negative zero in every spelling', () => {
     for (const input of ['-0', '-0.0', '-0.00']) {
-      expectMoneyError(() => parseMoney(input, 'USD', 2), InvalidAmountError);
+      expectMoneyError(() => parseMoney(input, 'USD'), InvalidAmountError);
     }
   });
 
   it('rejects inputs over 100 characters before anything else', () => {
     const long = '1'.repeat(101);
-    expectMoneyError(() => parseMoney(long, 'USD', 2), InvalidAmountError);
-    expectMoneyError(() => parseMoney('0.' + '0'.repeat(99), 'USD', 2), InvalidAmountError);
-    expectMoneyError(() => parseMoney('1'.repeat(1_000_000), 'USD', 2), InvalidAmountError);
+    expectMoneyError(() => parseMoney(long, 'USD'), InvalidAmountError);
+    expectMoneyError(() => parseMoney('0.' + '0'.repeat(99), 'USD'), InvalidAmountError);
+    expectMoneyError(() => parseMoney('1'.repeat(1_000_000), 'USD'), InvalidAmountError);
     // Exactly 100 characters passes length and fails only on range.
-    expectMoneyError(() => parseMoney('1'.repeat(100), 'USD', 0), MoneyOverflowError);
+    expectMoneyError(() => parseMoney('1'.repeat(100), 'USD'), MoneyOverflowError);
   });
 
   const nonStrings: [string, unknown][] = [
@@ -310,7 +363,7 @@ describe('parseMoney rejects malformed input', () => {
   ];
 
   it.each(nonStrings)('rejects %s as input', (_label, input) => {
-    expectMoneyError(() => parseMoney(loose(input), 'USD', 2), InvalidAmountError);
+    expectMoneyError(() => parseMoney(loose(input), 'USD'), InvalidAmountError);
   });
 
   it('never calls toString, valueOf or Symbol.toPrimitive on the input', () => {
@@ -330,38 +383,46 @@ describe('parseMoney rejects malformed input', () => {
       },
     };
     expectSafeMessage(
-      expectMoneyError(() => parseMoney(loose(hostile), 'USD', 2), InvalidAmountError),
+      expectMoneyError(() => parseMoney(loose(hostile), 'USD'), InvalidAmountError),
     );
     expect(calls).toEqual([]);
   });
 
   it('keeps the input out of the error message', () => {
     const err = expectMoneyError(
-      () => parseMoney('1\nlevel=info msg=paid', 'USD', 2),
+      () => parseMoney('1\nlevel=info msg=paid', 'USD'),
       InvalidAmountError,
     );
     expectSafeMessage(err);
     expect(err.message).not.toContain('msg=paid');
     expectSafeMessage(
-      expectMoneyError(() => parseMoney('9'.repeat(100), 'USD', 0), MoneyOverflowError),
+      expectMoneyError(() => parseMoney('9'.repeat(100), 'USD'), MoneyOverflowError),
     );
   });
 });
 
 describe('parseMoney precision', () => {
   it('rejects 1.001 for USD', () => {
-    expectMoneyError(() => parseMoney('1.001', 'USD', 2), InvalidAmountError);
+    expectMoneyError(() => parseMoney('1.001', 'USD'), InvalidAmountError);
   });
 
   it('rejects excess fraction digits even when they are zeros', () => {
-    expectMoneyError(() => parseMoney('1.000', 'USD', 2), InvalidAmountError);
-    expectMoneyError(() => parseMoney('1.0', 'KES', 0), InvalidAmountError);
-    expectMoneyError(() => parseMoney('0.0000001', 'USDC', 6), InvalidAmountError);
-    expectMoneyError(() => parseMoney('0.0000000000000000001', 'USDm', 18), InvalidAmountError);
+    expectMoneyError(() => parseMoney('1.000', 'USD'), InvalidAmountError);
+    expectMoneyError(() => parseMoney('1.0000000', 'KES', { scale: 6 }), InvalidAmountError);
+    expectMoneyError(() => parseTokenAmount('0.0000001', 'USDC', 'celo'), InvalidAmountError);
+    expectMoneyError(
+      () => parseTokenAmount('0.0000000000000000001', 'USDm', 'celo'),
+      InvalidAmountError,
+    );
   });
 
   it('pads a short fraction', () => {
-    expectMoney(parseMoney('1.2', 'USDC', 6), 1_200_000n, 'USDC', 6);
+    expectMoney(parseMoney('1.2', 'USD', { scale: 6 }), 1_200_000n, 'USD', 6);
+    expectToken(
+      parseTokenAmount('1.2', 'USDC', 'celo'),
+      1_200_000n,
+      tokenAmount(1_200_000n, 'USDC', 'celo'),
+    );
   });
 
   it('rounds excess digits only when a mode is given', () => {
@@ -381,48 +442,44 @@ describe('parseMoney precision', () => {
       ['1.00500000000000000000001', 'half-even', 101n],
     ];
     for (const [input, rounding, amount] of cases) {
-      expectMoney(parseMoney(input, 'USD', 2, { rounding }), amount, 'USD', 2);
+      expectMoney(parseMoney(input, 'USD', { rounding }), amount, 'USD', 2);
     }
   });
 
   it('a value that rounds to zero is a plain zero', () => {
-    expectMoney(parseMoney('-0.001', 'USD', 2, { rounding: 'half-even' }), 0n, 'USD', 2);
-    expectMoney(parseMoney('-0.4', 'USD', 0, { rounding: 'trunc' }), 0n, 'USD', 0);
+    expectMoney(parseMoney('-0.001', 'USD', { rounding: 'half-even' }), 0n, 'USD', 2);
+    expectMoney(parseMoney('-0.004', 'USD', { rounding: 'trunc' }), 0n, 'USD', 2);
   });
 
   it('checks range after rounding', () => {
     expectMoney(
-      parseMoney('170141183460469231731687303715884105727.4', 'USD', 0, { rounding: 'half-even' }),
+      parseMoney('1701411834604692317316873037158841057.274', 'USD', { rounding: 'half-even' }),
       MAX,
       'USD',
-      0,
+      2,
     );
     expectMoneyError(
       () =>
-        parseMoney('170141183460469231731687303715884105727.5', 'USD', 0, {
+        parseMoney('1701411834604692317316873037158841057.275', 'USD', {
           rounding: 'half-up',
         }),
       MoneyOverflowError,
     );
     expectMoneyError(
-      () => parseMoney('170141183460469231731687303715884105728', 'USD', 0),
+      () => parseMoney('-1701411834604692317316873037158841057.29', 'USD'),
       MoneyOverflowError,
     );
     expectMoneyError(
-      () => parseMoney('-170141183460469231731687303715884105729', 'USD', 0),
-      MoneyOverflowError,
-    );
-    expectMoneyError(
-      () => parseMoney('1701411834604692317316873037158841057.28', 'USD', 2),
+      () => parseMoney('1701411834604692317316873037158841057.28', 'USD'),
       MoneyOverflowError,
     );
   });
 
   it('accepts an empty options object and an explicit undefined rounding as no rounding', () => {
-    expectMoney(parseMoney('1.5', 'USD', 2, {}), 150n, 'USD', 2);
-    expectMoneyError(() => parseMoney('1.005', 'USD', 2, {}), InvalidAmountError);
+    expectMoney(parseMoney('1.5', 'USD', {}), 150n, 'USD', 2);
+    expectMoneyError(() => parseMoney('1.005', 'USD', {}), InvalidAmountError);
     expectMoneyError(
-      () => parseMoney('1.005', 'USD', 2, loose({ rounding: undefined })),
+      () => parseMoney('1.005', 'USD', loose({ rounding: undefined })),
       InvalidAmountError,
     );
   });
@@ -430,12 +487,12 @@ describe('parseMoney precision', () => {
   it('rejects an unknown rounding mode even when no rounding is needed', () => {
     for (const rounding of ['HALF_EVEN', 'round', 'halfEven', 'half_up', '', 'ceiling', 'down']) {
       expectMoneyError(
-        () => parseMoney('1.5', 'USD', 2, loose({ rounding })),
+        () => parseMoney('1.5', 'USD', loose({ rounding })),
         InvalidRoundingModeError,
       );
     }
     expectMoneyError(
-      () => parseMoney('1.5', 'USD', 2, loose({ rounding: Object('half-even') as unknown })),
+      () => parseMoney('1.5', 'USD', loose({ rounding: Object('half-even') as unknown })),
       InvalidRoundingModeError,
     );
   });
@@ -449,40 +506,41 @@ describe('parseMoney precision', () => {
         return answers[Math.min(reads, answers.length) - 1];
       },
     };
-    expectMoney(parseMoney('1.005', 'USD', 2, loose(options)), 100n, 'USD', 2);
+    expectMoney(parseMoney('1.005', 'USD', loose(options)), 100n, 'USD', 2);
     expect(reads).toBeLessThanOrEqual(1);
   });
 });
 
 describe('parseMoney validation order', () => {
   it('checks the input before the currency and the currency before the scale', () => {
-    expectMoneyError(() => parseMoney('x', loose('BTC'), 1.5), InvalidAmountError);
-    expectMoneyError(() => parseMoney('1', loose('BTC'), 1.5), UnknownCurrencyError);
-    expectMoneyError(() => parseMoney('1', 'USD', 1.5), InvalidScaleError);
+    expectMoneyError(() => parseMoney('x', loose('BTC'), { scale: 1.5 }), InvalidAmountError);
+    expectMoneyError(() => parseMoney('1', loose('BTC'), { scale: 1.5 }), UnknownCurrencyError);
+    expectMoneyError(() => parseMoney('1', 'USD', { scale: 1.5 }), InvalidScaleError);
   });
 
   it('checks the scale before the rounding and the rounding before precision', () => {
     expectMoneyError(
-      () => parseMoney('1.001', 'USD', 19, loose({ rounding: 'bogus' })),
+      () => parseMoney('1.001', 'USD', loose({ scale: 19, rounding: 'bogus' })),
       InvalidScaleError,
     );
     expectMoneyError(
-      () => parseMoney('1.001', 'USD', 2, loose({ rounding: 'bogus' })),
+      () => parseMoney('1.001', 'USD', loose({ rounding: 'bogus' })),
       InvalidRoundingModeError,
     );
   });
 
   it('rejects bad scales', () => {
-    for (const scale of [-1, 19, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
-      expectMoneyError(() => parseMoney('1', 'USD', scale), InvalidScaleError);
+    for (const scale of [-1, 0, 1, 19, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expectMoneyError(() => parseMoney('1', 'USD', { scale }), InvalidScaleError);
     }
-    expectMoneyError(() => parseMoney('1', 'USD', loose('2')), InvalidScaleError);
-    expectMoneyError(() => parseMoney('1', 'USD', loose(2n)), InvalidScaleError);
+    expectMoneyError(() => parseMoney('1', 'USD', loose({ scale: '2' })), InvalidScaleError);
+    expectMoneyError(() => parseMoney('1', 'USD', loose({ scale: 2n })), InvalidScaleError);
+    expectMoneyError(() => parseMoney('1', 'USD', loose(2)), InvalidScaleError);
   });
 
   it('rejects unknown and wrongly cased currencies', () => {
-    for (const currency of ['usd', 'BTC', 'USDM', '__proto__', '']) {
-      expectMoneyError(() => parseMoney('1', loose(currency), 2), UnknownCurrencyError);
+    for (const currency of ['usd', 'BTC', 'USDM', 'USDC', 'USDm', '__proto__', '']) {
+      expectMoneyError(() => parseMoney('1', loose(currency)), UnknownCurrencyError);
     }
   });
 });
@@ -491,38 +549,73 @@ describe('toDecimalString', () => {
   const cases: [bigint, number, string][] = [
     [1230n, 2, '12.30'],
     [0n, 2, '0.00'],
-    [0n, 0, '0'],
     [5n, 2, '0.05'],
     [-5n, 2, '-0.05'],
     [-100n, 2, '-1.00'],
-    [7n, 0, '7'],
-    [-7n, 0, '-7'],
     [1n, 18, '0.000000000000000001'],
     [-1n, 18, '-0.000000000000000001'],
     [10n ** 18n, 18, '1.000000000000000000'],
-    [MAX, 0, '170141183460469231731687303715884105727'],
-    [MIN, 0, '-170141183460469231731687303715884105728'],
+    [MAX, 2, '1701411834604692317316873037158841057.27'],
+    [MIN, 2, '-1701411834604692317316873037158841057.28'],
     [MAX, 18, '170141183460469231731.687303715884105727'],
     [MIN, 18, '-170141183460469231731.687303715884105728'],
     [900719925474099301n, 2, '9007199254740993.01'],
   ];
 
   it.each(cases)('prints %s at scale %d as %s', (amount, scale, expected) => {
-    expect(toDecimalString(money(amount, 'USD', scale))).toBe(expected);
+    expect(toDecimalString(moneyAt(amount, 'USD', scale))).toBe(expected);
   });
 
   it('prints 1230 at scale 2 as 12.30 for every currency', () => {
-    for (const currency of ['USD', 'NGN', 'KES', 'USDC', 'USDm'] as const) {
-      expect(toDecimalString(money(1230n, currency, 2))).toBe('12.30');
+    for (const currency of ['USD', 'NGN', 'KES', 'EUR', 'GBP'] as const) {
+      expect(toDecimalString(money(1230n, currency))).toBe('12.30');
     }
+  });
+
+  it('prints a token amount at its token decimals', () => {
+    expect(toDecimalString(tokenAmount(1_234_567n, 'USDC', 'celo'))).toBe('1.234567');
+    expect(toDecimalString(tokenAmount(1_234_567n, 'USDC', 'stellar'))).toBe('0.1234567');
+    expect(toDecimalString(tokenAmount(-5n, 'USDm', 'celo'))).toBe('-0.000000000000000005');
+  });
+
+  it('round trips token text through parseTokenAmount', () => {
+    for (const t of [tokenAmount(1n, 'USDC', 'celo'), tokenAmount(-123_456_789n, 'USDm', 'celo')]) {
+      expect(parseTokenAmount(toDecimalString(t), t.asset, t.chain)).toEqual(t);
+    }
+  });
+
+  it('refuses a forged token operand whose scale disagrees with the table', () => {
+    expectMoneyError(
+      () =>
+        toDecimalString(
+          loose({ kind: 'token', amount: 1n, asset: 'USDC', chain: 'celo', scale: 7 }),
+        ),
+      InvalidScaleError,
+    );
+    expectMoneyError(
+      () => toDecimalString(loose({ kind: 'coin', amount: 1n })),
+      InvalidAmountError,
+    );
   });
 
   const forged: [string, unknown, ErrorClass][] = [
     ['null', null, InvalidAmountError],
-    ['a number amount', { amount: 1, currency: 'USD', scale: 2 }, InvalidAmountError],
-    ['an unknown currency', { amount: 1n, currency: 'BTC', scale: 2 }, UnknownCurrencyError],
-    ['a fractional scale', { amount: 1n, currency: 'USD', scale: 1.5 }, InvalidScaleError],
-    ['an out of range amount', { amount: MAX + 1n, currency: 'USD', scale: 2 }, MoneyOverflowError],
+    ['a number amount', { kind: 'fiat', amount: 1, currency: 'USD', scale: 2 }, InvalidAmountError],
+    [
+      'an unknown currency',
+      { kind: 'fiat', amount: 1n, currency: 'BTC', scale: 2 },
+      UnknownCurrencyError,
+    ],
+    [
+      'a fractional scale',
+      { kind: 'fiat', amount: 1n, currency: 'USD', scale: 1.5 },
+      InvalidScaleError,
+    ],
+    [
+      'an out of range amount',
+      { kind: 'fiat', amount: MAX + 1n, currency: 'USD', scale: 2 },
+      MoneyOverflowError,
+    ],
   ];
 
   it.each(forged)('rejects a forged operand with %s', (_label, value, Expected) => {
@@ -530,12 +623,16 @@ describe('toDecimalString', () => {
   });
 
   it('reads each field once and prints from the snapshot', () => {
-    const reads = { amount: 0, currency: 0, scale: 0 };
+    const reads = { kind: 0, amount: 0, currency: 0, scale: 0 };
     const answers = { amount: [1230n, 9n], currency: ['USD', 'BTC'], scale: [2, 5] };
     const value = new Proxy(
       {},
       {
         get(_target, key) {
+          if (key === 'kind') {
+            reads.kind += 1;
+            return 'fiat';
+          }
           if (key === 'amount' || key === 'currency' || key === 'scale') {
             reads[key] += 1;
             const list: unknown[] = answers[key];
@@ -546,6 +643,7 @@ describe('toDecimalString', () => {
       },
     );
     expect(toDecimalString(loose(value))).toBe('12.30');
+    expect(reads.kind).toBeLessThanOrEqual(1);
     expect(reads.amount).toBeLessThanOrEqual(1);
     expect(reads.currency).toBeLessThanOrEqual(1);
     expect(reads.scale).toBeLessThanOrEqual(1);

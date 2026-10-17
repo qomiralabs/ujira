@@ -8,21 +8,25 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CurrencyMismatchError,
+  KindMismatchError,
   MoneyError,
   MoneyOverflowError,
+  SETTLEMENT_TOKENS,
   ScaleMismatchError,
+  TokenMismatchError,
   add,
   compare,
   equals,
   isNegative,
   isZero,
-  money,
+  moneyAt,
   multiply,
   negate,
   subtract,
   sum,
+  tokenAmount,
 } from './index.js';
-import type { CurrencyCode, Money } from './index.js';
+import type { Chain, FiatCurrencyCode, Money, TokenAsset } from './index.js';
 
 const MAX = 2n ** 127n - 1n;
 const MIN = -(2n ** 127n);
@@ -31,7 +35,7 @@ const MIN = -(2n ** 127n);
 // search harder, never lower it to make a run pass.
 const RUNS = { seed: 0x75a17a, numRuns: 1000 } as const;
 
-const CODES: CurrencyCode[] = [
+const CODES: FiatCurrencyCode[] = [
   'USD',
   'NGN',
   'KES',
@@ -44,8 +48,6 @@ const CODES: CurrencyCode[] = [
   'MXN',
   'EUR',
   'GBP',
-  'USDC',
-  'USDm',
 ];
 
 const inRange = (x: bigint): boolean => x >= MIN && x <= MAX;
@@ -78,12 +80,42 @@ const anyBig = fc.oneof(
   fc.bigInt({ min: -(2n ** 200n), max: 2n ** 200n }),
 );
 
-const currency = fc.constantFrom(...CODES);
-const scale = fc.integer({ min: 0, max: 18 });
-const unit = fc.record({ currency, scale });
+// A unit is fiat at a scale from its minor unit (2) to 18, or a token on a
+// chain at that token's decimals. Properties run over both kinds.
+type Unit =
+  | { kind: 'fiat'; currency: FiatCurrencyCode; scale: number }
+  | { kind: 'token'; asset: TokenAsset; chain: Chain; scale: number };
 
-const m = (amount: bigint, u: { currency: CurrencyCode; scale: number }): Money =>
-  money(amount, u.currency, u.scale);
+const fiatUnit = fc.record({
+  kind: fc.constant('fiat' as const),
+  currency: fc.constantFrom(...CODES),
+  scale: fc.integer({ min: 2, max: 18 }),
+});
+const tokenUnit = fc
+  .constantFrom(...SETTLEMENT_TOKENS)
+  .map((t) => ({ kind: 'token' as const, asset: t.asset, chain: t.chain, scale: t.tokenScale }));
+const unit: fc.Arbitrary<Unit> = fc.oneof(fiatUnit, fiatUnit, tokenUnit);
+
+// The overloads take one kind at a time; these properties hand either kind
+// through the Money overload on purpose, so the runtime checks are tested.
+const m = (amount: bigint | string, u: Unit): Money =>
+  u.kind === 'fiat'
+    ? moneyAt(amount, u.currency, u.scale)
+    : (tokenAmount(amount, u.asset, u.chain) as unknown as Money);
+
+/** The plain object a value of `u` holding `amount` must equal. */
+const shape = (u: Unit, amount: bigint): Record<string, unknown> => ({ ...u, amount });
+
+const sameUnit = (a: Unit, b: Unit): boolean =>
+  JSON.stringify(shape(a, 0n), (_k, v: unknown) => (typeof v === 'bigint' ? 0 : v)) ===
+  JSON.stringify(shape(b, 0n), (_k, v: unknown) => (typeof v === 'bigint' ? 0 : v));
+
+/** The error a binary operation on values of `a` and `b` must throw. */
+function mismatchFor(a: Unit, b: Unit): new (message?: string) => MoneyError {
+  if (a.kind !== b.kind) return KindMismatchError;
+  if (a.kind === 'token' || b.kind === 'token') return TokenMismatchError;
+  return a.currency !== b.currency ? CurrencyMismatchError : ScaleMismatchError;
+}
 
 function outcome(run: () => Money): { ok: true; value: Money } | { ok: false; error: unknown } {
   try {
@@ -114,10 +146,10 @@ describe('money properties', () => {
     fc.assert(
       fc.property(i128, unit, (x, u) => {
         const fromBig = m(x, u);
-        const fromString = money(x.toString(), u.currency, u.scale);
+        const fromString = m(x.toString(), u);
         expect(fromString).toEqual(fromBig);
         expect(fromBig.amount.toString()).toBe(x.toString());
-        expect(money(fromBig.amount.toString(), fromBig.currency, fromBig.scale)).toEqual(fromBig);
+        expect(m(fromBig.amount.toString(), u)).toEqual(fromBig);
       }),
       RUNS,
     );
@@ -294,11 +326,11 @@ describe('money properties', () => {
     );
   });
 
-  it('mixed currencies always throw CurrencyMismatchError, mixed scales ScaleMismatchError', () => {
+  it('mixing kinds, currencies, scales, assets or chains always throws the matching error', () => {
     fc.assert(
       fc.property(i128, i128, unit, unit, (a, b, ua, ub) => {
-        fc.pre(ua.currency !== ub.currency || ua.scale !== ub.scale);
-        const expected = ua.currency !== ub.currency ? CurrencyMismatchError : ScaleMismatchError;
+        fc.pre(!sameUnit(ua, ub));
+        const expected = mismatchFor(ua, ub);
         const x = m(a, ua);
         const y = m(b, ub);
         expect(() => add(x, y)).toThrow(expected);
@@ -311,7 +343,7 @@ describe('money properties', () => {
     );
   });
 
-  it('no operation ever yields a JS number amount or changes currency or scale', () => {
+  it('no operation ever yields a JS number amount or changes the unit', () => {
     const op = fc.constantFrom('add', 'subtract', 'multiply', 'negate', 'sum');
     fc.assert(
       fc.property(op, i128, i128, factor, unit, (name, a, b, k, u) => {
@@ -333,16 +365,15 @@ describe('money properties', () => {
         });
         if (r.ok) {
           expect(typeof r.value.amount).toBe('bigint');
-          expect(r.value.currency).toBe(u.currency);
-          expect(r.value.scale).toBe(u.scale);
+          expect(r.value).toEqual(shape(u, r.value.amount));
           expect(Object.isFrozen(r.value)).toBe(true);
           expect(inRange(r.value.amount)).toBe(true);
         } else {
           expect(r.error).toBeInstanceOf(MoneyError);
         }
         // Inputs never change.
-        expect(x).toEqual({ amount: a, currency: u.currency, scale: u.scale });
-        expect(y).toEqual({ amount: b, currency: u.currency, scale: u.scale });
+        expect(x).toEqual(shape(u, a));
+        expect(y).toEqual(shape(u, b));
       }),
       RUNS,
     );

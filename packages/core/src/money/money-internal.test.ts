@@ -13,12 +13,25 @@ import * as moneyIndex from './index.js';
 import {
   InvalidAmountError,
   InvalidScaleError,
+  KindMismatchError,
   MoneyOverflowError,
   UnknownCurrencyError,
   money,
+  moneyAt,
+  tokenAmount,
 } from './index.js';
-import type { Money, MoneyError } from './index.js';
-import { MAX_SCALE, build, powerOfTen } from './money.js';
+import type { Money, MoneyError, TokenAmount } from './index.js';
+import {
+  MAX_SCALE,
+  build,
+  buildToken,
+  powerOfTen,
+  snapshot,
+  snapshotFiat,
+  snapshotToken,
+  withAmount,
+} from './money.js';
+import { decimalText } from './parse.js';
 
 const MAX = 2n ** 127n - 1n;
 const MIN = -(2n ** 127n);
@@ -47,7 +60,7 @@ function expectMoneyError(run: () => unknown, Expected: ErrorClass): void {
   expect(err).toBeInstanceOf(Expected);
 }
 
-const usd = (amount: bigint): Money => money(amount, 'USD', 2);
+const usd = (amount: bigint): Money => money(amount, 'USD');
 
 describe('build validates what it mints', () => {
   it('rejects an unknown currency', () => {
@@ -101,14 +114,19 @@ describe('build validates what it mints', () => {
   });
 
   it('mints a frozen value at the exact boundaries', () => {
-    const top = build(MAX, 'USDm', 18);
-    expect(top).toEqual({ amount: MAX, currency: 'USDm', scale: 18 });
+    const top = build(MAX, 'USD', 18);
+    expect(top).toEqual({ kind: 'fiat', amount: MAX, currency: 'USD', scale: 18 });
     expect(Object.isFrozen(top)).toBe(true);
-    expect(build(MIN, 'USD', 0).amount).toBe(MIN);
+    expect(build(MIN, 'USD', 2).amount).toBe(MIN);
   });
 
-  it('stores a negative zero scale as zero', () => {
-    expect(Object.is(build(1n, 'USD', -0).scale, 0)).toBe(true);
+  it('refuses a scale coarser than the minor unit, negative zero included', () => {
+    expectMoneyError(() => build(1n, 'USD', 1), InvalidScaleError);
+    expectMoneyError(() => build(1n, 'USD', -0), InvalidScaleError);
+  });
+
+  it('refuses token assets, which are not fiat', () => {
+    expectMoneyError(() => build(1n, loose('USDm'), 18), UnknownCurrencyError);
   });
 
   it('is not exported from the money index or the package root', () => {
@@ -242,5 +260,60 @@ describe('powerOfTen', () => {
   it('is not exported from the money index or the package root', () => {
     expect((moneyIndex as Record<string, unknown>)['powerOfTen']).toBeUndefined();
     expect((root as Record<string, unknown>)['powerOfTen']).toBeUndefined();
+  });
+});
+
+describe('token and kind helpers', () => {
+  it('buildToken validates the pair and the amount and takes the scale from the table', () => {
+    expect(buildToken(5n, 'USDC', 'stellar')).toEqual(tokenAmount(5n, 'USDC', 'stellar'));
+    expect(buildToken(5n, 'USDC', 'stellar').scale).toBe(7);
+    expectMoneyError(() => buildToken(5n, 'USDm', loose('stellar')), UnknownCurrencyError);
+    expectMoneyError(() => buildToken(loose(5), 'USDC', 'celo'), InvalidAmountError);
+    expectMoneyError(() => buildToken(MAX + 1n, 'USDC', 'celo'), MoneyOverflowError);
+  });
+
+  it('withAmount keeps the unit of fiat and token values', () => {
+    expect(withAmount(moneyAt(1n, 'NGN', 6), 9n)).toEqual(moneyAt(9n, 'NGN', 6));
+    expect(withAmount(tokenAmount(1n, 'USDm', 'celo'), 9n)).toEqual(
+      tokenAmount(9n, 'USDm', 'celo'),
+    );
+  });
+
+  it('snapshot rejects a missing or unknown kind before reading other fields', () => {
+    for (const kind of [undefined, 'Fiat', 'tokens', 1, null]) {
+      expectMoneyError(
+        () => snapshot(loose({ kind, amount: 1n, currency: 'USD', scale: 2 })),
+        InvalidAmountError,
+      );
+    }
+  });
+
+  it('snapshotFiat and snapshotToken refuse the other kind', () => {
+    expectMoneyError(() => snapshotFiat(loose(tokenAmount(1n, 'USDC', 'celo'))), KindMismatchError);
+    expectMoneyError(() => snapshotToken(loose(money(1n, 'USD'))), KindMismatchError);
+    const fiat: Money = snapshotFiat(money(1n, 'USD'));
+    const token: TokenAmount = snapshotToken(tokenAmount(1n, 'USDC', 'celo'));
+    expect(fiat.kind).toBe('fiat');
+    expect(token.kind).toBe('token');
+  });
+
+  it('decimalText handles scale 0 and negatives', () => {
+    expect(decimalText(7n, 0)).toBe('7');
+    expect(decimalText(-7n, 0)).toBe('-7');
+    expect(decimalText(-5n, 2)).toBe('-0.05');
+    expect(decimalText(1_234_567n, 6)).toBe('1.234567');
+  });
+
+  it('keeps the new helpers out of the money index and the package root', () => {
+    for (const name of [
+      'buildToken',
+      'withAmount',
+      'snapshotFiat',
+      'snapshotToken',
+      'decimalText',
+    ]) {
+      expect((moneyIndex as Record<string, unknown>)[name]).toBeUndefined();
+      expect((root as Record<string, unknown>)[name]).toBeUndefined();
+    }
   });
 });

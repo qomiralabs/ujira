@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 
 import * as moneyIndex from './index.js';
+import { InvalidScaleError } from './index.js';
 import type { MoneyError } from './index.js';
 import { parseMoney } from './parse.js';
 
@@ -19,16 +20,27 @@ describe('parseMoney options that are not an object', () => {
   it.each([
     ['null', null],
     ['a string', 'half-even'],
-    ['a number', 2],
     ['a boolean', true],
     ['a bigint', 1n],
   ])('throws InvalidRoundingModeError for %s', (_label, options) => {
     let err: unknown;
     try {
-      parseMoney('1.5', 'USD', 2, options as never);
+      parseMoney('1.5', 'USD', options as never);
     } catch (caught) {
       err = caught;
     }
     expect(err).toBeInstanceOf(InvalidRoundingModeError);
+  });
+});
+
+describe('parseMoney given a bare number as options', () => {
+  it('throws InvalidScaleError, since it is a scale passed the old way', () => {
+    let err: unknown;
+    try {
+      parseMoney('1.5', 'USD', 2 as never);
+    } catch (caught) {
+      err = caught;
+    }
+    expect(err).toBeInstanceOf(InvalidScaleError);
   });
 });

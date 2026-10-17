@@ -6,13 +6,17 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DOLLAR_PEGGED,
   FIAT_CURRENCIES,
   MoneyError,
   SETTLEMENT_TOKENS,
   UnknownCurrencyError,
   fiatCurrency,
+  isFiatCurrencyCode,
+  isTokenAsset,
   money,
   settlementToken,
+  tokenAmount,
 } from './index.js';
 
 // ISO 4217 minor units, written out here rather than derived from the table.
@@ -110,10 +114,37 @@ describe('settlement token table', () => {
     }
   });
 
-  it('lets a Money value be built at each token scale', () => {
+  it('builds every token amount at its token scale', () => {
     for (const t of SETTLEMENT_TOKENS) {
-      const m = money(1n, t.asset, t.tokenScale);
-      expect(m.scale).toBe(t.tokenScale);
+      const amount = tokenAmount(1n, t.asset, t.chain);
+      expect(amount.scale).toBe(t.tokenScale);
+      expect(amount.chain).toBe(t.chain);
+    }
+  });
+
+  it('lists every settlement asset as dollar pegged', () => {
+    // usdToToken and tokenToUsd convert at par. A token that is not worth a
+    // dollar must not be added here without a priced path.
+    expect(Object.isFrozen(DOLLAR_PEGGED)).toBe(true);
+    expect([...new Set(SETTLEMENT_TOKENS.map((t) => t.asset))].sort()).toEqual(
+      [...DOLLAR_PEGGED].sort(),
+    );
+  });
+});
+
+describe('kind predicates', () => {
+  it('tells fiat codes from token assets, exactly and case sensitively', () => {
+    for (const c of FIAT_CURRENCIES) {
+      expect(isFiatCurrencyCode(c.code)).toBe(true);
+      expect(isTokenAsset(c.code)).toBe(false);
+    }
+    for (const t of SETTLEMENT_TOKENS) {
+      expect(isTokenAsset(t.asset)).toBe(true);
+      expect(isFiatCurrencyCode(t.asset)).toBe(false);
+    }
+    for (const value of ['usd', 'usdc', 'USDM', '', '__proto__', 'constructor', null, 1]) {
+      expect(isFiatCurrencyCode(value)).toBe(false);
+      expect(isTokenAsset(value)).toBe(false);
     }
   });
 });
@@ -121,7 +152,7 @@ describe('settlement token table', () => {
 describe('unknown currencies', () => {
   it('throws UnknownCurrencyError for XXX', () => {
     expect(() => fiatCurrency('XXX')).toThrow(UnknownCurrencyError);
-    expect(() => money(1n, 'XXX' as never, 2)).toThrow(UnknownCurrencyError);
+    expect(() => money(1n, 'XXX' as never)).toThrow(UnknownCurrencyError);
   });
 
   it.each(['usd', 'Usd', '', ' USD', 'USD ', 'JPY', 'BTC', 'constructor', '__proto__', 'toString'])(
