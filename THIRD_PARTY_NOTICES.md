@@ -96,6 +96,7 @@ Used to build and test UJIRA. They are not shipped.
 | estree-walker | 3.0.3 | MIT | https://github.com/Rich-Harris/estree-walker |
 | esutils | 2.0.3 | BSD-2-Clause | https://github.com/estools/esutils |
 | expect-type | 1.4.0 | Apache-2.0 | https://github.com/mmkal/expect-type |
+| fast-check | 4.10.2 | MIT | https://github.com/dubzzz/fast-check |
 | fast-deep-equal | 3.1.3 | MIT | https://github.com/epoberezkin/fast-deep-equal |
 | fast-json-stable-stringify | 2.1.0 | MIT | https://github.com/epoberezkin/fast-json-stable-stringify |
 | fast-levenshtein | 2.0.6 | MIT | https://github.com/hiddentao/fast-levenshtein |
@@ -140,6 +141,7 @@ Used to build and test UJIRA. They are not shipped.
 | prelude-ls | 1.2.1 | MIT | https://github.com/gkz/prelude-ls |
 | prettier | 3.9.10 | MIT | https://github.com/prettier/prettier |
 | punycode | 2.3.1 | MIT | https://github.com/mathiasbynens/punycode.js |
+| pure-rand | 8.4.2 | MIT | https://github.com/dubzzz/pure-rand |
 | qified | 0.10.1 | MIT | https://github.com/jaredwray/qified |
 | rolldown | 1.2.14 | MIT | https://github.com/rolldown/rolldown |
 | semver | 7.8.5 | ISC | https://github.com/npm/node-semver |

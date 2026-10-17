@@ -17,7 +17,58 @@ const IGNORED_FILES = new Set(['.DS_Store']);
 const REQUIRED_SCRIPTS = ['build', 'lint', 'typecheck', 'test'];
 // Every --max-warnings flag in the lint script and the value it sets.
 const MAX_WARNINGS_FLAG = /(?:^|\s)--max-warnings(?:=|\s+|(?=\s|$))(\S*)/g;
-const SUPPRESSION = [/\|\|/, /;\s*(true|:|exit\s+0)(\s|;|$)/];
+// The only shell operator a required script may use to join commands is `&&`,
+// which stops at the first failure. Pipes, `;`, `||`, background `&`, command
+// and process substitution can all let a failing command exit 0, so anything
+// left once `&&` and redirection are removed fails. Redirection (`>`, `<`,
+// `2>&1`) is allowed because it does not change the exit code.
+const AND_CHAIN = '&&';
+const FD_DUPLICATION = /\d*[<>]&(?:\d+|-)/g;
+const FORBIDDEN_OPERATORS: readonly [string, RegExp][] = [
+  ['|', /\|/],
+  [';', /;/],
+  ['&', /&/],
+  ['`', /`/],
+  ['$(', /\$\(/],
+  ['<(', /<\(/],
+  ['>(', />\(/],
+];
+// Every `&&` step of a required script must start with one of these tools,
+// written as a bare name. Anything else, including package managers, shells,
+// wrappers, `node` and negation with `!`, could run something whose exit code
+// the check cannot see. Adding a tool here needs review.
+export const ALLOWED_TOOLS: readonly string[] = ['tsc', 'eslint', 'vitest', 'prettier', 'next'];
+// Characters that let the first word expand, be quoted or set a variable.
+const UNSAFE_FIRST_WORD = /[$'"=/\\]/;
+const ENV_ASSIGNMENT = /^[A-Za-z_]\w*=/;
+
+// Problems with one required script, worded to follow `"<name>" script`.
+function scriptProblems(script: string): string[] {
+  const found: string[] = [];
+  const reasons: string[] = [];
+  if (/[\r\n]/.test(script)) found.push('newline');
+  for (const segment of script.split(AND_CHAIN)) {
+    const command = segment.replace(FD_DUPLICATION, ' ');
+    for (const [operator, pattern] of FORBIDDEN_OPERATORS) {
+      if (pattern.test(command) && !found.includes(operator)) found.push(operator);
+    }
+    const word = command.trim().split(/\s+/)[0] ?? '';
+    const shown = word === '' ? 'an empty command' : word;
+    if (ENV_ASSIGNMENT.test(word)) {
+      reasons.push(`must not set environment variables before a command, found ${shown}`);
+    } else if (UNSAFE_FIRST_WORD.test(word)) {
+      reasons.push(`must start each command with a bare tool name, found ${shown}`);
+    } else if (!ALLOWED_TOOLS.includes(word)) {
+      reasons.push(
+        `must start each command with one of ${ALLOWED_TOOLS.join(', ')}, found ${shown}`,
+      );
+    }
+  }
+  if (found.length > 0) {
+    reasons.unshift(`may only chain commands with &&, found ${found.join(', ')}`);
+  }
+  return [...new Set(reasons)];
+}
 
 interface PackageJson {
   name?: string;
@@ -83,13 +134,13 @@ function checkScripts(manifestDir: string): void {
   const label = pkg.name ?? relative(ROOT, manifestDir);
   const scripts = pkg.scripts ?? {};
   for (const name of REQUIRED_SCRIPTS) {
-    const script = scripts[name]?.trim();
-    if (!script) {
+    const script = scripts[name];
+    if (!script?.trim()) {
       problems.push(`${label}: missing "${name}" script`);
       continue;
     }
-    if (SUPPRESSION.some((pattern) => pattern.test(script))) {
-      problems.push(`${label}: "${name}" script must not suppress failures`);
+    for (const reason of scriptProblems(script)) {
+      problems.push(`${label}: "${name}" script ${reason}`);
     }
   }
   const lint = scripts['lint'];
