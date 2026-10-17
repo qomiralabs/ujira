@@ -301,7 +301,12 @@ describe('gate', () => {
             options !== undefined && ('project' in options || 'projectService' in options),
         );
       expect(withParser).toEqual([
-        expect.objectContaining({ project: lintProjects(join(import.meta.dirname, '..')) }),
+        expect.objectContaining({
+          project: lintProjects(join(import.meta.dirname, '..')),
+          // With CI=true typescript-eslint would otherwise assume a single
+          // run, which breaks linting text that is not on disk.
+          disallowAutomaticSingleRunInference: true,
+        }),
       ]);
       expect(
         withParser.some((options) => options !== undefined && 'projectService' in options),
