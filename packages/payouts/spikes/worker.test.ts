@@ -161,6 +161,27 @@ describe('enqueue from the app role', () => {
     expect(await jobs()).toEqual([]);
   });
 
+  it('enqueue stores the tenant in canonical form', async () => {
+    const shouted = {
+      principalId: TENANT_A.principalId.toUpperCase(),
+      projectId: TENANT_A.projectId.toUpperCase(),
+    };
+    await tenantTx(app, shouted, (client) =>
+      enqueue(client, 'payout:advance', { payoutId: 'p1' }, { jobKey: 'k' }),
+    );
+    expect(await jobs()).toMatchObject([
+      {
+        key: `${TENANT_A.principalId}:${TENANT_A.projectId}:k`,
+        payload: { payoutId: 'p1', ...TENANT_A },
+      },
+    ]);
+
+    const garbled = tenantTx(app, { ...TENANT_A, principalId: 'not-a-uuid' }, (client) =>
+      enqueue(client, 'payout:advance', {}),
+    );
+    await expect(garbled).rejects.toThrow('tenant context is not a uuid');
+  });
+
   it('the same job key from two tenants makes two jobs', async () => {
     for (const tenant of [TENANT_A, TENANT_B]) {
       await tenantTx(app, tenant, (client) =>
@@ -173,6 +194,81 @@ describe('enqueue from the app role', () => {
       TENANT_B.principalId,
     ]);
     expect(new Set(rows.map((r) => r.key)).size).toBe(2);
+  });
+});
+
+describe('enqueue argument checks', () => {
+  // Positional, so a test can hand SQL a real NULL for any one argument.
+  const ARGS = ['task', 'ids', 'jobKey', 'queue', 'runAt', 'maxAttempts', 'keyMode'] as const;
+  type Arg = (typeof ARGS)[number];
+  const valid: Record<Arg, unknown> = {
+    task: 'payout:advance',
+    ids: JSON.stringify({ payoutId: 'p1' }),
+    jobKey: 'payout:p1:advance',
+    queue: 'mandate:m1',
+    runAt: null,
+    maxAttempts: 5,
+    keyMode: 'replace',
+  };
+
+  function call(overrides: Partial<Record<Arg, unknown>>): Promise<unknown> {
+    const values = ARGS.map((arg) => (arg in overrides ? overrides[arg] : valid[arg]));
+    return tenantTx(app, TENANT_A, (client) =>
+      client.query(
+        'select ujira_jobs.enqueue($1, $2::jsonb, $3, $4, $5::timestamptz, $6::integer, $7)',
+        values,
+      ),
+    );
+  }
+
+  it.each([
+    ['task', 'task is required'],
+    ['ids', 'ids are required'],
+    ['keyMode', 'key mode is required'],
+  ] as const)('a null %s is refused before anything is written', async (arg, message) => {
+    const result = call({ [arg]: null });
+    await expect(result).rejects.toThrow(message);
+    await expect(result).rejects.toSatisfy((e) => sqlState(e) === '22004');
+    expect(await jobs()).toEqual([]);
+  });
+
+  it('a json null for ids is refused like any other non object', async () => {
+    await expect(call({ ids: 'null' })).rejects.toThrow('job payload must be string ids');
+    expect(await jobs()).toEqual([]);
+  });
+
+  it('a null job key means no key', async () => {
+    await call({ jobKey: null });
+    expect(await jobs()).toMatchObject([{ key: null }]);
+  });
+
+  it('a null queue means no queue', async () => {
+    await call({ queue: null });
+    expect(await jobs()).toMatchObject([{ queue_name: null }]);
+  });
+
+  it('a null run at means now', async () => {
+    await call({ runAt: null });
+    const [job] = await jobs();
+    expect(job?.delay_ms).toBeLessThanOrEqual(0);
+    expect(job?.delay_ms).toBeGreaterThan(-5000);
+  });
+
+  it('a null max attempts means the worker default', async () => {
+    await call({ maxAttempts: null });
+    expect(await jobs()).toMatchObject([{ max_attempts: 25 }]);
+  });
+
+  it.each([
+    ['jobKey', '', 'job key must not be empty'],
+    ['queue', '', 'queue must not be empty'],
+    ['maxAttempts', 0, 'max attempts must be between 1 and 100'],
+    ['maxAttempts', 101, 'max attempts must be between 1 and 100'],
+    ['keyMode', 'unsafe_dedupe', 'unsupported job key mode'],
+    ['task', 'payout.advance', 'invalid task identifier'],
+  ] as const)('%s %j is refused', async (arg, value, message) => {
+    await expect(call({ [arg]: value })).rejects.toThrow(message);
+    expect(await jobs()).toEqual([]);
   });
 });
 
@@ -294,11 +390,16 @@ describe('running jobs', () => {
     try {
       // A claim sets attempts and locked_by together and a failure clears the
       // lock, so this only matches once the first failure is written.
+      let last: JobRow | undefined;
       const failedAfter = async (attempts: number): Promise<boolean> => {
-        const [job] = await jobs();
-        return job?.attempts === attempts && job.locked_by === null;
+        [last] = await jobs();
+        return last?.attempts === attempts && last.locked_by === null;
       };
-      await waitFor(() => failedAfter(1));
+      // Each try is a claim, a throw and a write; ten seconds is generous on a
+      // loaded runner and still fails fast enough to say which try stalled.
+      const stalled = (attempts: number) => () =>
+        `failure ${String(attempts)} of chain:call to be recorded (runs ${String(runs)}, last row ${JSON.stringify(last ?? null)})`;
+      await waitFor(() => failedAfter(1), 10000, stalled(1));
       const [afterFirst] = await jobs();
       // exp(1) seconds, less the time it took to read it back. The next step
       // of the curve is exp(2), so these bounds tell the two apart.
@@ -309,7 +410,7 @@ describe('running jobs', () => {
         'select graphile_worker.reschedule_jobs(array[$1::bigint], run_at => now())',
         [afterFirst?.id],
       );
-      await waitFor(() => failedAfter(2));
+      await waitFor(() => failedAfter(2), 10000, stalled(2));
       // At max attempts the job is the dead letter set: due, never claimed again.
       await workerSql.query('update graphile_worker._private_jobs set run_at = now()');
       await sleep(1000);

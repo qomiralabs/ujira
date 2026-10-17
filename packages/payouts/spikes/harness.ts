@@ -193,10 +193,13 @@ export function sleep(ms: number): Promise<void> {
 export async function waitFor(
   check: () => Promise<boolean> | boolean,
   timeoutMs = 15000,
+  what: () => string = () => 'condition',
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!(await check())) {
-    if (Date.now() > deadline) throw new Error(`condition not met within ${String(timeoutMs)} ms`);
+    if (Date.now() > deadline) {
+      throw new Error(`timed out after ${String(timeoutMs)} ms waiting for ${what()}`);
+    }
     await sleep(25);
   }
 }

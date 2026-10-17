@@ -25,14 +25,35 @@ declare
   v_prefix    text;
   v_job_id    bigint;
 begin
+  -- An IF on NULL is false, so a NULL slips past any check written as a plain
+  -- comparison. Required arguments are refused here, and every later check is
+  -- shaped so that NULL can only fail it.
+  if p_task is null then
+    raise exception using errcode = '22004', message = 'task is required';
+  end if;
+  if p_ids is null then
+    raise exception using errcode = '22004', message = 'ids are required';
+  end if;
+  if p_key_mode is null then
+    raise exception using errcode = '22004', message = 'key mode is required';
+  end if;
+
   if v_principal is null or v_principal = '' or v_project is null or v_project = '' then
     raise exception using errcode = 'UJ001', message = 'tenant context missing';
   end if;
   if v_project = 'all' then
     raise exception using errcode = 'UJ001', message = 'jobs need a single project scope';
   end if;
-  -- The casts reject anything that is not a uuid before it reaches a key.
-  v_prefix := v_principal::uuid::text || ':' || v_project::uuid::text || ':';
+  -- One canonical spelling for the prefix and the payload, so a handler
+  -- comparing ids as strings never misses.
+  begin
+    v_principal := v_principal::uuid::text;
+    v_project   := v_project::uuid::text;
+  exception when invalid_text_representation then
+    raise exception using errcode = 'UJ001', message = 'tenant context is not a uuid';
+  end;
+  v_prefix := v_principal || ':' || v_project || ':';
+
   -- Colons, not dots: the crontab parser rejects dots in task names.
   if p_task !~ '^[a-z][a-z0-9_]*(:[a-z][a-z0-9_]*)*$' or length(p_task) > 64 then
     raise exception using errcode = '22023', message = 'invalid task identifier';
@@ -46,6 +67,18 @@ begin
   if p_key_mode not in ('replace', 'preserve_run_at') then
     raise exception using errcode = '22023', message = 'unsupported job key mode';
   end if;
+  -- NULL means not set for these. An empty key or queue would collapse to the
+  -- bare tenant prefix and share it with every other such job.
+  if p_job_key = '' then
+    raise exception using errcode = '22023', message = 'job key must not be empty';
+  end if;
+  if p_queue = '' then
+    raise exception using errcode = '22023', message = 'queue must not be empty';
+  end if;
+  if p_max_attempts not between 1 and 100 then
+    raise exception using errcode = '22023', message = 'max attempts must be between 1 and 100';
+  end if;
+
   select j.id into v_job_id
   from graphile_worker.add_job(
     identifier   => p_task,
