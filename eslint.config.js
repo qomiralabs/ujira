@@ -192,7 +192,19 @@ const noNumberConversion = {
 
 export default defineConfig(
   {
-    ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**', '**/.turbo/**'],
+    // Output folders only where the tools write them, at the root and at each
+    // member root. The same names deeper in a member are source and linted.
+    ignores: [
+      '**/node_modules/**',
+      'coverage/**',
+      '.turbo/**',
+      'packages/*/dist/**',
+      'packages/*/coverage/**',
+      'packages/*/.turbo/**',
+      'apps/*/dist/**',
+      'apps/*/coverage/**',
+      'apps/*/.turbo/**',
+    ],
   },
   {
     linterOptions: {

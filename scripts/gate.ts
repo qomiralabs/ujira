@@ -50,7 +50,13 @@ function distProblem(memberDir: string): string | undefined {
   const dist = join(memberDir, 'dist');
   if (!existsSync(dist) && !isLink(dist)) return undefined;
   const stat = lstatSync(dist);
-  const real = realpathSync(dist);
+  let real: string;
+  try {
+    real = realpathSync(dist);
+  } catch {
+    // A dangling symlink: nothing a build could safely write into.
+    return 'dist must be a folder inside the member';
+  }
   const inside = real.startsWith(realpathSync(memberDir) + sep);
   return stat.isDirectory() && !stat.isSymbolicLink() && inside
     ? undefined

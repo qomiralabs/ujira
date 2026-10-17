@@ -298,6 +298,8 @@ export interface CheckOptions {
   pnpmMembers?: readonly string[];
   // Paths git tracks as symlinks (mode 120000), relative to the root.
   trackedSymlinks?: readonly string[];
+  // Tracked paths that an ignore rule also matches, relative to the root.
+  trackedIgnored?: readonly string[];
 }
 
 // Every path the git index records as a symlink. A tracked symlink is a file
@@ -311,9 +313,29 @@ export function trackedSymlinks(root: string): string[] {
     .sort();
 }
 
-const TSCONFIG_NAME = /^(?:tsconfig.*\.json|jsconfig\.json)$/;
-const FORMATTER_NAME = /^(?:\.prettierrc(?:\..+)?|prettier\.config\..+|\.editorconfig)$/;
-const WALK_SKIPPED = new Set(['.git', ...SKIPPED_DIRS]);
+// Case insensitive: on macOS and Windows file systems TypeScript's lookup for
+// tsconfig.json also finds TSConfig.json.
+const TSCONFIG_NAME = /^(?:tsconfig.*\.json|jsconfig\.json)$/i;
+const FORMATTER_NAME = /^(?:\.prettierrc(?:\..+)?|prettier\.config\..+|\.editorconfig)$/i;
+// Output folders are skipped only where the tools put them: at the repository
+// root and at each member root. The same names deeper down, for example
+// src/dist, are ordinary source folders and are checked.
+const ROOT_SKIPPED = new Set(['.git', ...SKIPPED_DIRS]);
+const MEMBER_ROOT_SKIPPED = SKIPPED_DIRS;
+
+// Every tracked file that an ignore rule also matches. Lint and format skip
+// ignored paths, but tsc still builds them, so such a file would ship
+// unchecked. It can only be committed with a forced add.
+export function trackedIgnored(root: string): string[] {
+  const out = execFileSync('git', ['ls-files', '-c', '-i', '--exclude-standard', '-z'], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  return out
+    .split('\0')
+    .filter((path) => path !== '')
+    .sort();
+}
 
 // TypeScript and Prettier both look for their config next to each file and
 // then upward, so a config anywhere in the tree can change what lint sees or
@@ -326,12 +348,16 @@ function configFileProblems(root: string, memberPaths: readonly string[]): strin
     ...memberPaths.flatMap((path) => [`${path}/tsconfig.json`, `${path}/tsconfig.build.json`]),
   ]);
   const problems: string[] = [];
+  const memberDirs = new Set(memberPaths.map((path) => join(root, path)));
   const walk = (dir: string): void => {
     for (const entry of readdirSync(dir).sort()) {
       const path = join(dir, entry);
       const stat = lstatSync(path);
       if (stat.isDirectory()) {
-        if (!WALK_SKIPPED.has(entry)) walk(path);
+        const skipped =
+          (dir === root && ROOT_SKIPPED.has(entry)) ||
+          (memberDirs.has(dir) && MEMBER_ROOT_SKIPPED.has(entry));
+        if (!skipped) walk(path);
         continue;
       }
       const rel = relative(root, path).split(sep).join('/');
@@ -427,6 +453,11 @@ export function checkWorkspace(root: string, options: CheckOptions = {}): string
     problems.push(...scriptsProblems(manifestDir, label));
     problems.push(...tsconfigProblems(manifestDir, label));
   }
+  for (const path of options.trackedIgnored ?? []) {
+    problems.push(
+      `${path}: tracked by git but matched by an ignore rule, so lint and format skip it`,
+    );
+  }
   for (const path of options.trackedSymlinks ?? []) {
     if (SCANNED_DIRS.some((dir) => path.startsWith(`${dir}/`))) {
       problems.push(`${path}: tracked symlinks are not allowed in workspace members`);
@@ -490,6 +521,7 @@ if (import.meta.main) {
     problems = checkWorkspace(root, {
       pnpmMembers: pnpmMembers(root),
       trackedSymlinks: trackedSymlinks(root),
+      trackedIgnored: trackedIgnored(root),
     });
   } catch (error) {
     problems = [error instanceof Error ? error.message : String(error)];

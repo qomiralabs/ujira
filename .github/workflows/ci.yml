@@ -158,13 +158,36 @@ jobs:
           scripts/assert-pnpm.sh
           pnpm audit --prod
 
+      # Test files are member code, so the checkout, node_modules included,
+      # is mounted read-only for this step: even the runner user cannot patch
+      # an installed tool or a source file from a test. The JUnit report, the
+      # coverage report and the Vitest cache are written outside the checkout.
       # The JUnit report names every test and its result, so a flaky or slow
-      # test can be identified from the artifact. It is written outside the
-      # checkout.
+      # test can be identified from the artifact.
       - name: Test with coverage
         run: |
           scripts/assert-pnpm.sh
-          pnpm test --reporter=verbose --reporter=junit --outputFile.junit="${RUNNER_TEMP}/vitest/junit.xml"
+          touch "${RUNNER_TEMP}/before-test"
+          sudo mount --bind "${PWD}" "${PWD}"
+          trap 'sudo umount "${PWD}"' EXIT
+          sudo mount -o remount,bind,ro "${PWD}"
+          pnpm test --coverage.reportsDirectory="${RUNNER_TEMP}/coverage" --reporter=verbose --reporter=junit --outputFile.junit="${RUNNER_TEMP}/vitest/junit.xml"
+
+      # A backstop for the read-only mount: nothing in the checkout, tracked,
+      # untracked or ignored, may change while the tests run.
+      - name: Working tree and node_modules unchanged after test
+        if: ${{ !cancelled() }}
+        run: |
+          changes="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$changes" ]; then
+            echo "$changes"
+            exit 1
+          fi
+          newer="$(find . -mindepth 1 -path ./.git -prune -o -newer "${RUNNER_TEMP}/before-test" -print)"
+          if [ -n "$newer" ]; then
+            echo "$newer"
+            exit 1
+          fi
 
       - name: Upload test report
         if: ${{ !cancelled() }}
@@ -182,6 +205,6 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage
-          path: coverage/
+          path: ${{ runner.temp }}/coverage/
           if-no-files-found: ${{ job.status == 'success' && 'error' || 'ignore' }}
           retention-days: 14

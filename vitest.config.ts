@@ -1,11 +1,24 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
+import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { defineConfig } from 'vitest/config';
 
 import { testProjects } from './scripts/workspace.ts';
 
 export default defineConfig({
+  // Outside node_modules and the checkout, so the test step can run on a
+  // read-only checkout. One folder per checkout path keeps worktrees apart.
+  cacheDir: join(
+    tmpdir(),
+    `ujira-vitest-${createHash('sha256')
+      .update(import.meta.dirname)
+      .digest('hex')
+      .slice(0, 12)}`,
+  ),
   test: {
     // Member projects are defined here rather than loaded from each member's
     // vitest.config, so code in a member cannot change what this run checks.
@@ -15,6 +28,12 @@ export default defineConfig({
         // `@vitest-environment jsdom` comment. The token generator has its
         // own tests next to it.
         '@ujira/ui': { include: ['src/**/*.test.{ts,tsx}', 'tokens/**/*.test.ts'] },
+        // The spike tests start a Postgres container and real worker pools.
+        '@ujira/payouts': {
+          include: ['src/**/*.test.ts', 'spikes/**/*.test.ts'],
+          hookTimeout: 180_000,
+          testTimeout: 60_000,
+        },
       }),
       { extends: true, test: { name: 'scripts', include: ['scripts/**/*.test.ts'] } },
     ],

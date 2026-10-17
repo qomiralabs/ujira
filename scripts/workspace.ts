@@ -140,6 +140,8 @@ export interface MemberTestSettings {
   include?: string[];
   environment?: string;
   setupFiles?: string[];
+  hookTimeout?: number;
+  testTimeout?: number;
 }
 
 export interface TestProject {
