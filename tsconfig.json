@@ -5,7 +5,9 @@
     "allowJs": true,
     "checkJs": true,
     // Root scripts run directly under Node type stripping.
-    "erasableSyntaxOnly": true
+    "erasableSyntaxOnly": true,
+    // Node needs the .ts extension on relative imports between root scripts.
+    "allowImportingTsExtensions": true
   },
   // Every root level source file and everything under scripts/ must be listed
   // here, otherwise the type-aware lint rejects it.

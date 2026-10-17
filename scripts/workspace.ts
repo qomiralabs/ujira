@@ -1,0 +1,124 @@
+// Copyright (c) 2026 Qomira Labs. All rights reserved.
+// Proprietary and confidential. Unauthorized copying is prohibited.
+
+// Reads the workspace layout: the member globs in pnpm-workspace.yaml, the
+// member folders they match and the order to build them in. Shared by the
+// workspace check and the root gate so both see the same members.
+
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+export const SCANNED_DIRS = ['packages', 'apps'];
+
+export interface Member {
+  // Absolute path of the member folder.
+  dir: string;
+  // Path relative to the root, with forward slashes.
+  path: string;
+  name: string;
+  manifest: Record<string, unknown>;
+}
+
+// Reads the `packages:` list from pnpm-workspace.yaml. Only plain `<dir>/*`
+// globs are supported; anything else is reported so the checks are extended
+// rather than silently matching the wrong folders.
+export function readWorkspaceGlobs(root: string): { globs: string[]; problems: string[] } {
+  const text = readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8');
+  const globs: string[] = [];
+  const problems: string[] = [];
+  let inPackages = false;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/\s+#.*$/, '');
+    if (/^packages:\s*$/.test(line)) {
+      inPackages = true;
+      continue;
+    }
+    if (!inPackages) continue;
+    if (line.trim() === '') continue;
+    const item = /^\s+-\s+['"]?([^'"]+?)['"]?\s*$/.exec(line);
+    if (!item?.[1]) break;
+    globs.push(item[1]);
+  }
+  if (globs.length === 0) {
+    problems.push('pnpm-workspace.yaml: no entries found under "packages:"');
+  }
+  for (const glob of globs) {
+    if (!/^[\w.-]+\/\*$/.test(glob)) {
+      problems.push(`pnpm-workspace.yaml: unsupported glob "${glob}", expected the form "<dir>/*"`);
+    }
+    if (!SCANNED_DIRS.includes(glob.slice(0, -'/*'.length))) {
+      problems.push(
+        `pnpm-workspace.yaml: "${glob}" is outside ${SCANNED_DIRS.join(' and ')}, which the checks scan`,
+      );
+    }
+  }
+  return { globs, problems };
+}
+
+// Every folder directly under a glob's directory that has a package.json.
+// Structure problems (loose files, folders without a manifest, symlinks) are
+// reported by the workspace check, not here.
+export function listMembers(root: string, globs: readonly string[]): Member[] {
+  const members: Member[] = [];
+  for (const glob of globs) {
+    // Unsupported globs are reported by readWorkspaceGlobs and match nothing.
+    if (!/^[\w.-]+\/\*$/.test(glob)) continue;
+    const base = glob.slice(0, -'/*'.length);
+    const baseDir = join(root, base);
+    if (!existsSync(baseDir)) continue;
+    for (const entry of readdirSync(baseDir).sort()) {
+      const dir = join(baseDir, entry);
+      const file = join(dir, 'package.json');
+      if (!existsSync(file)) continue;
+      const manifest = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+      const name = typeof manifest['name'] === 'string' ? manifest['name'] : `${base}/${entry}`;
+      members.push({ dir, path: `${base}/${entry}`, name, manifest });
+    }
+  }
+  return members;
+}
+
+const DEPENDENCY_FIELDS = [
+  'dependencies',
+  'devDependencies',
+  'optionalDependencies',
+  'peerDependencies',
+];
+
+// Names of the other members this member depends on.
+export function workspaceDependencies(member: Member, names: ReadonlySet<string>): string[] {
+  const found = new Set<string>();
+  for (const field of DEPENDENCY_FIELDS) {
+    const deps = member.manifest[field];
+    if (typeof deps !== 'object' || deps === null) continue;
+    for (const name of Object.keys(deps)) {
+      if (names.has(name) && name !== member.name) found.add(name);
+    }
+  }
+  return [...found].sort();
+}
+
+// Members ordered so each comes after the members it depends on. Ties keep
+// path order, so the result is the same on every run. Throws on a cycle.
+export function buildOrder(members: readonly Member[]): Member[] {
+  const byName = new Map(members.map((m) => [m.name, m]));
+  const names = new Set(byName.keys());
+  const ordered: Member[] = [];
+  const state = new Map<string, 'visiting' | 'done'>();
+  const visit = (member: Member, trail: string[]): void => {
+    const seen = state.get(member.name);
+    if (seen === 'done') return;
+    if (seen === 'visiting') {
+      throw new Error(`workspace dependency cycle: ${[...trail, member.name].join(' -> ')}`);
+    }
+    state.set(member.name, 'visiting');
+    for (const dep of workspaceDependencies(member, names)) {
+      const next = byName.get(dep);
+      if (next) visit(next, [...trail, member.name]);
+    }
+    state.set(member.name, 'done');
+    ordered.push(member);
+  };
+  for (const member of [...members].sort((a, b) => (a.path < b.path ? -1 : 1))) visit(member, []);
+  return ordered;
+}

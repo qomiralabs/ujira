@@ -9,9 +9,9 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "turbo run build",
-    "typecheck": "node scripts/check-workspace-scripts.ts && turbo run typecheck && tsc -p tsconfig.json",
-    "lint": "node scripts/check-workspace-scripts.ts && turbo run lint && eslint --max-warnings 0 --ignore-pattern 'packages/**' --ignore-pattern 'apps/**' .",
+    "build": "node scripts/check-workspace-scripts.ts && node scripts/gate.ts build",
+    "typecheck": "node scripts/check-workspace-scripts.ts && node scripts/gate.ts typecheck",
+    "lint": "node scripts/check-workspace-scripts.ts && eslint --config eslint.config.js --max-warnings 0 .",
     "test": "vitest run --coverage",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

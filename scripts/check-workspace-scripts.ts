@@ -1,16 +1,20 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-// Turborepo only runs workspace members, and skips a member that has no script
-// for a task. Root lint leaves packages/ and apps/ to those per package tasks,
-// so a folder that is not a member, or a member without a lint or typecheck
-// script, would never be checked. Fail on both instead.
+// Structure check for the workspace. The root gate (`pnpm lint`,
+// `pnpm typecheck`, `pnpm build`) runs fixed commands over every member and
+// never runs package scripts, but it relies on every member being found and
+// on member tsconfig files not weakening the shared compiler options. This
+// check enforces both, and keeps package scripts to plain tool commands so
+// running them by hand behaves like the gate.
 
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { join, relative } from 'node:path';
 
-const ROOT = join(import.meta.dirname, '..');
-const SCANNED_DIRS = ['packages', 'apps'];
+import ts from 'typescript';
+
+import { listMembers, readWorkspaceGlobs, SCANNED_DIRS } from './workspace.ts';
+
 const SKIPPED_DIRS = new Set(['node_modules', 'dist', 'coverage', '.turbo']);
 // Finder metadata on macOS; ignored by git and never source.
 const IGNORED_FILES = new Set(['.DS_Store']);
@@ -43,7 +47,7 @@ const UNSAFE_FIRST_WORD = /[$'"=/\\]/;
 const ENV_ASSIGNMENT = /^[A-Za-z_]\w*=/;
 
 // Problems with one required script, worded to follow `"<name>" script`.
-function scriptProblems(script: string): string[] {
+export function scriptProblems(script: string): string[] {
   const found: string[] = [];
   const reasons: string[] = [];
   if (/[\r\n]/.test(script)) found.push('newline');
@@ -70,68 +74,78 @@ function scriptProblems(script: string): string[] {
   return [...new Set(reasons)];
 }
 
+// Compiler options a member tsconfig may set. Everything else, including
+// every strictness flag and noCheck, comes from tsconfig.base.json only, so a
+// member cannot switch a check off for itself.
+export const MEMBER_COMPILER_OPTIONS: readonly string[] = [
+  'rootDir',
+  'outDir',
+  'noEmit',
+  'lib',
+  'types',
+  'jsx',
+  'plugins',
+];
+const MEMBER_TSCONFIGS = ['tsconfig.json', 'tsconfig.build.json'];
+const BASE_TSCONFIG = '../../tsconfig.base.json';
+const NEXT_CONFIG = /^next\.config\.(?:js|mjs|cjs|ts|mts)$/;
+
+function readJsonc(file: string): { value?: unknown; error?: string } {
+  const result = ts.parseConfigFileTextToJson(file, readFileSync(file, 'utf8'));
+  if (result.error) {
+    return { error: ts.flattenDiagnosticMessageText(result.error.messageText, ' ') };
+  }
+  return { value: result.config as unknown };
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function tsconfigProblems(memberDir: string, label: string): string[] {
+  const problems: string[] = [];
+  for (const name of MEMBER_TSCONFIGS) {
+    const file = join(memberDir, name);
+    const where = `${label}: ${name}`;
+    if (!existsSync(file)) {
+      problems.push(`${where} is missing`);
+      continue;
+    }
+    const { value, error } = readJsonc(file);
+    if (error !== undefined || !isObject(value)) {
+      problems.push(`${where} is not valid: ${error ?? 'expected an object'}`);
+      continue;
+    }
+    if (value['extends'] !== BASE_TSCONFIG) {
+      problems.push(`${where} must extend exactly "${BASE_TSCONFIG}"`);
+    }
+    const options = value['compilerOptions'] ?? {};
+    if (!isObject(options)) {
+      problems.push(`${where}: compilerOptions must be an object`);
+      continue;
+    }
+    for (const key of Object.keys(options)) {
+      if (!MEMBER_COMPILER_OPTIONS.includes(key)) {
+        problems.push(
+          `${where} must not set compilerOptions.${key}; shared options live in tsconfig.base.json`,
+        );
+      }
+    }
+    if (name === 'tsconfig.build.json' && options['noEmit'] !== undefined) {
+      problems.push(`${where} must not set noEmit; the build has to emit`);
+    }
+  }
+  return problems;
+}
+
 interface PackageJson {
   name?: string;
   scripts?: Record<string, string>;
 }
 
-const problems: string[] = [];
-
-// Reads the `packages:` list from pnpm-workspace.yaml. Only plain `<dir>/*`
-// globs are supported; anything else is reported so this check is extended
-// rather than silently matching the wrong folders.
-function readWorkspaceGlobs(): string[] {
-  const text = readFileSync(join(ROOT, 'pnpm-workspace.yaml'), 'utf8');
-  const globs: string[] = [];
-  let inPackages = false;
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.replace(/\s+#.*$/, '');
-    if (/^packages:\s*$/.test(line)) {
-      inPackages = true;
-      continue;
-    }
-    if (!inPackages) continue;
-    if (line.trim() === '') continue;
-    const item = /^\s+-\s+['"]?([^'"]+?)['"]?\s*$/.exec(line);
-    if (!item?.[1]) break;
-    globs.push(item[1]);
-  }
-  if (globs.length === 0) {
-    problems.push('pnpm-workspace.yaml: no entries found under "packages:"');
-  }
-  for (const glob of globs) {
-    if (!/^[\w.-]+\/\*$/.test(glob)) {
-      problems.push(`pnpm-workspace.yaml: unsupported glob "${glob}", expected the form "<dir>/*"`);
-    }
-  }
-  return globs;
-}
-
-function isMember(manifestDir: string, globs: string[]): boolean {
-  const parts = relative(ROOT, manifestDir).split(sep);
-  return parts.length === 2 && globs.some((glob) => glob.slice(0, -'/*'.length) === parts[0]);
-}
-
-// Every folder that holds a package.json under the scanned dirs, at any depth.
-// Symlinks are reported, not followed, so nothing can hide behind one.
-function findManifests(dir: string, found: string[]): void {
-  for (const entry of readdirSync(dir)) {
-    if (SKIPPED_DIRS.has(entry)) continue;
-    const path = join(dir, entry);
-    const stat = lstatSync(path);
-    if (stat.isSymbolicLink()) {
-      problems.push(`${relative(ROOT, path)}: symlinks are not allowed in workspace folders`);
-      continue;
-    }
-    if (!stat.isDirectory()) continue;
-    if (existsSync(join(path, 'package.json'))) found.push(path);
-    findManifests(path, found);
-  }
-}
-
-function checkScripts(manifestDir: string): void {
+function scriptsProblems(manifestDir: string, label: string): string[] {
+  const problems: string[] = [];
   const pkg = JSON.parse(readFileSync(join(manifestDir, 'package.json'), 'utf8')) as PackageJson;
-  const label = pkg.name ?? relative(ROOT, manifestDir);
   const scripts = pkg.scripts ?? {};
   for (const name of REQUIRED_SCRIPTS) {
     const script = scripts[name];
@@ -150,40 +164,79 @@ function checkScripts(manifestDir: string): void {
       problems.push(`${label}: "lint" script must pass --max-warnings 0 exactly once`);
     }
   }
+  return problems;
 }
 
-const globs = readWorkspaceGlobs();
-const manifests: string[] = [];
-for (const dir of SCANNED_DIRS) {
-  const base = join(ROOT, dir);
-  if (!existsSync(base)) continue;
-  // Root lint and typecheck skip these folders, so anything directly inside
-  // them that is not a package would never be checked.
-  for (const entry of readdirSync(base)) {
-    if (IGNORED_FILES.has(entry)) continue;
-    const path = join(base, entry);
+// Every folder that holds a package.json under `dir`, at any depth. Symlinks
+// are reported, not followed, so nothing can hide behind one.
+function findManifests(root: string, dir: string, found: string[], problems: string[]): void {
+  for (const entry of readdirSync(dir).sort()) {
+    if (SKIPPED_DIRS.has(entry)) continue;
+    const path = join(dir, entry);
     const stat = lstatSync(path);
-    if (stat.isSymbolicLink()) continue;
-    if (!stat.isDirectory()) {
-      problems.push(`${relative(ROOT, path)}: only package folders are allowed in ${dir}/`);
-    } else if (!existsSync(join(path, 'package.json'))) {
-      problems.push(`${relative(ROOT, path)}: folder has no package.json`);
+    if (stat.isSymbolicLink()) {
+      problems.push(`${relative(root, path)}: symlinks are not allowed in workspace folders`);
+      continue;
     }
+    if (!stat.isDirectory()) continue;
+    if (existsSync(join(path, 'package.json'))) found.push(path);
+    findManifests(root, path, found, problems);
   }
-  findManifests(base, manifests);
 }
 
-for (const manifestDir of manifests) {
-  if (!isMember(manifestDir, globs)) {
-    problems.push(
-      `${relative(ROOT, manifestDir)}: has a package.json but is not a workspace member`,
-    );
-    continue;
+export function checkWorkspace(root: string): string[] {
+  const { globs, problems } = readWorkspaceGlobs(root);
+  const memberDirs = new Set(listMembers(root, globs).map((m) => m.dir));
+  const manifests: string[] = [];
+  for (const dir of SCANNED_DIRS) {
+    const base = join(root, dir);
+    if (!existsSync(base)) continue;
+    // Anything directly inside these folders that is not a package would
+    // never be found by the gate.
+    for (const entry of readdirSync(base).sort()) {
+      if (IGNORED_FILES.has(entry)) continue;
+      const path = join(base, entry);
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink()) continue;
+      if (!stat.isDirectory()) {
+        problems.push(`${relative(root, path)}: only package folders are allowed in ${dir}/`);
+      } else if (!existsSync(join(path, 'package.json'))) {
+        problems.push(`${relative(root, path)}: folder has no package.json`);
+      }
+    }
+    findManifests(root, base, manifests, problems);
   }
-  checkScripts(manifestDir);
+  const names = new Map<string, string>();
+  for (const manifestDir of manifests) {
+    const path = relative(root, manifestDir);
+    if (!memberDirs.has(manifestDir)) {
+      problems.push(`${path}: has a package.json but is not a workspace member`);
+      continue;
+    }
+    const pkg = JSON.parse(readFileSync(join(manifestDir, 'package.json'), 'utf8')) as PackageJson;
+    if (typeof pkg.name !== 'string' || pkg.name === '') {
+      problems.push(`${path}: package.json needs a name`);
+    } else if (names.has(pkg.name)) {
+      problems.push(`${path}: name "${pkg.name}" is also used by ${names.get(pkg.name) ?? ''}`);
+    } else {
+      names.set(pkg.name, path);
+    }
+    const label = pkg.name ?? path;
+    if (readdirSync(manifestDir).some((entry) => NEXT_CONFIG.test(entry))) {
+      problems.push(
+        `${label}: Next.js apps are not built by the root gate yet; extend scripts/gate.ts first`,
+      );
+    }
+    problems.push(...scriptsProblems(manifestDir, label));
+    problems.push(...tsconfigProblems(manifestDir, label));
+  }
+  return problems;
 }
 
-if (problems.length > 0) {
-  process.stderr.write(`Workspace script check failed:\n  ${problems.join('\n  ')}\n`);
-  process.exitCode = 1;
+if (import.meta.main) {
+  const problems = checkWorkspace(join(import.meta.dirname, '..'));
+  if (problems.length > 0) {
+    process.stderr.write(`Workspace check failed:\n  ${problems.join('\n  ')}\n`);
+    process.exitCode = 1;
+  }
 }
