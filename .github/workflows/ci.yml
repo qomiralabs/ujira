@@ -107,6 +107,9 @@ jobs:
           scripts/assert-pnpm.sh
           pnpm invisible:check
 
+      - name: QA probe without assertion
+        run: pnpm --version
+
       - name: Typecheck
         run: |
           scripts/assert-pnpm.sh
