@@ -3,3 +3,23 @@ packages:
   - apps/*
 
 engineStrict: true
+
+# Install scripts stay off unless reviewed. These come in through the Docker
+# client used by testcontainers and work without their scripts: cpu-features
+# is an optional native speedup for ssh2, and the protobufjs script only
+# prints a version check.
+allowBuilds:
+  cpu-features: false
+  protobufjs: false
+  ssh2: false
+
+# Holds transitive packages of the testcontainers tree to versions released
+# at least two weeks ago. Drop each entry once the floating version is old
+# enough.
+overrides:
+  '@grpc/grpc-js': 1.14.5
+  '@types/dockerode': 4.0.1
+  bare-fs: 4.8.2
+  bare-url: 2.5.4
+  readable-stream@4: 4.7.0
+  testcontainers: 12.2.0
