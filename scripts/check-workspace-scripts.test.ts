@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   checkWorkspace,
+  trackedFiles,
   trackedIgnored,
   trackedSymlinks,
   LIFECYCLE_SCRIPTS,
@@ -745,6 +746,63 @@ describe('check-workspace-scripts', () => {
           kind === 'tsconfig'
             ? `${path}: only the root tsconfig.json, tsconfig.base.json and the two at each member root are allowed`
             : `${path}: formatter configuration lives only in the root .prettierrc.json`,
+        ]);
+      });
+    });
+
+    describe('ignore files and member output folders', () => {
+      it.each([
+        'packages/a/.gitignore',
+        'packages/a/src/.gitignore',
+        'scripts/.gitignore',
+        'packages/a/.GitIgnore',
+      ])('rejects %s', (path) => {
+        const root = workspace({ 'packages/a': member('a') }, { [path]: '!dist/x.js\n' });
+        expect(checkWorkspace(root)).toEqual([
+          `${path}: only the root .gitignore is allowed; a nested one can re-include ignored files`,
+        ]);
+      });
+
+      it('accepts the root .gitignore', () => {
+        const root = workspace({ 'packages/a': member('a') }, { '.gitignore': 'dist/\n' });
+        expect(checkWorkspace(root)).toEqual([]);
+      });
+
+      it.each([
+        'packages/a/dist/index.js',
+        'packages/a/dist/index.d.ts',
+        'packages/a/coverage/x.json',
+        'packages/a/.turbo/x.log',
+        'packages/a/build/x.js',
+        'apps/b/out/index.html',
+      ])('rejects the tracked path %s, whatever git ignores', (path) => {
+        const root = workspace({ 'packages/a': member('a'), 'apps/b': member('b') });
+        expect(checkWorkspace(root, { trackedFiles: [path, 'packages/a/src/index.ts'] })).toEqual([
+          `${path}: tracked inside a member output folder, which the build replaces and lint skips`,
+        ]);
+      });
+
+      it('accepts tracked source that only shares an output folder name deeper down', () => {
+        const root = workspace({ 'packages/a': member('a') });
+        expect(checkWorkspace(root, { trackedFiles: ['packages/a/src/build/x.ts'] })).toEqual([]);
+      });
+
+      it('lists tracked files from the git index, even those a nested .gitignore re-includes', () => {
+        const root = workspace(
+          { 'packages/a': member('a') },
+          {
+            '.gitignore': 'dist/\n',
+            'packages/a/.gitignore': '!dist/\n',
+            'packages/a/dist/index.js': 'console.log(1);\n',
+          },
+        );
+        execFileSync('git', ['init', '-q'], { cwd: root });
+        execFileSync('git', ['add', '-A'], { cwd: root });
+        expect(trackedIgnored(root)).toEqual([]);
+        expect(trackedFiles(root)).toContain('packages/a/dist/index.js');
+        expect(checkWorkspace(root, { trackedFiles: trackedFiles(root) })).toEqual([
+          'packages/a/dist/index.js: tracked inside a member output folder, which the build replaces and lint skips',
+          'packages/a/.gitignore: only the root .gitignore is allowed; a nested one can re-include ignored files',
         ]);
       });
     });

@@ -7,7 +7,7 @@ import { join, relative } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { globSync, readFileSync, symlinkSync } from 'node:fs';
+import { existsSync, globSync, readFileSync, symlinkSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
 import { ESLint } from 'eslint';
@@ -506,6 +506,28 @@ describe('gate', () => {
       rmSync(tmp, { recursive: true, force: true });
       expect(status).toBe(1);
       expect(err).toContain('a: dist must be a folder inside the member');
+    });
+  });
+
+  describe('a clean dist for every build', () => {
+    it('removes whatever is in a member dist before tsc runs', () => {
+      const tmp = mkdtempSync(join(tmpdir(), 'ujira-gate-'));
+      writeFileSync(join(tmp, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n');
+      mkdirSync(join(tmp, 'packages', 'a', 'dist'), { recursive: true });
+      writeFileSync(join(tmp, 'packages', 'a', 'package.json'), JSON.stringify({ name: 'a' }));
+      writeFileSync(join(tmp, 'packages', 'a', 'dist', 'stale.js'), 'console.log(1);\n');
+      const seen: boolean[] = [];
+      const status = run('build', tmp, {
+        tsc: () => {
+          seen.push(existsSync(join(tmp, 'packages', 'a', 'dist', 'stale.js')));
+          return 0;
+        },
+        out: () => undefined,
+        err: () => undefined,
+      });
+      rmSync(tmp, { recursive: true, force: true });
+      expect(status).toBe(0);
+      expect(seen).toEqual([false]);
     });
   });
 });
