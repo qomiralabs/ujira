@@ -72,7 +72,9 @@ function parseCurrency(currency: unknown): CurrencyCode {
   return currency;
 }
 
-function build(amount: bigint, currency: CurrencyCode, scale: number): Money {
+// Exported for sibling modules such as allocate; the money index does not
+// re-export it, so it is not part of the public API.
+export function build(amount: bigint, currency: CurrencyCode, scale: number): Money {
   return Object.freeze({ amount: checked(amount), currency, scale });
 }
 
@@ -91,7 +93,7 @@ export function money(amount: bigint | string, currency: CurrencyCode, scale: nu
  * and a getter can answer differently on every read. So each field is read
  * exactly once, validated like money() does, and only this copy is used.
  */
-function snapshot(value: Money): Money {
+export function snapshot(value: Money): Money {
   const candidate: unknown = value;
   if (typeof candidate !== 'object' || candidate === null) {
     throw new InvalidAmountError('expected a money value');
