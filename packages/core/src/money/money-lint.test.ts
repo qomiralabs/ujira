@@ -50,6 +50,8 @@ const BAN_RULES = new Set([
   'no-restricted-properties',
   'no-restricted-syntax',
   'ujira/no-number-arithmetic',
+  'no-eval',
+  'no-implied-eval',
 ]);
 const banErrors = (messages: ESLint.LintResult['messages']): ESLint.LintResult['messages'] =>
   ruleErrors(messages).filter((msg) => msg.ruleId !== null && BAN_RULES.has(msg.ruleId));
@@ -57,6 +59,26 @@ const banErrors = (messages: ESLint.LintResult['messages']): ESLint.LintResult['
 // Ways around the first version of the ban.
 const BYPASSES: [string, string][] = [
   ['global.Math', 'export const x = global.Math.floor(15);\n'],
+  ['direct eval', "export const x: unknown = eval('Math.round(1.005 * 100)');\n"],
+  ['indirect eval', "export const x: unknown = (0, eval)('Math.round(1.005 * 100)');\n"],
+  [
+    'an eval alias',
+    "const run = eval;\nexport const x: unknown = run('Math.round(1.005 * 100)');\n",
+  ],
+  ['globalThis.eval', "export const x: unknown = globalThis.eval('1.5');\n"],
+  ['global.eval', "export const x: unknown = global.eval('1.5');\n"],
+  [
+    'eval wrapped in BigInt',
+    "export const x = BigInt(eval('Math.round(1.005 * 100)') as string);\n",
+  ],
+  ['Reflect.get on globalThis', "export const x: unknown = Reflect.get(globalThis, 'Math');\n"],
+  ['globalThis.Reflect', "export const x: unknown = globalThis.Reflect.get(globalThis, 'Math');\n"],
+  ['Float64Array', 'export const x = new Float64Array(1);\n'],
+  ['Float32Array', 'export const x = new Float32Array(1);\n'],
+  ['DataView', 'export const x = new DataView(new ArrayBuffer(8));\n'],
+  ['performance.now', 'export const x = performance.now();\n'],
+  ['Number.EPSILON', 'export const x = Number.EPSILON;\n'],
+  ['Number.MIN_VALUE', 'export const x = Number.MIN_VALUE;\n'],
   ['global.parseFloat', "export const x = global.parseFloat('1.5');\n"],
   ['global.Number', "export const x = global.Number('15');\n"],
   ['an aliased Number', 'const N = Number;\nexport const x: unknown = N;\n'],
