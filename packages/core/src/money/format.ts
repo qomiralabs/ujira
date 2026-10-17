@@ -1,14 +1,14 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-import { FIAT_CURRENCIES, TOKEN_DISPLAY_SCALE } from './currencies.js';
+import { TOKEN_DISPLAY_SCALE } from './currencies.js';
 import type { FiatCurrencyCode } from './currencies.js';
 import { InvalidLocaleError } from './errors.js';
-import { multiply } from './money.js';
-import type { Money } from './money.js';
+import { minorUnits, powerOfTen, snapshotFiat, snapshotToken } from './money.js';
+import type { Money, TokenAmount } from './money.js';
 import { isPlainRecord, readOwnField } from './options.js';
-import { toDecimalString } from './parse.js';
-import { parseRoundingMode, rescale } from './rescale.js';
+import { decimalText } from './parse.js';
+import { divideRounded, parseRoundingMode } from './rescale.js';
 import type { RoundingMode } from './rescale.js';
 
 // The symbol is part of the brand, so it stays the same in every locale.
@@ -57,15 +57,28 @@ function readLocale(options: unknown): { locale: string; rounding: unknown } {
   return { locale, rounding };
 }
 
-/** Decimal string at exactly `displayScale` places, padded rather than rescaled up. */
-function displayDecimal(value: Money, displayScale: number, mode: RoundingMode): string {
-  if (value.scale >= displayScale) {
-    return toDecimalString(rescale(value, displayScale, mode));
-  }
-  // Padding the text instead of multiplying means a valid Money can never
-  // overflow on the way to the screen.
-  const [whole = '', fraction = ''] = toDecimalString(value).split('.');
-  return `${whole}.${fraction.padEnd(displayScale, '0')}`;
+/**
+ * Decimal string of `amount` units of 10^-scale at exactly `displayScale`
+ * places. Every fiat and token scale is at least its display scale, so this
+ * only ever rounds down in precision, never multiplies, and a valid value
+ * can never overflow on the way to the screen.
+ */
+function displayDecimal(
+  amount: bigint,
+  scale: number,
+  displayScale: number,
+  mode: RoundingMode,
+): `${number}` {
+  const shifted = divideRounded(amount, powerOfTen(scale) / powerOfTen(displayScale), mode);
+  // Intl reads a numeric string as an exact decimal; the cast only satisfies
+  // the type, the value stays a string.
+  return decimalText(shifted, displayScale) as `${number}`;
+}
+
+function readFormatOptions(options: unknown): { locale: string; mode: RoundingMode } {
+  const { locale, rounding } = readLocale(options);
+  const mode = rounding === undefined ? 'half-even' : parseRoundingMode(rounding);
+  return { locale, mode };
 }
 
 /**
@@ -84,14 +97,14 @@ function typeset(parts: readonly Intl.NumberFormatPart[], symbol: string): strin
 }
 
 /**
- * Formats `m` for people in `options.locale`.
+ * Formats fiat `m` for people in `options.locale`.
  *
- * The value is rescaled to the display scale (two places for every launch
- * currency and token) with `options.rounding`, which defaults to half-even.
- * The exact decimal string is handed to Intl.NumberFormat, so no JavaScript
+ * The value is rounded to the currency's minor unit (two places for every
+ * launch currency) with `options.rounding`, which defaults to half-even. The
+ * exact decimal string is handed to Intl.NumberFormat, so no JavaScript
  * number is formed and every digit of an i128 amount survives. Digits are
- * always ASCII. Fiat uses the brand symbol (KES shows KSh); tokens print the
- * locale's decimal format followed by a no break space and the asset code.
+ * always ASCII and the brand symbol never depends on the locale (KES shows
+ * KSh). A token amount throws KindMismatchError; use formatTokenAmount.
  *
  * Negative amounts use the true minus sign U+2212 and spaces are always
  * U+00A0, whatever the locale. toDecimalString stays ASCII for data.
@@ -105,30 +118,37 @@ export function formatMoney(
   m: Money,
   options: { locale: string; rounding?: RoundingMode },
 ): string {
-  const value = multiply(m, 1n);
-  const { locale, rounding } = readLocale(options);
-  const mode = rounding === undefined ? 'half-even' : parseRoundingMode(rounding);
-
-  const fiat = FIAT_CURRENCIES.find((c) => c.code === value.currency);
-  const displayScale = fiat === undefined ? TOKEN_DISPLAY_SCALE : fiat.minorUnits;
-  // Intl reads a numeric string as an exact decimal; the cast only satisfies
-  // the type, the value stays a string.
-  const text = displayDecimal(value, displayScale, mode) as `${number}`;
-  const digits = { minimumFractionDigits: displayScale, maximumFractionDigits: displayScale };
-
-  if (fiat === undefined) {
-    const parts = new Intl.NumberFormat(locale, {
-      ...digits,
-      numberingSystem: 'latn',
-    }).formatToParts(text);
-    return `${typeset(parts, '')}${NBSP}${value.currency}`;
-  }
+  const value = snapshotFiat(m);
+  const { locale, mode } = readFormatOptions(options);
+  const displayScale = minorUnits(value.currency);
   const parts = new Intl.NumberFormat(locale, {
-    ...digits,
+    minimumFractionDigits: displayScale,
+    maximumFractionDigits: displayScale,
     style: 'currency',
-    currency: fiat.code,
+    currency: value.currency,
     currencyDisplay: 'narrowSymbol',
     numberingSystem: 'latn',
-  }).formatToParts(text);
-  return typeset(parts, BRAND_SYMBOLS[fiat.code]);
+  }).formatToParts(displayDecimal(value.amount, value.scale, displayScale, mode));
+  return typeset(parts, BRAND_SYMBOLS[value.currency]);
+}
+
+/**
+ * Formats token amount `t` for people in `options.locale`: the locale's
+ * decimal format at the token display scale (two places), a no break space
+ * and the asset code, for example "1.23 USDC". The chain is never shown.
+ * Rounding, digits, minus sign, spaces and option handling follow
+ * formatMoney. Fiat money throws KindMismatchError; use formatMoney.
+ */
+export function formatTokenAmount(
+  t: TokenAmount,
+  options: { locale: string; rounding?: RoundingMode },
+): string {
+  const value = snapshotToken(t);
+  const { locale, mode } = readFormatOptions(options);
+  const parts = new Intl.NumberFormat(locale, {
+    minimumFractionDigits: TOKEN_DISPLAY_SCALE,
+    maximumFractionDigits: TOKEN_DISPLAY_SCALE,
+    numberingSystem: 'latn',
+  }).formatToParts(displayDecimal(value.amount, value.scale, TOKEN_DISPLAY_SCALE, mode));
+  return `${typeset(parts, '')}${NBSP}${value.asset}`;
 }

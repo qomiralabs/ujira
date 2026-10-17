@@ -10,8 +10,6 @@ export type TokenAsset = 'USDC' | 'USDm';
 
 export type Chain = 'celo' | 'stellar';
 
-export type CurrencyCode = FiatCurrencyCode | TokenAsset;
-
 export interface FiatCurrency {
   readonly code: FiatCurrencyCode;
   /** ISO 4217 minor units, the scale amounts are shown and quoted at. */
@@ -59,16 +57,25 @@ export const SETTLEMENT_TOKENS: readonly SettlementToken[] = Object.freeze([
   token('USDm', 'celo', 18),
 ]);
 
-// A Set rather than an object map, so names like "constructor" or
-// "__proto__" can never resolve through the prototype chain.
-const CURRENCY_CODES: ReadonlySet<unknown> = new Set<unknown>([
-  ...FIAT_CURRENCIES.map((c) => c.code),
-  ...SETTLEMENT_TOKENS.map((t) => t.asset),
-]);
+// Sets rather than object maps, so names like "constructor" or "__proto__"
+// can never resolve through the prototype chain.
+const FIAT_CODES: ReadonlySet<unknown> = new Set<unknown>(FIAT_CURRENCIES.map((c) => c.code));
+const TOKEN_ASSETS: ReadonlySet<unknown> = new Set<unknown>(SETTLEMENT_TOKENS.map((t) => t.asset));
 
-export function isCurrencyCode(value: unknown): value is CurrencyCode {
-  return CURRENCY_CODES.has(value);
+export function isFiatCurrencyCode(value: unknown): value is FiatCurrencyCode {
+  return FIAT_CODES.has(value);
 }
+
+export function isTokenAsset(value: unknown): value is TokenAsset {
+  return TOKEN_ASSETS.has(value);
+}
+
+/**
+ * Tokens worth one US dollar each. usdToToken and tokenToUsd convert at par
+ * only for these. Every settlement token is dollar pegged today; a test keeps
+ * the two lists in step, so adding another token forces a decision here.
+ */
+export const DOLLAR_PEGGED: readonly TokenAsset[] = Object.freeze(['USDC', 'USDm']);
 
 export function fiatCurrency(code: string): FiatCurrency {
   const found = FIAT_CURRENCIES.find((c) => c.code === code);

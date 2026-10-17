@@ -2,8 +2,8 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 import { InvalidAllocationError, MoneyOverflowError } from './errors.js';
-import { I128_MAX, build, snapshot } from './money.js';
-import type { Money } from './money.js';
+import { I128_MAX, snapshot, withAmount } from './money.js';
+import type { Money, TokenAmount } from './money.js';
 
 /** Most legs one payout can be split into. */
 export const MAX_ALLOCATION_LEGS = 16;
@@ -63,8 +63,17 @@ function readWeights(weights: readonly bigint[]): bigint[] {
  * list, more than MAX_ALLOCATION_LEGS weights, or any weight that is not a
  * bigint above zero. Throws MoneyOverflowError when the weights or a product
  * for a leg after the first leaves the i128 range.
+ *
+ * Legs keep the total's kind and unit: fiat legs keep the currency and
+ * scale, token legs keep the asset and chain, so a payout split into token
+ * legs can never land on another chain.
  */
-export function allocate(total: Money, weights: readonly bigint[]): Money[] {
+export function allocate(total: Money, weights: readonly bigint[]): Money[];
+export function allocate(total: TokenAmount, weights: readonly bigint[]): TokenAmount[];
+export function allocate(
+  total: Money | TokenAmount,
+  weights: readonly bigint[],
+): (Money | TokenAmount)[] {
   const t = snapshot(total);
   if (t.amount < 0n) {
     throw new InvalidAllocationError('cannot allocate a negative total');
@@ -88,5 +97,5 @@ export function allocate(total: Money, weights: readonly bigint[]): Money[] {
     allocated += share;
   }
 
-  return [t.amount - allocated, ...shares].map((amount) => build(amount, t.currency, t.scale));
+  return [t.amount - allocated, ...shares].map((amount) => withAmount(t, amount));
 }

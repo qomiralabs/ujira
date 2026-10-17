@@ -10,7 +10,9 @@ export type MoneyErrorCode =
   | 'INVALID_SCALE'
   | 'INVALID_ALLOCATION'
   | 'INVALID_ROUNDING'
-  | 'INVALID_LOCALE';
+  | 'INVALID_LOCALE'
+  | 'KIND_MISMATCH'
+  | 'TOKEN_MISMATCH';
 
 /**
  * Base class for every money failure. Callers branch on `code`, which stays
@@ -65,4 +67,16 @@ export class InvalidRoundingModeError extends MoneyError {
 export class InvalidLocaleError extends MoneyError {
   override readonly name = 'InvalidLocaleError';
   readonly code = 'INVALID_LOCALE';
+}
+
+/** Fiat money and a token amount were combined. They never mix implicitly. */
+export class KindMismatchError extends MoneyError {
+  override readonly name = 'KindMismatchError';
+  readonly code = 'KIND_MISMATCH';
+}
+
+/** Two token amounts differ in asset or chain, for example USDC on Celo and on Stellar. */
+export class TokenMismatchError extends MoneyError {
+  override readonly name = 'TokenMismatchError';
+  readonly code = 'TOKEN_MISMATCH';
 }
