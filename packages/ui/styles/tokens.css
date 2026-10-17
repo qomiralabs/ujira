@@ -1,0 +1,191 @@
+/* Copyright (c) 2026 Qomira Labs. All rights reserved. */
+/* Proprietary and confidential. Unauthorized copying is prohibited. */
+
+/*
+ * Generated from the brand colour tokens, tokens/system.json and the brand icon sprite.
+ * Do not edit by hand. Run `pnpm --filter @ujira/ui tokens` to regenerate.
+ *
+ * Light is the default. Dark follows the system setting unless a
+ * data-theme attribute picks a mode, so a manual toggle always wins.
+ */
+
+:root {
+  --ujira-teal: #0f4c5c;
+  --ujira-teal-night: #0a3540;
+  --ujira-teal-raised: #155c6e;
+  --ujira-teal-ink: #0b2a33;
+  --ujira-cream: #fbf7f0;
+  --ujira-white: #ffffff;
+  --ujira-saffron: #f4a300;
+  --ujira-saffron-deep: #8f5a00;
+  --ujira-saffron-lift: #ffc14d;
+  --ujira-sand-200: #e8e0d2;
+  --ujira-sand-300: #d9cfbf;
+  --ujira-stone-500: #6b6358;
+  --ujira-slate-600: #4a5a60;
+  --ujira-mist-300: #a9bcc1;
+  --ujira-status-paid-fill: #16a34a;
+  --ujira-status-paid-text: #15803d;
+  --ujira-status-paid-dark: #4ade80;
+  --ujira-status-waiting-fill: #f59e0b;
+  --ujira-status-waiting-text: #b45309;
+  --ujira-status-waiting-dark: #fbbf24;
+  --ujira-status-blocked-fill: #dc2626;
+  --ujira-status-blocked-text: #dc2626;
+  --ujira-status-blocked-dark: #f87171;
+  --ujira-status-blocked-dark-text: #fca5a5;
+  --ujira-font-display: var(--ujira-font-nunito, 'Nunito'), ui-rounded, system-ui, sans-serif;
+  --ujira-font-sans: var(--ujira-font-inter, 'Inter'), ui-sans-serif, system-ui, sans-serif;
+  --ujira-font-mono:
+    var(--ujira-font-jetbrains-mono, 'JetBrains Mono'), ui-monospace, SFMono-Regular, Menlo,
+    monospace;
+  --ujira-radius-control: 6px;
+  --ujira-radius-card: 10px;
+  --ujira-radius-overlay: 14px;
+  --ujira-row-height: 44px;
+  --ujira-focus-ring-color: #f4a300;
+  --ujira-focus-ring-inner: #0b2a33;
+  --ujira-focus-ring-width: 2px;
+  --ujira-focus-ring-offset: 2px;
+  --ujira-shadow-overlay: 0px 8px 24px rgb(11 42 51 / 0.16);
+  --ujira-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ujira-ease-settle: cubic-bezier(0.34, 1.3, 0.64, 1);
+  --ujira-duration-arrive: 400ms;
+}
+
+[data-density='compact'] {
+  --ujira-row-height: 36px;
+}
+
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+  --ujira-bg: #fbf7f0;
+  --ujira-surface: #ffffff;
+  --ujira-rule: #e8e0d2;
+  --ujira-rule-strong: #d9cfbf;
+  --ujira-text: #0b2a33;
+  --ujira-text-secondary: #4a5a60;
+  --ujira-text-subtle: #6b6358;
+  --ujira-accent: #f4a300;
+  --ujira-accent-text: #8f5a00;
+  --ujira-paid: #15803d;
+  --ujira-waiting: #b45309;
+  --ujira-blocked: #dc2626;
+  --ujira-paid-fill: #16a34a;
+  --ujira-waiting-fill: #f59e0b;
+  --ujira-blocked-fill: #dc2626;
+  --ujira-viz-categorical-1: #0f4c5c;
+  --ujira-viz-categorical-2: #5c8f9a;
+  --ujira-viz-categorical-3: #5b574f;
+  --ujira-viz-categorical-4: #8b7e6a;
+  --ujira-viz-sequential-1: #5c8f9a;
+  --ujira-viz-sequential-2: #427785;
+  --ujira-viz-sequential-3: #2c606f;
+  --ujira-viz-sequential-4: #0f4c5c;
+  --ujira-viz-sequential-5: #0b2a33;
+  --ujira-viz-highlight: #f4a300;
+  --ujira-viz-highlight-stroke: #8f5a00;
+  --ujira-viz-paid: #16a34a;
+  --ujira-viz-waiting: #f59e0b;
+  --ujira-viz-waiting-stroke: #b45309;
+  --ujira-viz-blocked: #dc2626;
+  --ujira-viz-grid: #e8e0d2;
+  --ujira-viz-axis: #4a5a60;
+  --ujira-viz-tooltip: #ffffff;
+  --ujira-viz-tooltip-rule: #e8e0d2;
+  --ujira-viz-tooltip-text: #0b2a33;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --ujira-bg: #0a3540;
+    --ujira-surface: #0f4c5c;
+    --ujira-rule: #155c6e;
+    --ujira-rule-strong: #1f6e82;
+    --ujira-text: #fbf7f0;
+    --ujira-text-secondary: #a9bcc1;
+    --ujira-text-subtle: #a9bcc1;
+    --ujira-accent: #f4a300;
+    --ujira-accent-text: #ffc14d;
+    --ujira-paid: #4ade80;
+    --ujira-waiting: #fbbf24;
+    --ujira-blocked: #fca5a5;
+    --ujira-paid-fill: #4ade80;
+    --ujira-waiting-fill: #fbbf24;
+    --ujira-blocked-fill: #f87171;
+    --ujira-viz-categorical-1: #fbf7f0;
+    --ujira-viz-categorical-2: #a9bcc1;
+    --ujira-viz-categorical-3: #9a9992;
+    --ujira-viz-categorical-4: #c9c0b0;
+    --ujira-viz-sequential-1: #729ba6;
+    --ujira-viz-sequential-2: #8fb1b9;
+    --ujira-viz-sequential-3: #afc6cc;
+    --ujira-viz-sequential-4: #d1ddde;
+    --ujira-viz-sequential-5: #fbf7f0;
+    --ujira-viz-highlight: #f4a300;
+    --ujira-viz-highlight-stroke: #f4a300;
+    --ujira-viz-paid: #4ade80;
+    --ujira-viz-waiting: #fbbf24;
+    --ujira-viz-waiting-stroke: #fbbf24;
+    --ujira-viz-blocked: #f87171;
+    --ujira-viz-grid: #155c6e;
+    --ujira-viz-axis: #a9bcc1;
+    --ujira-viz-tooltip: #0f4c5c;
+    --ujira-viz-tooltip-rule: #155c6e;
+    --ujira-viz-tooltip-text: #fbf7f0;
+  }
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --ujira-bg: #0a3540;
+  --ujira-surface: #0f4c5c;
+  --ujira-rule: #155c6e;
+  --ujira-rule-strong: #1f6e82;
+  --ujira-text: #fbf7f0;
+  --ujira-text-secondary: #a9bcc1;
+  --ujira-text-subtle: #a9bcc1;
+  --ujira-accent: #f4a300;
+  --ujira-accent-text: #ffc14d;
+  --ujira-paid: #4ade80;
+  --ujira-waiting: #fbbf24;
+  --ujira-blocked: #fca5a5;
+  --ujira-paid-fill: #4ade80;
+  --ujira-waiting-fill: #fbbf24;
+  --ujira-blocked-fill: #f87171;
+  --ujira-viz-categorical-1: #fbf7f0;
+  --ujira-viz-categorical-2: #a9bcc1;
+  --ujira-viz-categorical-3: #9a9992;
+  --ujira-viz-categorical-4: #c9c0b0;
+  --ujira-viz-sequential-1: #729ba6;
+  --ujira-viz-sequential-2: #8fb1b9;
+  --ujira-viz-sequential-3: #afc6cc;
+  --ujira-viz-sequential-4: #d1ddde;
+  --ujira-viz-sequential-5: #fbf7f0;
+  --ujira-viz-highlight: #f4a300;
+  --ujira-viz-highlight-stroke: #f4a300;
+  --ujira-viz-paid: #4ade80;
+  --ujira-viz-waiting: #fbbf24;
+  --ujira-viz-waiting-stroke: #fbbf24;
+  --ujira-viz-blocked: #f87171;
+  --ujira-viz-grid: #155c6e;
+  --ujira-viz-axis: #a9bcc1;
+  --ujira-viz-tooltip: #0f4c5c;
+  --ujira-viz-tooltip-rule: #155c6e;
+  --ujira-viz-tooltip-text: #fbf7f0;
+}
+
+/*
+ * Saffron outside, teal ink in the offset band, so the ring keeps 3:1
+ * on cream, white and on a saffron button. Layered so components can
+ * compose their own shadow with it.
+ */
+@layer base {
+  :focus-visible {
+    outline: var(--ujira-focus-ring-width) solid var(--ujira-focus-ring-color);
+    outline-offset: var(--ujira-focus-ring-offset);
+    box-shadow: 0 0 0 var(--ujira-focus-ring-offset) var(--ujira-focus-ring-inner);
+  }
+}
