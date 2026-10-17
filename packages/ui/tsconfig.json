@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    // The token generator runs directly under Node type stripping, which needs
+    // the real .ts extension on relative imports. Only tokens/ uses it; src/
+    // keeps .js so the build output resolves.
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src", "tokens", "vitest.config.ts"]
+}
