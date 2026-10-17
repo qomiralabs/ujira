@@ -8,6 +8,7 @@ export type MoneyErrorCode =
   | 'UNKNOWN_CURRENCY'
   | 'INVALID_AMOUNT'
   | 'INVALID_SCALE'
+  | 'INVALID_ALLOCATION'
   | 'INVALID_ROUNDING'
   | 'INVALID_LOCALE';
 
@@ -49,6 +50,11 @@ export class InvalidAmountError extends MoneyError {
 export class InvalidScaleError extends MoneyError {
   override readonly name = 'InvalidScaleError';
   readonly code = 'INVALID_SCALE';
+}
+
+export class InvalidAllocationError extends MoneyError {
+  override readonly name = 'InvalidAllocationError';
+  readonly code = 'INVALID_ALLOCATION';
 }
 
 export class InvalidRoundingModeError extends MoneyError {

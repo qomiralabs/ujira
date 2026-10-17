@@ -1,0 +1,203 @@
+{
+  "$comment": "Reviewed licenses of platform specific packages (os, cpu or libc), which pnpm lists only on matching platforms. Each entry was checked against the package metadata on the npm registry. Adding or changing an entry needs a license review.",
+  "packages": [
+    {
+      "name": "@rolldown/binding-android-arm-eabi",
+      "versions": "1.2.14",
+      "license": "MIT",
+      "source": "https://github.com/rolldown/rolldown"
+    },
+    {
+      "name": "@rolldown/binding-android-arm64",
+      "versions": "1.2.14",
+      "license": "MIT",
+      "source": "https://github.com/rolldown/rolldown"
+    },
+    {
+      "name": "@rolldown/binding-darwin-arm64",
+      "versions": "1.2.14",
+      "license": "MIT",
+      "source": "https://github.com/rolldown/rolldown"
+    },
+    {
+      "name": "@rolldown/binding-darwin-x64",
+      "versions": "1.2.14",
+      "license": "MIT",
+      "source": "https://github.com/rolldown/rolldown"
+    },
+    {
+      "name": "@rolldown/binding-freebsd-x64",
+      "versions": "1.2.14",
+      "license": "MIT",
+      "source": "https://github.com/rolldown/rolldown"
+    },
+    {
+      "name": "@rolldown/binding-linux-arm-gnueabihf",
+      "versions": "1.2.14",
+      "license": "MIT",
+      "source": "https://github.com/rolldown/rolldown"
+    },
+    {
+      "name": "@rolldown/binding-linux-arm64-gnu",
+      "versions": "1.2.14",
+      "license": "MIT",
+      "source": "https://github.com/rolldown/rolldown"
+    },
+    {
+      "name": "@rolldown/binding-linux-arm64-musl",
+      "versions": "1.2.14",
+      "license": "MIT",
+      "source": "https://github.com/rolldown/rolldown"
+    },
+    {
+      "name": "@rolldown/binding-linux-ppc64-gnu",
+      "versions": "1.2.14",
+      "license": "MIT",
+      "source": "https://github.com/rolldown/rolldown"
+    },
+    {
+      "name": "@rolldown/binding-linux-s390x-gnu",
+      "versions": "1.2.14",
+      "license": "MIT",
+      "source": "https://github.com/rolldown/rolldown"
+    },
+    {
+      "name": "@rolldown/binding-linux-x64-gnu",
+      "versions": "1.2.14",
+      "license": "MIT",
+      "source": "https://github.com/rolldown/rolldown"
+    },
+    {
+      "name": "@rolldown/binding-linux-x64-musl",
+      "versions": "1.2.14",
+      "license": "MIT",
+      "source": "https://github.com/rolldown/rolldown"
+    },
+    {
+      "name": "@rolldown/binding-openharmony-arm64",
+      "versions": "1.2.14",
+      "license": "MIT",
+      "source": "https://github.com/rolldown/rolldown"
+    },
+    {
+      "name": "@rolldown/binding-win32-arm64-msvc",
+      "versions": "1.2.14",
+      "license": "MIT",
+      "source": "https://github.com/rolldown/rolldown"
+    },
+    {
+      "name": "@rolldown/binding-win32-x64-msvc",
+      "versions": "1.2.14",
+      "license": "MIT",
+      "source": "https://github.com/rolldown/rolldown"
+    },
+    {
+      "name": "@turbo/darwin-64",
+      "versions": "2.11.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/turborepo"
+    },
+    {
+      "name": "@turbo/darwin-arm64",
+      "versions": "2.11.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/turborepo"
+    },
+    {
+      "name": "@turbo/linux-64",
+      "versions": "2.11.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/turborepo"
+    },
+    {
+      "name": "@turbo/linux-arm64",
+      "versions": "2.11.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/turborepo"
+    },
+    {
+      "name": "@turbo/windows-64",
+      "versions": "2.11.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/turborepo"
+    },
+    {
+      "name": "@turbo/windows-arm64",
+      "versions": "2.11.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/turborepo"
+    },
+    {
+      "name": "fsevents",
+      "versions": "2.3.3",
+      "license": "MIT",
+      "source": "https://github.com/fsevents/fsevents"
+    },
+    {
+      "name": "lightningcss-android-arm64",
+      "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-darwin-arm64",
+      "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-darwin-x64",
+      "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-freebsd-x64",
+      "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-linux-arm-gnueabihf",
+      "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-linux-arm64-gnu",
+      "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-linux-arm64-musl",
+      "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-linux-x64-gnu",
+      "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-linux-x64-musl",
+      "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-win32-arm64-msvc",
+      "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-win32-x64-msvc",
+      "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    }
+  ]
+}
