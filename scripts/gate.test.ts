@@ -181,6 +181,43 @@ describe('gate', () => {
       ]);
     });
 
+    it('applies per member settings from the root config', () => {
+      const root = mkdtempSync(join(tmpdir(), 'ujira-projects-'));
+      writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n');
+      for (const name of ['a', 'ui']) {
+        mkdirSync(join(root, 'packages', name), { recursive: true });
+        writeFileSync(
+          join(root, 'packages', name, 'package.json'),
+          JSON.stringify({ name: `@u/${name}` }),
+        );
+      }
+      const projects = testProjects(root, {
+        '@u/ui': {
+          include: ['src/**/*.test.{ts,tsx}', 'tokens/**/*.test.ts'],
+          environment: 'jsdom',
+          setupFiles: ['./src/test-setup.ts'],
+        },
+      });
+      expect(projects).toEqual([
+        {
+          test: { name: '@u/a', root: join(root, 'packages', 'a'), include: ['src/**/*.test.ts'] },
+        },
+        {
+          test: {
+            name: '@u/ui',
+            root: join(root, 'packages', 'ui'),
+            include: ['src/**/*.test.{ts,tsx}', 'tokens/**/*.test.ts'],
+            environment: 'jsdom',
+            setupFiles: ['./src/test-setup.ts'],
+          },
+        },
+      ]);
+      expect(() => testProjects(root, { '@u/gone': { include: ['x'] } })).toThrow(
+        'test settings for "@u/gone", which is not a workspace member',
+      );
+      rmSync(root, { recursive: true, force: true });
+    });
+
     it('fails on an unsupported workspace file', () => {
       const root = mkdtempSync(join(tmpdir(), 'ujira-projects-'));
       writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - packages/**\n');

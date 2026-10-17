@@ -10,7 +10,12 @@ export default defineConfig({
     // Member projects are defined here rather than loaded from each member's
     // vitest.config, so code in a member cannot change what this run checks.
     projects: [
-      ...testProjects(import.meta.dirname),
+      ...testProjects(import.meta.dirname, {
+        // Component tests are .tsx; the one that renders picks jsdom with a
+        // `@vitest-environment jsdom` comment. The token generator has its
+        // own tests next to it.
+        '@ujira/ui': { include: ['src/**/*.test.{ts,tsx}', 'tokens/**/*.test.ts'] },
+      }),
       { test: { name: 'scripts', include: ['scripts/**/*.test.ts'] } },
     ],
     reporters: ['verbose'],

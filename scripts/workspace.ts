@@ -134,18 +134,43 @@ export function buildOrder(members: readonly Member[]): Member[] {
   return ordered;
 }
 
+// Test settings the root config may set for one member. Kept to the fields a
+// member actually needs, so the root config stays the only place they live.
+export interface MemberTestSettings {
+  include?: string[];
+  environment?: string;
+  setupFiles?: string[];
+}
+
 export interface TestProject {
-  test: { name: string; root: string; include: string[] };
+  test: { name: string; root: string; include: string[] } & Omit<MemberTestSettings, 'include'>;
 }
 
 // Vitest projects for every member, defined here instead of loaded from the
 // members' own vitest.config files. Vitest only reads a member config when a
 // project points at it, so with inline projects member code cannot change
-// what `pnpm test` runs.
-export function testProjects(root: string): TestProject[] {
+// what `pnpm test` runs. `settings` holds per member overrides by package name.
+export function testProjects(
+  root: string,
+  settings: Readonly<Record<string, MemberTestSettings>> = {},
+): TestProject[] {
   const { globs, problems } = readWorkspaceGlobs(root);
   if (problems.length > 0) throw new Error(problems.join('\n'));
-  return listMembers(root, globs).map((member) => ({
-    test: { name: member.name, root: member.dir, include: ['src/**/*.test.ts'] },
+  const members = listMembers(root, globs);
+  const names = new Set(members.map((m) => m.name));
+  for (const name of Object.keys(settings)) {
+    if (!names.has(name)) {
+      throw new Error(
+        `vitest.config.ts has test settings for "${name}", which is not a workspace member`,
+      );
+    }
+  }
+  return members.map((member) => ({
+    test: {
+      name: member.name,
+      root: member.dir,
+      include: ['src/**/*.test.ts'],
+      ...settings[member.name],
+    },
   }));
 }
