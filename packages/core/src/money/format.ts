@@ -29,6 +29,8 @@ const BRAND_SYMBOLS: Readonly<Record<FiatCurrencyCode, string>> = Object.freeze(
 });
 
 const NBSP = '\u00a0';
+const NARROW_NBSP = '\u202f';
+const MINUS = '\u2212';
 
 const MAX_LOCALE_LENGTH = 64;
 
@@ -67,6 +69,21 @@ function displayDecimal(value: Money, displayScale: number, mode: RoundingMode):
 }
 
 /**
+ * Joins Intl parts with one house style for every locale: the brand symbol,
+ * the true minus sign U+2212, and U+00A0 where ICU uses U+202F (fr-FR
+ * grouping). Bidi marks around the minus are kept, only the hyphen changes.
+ */
+function typeset(parts: readonly Intl.NumberFormatPart[], symbol: string): string {
+  return parts
+    .map((part) => {
+      if (part.type === 'currency') return symbol;
+      if (part.type === 'minusSign') return part.value.replaceAll('-', MINUS);
+      return part.value.replaceAll(NARROW_NBSP, NBSP);
+    })
+    .join('');
+}
+
+/**
  * Formats `m` for people in `options.locale`.
  *
  * The value is rescaled to the display scale (two places for every launch
@@ -75,6 +92,9 @@ function displayDecimal(value: Money, displayScale: number, mode: RoundingMode):
  * number is formed and every digit of an i128 amount survives. Digits are
  * always ASCII. Fiat uses the brand symbol (KES shows KSh); tokens print the
  * locale's decimal format followed by a no break space and the asset code.
+ *
+ * Negative amounts use the true minus sign U+2212 and spaces are always
+ * U+00A0, whatever the locale. toDecimalString stays ASCII for data.
  *
  * The result is for display only. Right to left locales can include bidi
  * control marks, so never parse it back, compare it or store it as data.
@@ -97,20 +117,18 @@ export function formatMoney(
   const digits = { minimumFractionDigits: displayScale, maximumFractionDigits: displayScale };
 
   if (fiat === undefined) {
-    const formatted = new Intl.NumberFormat(locale, { ...digits, numberingSystem: 'latn' }).format(
-      text,
-    );
-    return `${formatted}${NBSP}${value.currency}`;
+    const parts = new Intl.NumberFormat(locale, {
+      ...digits,
+      numberingSystem: 'latn',
+    }).formatToParts(text);
+    return `${typeset(parts, '')}${NBSP}${value.currency}`;
   }
-  const symbol = BRAND_SYMBOLS[fiat.code];
-  return new Intl.NumberFormat(locale, {
+  const parts = new Intl.NumberFormat(locale, {
     ...digits,
     style: 'currency',
     currency: fiat.code,
     currencyDisplay: 'narrowSymbol',
     numberingSystem: 'latn',
-  })
-    .formatToParts(text)
-    .map((part) => (part.type === 'currency' ? symbol : part.value))
-    .join('');
+  }).formatToParts(text);
+  return typeset(parts, BRAND_SYMBOLS[fiat.code]);
 }
