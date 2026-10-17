@@ -50,6 +50,13 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # Fails on any dependency outside the license allowlists, then fails
+      # again if the committed notices are out of date.
+      - name: Licenses
+        run: |
+          pnpm licenses:check
+          git diff --exit-code THIRD_PARTY_NOTICES.md
+
       # Provenance manifests and XMP packets in images can name the program
       # that made them and never show up in a text diff.
       - name: Check embedded metadata

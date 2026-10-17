@@ -6,8 +6,7 @@
     "checkJs": true,
     // Root scripts run directly under Node type stripping.
     "erasableSyntaxOnly": true,
-    // Node runs .ts files directly, so imports between root scripts name the
-    // .ts file.
+    // Node needs the .ts extension on relative imports between root scripts.
     "allowImportingTsExtensions": true
   },
   // Every root level source file and everything under scripts/ must be listed

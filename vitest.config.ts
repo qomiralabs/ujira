@@ -14,12 +14,16 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reportOnFailure: true,
-      // The command line wrappers in scripts/ run in child processes, which
-      // coverage cannot see, so only the shared module is measured.
       include: [
         'packages/*/src/**/*.{ts,tsx,mts,cts}',
         'apps/*/src/**/*.{ts,tsx,mts,cts}',
+        // Pure helpers of the root scripts. The entry points only do I/O and
+        // are exercised by running them.
         'scripts/embedded-metadata.ts',
+        'scripts/license-policy.ts',
+        'scripts/license-tree.ts',
+        'scripts/lockfile.ts',
+        'scripts/pnpm-command.ts',
       ],
       exclude: ['**/*.test.ts', '**/*.d.ts'],
       reporter: ['text', 'json-summary', 'lcov'],
