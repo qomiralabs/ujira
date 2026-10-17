@@ -6,8 +6,10 @@
 // so the scoped config and the type aware parser both apply.
 
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-import { ESLint } from 'eslint';
+import { ESLint, Linter } from 'eslint';
+import tseslint from 'typescript-eslint';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../../..');
@@ -54,6 +56,10 @@ const banErrors = (messages: ESLint.LintResult['messages']): ESLint.LintResult['
 
 // Ways around the first version of the ban.
 const BYPASSES: [string, string][] = [
+  ['global.Math', 'export const x = global.Math.floor(15);\n'],
+  ['global.parseFloat', "export const x = global.parseFloat('1.5');\n"],
+  ['global.Number', "export const x = global.Number('15');\n"],
+  ['an aliased Number', 'const N = Number;\nexport const x: unknown = N;\n'],
   ['globalThis.Math', 'export const x = globalThis.Math.floor(15);\n'],
   ['globalThis.parseFloat', "export const x = globalThis.parseFloat('1.5');\n"],
   ['unary plus on a string literal', "export const x = +'1.5';\n"],
@@ -206,6 +212,88 @@ describe('float ban in packages/core/src/money', () => {
     },
     120_000,
   );
+
+  // Each case is reported only by the type aware rule, so dropping any branch
+  // of it (compound assignment, unary minus, unions, intersections, generic
+  // constraints) makes the matching case go quiet.
+  it.each([
+    ['number division', 'export const f = (a: number, b: number): number => a / b;\n'],
+    [
+      'compound division',
+      'export const f = (s: number): number => {\n  let x = s;\n  x /= 2;\n  return x;\n};\n',
+    ],
+    ['unary minus on a number', 'export const f = (s: number): number => -s;\n'],
+    ['a union of number literals', 'export const f = (s: 1 | 2): number => s * s;\n'],
+    [
+      'a branded number intersection',
+      "type Cents = number & { readonly brand: 'cents' };\nexport const f = (a: Cents, b: Cents): number => a / b;\n",
+    ],
+    [
+      'a generic constrained to number',
+      'export const f = <T extends number>(a: T, b: T): number => a % b;\n',
+    ],
+  ])(
+    'reports %s through ujira/no-number-arithmetic',
+    async (_label, code) => {
+      const messages = await errorsFor(code, MONEY_FILE);
+      const hits = messages.filter((msg) => msg.ruleId === 'ujira/no-number-arithmetic');
+      expect(hits.length).toBeGreaterThan(0);
+    },
+    120_000,
+  );
+
+  it.each([
+    [
+      'bigint division and remainder',
+      'export const f = (a: bigint, b: bigint): bigint => (a / b) % b;\n',
+    ],
+    ['bigint negation', 'export const f = (a: bigint): bigint => -a;\n'],
+    ['a negative integer literal', 'export const f = (): -1 => -1;\n'],
+  ])(
+    'does not report %s',
+    async (_label, code) => {
+      const messages = await errorsFor(code, MONEY_FILE);
+      expect(messages.filter((msg) => msg.ruleId === 'ujira/no-number-arithmetic')).toEqual([]);
+    },
+    120_000,
+  );
+
+  it('fails loudly when type information is missing', async () => {
+    // Without types every operand looks unknown, so a quiet pass would let
+    // number arithmetic through unnoticed.
+    const configUrl = pathToFileURL(path.join(REPO_ROOT, 'eslint.config.js')).href;
+    const mod = (await import(configUrl)) as {
+      default: readonly { plugins?: Record<string, ESLint.Plugin> }[];
+    };
+    const plugin = mod.default.find((entry) => entry.plugins?.['ujira'] !== undefined)?.plugins?.[
+      'ujira'
+    ];
+    expect(plugin?.rules?.['no-number-arithmetic']).toBeDefined();
+    const linter = new Linter({ configType: 'flat' });
+    const rules = { 'ujira/no-number-arithmetic': 'error' } as const;
+    const code = 'export const x = 1 / 3;\n';
+    expect(() =>
+      linter.verify(
+        code,
+        [{ files: ['**/*.js'], plugins: { ujira: plugin ?? {} }, rules }],
+        'x.js',
+      ),
+    ).toThrow(/needs type information/);
+    expect(() =>
+      linter.verify(
+        code,
+        [
+          {
+            files: ['**/*.ts'],
+            languageOptions: { parser: tseslint.parser },
+            plugins: { ujira: plugin ?? {} },
+            rules,
+          },
+        ],
+        'x.ts',
+      ),
+    ).toThrow(/needs type information/);
+  }, 120_000);
 
   it('does not apply outside the money module', async () => {
     const messages = await errorsFor('export const x = Math.max(1, 2) + 0.5;\n', OUTSIDE_FILE);

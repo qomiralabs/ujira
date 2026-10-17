@@ -82,7 +82,10 @@ const noNumberArithmetic = {
     /** @param {ts.Type} type @returns {boolean} */
     const involvesNumber = (type) => {
       const resolved = checker.getBaseConstraintOfType(type) ?? type;
-      if (resolved.isUnion()) return resolved.types.some(involvesNumber);
+      // A branded number such as `number & { brand: 'cents' }` is still a number.
+      if (resolved.isUnion() || resolved.isIntersection()) {
+        return resolved.types.some(involvesNumber);
+      }
       return (resolved.flags & ts.TypeFlags.NumberLike) !== 0;
     };
     /** @param {unknown} node @returns {boolean} */
@@ -200,6 +203,26 @@ export default defineConfig(
           message: 'Number converts to a float. Keep amounts as bigint.',
         },
         {
+          object: 'global',
+          property: 'parseFloat',
+          message: 'Money never uses floats. Parse amounts as bigint.',
+        },
+        {
+          object: 'global',
+          property: 'parseInt',
+          message: 'parseInt returns a number. Parse amounts as bigint.',
+        },
+        {
+          object: 'global',
+          property: 'Math',
+          message: 'Math works on floats. Use bigint arithmetic.',
+        },
+        {
+          object: 'global',
+          property: 'Number',
+          message: 'Number converts to a float. Keep amounts as bigint.',
+        },
+        {
           object: 'JSON',
           property: 'parse',
           message: 'JSON.parse turns numeric text into floats. Validate and parse to bigint.',
@@ -224,7 +247,7 @@ export default defineConfig(
           // Catches aliasing such as `const N = Number`; member access like
           // Number.isSafeInteger stays allowed.
           selector:
-            'Identifier[name="Number"]:not(MemberExpression > Identifier.object):not(CallExpression > Identifier.callee):not(NewExpression > Identifier.callee)',
+            'Identifier[name="Number"]:not(MemberExpression > Identifier.object):not(MemberExpression[computed=false] > Identifier.property):not(CallExpression > Identifier.callee):not(NewExpression > Identifier.callee)',
           message: 'Number used as a value converts to a float. Keep amounts as bigint.',
         },
         {
