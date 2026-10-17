@@ -5,13 +5,14 @@
 // and JPEG files in place, for use when brand assets are added. Kept PNG
 // chunks and JPEG segments are copied byte for byte and SVG markup outside the
 // removed blocks is left as it is, so the image renders the same. A file is
-// only written when the result passes the check.
+// only written when the result passes the check. Symlinks are refused so a
+// file outside the repository is never rewritten.
 //
 //   node scripts/strip-embedded-metadata.ts <file...>
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { lstatSync, readFileSync, writeFileSync } from 'node:fs';
 
-import { findEmbeddedMetadata, stripEmbeddedMetadata } from './embedded-metadata.ts';
+import { findEmbeddedMetadata, showPath, stripEmbeddedMetadata } from './embedded-metadata.ts';
 
 const files = process.argv.slice(2);
 if (files.length === 0) {
@@ -20,18 +21,20 @@ if (files.length === 0) {
 }
 
 for (const file of files) {
+  const shown = showPath(Buffer.from(file));
   try {
+    if (!lstatSync(file).isFile()) throw new Error('not a regular file');
     const data = readFileSync(file);
     const found = findEmbeddedMetadata(file, data);
     const stripped = stripEmbeddedMetadata(file, data);
     if (stripped.equals(data)) {
-      process.stdout.write(`${file}: clean\n`);
+      process.stdout.write(`${shown}: clean\n`);
       continue;
     }
     writeFileSync(file, stripped);
-    process.stdout.write(`${file}: stripped ${found.join('; ')}\n`);
+    process.stdout.write(`${shown}: stripped ${found.join('; ')}\n`);
   } catch (error) {
-    process.stderr.write(`${file}: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(`${shown}: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
   }
 }
