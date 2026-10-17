@@ -7,7 +7,12 @@ UJIRA: pay people anywhere in their own money. Services, router, API, dashboard 
 Requirements:
 
 - Node.js 24 LTS (the exact version is in `.nvmrc`; run `nvm use`)
-- pnpm 12.14.0 (pinned in the `packageManager` field of `package.json` with the SHA-512 of the npm registry tarball; `corepack enable` picks it up and refuses a download whose hash does not match). To bump pnpm, take `npm view pnpm@<version> dist.integrity`, drop the `sha512-` prefix, base64 decode it, hex encode the result and write `pnpm@<version>+sha512.<hex>`
+- pnpm 12.14.0, pinned in the `packageManager` field of `package.json` (`corepack enable` picks it up). The `+sha512` suffix is the SHA-512 of the `pnpm` npm package, which since pnpm 12 is a small shim: corepack refuses a shim whose hash does not match, but the binary that actually runs comes from the platform package `@pnpm/exe.<platform>` and is checked only against the integrity recorded in the npm registry metadata. In CI, `pnpm/action-setup` also drops the suffix and self updates from the registry, so the workflow holds the binary on `PATH` to `PNPM_EXE_SHA512` in `.github/workflows/ci.yml` (the `pnpm` file of `@pnpm/exe.linux-x64` for `PNPM_VERSION`) and fails on a mismatch.
+
+To bump pnpm, update both pins in the same change:
+
+1. `package.json`: take `npm view pnpm@<version> dist.integrity`, drop the `sha512-` prefix, base64 decode it, hex encode the result and write `pnpm@<version>+sha512.<hex>` to `packageManager`.
+2. `.github/workflows/ci.yml`: set `PNPM_VERSION` to `<version>`, then download the binary package with `npm pack @pnpm/exe.linux-x64@<version>`, check that the tarball matches `npm view @pnpm/exe.linux-x64@<version> dist.integrity`, extract it and set `PNPM_EXE_SHA512` to the output of `sha512sum package/pnpm`. The verify step also fails if `PNPM_VERSION` does not match `packageManager`.
 
 TypeScript is pinned to 6.0.3 because typescript-eslint 8 supports only `typescript <6.1.0`. Upgrade to TypeScript 7 once a typescript-eslint release lists it in its peer range.
 
