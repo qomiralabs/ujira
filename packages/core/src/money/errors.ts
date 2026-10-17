@@ -13,7 +13,8 @@ export type MoneyErrorCode =
   | 'INVALID_LOCALE'
   | 'INVALID_FORMAT_OPTION'
   | 'KIND_MISMATCH'
-  | 'TOKEN_MISMATCH';
+  | 'TOKEN_MISMATCH'
+  | 'RATE_MISMATCH';
 
 /**
  * Base class for every money failure. Callers branch on `code`, which stays
@@ -85,4 +86,13 @@ export class KindMismatchError extends MoneyError {
 export class TokenMismatchError extends MoneyError {
   override readonly name = 'TokenMismatchError';
   readonly code = 'TOKEN_MISMATCH';
+}
+
+/**
+ * A conversion source that is not the rate's base, or a target that is not
+ * its quote, for example an NGN per USD rate applied to a KES target.
+ */
+export class RateMismatchError extends MoneyError {
+  override readonly name = 'RateMismatchError';
+  readonly code = 'RATE_MISMATCH';
 }
