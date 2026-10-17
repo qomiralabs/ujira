@@ -213,6 +213,10 @@ export default defineConfig(
         // lint sees the same program as typecheck.
         project: lintProjects(import.meta.dirname),
         tsconfigRootDir: import.meta.dirname,
+        // typescript-eslint treats CI=true as a single run and stops tracking
+        // files it was not started with, which breaks the lint tests that
+        // check text not on disk. Keep CI behaving like a local run.
+        disallowAutomaticSingleRunInference: true,
       },
     },
     plugins: {
