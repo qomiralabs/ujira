@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -9,6 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   checkWorkspace,
+  trackedSymlinks,
   LIFECYCLE_SCRIPTS,
   MEMBER_COMPILER_OPTIONS,
   scriptProblems,
@@ -573,6 +575,97 @@ describe('check-workspace-scripts', () => {
           ]);
         },
       );
+    });
+
+    describe('symlinks', () => {
+      it.each(['dist', 'node_modules', 'coverage', '.turbo'])(
+        'rejects a symlink named %s inside a member',
+        (name) => {
+          const root = workspace({ 'packages/a': member('a') }, { 'elsewhere/x.txt': '' });
+          symlinkSync(join(root, 'elsewhere'), join(root, 'packages', 'a', name));
+          expect(checkWorkspace(root)).toEqual([
+            `packages/a/${name}: symlinks are not allowed in workspace folders`,
+          ]);
+        },
+      );
+
+      it('rejects a tracked symlink in a member, whatever git status says', () => {
+        const root = workspace({ 'packages/a': member('a') });
+        expect(checkWorkspace(root, { trackedSymlinks: ['packages/a/dist', 'docs/link'] })).toEqual(
+          ['packages/a/dist: tracked symlinks are not allowed in workspace members'],
+        );
+      });
+
+      it('lists tracked symlinks from the git index', () => {
+        const root = workspace({ 'packages/a': member('a') }, { 'target/x.txt': '' });
+        symlinkSync('../../target', join(root, 'packages', 'a', 'dist'));
+        execFileSync('git', ['init', '-q'], { cwd: root });
+        execFileSync('git', ['add', '-A'], { cwd: root });
+        expect(trackedSymlinks(root)).toEqual(['packages/a/dist']);
+      });
+    });
+
+    describe('extra tsconfig files', () => {
+      it.each([
+        'packages/a/src/tsconfig.json',
+        'packages/a/src/money/tsconfig.json',
+        'packages/a/src/tsconfig.app.json',
+        'packages/a/tsconfig.test.json',
+        'packages/a/jsconfig.json',
+        'packages/a/src/jsconfig.json',
+        'scripts/tsconfig.json',
+        'tsconfig.extra.json',
+      ])('rejects %s', (path) => {
+        const root = workspace({ 'packages/a': member('a') }, { [path]: '{}' });
+        expect(checkWorkspace(root)).toEqual([
+          `${path}: only the root tsconfig.json, tsconfig.base.json and the two at each member root are allowed`,
+        ]);
+      });
+
+      it('accepts the root and member root files', () => {
+        const root = workspace(
+          { 'packages/a': member('a') },
+          {
+            'tsconfig.json': '{}',
+            'tsconfig.base.json': '{}',
+            'packages/a/node_modules/x/tsconfig.json': '{}',
+          },
+        );
+        expect(checkWorkspace(root)).toEqual([]);
+      });
+    });
+
+    describe('formatter configuration', () => {
+      it.each([
+        'packages/a/.prettierrc',
+        'packages/a/.prettierrc.json',
+        'packages/a/.prettierrc.yaml',
+        'packages/a/.prettierrc.mjs',
+        'packages/a/prettier.config.ts',
+        'packages/a/src/prettier.config.cjs',
+        'packages/a/.editorconfig',
+        'scripts/.prettierrc.toml',
+        '.editorconfig',
+      ])('rejects %s', (path) => {
+        const root = workspace({ 'packages/a': member('a') }, { [path]: '' });
+        expect(checkWorkspace(root)).toEqual([
+          `${path}: formatter configuration lives only in the root .prettierrc.json`,
+        ]);
+      });
+
+      it('accepts the root .prettierrc.json', () => {
+        const root = workspace({ 'packages/a': member('a') }, { '.prettierrc.json': '{}' });
+        expect(checkWorkspace(root)).toEqual([]);
+      });
+
+      it('rejects a prettier key in a member manifest', () => {
+        const pkg = JSON.stringify({ name: 'a', scripts: SCRIPTS, prettier: { semi: false } });
+        expect(
+          checkWorkspace(workspace({ 'packages/a': member('a', { 'package.json': pkg }) })),
+        ).toEqual([
+          'a: package.json must not set "prettier"; formatter configuration lives only in the root .prettierrc.json',
+        ]);
+      });
     });
   });
 });

@@ -7,8 +7,19 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { readFileSync, symlinkSync } from 'node:fs';
+
+import { parse as parseYaml } from 'yaml';
+
+import eslintConfig from '../eslint.config.js';
 import { plan, run } from './gate.ts';
-import { buildOrder, testProjects, workspaceDependencies, type Member } from './workspace.ts';
+import {
+  buildOrder,
+  lintProjects,
+  testProjects,
+  workspaceDependencies,
+  type Member,
+} from './workspace.ts';
 
 function member(name: string, path: string, manifest: Record<string, unknown> = {}): Member {
   return { dir: `/r/${path}`, path, name, manifest: { name, ...manifest } };
@@ -53,16 +64,28 @@ describe('gate', () => {
 
   it('builds every member from its tsconfig.build.json, dependencies first', () => {
     expect(plan('build', '/r', [web, ui, core])).toEqual([
-      { label: '@u/core build', args: ['-p', '/r/packages/core/tsconfig.build.json'] },
-      { label: '@u/ui build', args: ['-p', '/r/packages/ui/tsconfig.build.json'] },
-      { label: '@u/web build', args: ['-p', '/r/apps/web/tsconfig.build.json'] },
+      {
+        label: '@u/core build',
+        args: ['-p', '/r/packages/core/tsconfig.build.json', '--noEmitOnError'],
+      },
+      {
+        label: '@u/ui build',
+        args: ['-p', '/r/packages/ui/tsconfig.build.json', '--noEmitOnError'],
+      },
+      { label: '@u/web build', args: ['-p', '/r/apps/web/tsconfig.build.json', '--noEmitOnError'] },
     ]);
   });
 
   it('typechecks the root and every member after building the members others need', () => {
     expect(plan('typecheck', '/r', [web, ui, core])).toEqual([
-      { label: '@u/core build', args: ['-p', '/r/packages/core/tsconfig.build.json'] },
-      { label: '@u/ui build', args: ['-p', '/r/packages/ui/tsconfig.build.json'] },
+      {
+        label: '@u/core build',
+        args: ['-p', '/r/packages/core/tsconfig.build.json', '--noEmitOnError'],
+      },
+      {
+        label: '@u/ui build',
+        args: ['-p', '/r/packages/ui/tsconfig.build.json', '--noEmitOnError'],
+      },
       { label: 'root typecheck', args: ['-p', '/r/tsconfig.json', '--noEmit'] },
       { label: '@u/core typecheck', args: ['-p', '/r/packages/core/tsconfig.json', '--noEmit'] },
       { label: '@u/ui typecheck', args: ['-p', '/r/packages/ui/tsconfig.json', '--noEmit'] },
@@ -74,7 +97,7 @@ describe('gate', () => {
     const sneaky = member('s', 'packages/s', { scripts: { typecheck: 'tsc --noCheck' } });
     for (const step of plan('typecheck', '/r', [sneaky])) {
       expect(step.args.filter((arg) => arg.startsWith('--'))).toEqual(
-        step.label.endsWith('typecheck') ? ['--noEmit'] : [],
+        step.label.endsWith('typecheck') ? ['--noEmit'] : ['--noEmitOnError'],
       );
     }
   });
@@ -121,12 +144,12 @@ describe('gate', () => {
       const result = exec(tree(), 'typecheck', () => false);
       expect(result.status).toBe(0);
       expect(result.calls).toEqual([
-        '-p <root>/packages/a/tsconfig.build.json',
+        '-p <root>/packages/a/tsconfig.build.json --noEmitOnError',
         '-p <root>/tsconfig.json --noEmit',
         '-p <root>/packages/a/tsconfig.json --noEmit',
         '-p <root>/packages/b/tsconfig.json --noEmit',
       ]);
-      expect(result.out).toContain('> tsc -p packages/a/tsconfig.build.json\n');
+      expect(result.out).toContain('> tsc -p packages/a/tsconfig.build.json --noEmitOnError\n');
       expect(result.err).toBe('');
     });
 
@@ -142,7 +165,7 @@ describe('gate', () => {
     it('stops the build at the first failure', () => {
       const result = exec(tree(), 'build', () => true);
       expect(result.status).toBe(1);
-      expect(result.calls).toEqual(['-p <root>/packages/a/tsconfig.build.json']);
+      expect(result.calls).toEqual(['-p <root>/packages/a/tsconfig.build.json --noEmitOnError']);
       expect(result.err).toBe('build failed: a build\n');
     });
 
@@ -223,6 +246,94 @@ describe('gate', () => {
       writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - packages/**\n');
       expect(() => testProjects(root)).toThrow('unsupported glob');
       rmSync(root, { recursive: true, force: true });
+    });
+  });
+
+  describe('dist folders', () => {
+    it('refuses to build when a member dist resolves outside the member', () => {
+      const root = mkdtempSync(join(tmpdir(), 'ujira-gate-'));
+      writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n');
+      mkdirSync(join(root, 'packages', 'a'), { recursive: true });
+      mkdirSync(join(root, 'node_modules', 'eslint'), { recursive: true });
+      writeFileSync(join(root, 'packages', 'a', 'package.json'), JSON.stringify({ name: 'a' }));
+      symlinkSync(join(root, 'node_modules', 'eslint'), join(root, 'packages', 'a', 'dist'));
+      const calls: string[] = [];
+      let err = '';
+      const status = run('build', root, {
+        tsc: (args) => {
+          calls.push(args.join(' '));
+          return 0;
+        },
+        out: () => undefined,
+        err: (text) => (err += text),
+      });
+      rmSync(root, { recursive: true, force: true });
+      expect(status).toBe(1);
+      expect(calls).toEqual([]);
+      expect(err).toContain('a: dist must be a folder inside the member');
+    });
+  });
+
+  describe('lint projects', () => {
+    it('lists the root tsconfig and every member tsconfig', () => {
+      const root = mkdtempSync(join(tmpdir(), 'ujira-lint-'));
+      writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n');
+      for (const name of ['b', 'a']) {
+        mkdirSync(join(root, 'packages', name), { recursive: true });
+        writeFileSync(join(root, 'packages', name, 'package.json'), JSON.stringify({ name }));
+      }
+      const projects = lintProjects(root);
+      rmSync(root, { recursive: true, force: true });
+      expect(projects).toEqual([
+        './tsconfig.json',
+        './packages/a/tsconfig.json',
+        './packages/b/tsconfig.json',
+      ]);
+    });
+
+    it('gives ESLint that explicit list instead of the nearest tsconfig', () => {
+      const withParser = (
+        eslintConfig as { languageOptions?: { parserOptions?: Record<string, unknown> } }[]
+      )
+        .map((entry) => entry.languageOptions?.parserOptions)
+        .filter(
+          (options) =>
+            options !== undefined && ('project' in options || 'projectService' in options),
+        );
+      expect(withParser).toEqual([
+        expect.objectContaining({ project: lintProjects(join(import.meta.dirname, '..')) }),
+      ]);
+      expect(
+        withParser.some((options) => options !== undefined && 'projectService' in options),
+      ).toBe(false);
+    });
+  });
+
+  describe('root scripts and CI', () => {
+    const root = join(import.meta.dirname, '..');
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+
+    it('pins Prettier to the root config and ignores .editorconfig', () => {
+      expect(pkg.scripts['format']).toBe(
+        'prettier --config .prettierrc.json --no-editorconfig --write .',
+      );
+      expect(pkg.scripts['format:check']).toBe(
+        'prettier --config .prettierrc.json --no-editorconfig --check .',
+      );
+    });
+
+    it('builds before any test code runs in CI', () => {
+      const workflow = parseYaml(readFileSync(join(root, '.github/workflows/ci.yml'), 'utf8')) as {
+        jobs: Record<string, { steps: { name?: string; run?: string }[] }>;
+      };
+      const steps = Object.values(workflow.jobs).flatMap((job) => job.steps);
+      const build = steps.findIndex((step) => step.run?.includes('pnpm build') === true);
+      const test = steps.findIndex((step) => step.run?.includes('pnpm test') === true);
+      expect(build).toBeGreaterThan(-1);
+      expect(test).toBeGreaterThan(-1);
+      expect(build).toBeLessThan(test);
     });
   });
 });
