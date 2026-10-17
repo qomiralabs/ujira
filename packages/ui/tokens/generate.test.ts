@@ -3,8 +3,8 @@
 
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { compile } from 'tailwindcss';
 import { describe, expect, it } from 'vitest';
 import * as generated from '../src/tokens/tokens.generated.js';
@@ -351,15 +351,13 @@ describe('TypeScript constants', () => {
 });
 
 describe('Tailwind theme', () => {
-  const require = createRequire(import.meta.url);
-
   async function build(candidates: string[]): Promise<string> {
     const compiler = await compile(
       "@import 'tailwindcss/theme.css';\n@import './theme.css';\n@tailwind utilities;",
       {
         base: join(PACKAGE_ROOT, 'styles'),
         loadStylesheet: (id, base) => {
-          const path = id.startsWith('.') ? join(base, id) : require.resolve(id);
+          const path = id.startsWith('.') ? join(base, id) : fileURLToPath(import.meta.resolve(id));
           return Promise.resolve({
             path,
             base: dirname(path),
