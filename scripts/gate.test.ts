@@ -3,15 +3,20 @@
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { readFileSync, symlinkSync } from 'node:fs';
+import { globSync, readFileSync, symlinkSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+
+import { ESLint } from 'eslint';
+import * as prettier from 'prettier';
 
 import { parse as parseYaml } from 'yaml';
 
 import eslintConfig from '../eslint.config.js';
+import vitestConfig from '../vitest.config.ts';
 import { plan, run } from './gate.ts';
 import {
   buildOrder,
@@ -303,9 +308,6 @@ describe('gate', () => {
       expect(withParser).toEqual([
         expect.objectContaining({
           project: lintProjects(join(import.meta.dirname, '..')),
-          // With CI=true typescript-eslint would otherwise assume a single
-          // run, which breaks linting text that is not on disk.
-          disallowAutomaticSingleRunInference: true,
         }),
       ]);
       expect(
@@ -322,11 +324,17 @@ describe('gate', () => {
 
     it('pins Prettier to the root config and ignores .editorconfig', () => {
       expect(pkg.scripts['format']).toBe(
-        'prettier --config .prettierrc.json --no-editorconfig --write .',
+        'prettier --config .prettierrc.json --no-editorconfig --ignore-path .prettierignore --write .',
       );
       expect(pkg.scripts['format:check']).toBe(
-        'prettier --config .prettierrc.json --no-editorconfig --check .',
+        'prettier --config .prettierrc.json --no-editorconfig --ignore-path .prettierignore --check .',
       );
+    });
+
+    it('loads the Vitest config without writing a bundled copy into node_modules', () => {
+      // The default loader writes node_modules/.vite-temp, which fails on the
+      // read-only checkout CI tests run on.
+      expect(pkg.scripts['test']).toBe('vitest run --coverage --configLoader native');
     });
 
     it('builds before any test code runs in CI', () => {
@@ -339,6 +347,159 @@ describe('gate', () => {
       expect(build).toBeGreaterThan(-1);
       expect(test).toBeGreaterThan(-1);
       expect(build).toBeLessThan(test);
+    });
+  });
+
+  describe('ESLint under CI', () => {
+    it('still type checks text that is not on disk when CI is set', async () => {
+      const root = join(import.meta.dirname, '..');
+      const before = process.env['CI'];
+      process.env['CI'] = 'true';
+      try {
+        const eslint = new ESLint({ cwd: root });
+        const [result] = await eslint.lintText(
+          '// Copyright (c) 2026 Qomira Labs. All rights reserved.\n' +
+            '// Proprietary and confidential. Unauthorized copying is prohibited.\n\n' +
+            'export function half(value: number): number {\n  return value / 2;\n}\n',
+          // An existing file with new text, the way the money lint tests run.
+          { filePath: join(root, 'packages/core/src/money/money.ts') },
+        );
+        expect(result?.messages.map((m) => m.ruleId)).toContain('ujira/no-number-arithmetic');
+        expect(result?.messages.some((m) => m.fatal === true)).toBe(false);
+      } finally {
+        if (before === undefined) delete process.env['CI'];
+        else process.env['CI'] = before;
+      }
+    }, 60_000);
+  });
+
+  describe('ignore rules are anchored to the repository and member roots', () => {
+    const root = join(import.meta.dirname, '..');
+
+    it.each([
+      ['packages/core/dist/index.js', true],
+      ['packages/core/coverage/x.js', true],
+      ['coverage/x.js', true],
+      ['packages/core/.turbo/x.js', true],
+      ['packages/core/src/money/dist/f.ts', false],
+      ['packages/core/src/coverage/f.ts', false],
+      ['packages/core/src/.turbo/f.ts', false],
+    ])('ESLint ignores %s: %s', async (path, ignored) => {
+      const eslint = new ESLint({ cwd: root });
+      expect(await eslint.isPathIgnored(join(root, path))).toBe(ignored);
+    });
+
+    it.each([
+      ['packages/core/dist/index.js', true],
+      ['coverage/x.js', true],
+      ['packages/core/src/money/dist/f.ts', false],
+      ['packages/core/src/coverage/f.ts', false],
+    ])('Prettier ignores %s: %s', async (path, ignored) => {
+      const info = await prettier.getFileInfo(join(root, path), {
+        ignorePath: join(root, '.prettierignore'),
+      });
+      expect(info.ignored).toBe(ignored);
+    });
+
+    it('reads only .prettierignore, not .gitignore', () => {
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+        scripts: Record<string, string>;
+      };
+      expect(pkg.scripts['format:check']).toContain('--ignore-path .prettierignore');
+      expect(pkg.scripts['format']).toContain('--ignore-path .prettierignore');
+    });
+  });
+
+  describe('test projects cover every test file', () => {
+    const root = join(import.meta.dirname, '..');
+
+    it('includes every tracked test file in some project', () => {
+      const projects = (
+        vitestConfig as { test: { projects: { test: { root?: string; include: string[] } }[] } }
+      ).test.projects;
+      const covered = new Set(
+        projects.flatMap(({ test }) => {
+          const base = test.root ?? root;
+          return globSync(test.include, { cwd: base }).map((file) =>
+            relative(root, join(base, file)).split('\\').join('/'),
+          );
+        }),
+      );
+      const tracked = execFileSync('git', ['ls-files', '-z', '*.test.ts', '*.test.tsx'], {
+        cwd: root,
+        encoding: 'utf8',
+      })
+        .split('\0')
+        .filter((file) => file !== '');
+      expect(tracked.filter((file) => !covered.has(file))).toEqual([]);
+    });
+
+    it('passes per member timeouts through', () => {
+      const tmp = mkdtempSync(join(tmpdir(), 'ujira-projects-'));
+      writeFileSync(join(tmp, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n');
+      mkdirSync(join(tmp, 'packages', 'p'), { recursive: true });
+      writeFileSync(join(tmp, 'packages', 'p', 'package.json'), JSON.stringify({ name: '@u/p' }));
+      const [project] = testProjects(tmp, {
+        '@u/p': { include: ['spikes/**/*.test.ts'], hookTimeout: 180_000, testTimeout: 60_000 },
+      });
+      rmSync(tmp, { recursive: true, force: true });
+      expect(project?.test).toEqual(
+        expect.objectContaining({ hookTimeout: 180_000, testTimeout: 60_000 }),
+      );
+    });
+
+    it('keeps the Vitest cache outside node_modules and the checkout', () => {
+      const cacheDir = (vitestConfig as { cacheDir?: string }).cacheDir ?? '';
+      expect(cacheDir).not.toBe('');
+      expect(relative(root, cacheDir).startsWith('..')).toBe(true);
+    });
+  });
+
+  describe('the test step cannot change the checkout', () => {
+    const root = join(import.meta.dirname, '..');
+    const workflow = parseYaml(readFileSync(join(root, '.github/workflows/ci.yml'), 'utf8')) as {
+      jobs: Record<
+        string,
+        { steps: { name?: string; run?: string; with?: Record<string, unknown> }[] }
+      >;
+    };
+    const steps = Object.values(workflow.jobs).flatMap((job) => job.steps);
+    const testIndex = steps.findIndex((step) => step.run?.includes('pnpm test') === true);
+    const testStep = steps[testIndex];
+
+    it('runs the tests on a read-only mount of the checkout, node_modules included', () => {
+      expect(testStep?.run).toMatch(/sudo mount --bind "\$\{?PWD\}?" "\$\{?PWD\}?"/);
+      expect(testStep?.run).toMatch(/sudo mount -o remount,bind,ro "\$\{?PWD\}?"/);
+      expect(testStep?.run).toContain('--coverage.reportsDirectory="${RUNNER_TEMP}/coverage"');
+      expect(testStep?.run).toContain('--outputFile.junit="${RUNNER_TEMP}/vitest/junit.xml"');
+    });
+
+    it('checks the tree and node_modules after the tests', () => {
+      const after = steps.slice(testIndex + 1);
+      const check = after.find(
+        (step) => step.name === 'Working tree and node_modules unchanged after test',
+      );
+      expect(check?.run).toContain('git status --porcelain --untracked-files=all');
+      expect(check?.run).toContain('-newer');
+    });
+  });
+
+  describe('dangling dist', () => {
+    it('reports a dangling dist symlink instead of throwing', () => {
+      const tmp = mkdtempSync(join(tmpdir(), 'ujira-gate-'));
+      writeFileSync(join(tmp, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n');
+      mkdirSync(join(tmp, 'packages', 'a'), { recursive: true });
+      writeFileSync(join(tmp, 'packages', 'a', 'package.json'), JSON.stringify({ name: 'a' }));
+      symlinkSync(join(tmp, 'nowhere'), join(tmp, 'packages', 'a', 'dist'));
+      let err = '';
+      const status = run('build', tmp, {
+        tsc: () => 0,
+        out: () => undefined,
+        err: (text) => (err += text),
+      });
+      rmSync(tmp, { recursive: true, force: true });
+      expect(status).toBe(1);
+      expect(err).toContain('a: dist must be a folder inside the member');
     });
   });
 });

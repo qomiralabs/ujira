@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   checkWorkspace,
+  trackedIgnored,
   trackedSymlinks,
   LIFECYCLE_SCRIPTS,
   MEMBER_COMPILER_OPTIONS,
@@ -664,6 +665,86 @@ describe('check-workspace-scripts', () => {
           checkWorkspace(workspace({ 'packages/a': member('a', { 'package.json': pkg }) })),
         ).toEqual([
           'a: package.json must not set "prettier"; formatter configuration lives only in the root .prettierrc.json',
+        ]);
+      });
+    });
+
+    describe('tracked files that git ignores', () => {
+      it('rejects a tracked file that an ignore rule matches', () => {
+        const root = workspace({ 'packages/a': member('a') });
+        expect(
+          checkWorkspace(root, { trackedIgnored: ['packages/a/src/money/dist/f.ts'] }),
+        ).toEqual([
+          'packages/a/src/money/dist/f.ts: tracked by git but matched by an ignore rule, so lint and format skip it',
+        ]);
+      });
+
+      it('lists tracked and ignored files from git, including a forced src/dist/tsconfig.json', () => {
+        const root = workspace(
+          { 'packages/a': member('a') },
+          {
+            '.gitignore': 'dist/\ncoverage/\n.turbo/\n',
+            'packages/a/src/money/dist/f.ts': '',
+            'packages/a/src/dist/tsconfig.json': '{}',
+            'packages/a/src/coverage/g.ts': '',
+            'packages/a/src/.turbo/h.ts': '',
+          },
+        );
+        execFileSync('git', ['init', '-q'], { cwd: root });
+        execFileSync('git', ['add', '-A'], { cwd: root });
+        execFileSync('git', ['add', '-f', 'packages/a/src'], { cwd: root });
+        expect(trackedIgnored(root)).toEqual([
+          'packages/a/src/.turbo/h.ts',
+          'packages/a/src/coverage/g.ts',
+          'packages/a/src/dist/tsconfig.json',
+          'packages/a/src/money/dist/f.ts',
+        ]);
+      });
+    });
+
+    describe('config files inside nested ignored folder names', () => {
+      it.each([
+        ['packages/a/src/dist/tsconfig.json', 'tsconfig'],
+        ['packages/a/src/coverage/.prettierrc', 'formatter'],
+        ['packages/a/src/.turbo/tsconfig.json', 'tsconfig'],
+        ['packages/a/src/node_modules/tsconfig.json', 'tsconfig'],
+      ])('rejects %s', (path, kind) => {
+        const root = workspace({ 'packages/a': member('a') }, { [path]: '{}' });
+        expect(checkWorkspace(root)).toEqual([
+          kind === 'tsconfig'
+            ? `${path}: only the root tsconfig.json, tsconfig.base.json and the two at each member root are allowed`
+            : `${path}: formatter configuration lives only in the root .prettierrc.json`,
+        ]);
+      });
+
+      it('still skips the member and root output folders', () => {
+        const root = workspace(
+          { 'packages/a': member('a') },
+          {
+            'packages/a/dist/tsconfig.json': '{}',
+            'packages/a/coverage/.prettierrc': '',
+            'coverage/tsconfig.json': '{}',
+            'node_modules/x/tsconfig.json': '{}',
+            'packages/a/node_modules/x/.prettierrc': '',
+          },
+        );
+        expect(checkWorkspace(root)).toEqual([]);
+      });
+    });
+
+    describe('config names in any letter case', () => {
+      it.each([
+        ['packages/a/src/TSConfig.json', 'tsconfig'],
+        ['packages/a/JSConfig.json', 'tsconfig'],
+        ['packages/a/.PrettierRC', 'formatter'],
+        ['packages/a/Prettier.Config.js', 'formatter'],
+        ['packages/a/.EditorConfig', 'formatter'],
+      ])('rejects %s', (path, kind) => {
+        const root = workspace({ 'packages/a': member('a') }, { [path]: '{}' });
+        expect(checkWorkspace(root)).toEqual([
+          kind === 'tsconfig'
+            ? `${path}: only the root tsconfig.json, tsconfig.base.json and the two at each member root are allowed`
+            : `${path}: formatter configuration lives only in the root .prettierrc.json`,
         ]);
       });
     });
