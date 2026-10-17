@@ -8,7 +8,9 @@ export type MoneyErrorCode =
   | 'UNKNOWN_CURRENCY'
   | 'INVALID_AMOUNT'
   | 'INVALID_SCALE'
-  | 'INVALID_ALLOCATION';
+  | 'INVALID_ALLOCATION'
+  | 'INVALID_ROUNDING'
+  | 'INVALID_LOCALE';
 
 /**
  * Base class for every money failure. Callers branch on `code`, which stays
@@ -53,4 +55,14 @@ export class InvalidScaleError extends MoneyError {
 export class InvalidAllocationError extends MoneyError {
   override readonly name = 'InvalidAllocationError';
   readonly code = 'INVALID_ALLOCATION';
+}
+
+export class InvalidRoundingModeError extends MoneyError {
+  override readonly name = 'InvalidRoundingModeError';
+  readonly code = 'INVALID_ROUNDING';
+}
+
+export class InvalidLocaleError extends MoneyError {
+  override readonly name = 'InvalidLocaleError';
+  readonly code = 'INVALID_LOCALE';
 }
