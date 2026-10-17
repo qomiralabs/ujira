@@ -1,0 +1,130 @@
+/* Copyright (c) 2026 Qomira Labs. All rights reserved. */
+/* Proprietary and confidential. Unauthorized copying is prohibited. */
+
+/*
+ * Generated from the brand colour tokens, tokens/system.json and the brand icon sprite.
+ * Do not edit by hand. Run `pnpm --filter @ujira/ui tokens` to regenerate.
+ *
+ * Tailwind CSS v4 theme. Import it after tailwindcss; utilities read the
+ * custom properties from tokens.css, so they switch with the colour mode.
+ */
+
+@import './tokens.css';
+
+@theme inline {
+  /* Only brand values exist: the Tailwind defaults for these namespaces are dropped. */
+  --color-*: initial;
+  --font-*: initial;
+  --text-*: initial;
+  --radius-*: initial;
+  --shadow-*: initial;
+  --ease-*: initial;
+
+  --spacing: 0.25rem;
+  --spacing-row: var(--ujira-row-height);
+
+  --color-teal: var(--ujira-teal);
+  --color-teal-night: var(--ujira-teal-night);
+  --color-teal-raised: var(--ujira-teal-raised);
+  --color-teal-ink: var(--ujira-teal-ink);
+  --color-cream: var(--ujira-cream);
+  --color-white: var(--ujira-white);
+  --color-sand-200: var(--ujira-sand-200);
+  --color-sand-300: var(--ujira-sand-300);
+  --color-stone-500: var(--ujira-stone-500);
+  --color-slate-600: var(--ujira-slate-600);
+  --color-mist-300: var(--ujira-mist-300);
+  --color-bg: var(--ujira-bg);
+  --color-surface: var(--ujira-surface);
+  --color-rule: var(--ujira-rule);
+  --color-rule-strong: var(--ujira-rule-strong);
+  --color-text: var(--ujira-text);
+  --color-text-secondary: var(--ujira-text-secondary);
+  --color-text-subtle: var(--ujira-text-subtle);
+  --color-accent-fill: var(--ujira-accent);
+  --color-accent-text: var(--ujira-accent-text);
+  --color-paid: var(--ujira-paid);
+  --color-waiting: var(--ujira-waiting);
+  --color-blocked: var(--ujira-blocked);
+  --color-paid-fill: var(--ujira-paid-fill);
+  --color-waiting-fill: var(--ujira-waiting-fill);
+  --color-blocked-fill: var(--ujira-blocked-fill);
+  --color-viz-categorical-1: var(--ujira-viz-categorical-1);
+  --color-viz-categorical-2: var(--ujira-viz-categorical-2);
+  --color-viz-categorical-3: var(--ujira-viz-categorical-3);
+  --color-viz-categorical-4: var(--ujira-viz-categorical-4);
+  --color-viz-sequential-1: var(--ujira-viz-sequential-1);
+  --color-viz-sequential-2: var(--ujira-viz-sequential-2);
+  --color-viz-sequential-3: var(--ujira-viz-sequential-3);
+  --color-viz-sequential-4: var(--ujira-viz-sequential-4);
+  --color-viz-sequential-5: var(--ujira-viz-sequential-5);
+  --color-viz-highlight: var(--ujira-viz-highlight);
+  --color-viz-highlight-stroke: var(--ujira-viz-highlight-stroke);
+  --color-viz-paid: var(--ujira-viz-paid);
+  --color-viz-waiting: var(--ujira-viz-waiting);
+  --color-viz-waiting-stroke: var(--ujira-viz-waiting-stroke);
+  --color-viz-blocked: var(--ujira-viz-blocked);
+  --color-viz-grid: var(--ujira-viz-grid);
+  --color-viz-axis: var(--ujira-viz-axis);
+  --color-viz-tooltip: var(--ujira-viz-tooltip);
+  --color-viz-tooltip-rule: var(--ujira-viz-tooltip-rule);
+  --color-viz-tooltip-text: var(--ujira-viz-tooltip-text);
+  --color-focus: var(--ujira-focus-ring-color);
+  --color-focus-inner: var(--ujira-focus-ring-inner);
+
+  --font-display: var(--ujira-font-display);
+  --font-sans: var(--ujira-font-sans);
+  --font-mono: var(--ujira-font-mono);
+
+  --text-display-xl: 5rem;
+  --text-display-xl--line-height: 1;
+  --text-display-xl--letter-spacing: -0.03em;
+  --text-display-xl--font-weight: 800;
+  --text-display-l: 3.5rem;
+  --text-display-l--line-height: 1.05;
+  --text-display-l--letter-spacing: -0.025em;
+  --text-display-l--font-weight: 800;
+  --text-display-m: 2.5rem;
+  --text-display-m--line-height: 1.1;
+  --text-display-m--letter-spacing: -0.02em;
+  --text-display-m--font-weight: 800;
+  --text-display-s: 1.75rem;
+  --text-display-s--line-height: 1.2;
+  --text-display-s--letter-spacing: -0.01em;
+  --text-display-s--font-weight: 800;
+  --text-title: 1.25rem;
+  --text-title--line-height: 1.3;
+  --text-title--letter-spacing: -0.01em;
+  --text-title--font-weight: 600;
+  --text-body-l: 1.125rem;
+  --text-body-l--line-height: 1.6;
+  --text-body-l--letter-spacing: 0em;
+  --text-body-l--font-weight: 400;
+  --text-body: 1rem;
+  --text-body--line-height: 1.6;
+  --text-body--letter-spacing: 0em;
+  --text-body--font-weight: 400;
+  --text-body-s: 0.875rem;
+  --text-body-s--line-height: 1.55;
+  --text-body-s--letter-spacing: 0em;
+  --text-body-s--font-weight: 400;
+  --text-amount-xl: 2.5rem;
+  --text-amount-xl--line-height: 1.1;
+  --text-amount-xl--letter-spacing: -0.01em;
+  --text-amount-xl--font-weight: 500;
+  --text-data: 0.875rem;
+  --text-data--line-height: 1.4;
+  --text-data--letter-spacing: 0em;
+  --text-data--font-weight: 400;
+  --text-label: 0.75rem;
+  --text-label--line-height: 1.2;
+  --text-label--letter-spacing: 0.14em;
+  --text-label--font-weight: 500;
+
+  --radius-control: var(--ujira-radius-control);
+  --radius-card: var(--ujira-radius-card);
+  --radius-overlay: var(--ujira-radius-overlay);
+  --shadow-overlay: var(--ujira-shadow-overlay);
+  --ease-out: var(--ujira-ease-out);
+  --ease-settle: var(--ujira-ease-settle);
+}
