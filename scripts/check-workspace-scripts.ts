@@ -33,38 +33,14 @@ const FORBIDDEN_OPERATORS: readonly [string, RegExp][] = [
   ['<(', /<\(/],
   ['>(', />\(/],
 ];
+// Every `&&` step of a required script must start with one of these tools,
+// written as a bare name. Anything else, including package managers, shells,
+// wrappers, `node` and negation with `!`, could run something whose exit code
+// the check cannot see. Adding a tool here needs review.
+export const ALLOWED_TOOLS: readonly string[] = ['tsc', 'eslint', 'vitest', 'prettier', 'next'];
+// Characters that let the first word expand, be quoted or set a variable.
+const UNSAFE_FIRST_WORD = /[$'"=/\\]/;
 const ENV_ASSIGNMENT = /^[A-Za-z_]\w*=/;
-// Commands that run another script, a shell or a wrapper whose exit code the
-// check cannot see. A required script has to run its tool directly.
-const INDIRECT_COMMANDS = new Set([
-  'pnpm',
-  'pnpx',
-  'npm',
-  'npx',
-  'yarn',
-  'bun',
-  'bunx',
-  'corepack',
-  'sh',
-  'bash',
-  'zsh',
-  'dash',
-  'ksh',
-  'fish',
-  'eval',
-  'exec',
-  'env',
-  'command',
-  'builtin',
-  'xargs',
-  'time',
-  'nohup',
-  'nice',
-  'timeout',
-  'source',
-  '.',
-]);
-const NODE_EVAL_FLAGS = /^(?:-e|-p|--eval|--print)(?:=|$)/;
 
 // Problems with one required script, worded to follow `"<name>" script`.
 function scriptProblems(script: string): string[] {
@@ -76,18 +52,16 @@ function scriptProblems(script: string): string[] {
     for (const [operator, pattern] of FORBIDDEN_OPERATORS) {
       if (pattern.test(command) && !found.includes(operator)) found.push(operator);
     }
-    const words = command.trim().split(/\s+/);
-    const first = words.findIndex((word) => !ENV_ASSIGNMENT.test(word));
-    const word = (words[first] ?? '').replace(/['"\\]/g, '');
-    const program = word.slice(word.lastIndexOf('/') + 1);
-    if (word.startsWith('!')) {
-      reasons.push('must not negate a command with !');
-    } else if (word.startsWith('(') || word.startsWith('{')) {
-      reasons.push(`must not group commands with ${word.charAt(0)}`);
-    } else if (INDIRECT_COMMANDS.has(program)) {
-      reasons.push(`must run its tool directly, not through ${program}`);
-    } else if (program === 'node' && words.slice(first + 1).some((w) => NODE_EVAL_FLAGS.test(w))) {
-      reasons.push('must run its tool directly, not through node -e or -p');
+    const word = command.trim().split(/\s+/)[0] ?? '';
+    const shown = word === '' ? 'an empty command' : word;
+    if (ENV_ASSIGNMENT.test(word)) {
+      reasons.push(`must not set environment variables before a command, found ${shown}`);
+    } else if (UNSAFE_FIRST_WORD.test(word)) {
+      reasons.push(`must start each command with a bare tool name, found ${shown}`);
+    } else if (!ALLOWED_TOOLS.includes(word)) {
+      reasons.push(
+        `must start each command with one of ${ALLOWED_TOOLS.join(', ')}, found ${shown}`,
+      );
     }
   }
   if (found.length > 0) {
