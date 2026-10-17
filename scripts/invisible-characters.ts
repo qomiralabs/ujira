@@ -16,21 +16,69 @@ export interface Finding {
   codePoint: number;
 }
 
-export type Scan = { kind: 'text'; findings: Finding[] } | { kind: 'binary' } | { kind: 'invalid' };
+export type Scan =
+  | { kind: 'text'; findings: Finding[] }
+  | { kind: 'binary' }
+  | { kind: 'invalid' }
+  | { kind: 'mismatch'; extension: string };
+
+// A signature is the bytes a file must start with; null matches any byte.
+export type Signature = readonly (number | null)[];
+const ascii = (value: string): Signature => Array.from(Buffer.from(value, 'latin1'));
+const ANY4: Signature = [null, null, null, null];
+
+/**
+ * The only binary file types the check skips, by extension, each with the
+ * signatures its content must start with. Any other file is scanned as text,
+ * so a NUL byte does not let a source file skip the check: it is reported
+ * as U+0000. Add a type here only with a reason in review.
+ */
+export const BINARY_SIGNATURES: Readonly<Record<string, readonly Signature[]>> = {
+  png: [[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]],
+  jpg: [[0xff, 0xd8, 0xff]],
+  jpeg: [[0xff, 0xd8, 0xff]],
+  gif: [ascii('GIF87a'), ascii('GIF89a')],
+  // A RIFF container whose form type is WEBP.
+  webp: [[...ascii('RIFF'), ...ANY4, ...ascii('WEBP')]],
+  ico: [[0x00, 0x00, 0x01, 0x00]],
+  woff: [ascii('wOFF')],
+  woff2: [ascii('wOF2')],
+  wasm: [[0x00, 0x61, 0x73, 0x6d]],
+  pdf: [ascii('%PDF-')],
+};
+
+function matchesSignature(extension: string, data: Buffer): boolean {
+  return (BINARY_SIGNATURES[extension] ?? []).some(
+    (signature) =>
+      data.length >= signature.length &&
+      signature.every((byte, index) => byte === null || data[index] === byte),
+  );
+}
 
 // Rejected everywhere.
 const INVISIBLE = /[\p{Cf}\p{Zl}\p{Zp}]/u;
 // Rejected unless the file is on the allowlist.
 const LOOKALIKES = new Set([0x00a0, 0x202f, 0x2212]);
-const CANDIDATES = /[\p{Cf}\p{Zl}\p{Zp}\u00A0\u202F\u2212\n]/gu;
+const CANDIDATES = /[\p{Cf}\p{Zl}\p{Zp}\u00A0\u202F\u2212\n\0]/gu;
 
 /**
- * Scans one file's bytes. Content with a NUL byte is binary, as git decides,
- * and is skipped whatever its name. Other content must be valid UTF-8; a byte
- * order mark is kept so it is reported like any other format character.
+ * Scans one file's bytes. A file is skipped as binary only when its
+ * extension is in BINARY_SIGNATURES and its content starts with a matching
+ * signature; a listed extension with other content is a mismatch. Every
+ * other file must be valid UTF-8 and is scanned in full, with a NUL byte
+ * reported as U+0000. A byte order mark is kept so it is reported like any
+ * other format character.
  */
-export function findInvisibleCharacters(data: Buffer, allowLookalikes: boolean): Scan {
-  if (data.includes(0)) return { kind: 'binary' };
+export function findInvisibleCharacters(
+  name: string,
+  data: Buffer,
+  allowLookalikes: boolean,
+): Scan {
+  const dot = name.lastIndexOf('.');
+  const extension = dot > name.lastIndexOf('/') ? name.slice(dot + 1).toLowerCase() : '';
+  if (Object.hasOwn(BINARY_SIGNATURES, extension)) {
+    return matchesSignature(extension, data) ? { kind: 'binary' } : { kind: 'mismatch', extension };
+  }
   let text: string;
   try {
     text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(data);
@@ -48,7 +96,11 @@ export function findInvisibleCharacters(data: Buffer, allowLookalikes: boolean):
       continue;
     }
     const codePoint = character.codePointAt(0) ?? 0;
-    if (!INVISIBLE.test(character) && (allowLookalikes || !LOOKALIKES.has(codePoint))) continue;
+    const rejected =
+      codePoint === 0 ||
+      INVISIBLE.test(character) ||
+      (!allowLookalikes && LOOKALIKES.has(codePoint));
+    if (!rejected) continue;
     // Columns count code points, so a character outside the BMP counts once.
     const column = Array.from(text.slice(lineStart, match.index)).length + 1;
     findings.push({ line, column, codePoint });

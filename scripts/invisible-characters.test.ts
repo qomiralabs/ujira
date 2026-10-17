@@ -12,10 +12,12 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import {
+  BINARY_SIGNATURES,
   findInvisibleCharacters,
   formatCodePoint,
   parseAllowlist,
   showPath,
+  type Signature,
 } from './invisible-characters.ts';
 
 const CHECK = join(import.meta.dirname, 'check-invisible-characters.ts');
@@ -64,6 +66,11 @@ function labelled(cases: readonly (readonly [number, string])[]): [string, strin
   return cases.map(([point, name]) => [hex(point), name, point]);
 }
 
+// Bytes that match a signature, with 0x00 for any byte it leaves open.
+function fromSignature(signature: Signature): Buffer {
+  return Buffer.from(signature.map((byte) => byte ?? 0));
+}
+
 function text(value: string): Buffer {
   return Buffer.from(value, 'utf8');
 }
@@ -94,12 +101,12 @@ describe('findInvisibleCharacters', () => {
     'reports %s (%s) with its line and column',
     (_label, _name, point) => {
       const content = text(`first line\nab${String.fromCodePoint(point)}c\n`);
-      expect(findInvisibleCharacters(content, false)).toEqual({
+      expect(findInvisibleCharacters('a.txt', content, false)).toEqual({
         kind: 'text',
         findings: [{ line: 2, column: 3, codePoint: point }],
       });
       // An allowlisted file still fails on these.
-      expect(findInvisibleCharacters(content, true)).toEqual({
+      expect(findInvisibleCharacters('a.txt', content, true)).toEqual({
         kind: 'text',
         findings: [{ line: 2, column: 3, codePoint: point }],
       });
@@ -110,17 +117,20 @@ describe('findInvisibleCharacters', () => {
     'reports %s (%s) unless the file is allowlisted',
     (_label, _name, point) => {
       const content = text(`x${String.fromCodePoint(point)}y`);
-      expect(findInvisibleCharacters(content, false)).toEqual({
+      expect(findInvisibleCharacters('a.txt', content, false)).toEqual({
         kind: 'text',
         findings: [{ line: 1, column: 2, codePoint: point }],
       });
-      expect(findInvisibleCharacters(content, true)).toEqual({ kind: 'text', findings: [] });
+      expect(findInvisibleCharacters('a.txt', content, true)).toEqual({
+        kind: 'text',
+        findings: [],
+      });
     },
   );
 
   it('counts columns in code points and reports every occurrence', () => {
     const content = text('\u{1F600}\u200B\n\n  \u2060\u2060');
-    expect(findInvisibleCharacters(content, false)).toEqual({
+    expect(findInvisibleCharacters('a.txt', content, false)).toEqual({
       kind: 'text',
       findings: [
         { line: 1, column: 2, codePoint: 0x200b },
@@ -132,17 +142,74 @@ describe('findInvisibleCharacters', () => {
 
   it('passes ordinary text, including other non ASCII letters and spaces', () => {
     expect(
-      findInvisibleCharacters(text('caf\u00E9 na\u00EFve \u4E2D\u6587\ttab\r\n'), false),
+      findInvisibleCharacters('a.txt', text('caf\u00E9 na\u00EFve \u4E2D\u6587\ttab\r\n'), false),
     ).toEqual({ kind: 'text', findings: [] });
   });
 
-  it('skips binary content by its NUL bytes, whatever the name', () => {
-    const content = Buffer.concat([text('\uFEFF'), Buffer.from([0]), text('\u202E')]);
-    expect(findInvisibleCharacters(content, false)).toEqual({ kind: 'binary' });
+  it('reports a NUL byte in a file not on the binary list, and still scans the rest', () => {
+    // A NUL in a comment must not turn a source file into a skipped binary.
+    const content = Buffer.concat([text('// x'), Buffer.from([0]), text('\n\u202E')]);
+    expect(findInvisibleCharacters('src/trojan.ts', content, false)).toEqual({
+      kind: 'text',
+      findings: [
+        { line: 1, column: 5, codePoint: 0 },
+        { line: 2, column: 1, codePoint: 0x202e },
+      ],
+    });
+  });
+
+  it.each(Object.keys(BINARY_SIGNATURES))(
+    'skips a .%s file whose content starts like one',
+    (ext) => {
+      const signature = fromSignature(BINARY_SIGNATURES[ext]?.[0] ?? []);
+      const content = Buffer.concat([signature, Buffer.from([0]), text('\u202E')]);
+      expect(findInvisibleCharacters(`asset.${ext}`, content, false)).toEqual({ kind: 'binary' });
+      expect(findInvisibleCharacters(`ASSET.${ext.toUpperCase()}`, content, false)).toEqual({
+        kind: 'binary',
+      });
+    },
+  );
+
+  it.each(Object.keys(BINARY_SIGNATURES))(
+    'reports a .%s file whose content does not match',
+    (ext) => {
+      const content = Buffer.concat([text('not really\n\u202E'), Buffer.from([0])]);
+      expect(findInvisibleCharacters(`asset.${ext}`, content, false)).toEqual({
+        kind: 'mismatch',
+        extension: ext,
+      });
+    },
+  );
+
+  it('requires the WebP form type, not just a RIFF header', () => {
+    const wave = Buffer.concat([Buffer.from('RIFF\0\0\0\0WAVE', 'latin1')]);
+    expect(findInvisibleCharacters('a.webp', wave, false)).toEqual({
+      kind: 'mismatch',
+      extension: 'webp',
+    });
+    expect(findInvisibleCharacters('a.webp', Buffer.from('RIF'), false)).toEqual({
+      kind: 'mismatch',
+      extension: 'webp',
+    });
+  });
+
+  it('treats a dot in a folder name as no extension', () => {
+    expect(findInvisibleCharacters('assets.png/readme', text('ok'), false)).toEqual({
+      kind: 'text',
+      findings: [],
+    });
+  });
+
+  it('accepts every listed signature of a type', () => {
+    for (const signature of BINARY_SIGNATURES['gif'] ?? []) {
+      expect(findInvisibleCharacters('a.gif', fromSignature(signature), false)).toEqual({
+        kind: 'binary',
+      });
+    }
   });
 
   it('reports text that is not valid UTF-8', () => {
-    expect(findInvisibleCharacters(Buffer.from([0x61, 0xff, 0x62]), false)).toEqual({
+    expect(findInvisibleCharacters('a.txt', Buffer.from([0x61, 0xff, 0x62]), false)).toEqual({
       kind: 'invalid',
     });
   });
@@ -186,13 +253,30 @@ describe('check-invisible-characters', () => {
   it('passes a clean tree and skips binary files by content', () => {
     const root = repo({
       'a.ts': 'clean\n',
-      // A text extension does not make binary content text.
-      'image.txt': Buffer.concat([Buffer.from([0x89, 0x00]), text('\u202E')]),
+      // A listed extension with matching content is skipped.
+      'image.png': Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+        text('\u202E'),
+      ]),
     });
     const result = check(root);
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
     expect(result.stdout).toMatch(/^Invisible character check passed: 1 text files, 1 binary/);
+  });
+
+  it('fails on a NUL in a source file and on binary content behind a listed name', () => {
+    const root = repo({
+      'src/trojan.ts': Buffer.concat([text('// x'), Buffer.from([0]), text('\n\u202E\n')]),
+      'fake.png': 'just text\n',
+      'blob.dat': Buffer.from([0x00, 0x01, 0x02]),
+    });
+    const result = check(root);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('src/trojan.ts:1:5: U+0000');
+    expect(result.stderr).toContain('src/trojan.ts:2:1: U+202E');
+    expect(result.stderr).toContain('fake.png: named .png but its content is not png');
+    expect(result.stderr).toContain('blob.dat:1:1: U+0000');
   });
 
   it('allows lookalikes only in allowlisted files', () => {

@@ -71,9 +71,15 @@ for (let end = listing.indexOf(0); end !== -1; end = listing.indexOf(0, from)) {
   }
   // Symlink targets and submodules are not file content of this repository.
   if (!stat.isFile()) continue;
-  const scan = findInvisibleCharacters(readFileSync(path), allowed.has(name.toString('utf8')));
+  const scan = findInvisibleCharacters(
+    name.toString('utf8'),
+    readFileSync(path),
+    allowed.has(name.toString('utf8')),
+  );
   if (scan.kind === 'binary') {
     binaryFiles += 1;
+  } else if (scan.kind === 'mismatch') {
+    problems.push(`${shown}: named .${scan.extension} but its content is not ${scan.extension}`);
   } else if (scan.kind === 'invalid') {
     problems.push(`${shown}: not valid UTF-8 text`);
   } else {
