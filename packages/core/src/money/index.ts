@@ -6,6 +6,7 @@ export {
   CurrencyMismatchError,
   InvalidAllocationError,
   InvalidAmountError,
+  InvalidFormatOptionError,
   InvalidLocaleError,
   InvalidRoundingModeError,
   InvalidScaleError,
@@ -46,7 +47,8 @@ export {
   sum,
 } from './money.js';
 export type { Money } from './money.js';
-export { formatMoney } from './format.js';
+export { dollarSignAmbiguous, formatMoney } from './format.js';
+export type { CurrencyCodeDisplay } from './format.js';
 export { parseMoney, toDecimalString } from './parse.js';
 export { ROUNDING_MODES, rescale } from './rescale.js';
 export type { RoundingMode } from './rescale.js';

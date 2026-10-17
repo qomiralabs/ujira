@@ -1,9 +1,9 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-import { FIAT_CURRENCIES, TOKEN_DISPLAY_SCALE } from './currencies.js';
-import type { FiatCurrencyCode } from './currencies.js';
-import { InvalidLocaleError } from './errors.js';
+import { FIAT_CURRENCIES, TOKEN_DISPLAY_SCALE, isCurrencyCode } from './currencies.js';
+import type { CurrencyCode, FiatCurrencyCode } from './currencies.js';
+import { InvalidFormatOptionError, InvalidLocaleError, UnknownCurrencyError } from './errors.js';
 import { multiply } from './money.js';
 import type { Money } from './money.js';
 import { readOption } from './options.js';
@@ -29,17 +29,69 @@ const BRAND_SYMBOLS: Readonly<Record<FiatCurrencyCode, string>> = Object.freeze(
 });
 
 const NBSP = '\u00a0';
+
+const DOLLAR_SIGN = '$';
+
+/**
+ * Whether formatMoney follows a "$" amount with its ISO code. 'never' is the
+ * default and today's output; 'whenAmbiguous' is for principal views whose
+ * currencies include more than one "$" currency (see dollarSignAmbiguous).
+ */
+export type CurrencyCodeDisplay = 'never' | 'whenAmbiguous';
+
+const CURRENCY_CODE_DISPLAYS: ReadonlySet<unknown> = new Set<unknown>(['never', 'whenAmbiguous']);
+
+function parseCurrencyCodeDisplay(value: unknown): CurrencyCodeDisplay {
+  if (value === undefined) return 'never';
+  if (!CURRENCY_CODE_DISPLAYS.has(value)) {
+    throw new InvalidFormatOptionError("currencyCode must be 'never' or 'whenAmbiguous'");
+  }
+  return value as CurrencyCodeDisplay;
+}
+
+/**
+ * True when `currencies` holds two or more distinct fiat currencies printed
+ * with "$" (USD, COP and MXN today), so their amounts cannot be told apart
+ * by symbol. Principal views pass the currencies of the principal's
+ * corridors and use the answer for every amount they show, so filtering a
+ * table never changes the format. Recipient views never need it. Tokens
+ * always print their asset code and never count.
+ */
+export function dollarSignAmbiguous(currencies: readonly CurrencyCode[]): boolean {
+  const list: unknown = currencies;
+  if (!Array.isArray(list)) {
+    throw new InvalidFormatOptionError('currencies must be an array of currency codes');
+  }
+  const dollars = new Set<FiatCurrencyCode>();
+  for (const index of list.keys()) {
+    // Each entry is read once, and a hole is missing rather than inherited.
+    const code: unknown = Object.hasOwn(list, index)
+      ? (list as readonly unknown[])[index]
+      : undefined;
+    if (!isCurrencyCode(code)) {
+      throw new UnknownCurrencyError('currencies must hold only known currency codes');
+    }
+    const fiat = FIAT_CURRENCIES.find((c) => c.code === code);
+    if (fiat !== undefined && BRAND_SYMBOLS[fiat.code] === DOLLAR_SIGN) dollars.add(fiat.code);
+  }
+  return dollars.size >= 2;
+}
 const NARROW_NBSP = '\u202f';
 const MINUS = '\u2212';
 
 const MAX_LOCALE_LENGTH = 64;
 
-function readLocale(options: unknown): { locale: string; rounding: unknown } {
+function readLocale(options: unknown): {
+  locale: string;
+  rounding: unknown;
+  currencyCode: unknown;
+} {
   if (typeof options !== 'object' || options === null) {
     throw new InvalidLocaleError('options with a locale are required');
   }
   const locale = readOption(options, 'locale');
   const rounding = readOption(options, 'rounding');
+  const currencyCode = readOption(options, 'currencyCode');
   if (typeof locale !== 'string' || locale === '') {
     throw new InvalidLocaleError('locale must be a non empty language tag');
   }
@@ -54,7 +106,7 @@ function readLocale(options: unknown): { locale: string; rounding: unknown } {
     // The tag itself never goes into the message, it is caller text.
     throw new InvalidLocaleError('locale is not a valid language tag');
   }
-  return { locale, rounding };
+  return { locale, rounding, currencyCode };
 }
 
 /** Decimal string at exactly `displayScale` places, padded rather than rescaled up. */
@@ -96,6 +148,12 @@ function typeset(parts: readonly Intl.NumberFormatPart[], symbol: string): strin
  * Negative amounts use the true minus sign U+2212 and spaces are always
  * U+00A0, whatever the locale. toDecimalString stays ASCII for data.
  *
+ * With `options.currencyCode: 'whenAmbiguous'`, a fiat amount printed with
+ * "$" (USD, COP, MXN) is followed by a no break space and its ISO code, for
+ * example "$1,500.00 COP". The default, 'never', keeps the plain symbol.
+ * Other currencies and tokens are never changed. Any other value throws
+ * InvalidFormatOptionError after the locale and rounding checks.
+ *
  * The result is for display only. Right to left locales can include bidi
  * control marks, so never parse it back, compare it or store it as data.
  * Locales longer than 64 characters throw InvalidLocaleError before Intl is
@@ -103,11 +161,12 @@ function typeset(parts: readonly Intl.NumberFormatPart[], symbol: string): strin
  */
 export function formatMoney(
   m: Money,
-  options: { locale: string; rounding?: RoundingMode },
+  options: { locale: string; rounding?: RoundingMode; currencyCode?: CurrencyCodeDisplay },
 ): string {
   const value = multiply(m, 1n);
-  const { locale, rounding } = readLocale(options);
+  const { locale, rounding, currencyCode } = readLocale(options);
   const mode = rounding === undefined ? 'half-even' : parseRoundingMode(rounding);
+  const codeDisplay = parseCurrencyCodeDisplay(currencyCode);
 
   const fiat = FIAT_CURRENCIES.find((c) => c.code === value.currency);
   const displayScale = fiat === undefined ? TOKEN_DISPLAY_SCALE : fiat.minorUnits;
@@ -130,5 +189,10 @@ export function formatMoney(
     currencyDisplay: 'narrowSymbol',
     numberingSystem: 'latn',
   }).formatToParts(text);
-  return typeset(parts, BRAND_SYMBOLS[fiat.code]);
+  const symbol = BRAND_SYMBOLS[fiat.code];
+  const formatted = typeset(parts, symbol);
+  // Only "$" is shared between currencies, so only "$" amounts get the code.
+  return codeDisplay === 'whenAmbiguous' && symbol === DOLLAR_SIGN
+    ? `${formatted}${NBSP}${fiat.code}`
+    : formatted;
 }
