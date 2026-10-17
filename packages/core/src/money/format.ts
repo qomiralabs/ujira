@@ -32,9 +32,9 @@ const NBSP = '\u00a0';
 
 const DOLLAR_SIGN = '$';
 
-// First strong isolate and pop directional isolate. Wrapped around the
-// appended code in right to left text so the Latin letters keep to
-// themselves and cannot move the "$" or the digits around them.
+// First strong isolate and pop directional isolate. Wrapped around a Latin
+// code in right to left text, an appended ISO code or a token asset, so the
+// letters keep to themselves and cannot move the sign or the digits.
 const FSI = '\u2068';
 const PDI = '\u2069';
 
@@ -271,6 +271,13 @@ export function formatMoney(
  * and the asset code, for example "1.23 USDC". The chain is never shown.
  * Rounding, digits, minus sign, spaces and option handling follow
  * formatMoney. Fiat money throws KindMismatchError; use formatMoney.
+ *
+ * In right to left locales the asset code sits between U+2068 and U+2069,
+ * decided by the same direction lookup as formatMoney, so positive and
+ * negative amounts lay out the same way. Left to right output has no
+ * isolate characters. The code is always shown, so the fiat only
+ * `currencyCode` option of formatMoney is ignored here, whatever its value.
+ * Like formatMoney, the result is for display only.
  */
 export function formatTokenAmount(
   t: TokenAmount,
@@ -283,5 +290,7 @@ export function formatTokenAmount(
     maximumFractionDigits: TOKEN_DISPLAY_SCALE,
     numberingSystem: 'latn',
   }).formatToParts(displayDecimal(value.amount, value.scale, TOKEN_DISPLAY_SCALE, mode));
-  return `${typeset(parts, '')}${NBSP}${value.asset}`;
+  // Left to right text keeps exactly the bytes it always had.
+  const code = isRightToLeft(locale) ? `${FSI}${value.asset}${PDI}` : value.asset;
+  return `${typeset(parts, '')}${NBSP}${code}`;
 }
