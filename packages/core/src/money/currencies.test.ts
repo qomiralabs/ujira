@@ -1,0 +1,159 @@
+// Copyright (c) 2026 Qomira Labs. All rights reserved.
+// Proprietary and confidential. Unauthorized copying is prohibited.
+
+// The API contract for this module is documented at the top of money.test.ts.
+
+import { describe, expect, it } from 'vitest';
+
+import {
+  FIAT_CURRENCIES,
+  MoneyError,
+  SETTLEMENT_TOKENS,
+  UnknownCurrencyError,
+  fiatCurrency,
+  money,
+  settlementToken,
+} from './index.js';
+
+// ISO 4217 minor units, written out here rather than derived from the table.
+const ISO_4217_MINOR_UNITS: Record<string, number> = {
+  USD: 2,
+  NGN: 2,
+  KES: 2,
+  GHS: 2,
+  ZAR: 2,
+  PHP: 2,
+  INR: 2,
+  BRL: 2,
+  COP: 2,
+  MXN: 2,
+  EUR: 2,
+  GBP: 2,
+};
+
+describe('fiat currency table', () => {
+  it('fiat table matches ISO 4217 minor units', () => {
+    expect(FIAT_CURRENCIES).toHaveLength(12);
+    const asRecord = Object.fromEntries(FIAT_CURRENCIES.map((c) => [c.code, c.minorUnits]));
+    expect(asRecord).toEqual(ISO_4217_MINOR_UNITS);
+    for (const [code, minorUnits] of Object.entries(ISO_4217_MINOR_UNITS)) {
+      expect(fiatCurrency(code)).toEqual({ code, minorUnits });
+    }
+  });
+
+  it('has no duplicate codes', () => {
+    const codes = FIAT_CURRENCIES.map((c) => c.code);
+    expect(new Set(codes).size).toBe(codes.length);
+  });
+
+  it('stores minor units as integer numbers', () => {
+    for (const c of FIAT_CURRENCIES) {
+      expect(Number.isSafeInteger(c.minorUnits)).toBe(true);
+    }
+  });
+
+  it('is frozen, entries included', () => {
+    expect(Object.isFrozen(FIAT_CURRENCIES)).toBe(true);
+    for (const c of FIAT_CURRENCIES) {
+      expect(Object.isFrozen(c)).toBe(true);
+    }
+    expect(() => {
+      (FIAT_CURRENCIES as unknown as unknown[]).push({ code: 'JPY', minorUnits: 0 });
+    }).toThrow(TypeError);
+  });
+
+  it('does not list settlement tokens as fiat', () => {
+    expect(() => fiatCurrency('USDC')).toThrow(UnknownCurrencyError);
+    expect(() => fiatCurrency('USDm')).toThrow(UnknownCurrencyError);
+  });
+});
+
+describe('settlement token table', () => {
+  it('USDC is 6 on Celo and 7 on Stellar, USDm is 18, display scale is 2', () => {
+    expect(settlementToken('USDC', 'celo')).toEqual({
+      asset: 'USDC',
+      chain: 'celo',
+      tokenScale: 6,
+      displayScale: 2,
+    });
+    expect(settlementToken('USDC', 'stellar')).toEqual({
+      asset: 'USDC',
+      chain: 'stellar',
+      tokenScale: 7,
+      displayScale: 2,
+    });
+    expect(settlementToken('USDm', 'celo')).toEqual({
+      asset: 'USDm',
+      chain: 'celo',
+      tokenScale: 18,
+      displayScale: 2,
+    });
+  });
+
+  it('lists exactly the three launch pairs', () => {
+    expect(SETTLEMENT_TOKENS).toHaveLength(3);
+    const pairs = SETTLEMENT_TOKENS.map((t) => `${t.asset}/${t.chain}`).sort();
+    expect(pairs).toEqual(['USDC/celo', 'USDC/stellar', 'USDm/celo']);
+  });
+
+  it('keeps the token scale separate from the display scale', () => {
+    for (const t of SETTLEMENT_TOKENS) {
+      expect(t.displayScale).toBe(2);
+      expect(t.tokenScale).not.toBe(t.displayScale);
+    }
+  });
+
+  it('is frozen, entries included', () => {
+    expect(Object.isFrozen(SETTLEMENT_TOKENS)).toBe(true);
+    for (const t of SETTLEMENT_TOKENS) {
+      expect(Object.isFrozen(t)).toBe(true);
+    }
+  });
+
+  it('lets a Money value be built at each token scale', () => {
+    for (const t of SETTLEMENT_TOKENS) {
+      const m = money(1n, t.asset, t.tokenScale);
+      expect(m.scale).toBe(t.tokenScale);
+    }
+  });
+});
+
+describe('unknown currencies', () => {
+  it('throws UnknownCurrencyError for XXX', () => {
+    expect(() => fiatCurrency('XXX')).toThrow(UnknownCurrencyError);
+    expect(() => money(1n, 'XXX' as never, 2)).toThrow(UnknownCurrencyError);
+  });
+
+  it.each(['usd', 'Usd', '', ' USD', 'USD ', 'JPY', 'BTC', 'constructor', '__proto__', 'toString'])(
+    'fiatCurrency throws UnknownCurrencyError for %j',
+    (code) => {
+      expect(() => fiatCurrency(code)).toThrow(UnknownCurrencyError);
+    },
+  );
+
+  it.each([
+    ['USDm', 'stellar'],
+    ['USDC', 'ethereum'],
+    ['USDC', 'Celo'],
+    ['usdc', 'celo'],
+    ['USDM', 'celo'],
+    ['USDC', ''],
+    ['', 'celo'],
+    ['XLM', 'stellar'],
+    ['CELO', 'celo'],
+    ['constructor', 'celo'],
+    ['__proto__', 'stellar'],
+  ])('settlementToken throws UnknownCurrencyError for %s on %s', (asset, chain) => {
+    expect(() => settlementToken(asset, chain)).toThrow(UnknownCurrencyError);
+  });
+
+  it('throws an error that carries the shared code', () => {
+    try {
+      settlementToken('USDm', 'stellar');
+      expect.unreachable('settlementToken should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(MoneyError);
+      expect((err as MoneyError).code).toBe('UNKNOWN_CURRENCY');
+    }
+  });
+});
