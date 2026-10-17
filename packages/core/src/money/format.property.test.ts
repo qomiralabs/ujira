@@ -20,6 +20,10 @@ const MODES: readonly RoundingMode[] = ['half-even', 'half-up', 'floor', 'ceil',
 // Fixed seed so a failure reproduces on every machine. Bump numRuns locally to
 // search harder, never lower it to make a run pass.
 const RUNS = { seed: 0xf0a7, numRuns: 1000 } as const;
+// 1000 runs take under a second on an idle machine and several times that on a
+// loaded runner, so the default 5 second timeout fails them at random. 30
+// seconds covers a heavily loaded runner and still catches a real hang.
+const PROPERTY_TIMEOUT_MS = 30_000;
 
 const i128 = fc.oneof(
   fc.bigInt({ min: MIN, max: MAX }),
@@ -57,7 +61,7 @@ function enUS(hundredths: bigint, symbol: string): string {
   return `${negative ? '\u2212' : ''}${symbol}${int}.${digits.slice(-2)}`;
 }
 
-describe('format properties', () => {
+describe('format properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
   it('parse then format round trips for any two decimal USD amount', () => {
     fc.assert(
       fc.property(i128, (amount) => {

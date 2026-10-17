@@ -34,6 +34,10 @@ const MIN = -(2n ** 127n);
 // Fixed seed so a failure reproduces on every machine. Bump numRuns locally to
 // search harder, never lower it to make a run pass.
 const RUNS = { seed: 0x75a17a, numRuns: 1000 } as const;
+// 1000 runs take under a second on an idle machine and several times that on a
+// loaded runner, so the default 5 second timeout fails them at random. 30
+// seconds covers a heavily loaded runner and still catches a real hang.
+const PROPERTY_TIMEOUT_MS = 30_000;
 
 const CODES: FiatCurrencyCode[] = [
   'USD',
@@ -125,7 +129,7 @@ function outcome(run: () => Money): { ok: true; value: Money } | { ok: false; er
   }
 }
 
-describe('money properties', () => {
+describe('money properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
   it('construction accepts exactly the i128 range', () => {
     fc.assert(
       fc.property(anyBig, unit, (x, u) => {

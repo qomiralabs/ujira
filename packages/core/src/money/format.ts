@@ -1,9 +1,9 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-import { TOKEN_DISPLAY_SCALE } from './currencies.js';
-import type { FiatCurrencyCode } from './currencies.js';
-import { InvalidLocaleError } from './errors.js';
+import { TOKEN_DISPLAY_SCALE, isFiatCurrencyCode, isTokenAsset } from './currencies.js';
+import type { FiatCurrencyCode, TokenAsset } from './currencies.js';
+import { InvalidFormatOptionError, InvalidLocaleError, UnknownCurrencyError } from './errors.js';
 import { minorUnits, powerOfTen, snapshotFiat, snapshotToken } from './money.js';
 import type { Money, TokenAmount } from './money.js';
 import { isPlainRecord, readOwnField } from './options.js';
@@ -29,6 +29,57 @@ const BRAND_SYMBOLS: Readonly<Record<FiatCurrencyCode, string>> = Object.freeze(
 });
 
 const NBSP = '\u00a0';
+
+const DOLLAR_SIGN = '$';
+
+/**
+ * Whether formatMoney follows a "$" amount with its ISO code. 'never' is the
+ * default and today's output; 'whenAmbiguous' is for principal views whose
+ * currencies include more than one "$" currency (see dollarSignAmbiguous).
+ */
+export type CurrencyCodeDisplay = 'never' | 'whenAmbiguous';
+
+const CURRENCY_CODE_DISPLAYS: ReadonlySet<unknown> = new Set<unknown>(['never', 'whenAmbiguous']);
+
+function parseCurrencyCodeDisplay(value: unknown): CurrencyCodeDisplay {
+  if (value === undefined) return 'never';
+  if (!CURRENCY_CODE_DISPLAYS.has(value)) {
+    throw new InvalidFormatOptionError("currencyCode must be 'never' or 'whenAmbiguous'");
+  }
+  return value as CurrencyCodeDisplay;
+}
+
+/**
+ * True when `currencies` holds two or more distinct fiat currencies printed
+ * with "$" (USD, COP and MXN today), so their amounts cannot be told apart
+ * by symbol. Principal views pass the currencies of the principal's
+ * corridors and use the answer for every amount they show, so filtering a
+ * table never changes the format. Recipient views never need it. Token
+ * assets may appear in the list; they print their asset code with
+ * formatTokenAmount and never count.
+ */
+export function dollarSignAmbiguous(
+  currencies: readonly (FiatCurrencyCode | TokenAsset)[],
+): boolean {
+  const list: unknown = currencies;
+  if (!Array.isArray(list)) {
+    throw new InvalidFormatOptionError('currencies must be an array of currency codes');
+  }
+  const dollars = new Set<FiatCurrencyCode>();
+  for (const index of list.keys()) {
+    // Each entry is read once, and a hole is missing rather than inherited.
+    const code: unknown = Object.hasOwn(list, index)
+      ? (list as readonly unknown[])[index]
+      : undefined;
+    if (isFiatCurrencyCode(code)) {
+      if (BRAND_SYMBOLS[code] === DOLLAR_SIGN) dollars.add(code);
+    } else if (!isTokenAsset(code)) {
+      throw new UnknownCurrencyError('currencies must hold only known currency codes');
+    }
+  }
+  return dollars.size >= 2;
+}
+
 const NARROW_NBSP = '\u202f';
 const MINUS = '\u2212';
 
@@ -109,6 +160,12 @@ function typeset(parts: readonly Intl.NumberFormatPart[], symbol: string): strin
  * Negative amounts use the true minus sign U+2212 and spaces are always
  * U+00A0, whatever the locale. toDecimalString stays ASCII for data.
  *
+ * With `options.currencyCode: 'whenAmbiguous'`, a fiat amount printed with
+ * "$" (USD, COP, MXN) is followed by a no break space and its ISO code, for
+ * example "$1,500.00 COP". The default, 'never', keeps the plain symbol.
+ * Other currencies and tokens are never changed. Any other value throws
+ * InvalidFormatOptionError after the locale and rounding checks.
+ *
  * The result is for display only. Right to left locales can include bidi
  * control marks, so never parse it back, compare it or store it as data.
  * Locales longer than 64 characters throw InvalidLocaleError before Intl is
@@ -116,10 +173,13 @@ function typeset(parts: readonly Intl.NumberFormatPart[], symbol: string): strin
  */
 export function formatMoney(
   m: Money,
-  options: { locale: string; rounding?: RoundingMode },
+  options: { locale: string; rounding?: RoundingMode; currencyCode?: CurrencyCodeDisplay },
 ): string {
   const value = snapshotFiat(m);
   const { locale, mode } = readFormatOptions(options);
+  // Read after the locale and the rounding so a bad value is reported in
+  // that order; readFormatOptions has already checked the bag is plain.
+  const codeDisplay = parseCurrencyCodeDisplay(readOwnField(options, 'currencyCode'));
   const displayScale = minorUnits(value.currency);
   const parts = new Intl.NumberFormat(locale, {
     minimumFractionDigits: displayScale,
@@ -129,7 +189,12 @@ export function formatMoney(
     currencyDisplay: 'narrowSymbol',
     numberingSystem: 'latn',
   }).formatToParts(displayDecimal(value.amount, value.scale, displayScale, mode));
-  return typeset(parts, BRAND_SYMBOLS[value.currency]);
+  const symbol = BRAND_SYMBOLS[value.currency];
+  const formatted = typeset(parts, symbol);
+  // Only "$" is shared between currencies, so only "$" amounts get the code.
+  return codeDisplay === 'whenAmbiguous' && symbol === DOLLAR_SIGN
+    ? `${formatted}${NBSP}${value.currency}`
+    : formatted;
 }
 
 /**

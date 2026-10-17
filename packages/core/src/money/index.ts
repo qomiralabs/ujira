@@ -8,6 +8,7 @@ export {
   CurrencyMismatchError,
   InvalidAllocationError,
   InvalidAmountError,
+  InvalidFormatOptionError,
   InvalidLocaleError,
   InvalidRoundingModeError,
   InvalidScaleError,
@@ -54,7 +55,8 @@ export {
   tokenAmount,
 } from './money.js';
 export type { Money, TokenAmount } from './money.js';
-export { formatMoney, formatTokenAmount } from './format.js';
+export { dollarSignAmbiguous, formatMoney, formatTokenAmount } from './format.js';
+export type { CurrencyCodeDisplay } from './format.js';
 export { parseMoney, parseTokenAmount, toDecimalString } from './parse.js';
 export { ROUNDING_MODES, rescale, toMinor } from './rescale.js';
 export type { RoundingMode } from './rescale.js';

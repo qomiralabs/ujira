@@ -375,3 +375,116 @@ describe('fiat and token formatting stay apart', () => {
     expectMoneyError(() => formatTokenAmount(forged, { locale: 'en-US' }), InvalidScaleError);
   });
 });
+
+// The currencyCode option and its contract are documented in dollar-sign.test.ts.
+describe('currency code for ambiguous dollar signs', () => {
+  const InvalidFormatOptionError = exported('InvalidFormatOptionError');
+  const ambiguous = { currencyCode: 'whenAmbiguous' } as const;
+
+  it('COP and MXN show their code when ambiguous', () => {
+    expect(formatMoney(money(150_000n, 'COP'), { locale: 'en-US', ...ambiguous })).toBe(
+      `$1,500.00${NBSP}COP`,
+    );
+    expect(formatMoney(money(150_000n, 'MXN'), { locale: 'es-MX', ...ambiguous })).toBe(
+      `$1,500.00${NBSP}MXN`,
+    );
+    expect(formatMoney(money(150_000n, 'USD'), { locale: 'en-US', ...ambiguous })).toBe(
+      `$1,500.00${NBSP}USD`,
+    );
+    expect(formatMoney(money(123_456n, 'COP'), { locale: 'es-CO', ...ambiguous })).toBe(
+      `$${NBSP}1.234,56${NBSP}COP`,
+    );
+  });
+
+  it('NGN and USDC are unchanged when ambiguous', () => {
+    expect(formatMoney(money(2_000_000n, 'NGN'), { locale: 'en-NG', ...ambiguous })).toBe(
+      '₦20,000.00',
+    );
+    // Tokens format with formatTokenAmount, which never takes the option.
+    expect(
+      formatTokenAmount(
+        tokenAmount(1_234_567n, 'USDC', 'celo'),
+        loose({ locale: 'en-US', ...ambiguous }),
+      ),
+    ).toBe(`1.23${NBSP}USDC`);
+    for (const currency of ['KES', 'GHS', 'ZAR', 'PHP', 'INR', 'BRL', 'EUR', 'GBP'] as const) {
+      const m = money(123_456n, currency);
+      expect(formatMoney(m, { locale: 'en-US', ...ambiguous })).toBe(
+        formatMoney(m, { locale: 'en-US' }),
+      );
+    }
+    const usdm = tokenAmount(1_234n * 10n ** 18n, 'USDm', 'celo');
+    expect(formatTokenAmount(usdm, loose({ locale: 'en-US', ...ambiguous }))).toBe(
+      formatTokenAmount(usdm, { locale: 'en-US' }),
+    );
+  });
+
+  it('never appends the code by default or with never', () => {
+    const cop = money(150_000n, 'COP');
+    expect(formatMoney(cop, { locale: 'en-US' })).toBe('$1,500.00');
+    expect(formatMoney(cop, { locale: 'en-US', currencyCode: 'never' })).toBe('$1,500.00');
+  });
+
+  it('appends the code after a negative amount and with any rounding', () => {
+    expect(formatMoney(money(-150n, 'USD'), { locale: 'en-US', ...ambiguous })).toBe(
+      `${MINUS}$1.50${NBSP}USD`,
+    );
+    expect(
+      formatMoney(moneyAt(1005n, 'MXN', 3), { locale: 'en-US', rounding: 'ceil', ...ambiguous }),
+    ).toBe(`$1.01${NBSP}MXN`);
+  });
+
+  it('rejects any other currencyCode after the locale and rounding checks', () => {
+    const m = money(100n, 'USD');
+    const values: unknown[] = ['always', 'WHEN_AMBIGUOUS', '', null, true, 1, Object('never')];
+    for (const currencyCode of values) {
+      expectMoneyError(
+        () => formatMoney(m, loose({ locale: 'en-US', currencyCode })),
+        InvalidFormatOptionError,
+      );
+    }
+    expectMoneyError(
+      () => formatMoney(m, loose({ locale: '!!', currencyCode: 'bogus' })),
+      InvalidLocaleError,
+    );
+    expectMoneyError(
+      () => formatMoney(m, loose({ locale: 'en-US', rounding: 'bogus', currencyCode: 'bogus' })),
+      InvalidRoundingModeError,
+    );
+  });
+
+  it('reads currencyCode at most once', () => {
+    let reads = 0;
+    const answers: unknown[] = ['whenAmbiguous', 'bogus'];
+    const options = {
+      locale: 'en-US',
+      get currencyCode() {
+        reads += 1;
+        return answers[Math.min(reads, answers.length) - 1];
+      },
+    };
+    expect(formatMoney(money(150n, 'COP'), loose(options))).toBe(`$1.50${NBSP}COP`);
+    expect(reads).toBeLessThanOrEqual(1);
+  });
+
+  it('reads currencyCode only from a plain options object', () => {
+    const cop = money(150n, 'COP');
+    const inherited = Object.create({ locale: 'en-US', currencyCode: 'whenAmbiguous' }) as object;
+    expectMoneyError(() => formatMoney(cop, loose(inherited)), InvalidLocaleError);
+    const bare = Object.assign(Object.create(null) as object, {
+      locale: 'en-US',
+      currencyCode: 'whenAmbiguous',
+    });
+    expect(formatMoney(cop, loose(bare))).toBe(`$1.50${NBSP}COP`);
+  });
+
+  it('ignores a currencyCode inherited from Object.prototype', () => {
+    const proto = Object.prototype as Record<string, unknown>;
+    proto['currencyCode'] = 'whenAmbiguous';
+    try {
+      expect(formatMoney(money(150n, 'COP'), { locale: 'en-US' })).toBe('$1.50');
+    } finally {
+      delete proto['currencyCode'];
+    }
+  });
+});

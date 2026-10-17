@@ -68,7 +68,9 @@
  *   rescale to the currency's minor unit, the only way to make a working
  *   scale value storable as a fiat amount.
  *
- * formatMoney(m: Money, options: { locale: string; rounding?: RoundingMode }): string
+ * formatMoney(m: Money, options: { locale: string; rounding?: RoundingMode;
+ *             currencyCode?: CurrencyCodeDisplay }): string
+ *   currencyCode is documented at the top of dollar-sign.test.ts.
  * formatTokenAmount(t: TokenAmount, options: { locale: string; rounding?: RoundingMode }): string
  *   formatMoney takes fiat only and formatTokenAmount tokens only; the other
  *   kind throws KindMismatchError before the options are read.
@@ -88,6 +90,15 @@
  *   Tokens: the locale's decimal format with two fraction digits, latn
  *   digits, then U+00A0 and the asset code, for example "1.23\u00a0USDC".
  *   A value that rounds to zero prints without a minus sign.
+ *   Typography is the same in every locale. A negative amount uses the true
+ *   minus sign U+2212, never an ASCII hyphen. Every space in the output,
+ *   between digit groups and between a symbol or asset code and the number,
+ *   is U+00A0: ICU's U+202F (fr-FR grouping, for example) becomes U+00A0.
+ *   Right to left locales can include bidi control marks around the minus
+ *   or the symbol, so the output is for display only and is never parsed,
+ *   compared or stored. Digits are ASCII for fiat and tokens alike.
+ *   toDecimalString is for data, not display: it always uses an ASCII
+ *   hyphen minus, a full stop and ASCII digits, with no spaces or marks.
  *   locale must be a string Intl accepts; anything else (missing options,
  *   non string, empty, malformed tag) throws InvalidLocaleError without
  *   calling toString on it. A bad rounding throws InvalidRoundingModeError.
@@ -624,7 +635,7 @@ describe('toDecimalString', () => {
 
   it('reads each field once and prints from the snapshot', () => {
     const reads = { kind: 0, amount: 0, currency: 0, scale: 0 };
-    const answers = { amount: [1230n, 9n], currency: ['USD', 'BTC'], scale: [2, 5] };
+    const answers = { kind: 'fiat', amount: [1230n, 9n], currency: ['USD', 'BTC'], scale: [2, 5] };
     const value = new Proxy(
       {},
       {

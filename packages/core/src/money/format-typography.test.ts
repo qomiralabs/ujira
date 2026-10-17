@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import { formatMoney, formatTokenAmount } from './format.js';
 import { money, moneyAt, tokenAmount } from './index.js';
+import type { TokenAmount } from './index.js';
 import { toDecimalString } from './parse.js';
 
 const NBSP = '\u00a0';
@@ -101,5 +102,32 @@ describe('toDecimalString stays ASCII for data', () => {
     expect(toDecimalString(money(-5n, 'USD'))).toBe('-0.05');
     expect(toDecimalString(money(-123_456_789n, 'EUR'))).toBe('-1234567.89');
     expect(toDecimalString(money(-123_456_789n, 'EUR'))).not.toContain(MINUS);
+  });
+});
+
+describe('token amounts keep ASCII digits', () => {
+  // Locales whose default numbering system is not latn. The first case
+  // checks that assumption, so an ICU change cannot make the test vacuous.
+  const NON_LATN = ['ar-EG', 'fa-IR', 'bn-BD', 'mr-IN', 'my-MM', 'ne-NP'];
+
+  it.each(NON_LATN)('%s does not default to latn digits', (locale) => {
+    expect(new Intl.NumberFormat(locale).resolvedOptions().numberingSystem).not.toBe('latn');
+  });
+
+  it.each(NON_LATN)('formats USDC and USDm with ASCII digits only in %s', (locale) => {
+    const cases: TokenAmount[] = [
+      tokenAmount(1_234_567n, 'USDC', 'celo'),
+      tokenAmount(12_345_678n, 'USDC', 'stellar'),
+      tokenAmount(-1_234_567n, 'USDC', 'celo'),
+      tokenAmount(1_234n * 10n ** 16n, 'USDm', 'celo'),
+    ];
+    for (const token of cases) {
+      const currency = token.asset;
+      const s = formatTokenAmount(token, { locale });
+      // Strip ASCII digits; nothing else in the output may be a digit.
+      expect(s.replace(/[0-9]/g, '')).not.toMatch(/\p{Nd}/u);
+      expect(s).toMatch(/[0-9]/);
+      expect(s.endsWith(`${NBSP}${currency}`)).toBe(true);
+    }
   });
 });

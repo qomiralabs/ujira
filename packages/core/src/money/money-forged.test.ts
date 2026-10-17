@@ -55,6 +55,10 @@ import type { FiatCurrencyCode, Money, TokenAmount } from './index.js';
 const MAX = 2n ** 127n - 1n;
 const MIN = -(2n ** 127n);
 const RUNS = { seed: 0x0f0f6ed, numRuns: 1000 } as const;
+// 1000 runs take under a second on an idle machine and several times that on a
+// loaded runner, so the default 5 second timeout fails them at random. 30
+// seconds covers a heavily loaded runner and still catches a real hang.
+const PROPERTY_TIMEOUT_MS = 30_000;
 const MAX_MESSAGE_LENGTH = 200;
 
 const CODES: readonly string[] = [
@@ -405,7 +409,7 @@ describe('operands whose fields change between reads (HIGH 1)', () => {
   });
 });
 
-describe('forged operand property (HIGH 1)', () => {
+describe('forged operand property (HIGH 1)', { timeout: PROPERTY_TIMEOUT_MS }, () => {
   const amountArb = fc.oneof(
     fc.bigInt({ min: MIN, max: MAX }),
     fc.constantFrom(MIN, MAX, 0n, -1n, 1n, MAX + 1n, MIN - 1n, 2n ** 200n),

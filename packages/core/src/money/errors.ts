@@ -11,6 +11,7 @@ export type MoneyErrorCode =
   | 'INVALID_ALLOCATION'
   | 'INVALID_ROUNDING'
   | 'INVALID_LOCALE'
+  | 'INVALID_FORMAT_OPTION'
   | 'KIND_MISMATCH'
   | 'TOKEN_MISMATCH';
 
@@ -67,6 +68,11 @@ export class InvalidRoundingModeError extends MoneyError {
 export class InvalidLocaleError extends MoneyError {
   override readonly name = 'InvalidLocaleError';
   readonly code = 'INVALID_LOCALE';
+}
+
+export class InvalidFormatOptionError extends MoneyError {
+  override readonly name = 'InvalidFormatOptionError';
+  readonly code = 'INVALID_FORMAT_OPTION';
 }
 
 /** Fiat money and a token amount were combined. They never mix implicitly. */

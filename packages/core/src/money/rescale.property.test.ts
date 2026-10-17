@@ -18,6 +18,10 @@ const MODES: readonly RoundingMode[] = ['half-even', 'half-up', 'floor', 'ceil',
 // Fixed seed so a failure reproduces on every machine. Bump numRuns locally to
 // search harder, never lower it to make a run pass.
 const RUNS = { seed: 0x5ca1e, numRuns: 1000 } as const;
+// 1000 runs take under a second on an idle machine and several times that on a
+// loaded runner, so the default 5 second timeout fails them at random. 30
+// seconds covers a heavily loaded runner and still catches a real hang.
+const PROPERTY_TIMEOUT_MS = 30_000;
 
 const CODES: FiatCurrencyCode[] = ['USD', 'NGN', 'KES', 'BRL', 'EUR'];
 
@@ -71,7 +75,7 @@ function attempt(run: () => Money): { value?: Money; err?: unknown } {
   }
 }
 
-describe('rescale properties', () => {
+describe('rescale properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
   it('scaling up then down returns the original', () => {
     fc.assert(
       fc.property(

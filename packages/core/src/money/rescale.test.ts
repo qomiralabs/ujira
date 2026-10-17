@@ -269,6 +269,7 @@ describe('rescale rejects bad input', () => {
   it('reads each operand field once and computes from the snapshot', () => {
     const reads = { kind: 0, amount: 0, currency: 0, scale: 0 };
     const answers = {
+      kind: 'fiat',
       amount: [1005n, 2n ** 200n],
       currency: ['USD', 'NGN'],
       scale: [3, 18],
