@@ -300,6 +300,8 @@ export interface CheckOptions {
   trackedSymlinks?: readonly string[];
   // Tracked paths that an ignore rule also matches, relative to the root.
   trackedIgnored?: readonly string[];
+  // Every tracked path, relative to the root.
+  trackedFiles?: readonly string[];
 }
 
 // Every path the git index records as a symlink. A tracked symlink is a file
@@ -322,6 +324,21 @@ const FORMATTER_NAME = /^(?:\.prettierrc(?:\..+)?|prettier\.config\..+|\.editorc
 // src/dist, are ordinary source folders and are checked.
 const ROOT_SKIPPED = new Set(['.git', ...SKIPPED_DIRS]);
 const MEMBER_ROOT_SKIPPED = SKIPPED_DIRS;
+
+// Every path in the git index.
+export function trackedFiles(root: string): string[] {
+  const out = execFileSync('git', ['ls-files', '-c', '-z'], { cwd: root, encoding: 'utf8' });
+  return out
+    .split('\0')
+    .filter((path) => path !== '')
+    .sort();
+}
+
+// Output folders at a member root. Lint and format skip them and the build
+// replaces dist, so nothing may be committed there, whatever any ignore file
+// says.
+const MEMBER_OUTPUT = /^(?:packages|apps)\/[^/]+\/(?:dist|coverage|\.turbo|build|out)\//i;
+const GITIGNORE_NAME = /^\.gitignore$/i;
 
 // Every tracked file that an ignore rule also matches. Lint and format skip
 // ignored paths, but tsc still builds them, so such a file would ship
@@ -364,6 +381,11 @@ function configFileProblems(root: string, memberPaths: readonly string[]): strin
       if (TSCONFIG_NAME.test(entry) && !allowedTsconfigs.has(rel)) {
         problems.push(
           `${rel}: only the root tsconfig.json, tsconfig.base.json and the two at each member root are allowed`,
+        );
+      }
+      if (GITIGNORE_NAME.test(entry) && rel !== '.gitignore') {
+        problems.push(
+          `${rel}: only the root .gitignore is allowed; a nested one can re-include ignored files`,
         );
       }
       if (FORMATTER_NAME.test(entry) && rel !== '.prettierrc.json') {
@@ -453,6 +475,13 @@ export function checkWorkspace(root: string, options: CheckOptions = {}): string
     problems.push(...scriptsProblems(manifestDir, label));
     problems.push(...tsconfigProblems(manifestDir, label));
   }
+  for (const path of options.trackedFiles ?? []) {
+    if (MEMBER_OUTPUT.test(path)) {
+      problems.push(
+        `${path}: tracked inside a member output folder, which the build replaces and lint skips`,
+      );
+    }
+  }
   for (const path of options.trackedIgnored ?? []) {
     problems.push(
       `${path}: tracked by git but matched by an ignore rule, so lint and format skip it`,
@@ -522,6 +551,7 @@ if (import.meta.main) {
       pnpmMembers: pnpmMembers(root),
       trackedSymlinks: trackedSymlinks(root),
       trackedIgnored: trackedIgnored(root),
+      trackedFiles: trackedFiles(root),
     });
   } catch (error) {
     problems = [error instanceof Error ? error.message : String(error)];

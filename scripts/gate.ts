@@ -12,7 +12,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { existsSync, lstatSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync, rmSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 
 import {
@@ -116,6 +116,9 @@ export function run(task: Task, root: string, io: Io): number {
         io.err(`${step.label.slice(0, -' build'.length)}: ${problem}\n`);
         break;
       }
+      // Start from an empty dist, so nothing committed or left there by an
+      // earlier run can end up in the build output.
+      rmSync(join(dirname(project), 'dist'), { recursive: true, force: true });
     }
     if (io.tsc(step.args) !== 0) {
       failed.push(step.label);
