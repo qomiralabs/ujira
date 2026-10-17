@@ -1,45 +1,29 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-
 import { describe, expect, it } from 'vitest';
 
 import {
   evaluateLicense,
   findViolations,
-  flattenPnpmLicenses,
   formatViolation,
   normalizeRepository,
   parseSpdx,
   PROD_FONT_PACKAGES,
   renderNotices,
-  type InstalledPackage,
+  sanitizeUrl,
   type NoticeEntry,
-  type PnpmLicensesJson,
+  type Scope,
+  type ScopedLicense,
 } from './license-policy.ts';
 
-const WORKSPACE = new Set(['ujira', '@ujira/core']);
-
-function fixture(name: string): InstalledPackage[] {
-  const text = readFileSync(join(import.meta.dirname, 'fixtures', name), 'utf8');
-  return flattenPnpmLicenses(JSON.parse(text) as PnpmLicensesJson);
-}
-
-function pkg(license: string, name = 'some-package'): InstalledPackage {
-  return {
-    name,
-    version: '1.0.0',
-    license,
-    path: `/repo/node_modules/.pnpm/${name}@1.0.0/node_modules/${name}`,
-    homepage: undefined,
-  };
+function pkg(license: string, name = 'some-package', scope: Scope = 'prod'): ScopedLicense {
+  return { name, version: '1.0.0', license, scope };
 }
 
 describe('check-licenses', () => {
   it('rejects GPL-3.0 in production', () => {
-    const violations = findViolations([pkg('GPL-3.0', 'copyleft-lib')], 'prod', WORKSPACE);
+    const violations = findViolations([pkg('GPL-3.0', 'copyleft-lib')]);
     expect(violations.map(formatViolation)).toEqual([
       'copyleft-lib@1.0.0 (prod): license "GPL-3.0": "GPL-3.0" not allowed in prod dependencies',
     ]);
@@ -67,7 +51,7 @@ describe('check-licenses', () => {
   });
 
   it('rejects UNLICENSED on a third party package', () => {
-    expect(findViolations([pkg('UNLICENSED')], 'prod', WORKSPACE)).toHaveLength(1);
+    expect(findViolations([pkg('UNLICENSED')])).toHaveLength(1);
   });
 
   it('rejects an unknown identifier', () => {
@@ -78,6 +62,7 @@ describe('check-licenses', () => {
   it('accepts every production allowlist identifier', () => {
     for (const id of [
       'MIT',
+      'MIT-0',
       'ISC',
       'BSD-2-Clause',
       'BSD-3-Clause',
@@ -91,6 +76,17 @@ describe('check-licenses', () => {
     ]) {
       expect(evaluateLicense(id, 'prod'), id).toEqual({ ok: true });
     }
+  });
+
+  it('accepts MIT-0 in production and dev', () => {
+    expect(evaluateLicense('MIT-0', 'prod')).toEqual({ ok: true });
+    expect(evaluateLicense('MIT-0', 'dev')).toEqual({ ok: true });
+    expect(findViolations([pkg('MIT-0', 'jsdom-helper', 'dev')])).toEqual([]);
+  });
+
+  it('matches identifiers case sensitively', () => {
+    expect(evaluateLicense('mit', 'prod').ok).toBe(false);
+    expect(evaluateLicense('mit-0', 'dev').ok).toBe(false);
   });
 
   it.each([
@@ -108,9 +104,7 @@ describe('check-licenses', () => {
 
   it('rejects OFL-1.1 on a production package that is not an allowlisted font', () => {
     expect(PROD_FONT_PACKAGES.has('icon-kit')).toBe(false);
-    expect(
-      findViolations([pkg('OFL-1.1', 'icon-kit')], 'prod', WORKSPACE).map(formatViolation),
-    ).toEqual([
+    expect(findViolations([pkg('OFL-1.1', 'icon-kit')]).map(formatViolation)).toEqual([
       'icon-kit@1.0.0 (prod): license "OFL-1.1": "OFL-1.1" not allowed in prod dependencies (font licenses are allowed in production only for packages in PROD_FONT_PACKAGES)',
     ]);
     expect(evaluateLicense('OFL-1.1', 'prod').ok).toBe(false);
@@ -120,9 +114,7 @@ describe('check-licenses', () => {
     const fonts = PROD_FONT_PACKAGES as Set<string>;
     fonts.add('@fontsource/test-font');
     try {
-      expect(findViolations([pkg('OFL-1.1', '@fontsource/test-font')], 'prod', WORKSPACE)).toEqual(
-        [],
-      );
+      expect(findViolations([pkg('OFL-1.1', '@fontsource/test-font')])).toEqual([]);
       expect(evaluateLicense('OFL-1.1 AND GPL-3.0', 'prod', '@fontsource/test-font').ok).toBe(
         false,
       );
@@ -136,7 +128,7 @@ describe('check-licenses', () => {
   });
 
   it('accepts OFL-1.1 on any dev package', () => {
-    expect(findViolations([pkg('OFL-1.1', 'icon-kit')], 'dev', WORKSPACE)).toEqual([]);
+    expect(findViolations([pkg('OFL-1.1', 'icon-kit', 'dev')])).toEqual([]);
   });
 
   it('accepts (MIT OR GPL-3.0)', () => {
@@ -179,14 +171,27 @@ describe('check-licenses', () => {
     });
   });
 
-  it.each(['MIT OR', '(MIT', 'MIT)', 'AND MIT', 'MIT WITH', 'MIT ISC', '()'])(
-    'rejects the malformed expression "%s"',
-    (expression) => {
-      const decision = evaluateLicense(expression, 'prod');
-      expect(decision.ok).toBe(false);
-      expect(decision.ok ? '' : decision.reason).toMatch(/^invalid SPDX expression/);
-    },
-  );
+  it.each([
+    'MIT OR',
+    '(MIT',
+    'MIT)',
+    'AND MIT',
+    'MIT WITH',
+    'MIT ISC',
+    '()',
+    '(MIT AND ISC GPL-3.0',
+  ])('rejects the malformed expression "%s"', (expression) => {
+    const decision = evaluateLicense(expression, 'prod');
+    expect(decision.ok).toBe(false);
+    expect(decision.ok ? '' : decision.reason).toMatch(/^invalid SPDX expression/);
+  });
+
+  it('names the missing ")" when a token follows an unclosed group', () => {
+    expect(evaluateLicense('(MIT AND ISC GPL-3.0', 'prod')).toEqual({
+      ok: false,
+      reason: 'invalid SPDX expression "(MIT AND ISC GPL-3.0": missing ")"',
+    });
+  });
 
   it('parses WITH tighter than AND', () => {
     expect(parseSpdx('MIT AND Apache-2.0 WITH LLVM-exception')).toEqual({
@@ -196,29 +201,16 @@ describe('check-licenses', () => {
     });
   });
 
-  it('passes the clean fixture and skips workspace packages', () => {
-    const packages = fixture('licenses-clean.json');
-    expect(packages.map((p) => `${p.name}@${p.version}`)).toEqual([
-      'left-pad@1.3.0',
-      'left-pad@1.2.0',
-      'dual-licensed@2.0.0',
-      '@ujira/core@0.0.0',
+  it('sorts violations by name then version', () => {
+    const violations = findViolations([
+      { ...pkg('GPL-3.0', 'b'), version: '2.0.0' },
+      { ...pkg('GPL-3.0', 'b'), version: '10.0.0' },
+      pkg('GPL-3.0', 'a'),
     ]);
-    expect(findViolations(packages, 'prod', WORKSPACE)).toEqual([]);
-  });
-
-  it('names every offender in the violations fixture, sorted', () => {
-    const packages = fixture('licenses-violations.json');
-    expect(findViolations(packages, 'prod', WORKSPACE).map(formatViolation)).toEqual([
-      '@ujira/core@9.9.9 (prod): license "UNLICENSED": no usable license ("UNLICENSED")',
-      'copyleft-lib@1.0.0 (prod): license "GPL-3.0": "GPL-3.0" not allowed in prod dependencies',
-      'mozilla-lib@3.1.0 (prod): license "MPL-2.0": "MPL-2.0" not allowed in prod dependencies',
-      'no-license@0.1.0 (prod): license "Unknown": no usable license ("Unknown")',
-    ]);
-    expect(findViolations(packages, 'dev', WORKSPACE).map((v) => v.name)).toEqual([
-      '@ujira/core',
-      'copyleft-lib',
-      'no-license',
+    expect(violations.map((v) => `${v.name}@${v.version}`)).toEqual([
+      'a@1.0.0',
+      'b@10.0.0',
+      'b@2.0.0',
     ]);
   });
 
@@ -249,6 +241,17 @@ describe('check-licenses', () => {
     expect(normalizeRepository('  ')).toBeUndefined();
   });
 
+  it('strips credentials from repository and homepage URLs', () => {
+    expect(normalizeRepository({ url: 'git+https://user:s3cr3tTOKEN@github.com/a/b.git' })).toBe(
+      'https://github.com/a/b',
+    );
+    expect(normalizeRepository('https://token@gitlab.com/a/b')).toBe('https://gitlab.com/a/b');
+    expect(sanitizeUrl('https://u:p@example.com/x?y=1#z')).toBe('https://example.com/x?y=1#z');
+    expect(sanitizeUrl('https://example.com/a@b')).toBe('https://example.com/a@b');
+    expect(sanitizeUrl(' ')).toBeUndefined();
+    expect(sanitizeUrl(undefined)).toBeUndefined();
+  });
+
   it('renders sorted, deduplicated and deterministic notices', () => {
     const prod: NoticeEntry[] = [
       { name: 'zeta', version: '1.0.0', license: 'MIT', repository: 'https://github.com/z/zeta' },
@@ -257,10 +260,13 @@ describe('check-licenses', () => {
       { name: 'zeta', version: '1.0.0', license: 'MIT', repository: 'https://github.com/z/zeta' },
       { name: 'pipe', version: '1.0.0', license: 'MIT OR | x', repository: undefined },
     ];
-    const first = renderNotices(prod, []);
-    expect(renderNotices([...prod].reverse(), [])).toBe(first);
+    const sections = { prod, dev: [], platformProd: [], platformDev: [] };
+    const first = renderNotices(sections);
+    expect(renderNotices({ ...sections, prod: [...prod].reverse() })).toBe(first);
     expect(first).toContain(
       [
+        '## Production dependencies',
+        '',
         '| Package | Version | License | Repository |',
         '| --- | --- | --- | --- |',
         '| alpha | 10.0.0 | ISC |  |',
@@ -268,9 +274,42 @@ describe('check-licenses', () => {
         '| pipe | 1.0.0 | MIT OR \\| x |  |',
         '| zeta | 1.0.0 | MIT | https://github.com/z/zeta |',
         '',
-        '## Development dependencies',
+        '## Production platform specific packages',
       ].join('\n'),
     );
-    expect(first).toMatch(/Used to build and test UJIRA\. They are not shipped\.\n\nNone\.\n$/);
+    expect(first).toMatch(/## Development platform specific packages\n\nNone\.\n$/);
+  });
+
+  it('sorts notices by code unit, not by locale', () => {
+    const entry = (name: string): NoticeEntry => ({
+      name,
+      version: '1.0.0',
+      license: 'MIT',
+      repository: undefined,
+    });
+    // Locale order would be @x, a, B, e, é; code unit order puts upper case
+    // before lower case and accented letters last.
+    const notices = renderNotices({
+      prod: ['é', 'a', 'B', '@x', 'e'].map(entry),
+      dev: [],
+      platformProd: [],
+      platformDev: [],
+    });
+    const names = [...notices.matchAll(/^\| (\S+) \| 1\.0\.0 /gm)].map((m) => m[1]);
+    expect(names).toEqual(['@x', 'B', 'a', 'e', 'é']);
+  });
+
+  it('places each section in its own table', () => {
+    const one = (name: string): NoticeEntry[] => [
+      { name, version: '1.0.0', license: 'MIT', repository: undefined },
+    ];
+    const notices = renderNotices({
+      prod: one('p'),
+      dev: one('d'),
+      platformProd: one('pp'),
+      platformDev: one('pd'),
+    });
+    const order = ['| p |', '| pp |', '| d |', '| pd |'].map((cell) => notices.indexOf(cell));
+    expect(order.every((index, i) => index > (order[i - 1] ?? -1))).toBe(true);
   });
 });

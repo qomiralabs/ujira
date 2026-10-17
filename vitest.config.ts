@@ -19,6 +19,9 @@ export default defineConfig({
         // Pure helpers of the root scripts. The entry points only do I/O and
         // are exercised by running them.
         'scripts/license-policy.ts',
+        'scripts/license-tree.ts',
+        'scripts/lockfile.ts',
+        'scripts/pnpm-command.ts',
       ],
       exclude: ['**/*.test.*', '**/*.d.ts'],
       reporter: ['text', 'json-summary', 'lcov'],
