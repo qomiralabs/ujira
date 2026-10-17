@@ -19,13 +19,14 @@ pnpm install --frozen-lockfile
 
 Root commands:
 
-| Command             | What it does                                                                                                                                                                                |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm build`        | Runs the workspace check, then `tsc -p tsconfig.build.json` for every workspace member, members that others depend on first                                                                 |
-| `pnpm typecheck`    | Runs the workspace check, then `tsc --noEmit` on the root `tsconfig.json` (root files and `scripts/`) and on every member's `tsconfig.json`                                                 |
-| `pnpm lint`         | Runs the workspace check, then one type-aware ESLint run over the whole repository with the root `eslint.config.js` and `--max-warnings 0`                                                  |
-| `pnpm format:check` | Checks formatting with Prettier                                                                                                                                                             |
-| `pnpm test`         | Runs the tests of every package under `packages/` and `apps/` in one Vitest run, with an 85 percent coverage threshold over their `src/` TypeScript files (test and `.d.ts` files excluded) |
+| Command               | What it does                                                                                                                                                                                                                                                                     |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm build`          | Runs the workspace check, then `tsc -p tsconfig.build.json` for every workspace member, members that others depend on first                                                                                                                                                      |
+| `pnpm typecheck`      | Runs the workspace check, then `tsc --noEmit` on the root `tsconfig.json` (root files and `scripts/`) and on every member's `tsconfig.json`                                                                                                                                      |
+| `pnpm lint`           | Runs the workspace check, then one type-aware ESLint run over the whole repository with the root `eslint.config.js` and `--max-warnings 0`                                                                                                                                       |
+| `pnpm format:check`   | Checks formatting with Prettier                                                                                                                                                                                                                                                  |
+| `pnpm test`           | Runs the tests of every package under `packages/` and `apps/` in one Vitest run, with an 85 percent coverage threshold over their `src/` TypeScript files (test and `.d.ts` files excluded)                                                                                      |
+| `pnpm licenses:check` | Checks the license of every production and dev dependency of every workspace project against its allowlist (dev adds MPL-2.0), cross checks the listing against `pnpm-lock.yaml`, and fails naming each package, version and license; on success writes `THIRD_PARTY_NOTICES.md` |
 
 ### What the root gate checks
 
@@ -52,9 +53,15 @@ Every source file starts with the proprietary license header below, with the yea
 // Proprietary and confidential. Unauthorized copying is prohibited.
 ```
 
+Commit `THIRD_PARTY_NOTICES.md` whenever dependencies change. The file is generated, sorted and platform independent, so a rerun on an unchanged lockfile leaves no diff.
+
+Packages that declare `os`, `cpu` or `libc` are installed only on matching platforms, so `pnpm licenses list` cannot see most of them. Each one in `pnpm-lock.yaml` must have an entry in `scripts/platform-licenses.json` (name, version, license, source URL), and the check fails on any that is missing. Review the license on the registry before adding an entry. The check makes no network calls.
+
+Run the check through pnpm (`pnpm licenses:check`). It uses the pnpm binary that runs the script, never one found on `PATH`, and refuses one installed inside the repository.
+
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every pull request and on pushes to `development`, `staging` and `main`. A single `Verify` job lints the workflow files with actionlint, installs with `pnpm install --frozen-lockfile`, then runs `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test`, `pnpm build` and `pnpm audit --prod`. The build runs because it compiles with each member's `tsconfig.build.json`, which typecheck does not use. The coverage report is uploaded as the `coverage` artifact even when tests fail (Vitest writes it on failure because `coverage.reportOnFailure` is set), so a failing test or a missed threshold can be inspected; a missing report is only an error when every earlier step passed. Any failing step fails the run, and a newer push to the same ref cancels the run in progress.
+`.github/workflows/ci.yml` runs on every pull request and on pushes to `development`, `staging` and `main`. A single `Verify` job lints the workflow files with actionlint, installs with `pnpm install --frozen-lockfile`, runs `pnpm licenses:check` and fails if `THIRD_PARTY_NOTICES.md` then differs from the committed file, then runs `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test`, `pnpm build` and `pnpm audit --prod`. The build runs because it compiles with each member's `tsconfig.build.json`, which typecheck does not use. The coverage report is uploaded as the `coverage` artifact even when tests fail (Vitest writes it on failure because `coverage.reportOnFailure` is set), so a failing test or a missed threshold can be inspected; a missing report is only an error when every earlier step passed. Any failing step fails the run, and a newer push to the same ref cancels the run in progress.
 
 Node.js comes from `.nvmrc` and pnpm from `packageManager`, and the pnpm store is cached on the hash of `pnpm-lock.yaml`. Every third-party action is pinned to a full commit SHA with its release tag in a trailing comment, and the workflow token is read only. To bump an action, resolve the new tag to its commit SHA (`gh api repos/<owner>/<repo>/git/ref/tags/<tag>`, dereferencing annotated tags) and update both the SHA and the comment.
 

@@ -21,6 +21,12 @@ export default defineConfig({
         'scripts/check-workspace-scripts.ts',
         'scripts/gate.ts',
         'scripts/workspace.ts',
+        // Pure helpers of the root scripts. The entry points only do I/O and
+        // are exercised by running them.
+        'scripts/license-policy.ts',
+        'scripts/license-tree.ts',
+        'scripts/lockfile.ts',
+        'scripts/pnpm-command.ts',
       ],
       exclude: ['**/*.test.ts', '**/*.d.ts'],
       reporter: ['text', 'json-summary', 'lcov'],
