@@ -1,0 +1,33 @@
+{
+  "GPL-3.0": [
+    {
+      "name": "copyleft-lib",
+      "versions": ["1.0.0"],
+      "paths": ["/repo/node_modules/.pnpm/copyleft-lib@1.0.0/node_modules/copyleft-lib"],
+      "license": "GPL-3.0"
+    }
+  ],
+  "MPL-2.0": [
+    {
+      "name": "mozilla-lib",
+      "versions": ["3.1.0"],
+      "paths": ["/repo/node_modules/.pnpm/mozilla-lib@3.1.0/node_modules/mozilla-lib"],
+      "license": "MPL-2.0"
+    }
+  ],
+  "Unknown": [
+    {
+      "name": "no-license",
+      "versions": ["0.1.0"],
+      "paths": ["/repo/node_modules/.pnpm/no-license@0.1.0/node_modules/no-license"]
+    }
+  ],
+  "UNLICENSED": [
+    {
+      "name": "@ujira/core",
+      "versions": ["9.9.9"],
+      "paths": ["/repo/node_modules/.pnpm/@ujira+core@9.9.9/node_modules/@ujira/core"],
+      "license": "UNLICENSED"
+    }
+  ]
+}

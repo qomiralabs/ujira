@@ -14,7 +14,8 @@
     "lint": "node scripts/check-workspace-scripts.ts && turbo run lint && eslint --max-warnings 0 --ignore-pattern 'packages/**' --ignore-pattern 'apps/**' .",
     "test": "vitest run --coverage",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "licenses:check": "node scripts/check-licenses.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

@@ -19,13 +19,14 @@ pnpm install --frozen-lockfile
 
 Root commands:
 
-| Command             | What it does                                                                                                                                                                                |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm build`        | Builds every package through Turborepo                                                                                                                                                      |
-| `pnpm typecheck`    | Checks package scripts, then runs `tsc` in strict mode on every package, root level files and `scripts/`                                                                                    |
-| `pnpm lint`         | Checks package scripts, then runs type-aware ESLint with `--max-warnings 0` on packages, root files and `scripts/`                                                                          |
-| `pnpm format:check` | Checks formatting with Prettier                                                                                                                                                             |
-| `pnpm test`         | Runs the tests of every package under `packages/` and `apps/` in one Vitest run, with an 85 percent coverage threshold over their `src/` TypeScript files (test and `.d.ts` files excluded) |
+| Command               | What it does                                                                                                                                                                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm build`          | Builds every package through Turborepo                                                                                                                                                                                                            |
+| `pnpm typecheck`      | Checks package scripts, then runs `tsc` in strict mode on every package, root level files and `scripts/`                                                                                                                                          |
+| `pnpm lint`           | Checks package scripts, then runs type-aware ESLint with `--max-warnings 0` on packages, root files and `scripts/`                                                                                                                                |
+| `pnpm format:check`   | Checks formatting with Prettier                                                                                                                                                                                                                   |
+| `pnpm test`           | Runs the tests of every package under `packages/` and `apps/` in one Vitest run, with an 85 percent coverage threshold over their `src/` TypeScript files (test and `.d.ts` files excluded)                                                       |
+| `pnpm licenses:check` | Fails if any production dependency is outside the production license allowlist or any dev dependency is outside the dev allowlist (production plus MPL-2.0), naming each package, version and license; on success writes `THIRD_PARTY_NOTICES.md` |
 
 Every source file starts with the proprietary license header below, with the year the file was created (any four digit year is accepted). `pnpm lint` fails on any source file without it, in a package or at the root. A source file that no `tsconfig.json` includes also fails lint, so nothing slips past the checks. Every folder with a `package.json` under `packages/` or `apps/` must be a workspace member matched by a `<dir>/*` glob in `pnpm-workspace.yaml`, and must define `build`, `lint`, `typecheck` and `test` scripts that do not suppress failures (no `||` or `; true`). Its `lint` script must set `--max-warnings 0` exactly once. Symlinked folders, folders without a `package.json` and loose files directly in `packages/` or `apps/` are rejected.
 
@@ -33,3 +34,5 @@ Every source file starts with the proprietary license header below, with the yea
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 ```
+
+Commit `THIRD_PARTY_NOTICES.md` whenever dependencies change. The file is generated, sorted and platform independent, so a rerun on an unchanged lockfile leaves no diff.
