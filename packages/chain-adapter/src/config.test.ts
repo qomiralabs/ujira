@@ -13,16 +13,21 @@
  *
  * - RPC endpoints are secret references (secretRef:name), never URLs, so a
  *   provider key can never sit in the document.
- * - Stellar addresses are checked strkeys (version byte and CRC16), EVM
- *   addresses are 0x plus 40 hex characters.
+ * - Stellar addresses are checked strkeys (version byte and CRC16). EVM
+ *   addresses must carry a valid EIP-55 checksum, so an unchecksummed or
+ *   mistyped one is refused, and the zero address is refused. Duplicates
+ *   are compared without regard to case.
+ * - The input must be plain data: objects with Object.prototype or a null
+ *   prototype, arrays, and own data properties only. An inherited field or
+ *   a getter is refused before the schema reads anything.
  * - Fee limits in stroops and wei are decimal strings parsed to bigint, so
  *   no amount ever passes through a JavaScript number.
  * - Cross field rules: downErrorBps >= degradedErrorBps, low balance alert
  *   >= minimum balance, per transaction fee <= per principal daily fee <=
  *   global daily fee, and a failover proof on Celo only at finalized.
  *
- * A bad document throws InvalidInputError whose message names the paths
- * and issue codes only. Values never appear, because a misplaced secret is
+ * A bad document throws InvalidInputError with a fixed message whose issues
+ * name the paths and issue codes only. Values never appear, because a misplaced secret is
  * exactly the kind of mistake this check exists to catch.
  * Signing key references for executors, the fee sponsor and SEP-10 arrive
  * with the signer port and are not part of this schema yet.
@@ -37,7 +42,17 @@ const SAC = 'CABAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAFNSZ';
 const ISSUER = 'GABQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQHGPC';
 // Circle's testnet USDC issuer, so the strkey check is proven on a real key.
 const CIRCLE_TESTNET = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
-const ADDR = (n: number) => `0x${n.toString(16).padStart(40, '0')}`;
+// Checksummed examples from the EIP-55 specification.
+const CHECKSUMMED = [
+  '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed',
+  '0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359',
+  '0xdbF03B407c01E7cD3CBea99509d93f8DDDC8C6FB',
+  '0xD1220A0cf47c7B9Be7A2E6BA89F429762e7b9aDb',
+] as const;
+const ADDR = (n: 1 | 2 | 3 | 4): string => CHECKSUMMED[n - 1] ?? '';
+const ZERO = `0x${'0'.repeat(40)}`;
+// One letter's case flipped breaks the checksum.
+const TYPO = '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAeD';
 
 function stellar(): Record<string, unknown> {
   return {
@@ -94,6 +109,12 @@ function celo(): Record<string, unknown> {
       hysteresisChecks: 3,
     },
   };
+}
+
+// A Celo entry whose mento section comes from its prototype, not its own fields.
+function inheritsMento(): object {
+  const { mento, ...rest } = celo();
+  return Object.assign(Object.create({ mento }) as object, rest);
 }
 
 function thrown(run: () => unknown): unknown {
@@ -209,6 +230,27 @@ describe('parseNetworksConfig', () => {
       withChange('eip155:42220', 'trustedFactories', { '1': [ADDR(2), ADDR(2)] }),
     ],
     ['a short EVM address', withChange('eip155:42220', 'feeCurrencyDirectory', '0x1234')],
+    ['a mistyped EVM address', withChange('eip155:42220', 'feeCurrencyDirectory', TYPO)],
+    [
+      'an unchecksummed EVM address',
+      withChange('eip155:42220', 'assets.USDC.token', ADDR(1).toLowerCase()),
+    ],
+    ['the zero address as a token', withChange('eip155:42220', 'assets.USDm.token', ZERO)],
+    [
+      'the zero address as a factory',
+      withChange('eip155:42220', 'trustedFactories', { '1': [ZERO] }),
+    ],
+    [
+      'a getter',
+      {
+        get 'stellar:pubnet'() {
+          return stellar();
+        },
+      },
+    ],
+    ['an inherited network', Object.create({ 'eip155:42220': celo() }) as unknown],
+    ['an inherited nested field', { 'eip155:42220': inheritsMento() }],
+    ['a class instance', { 'eip155:42220': Object.assign(new (class Box {})(), celo()) }],
     ['a missing USDm', withChange('eip155:42220', 'assets', { USDC: { token: ADDR(3) } })],
     ['a fee as a number', withChange('stellar:pubnet', 'feeSponsor.maxFeePerTxStroops', 1_000_000)],
     ['a negative fee', withChange('stellar:pubnet', 'feeSponsor.maxFeePerTxStroops', '-1')],
@@ -273,11 +315,12 @@ describe('parseNetworksConfig', () => {
       parseNetworksConfig(withChange('stellar:pubnet', 'rpc', [{ url: leaked, weight: 1 }])),
     );
     expect(err).toBeInstanceOf(InvalidInputError);
-    const message = (err as Error).message;
-    expect(message).toContain('stellar:pubnet.rpc.0.url');
-    expect(message).not.toContain('sk_live');
-    expect(message).not.toContain('rpc.example');
-    expect(JSON.stringify(err)).not.toContain('sk_live');
+    const { message, issues } = err as InvalidInputError;
+    expect(issues.join(' ')).toContain('stellar:pubnet.rpc.0.url');
+    for (const text of [message, ...issues, JSON.stringify(err), String((err as Error).stack)]) {
+      expect(text).not.toContain('sk_live');
+      expect(text).not.toContain('rpc.example');
+    }
   });
 
   it('caps the message when many fields fail', () => {
@@ -285,6 +328,6 @@ describe('parseNetworksConfig', () => {
       parseNetworksConfig({ 'stellar:pubnet': {}, 'stellar:testnet': {}, 'eip155:42220': {} }),
     );
     expect(err).toBeInstanceOf(InvalidInputError);
-    expect((err as Error).message.length).toBeLessThan(1000);
+    expect((err as InvalidInputError).issues).toHaveLength(10);
   });
 });

@@ -10,8 +10,9 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { CHAIN_SDK_MODULE } from './chain-modules.js';
+
 const PACKAGE_DIR = path.resolve(import.meta.dirname, '..');
-const SDK = /^(@stellar\/|viem($|\/)|@mento-protocol\/|@celo\/|ethers($|\/)|web3($|\/))/;
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -32,7 +33,8 @@ describe('the scaffold is SDK free', () => {
       'peerDependencies',
       'optionalDependencies',
     ].flatMap((field) => Object.keys(manifest[field] ?? {}));
-    expect(names.filter((name) => SDK.test(name))).toEqual([]);
+    // The same pattern the lint rule bans outside this package.
+    expect(names.filter((name) => CHAIN_SDK_MODULE.test(name))).toEqual([]);
     expect(names).toContain('zod');
   });
 

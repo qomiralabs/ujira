@@ -9,25 +9,37 @@
  * class per code. Callers branch on `code`, never on the message.
  *   code          stable string, one of CHAIN_ADAPTER_ERROR_CODES
  *   name          the class name, spelled out so minified builds keep it
+ *   message       fixed text per code, CHAIN_ADAPTER_ERROR_MESSAGES[code].
+ *                 No constructor takes a message, so no address, tenant or
+ *                 provider text can reach a log or an error tracker
  *   network       the network involved, or null
  *   retryable     whether the job layer may try again
  *   landed        'no' | 'yes' | 'unknown': did anything reach the chain
  *   retryAfterMs  a hint in whole milliseconds, or null
  *   waitFor       'none' | 'funding' | 'utc_day' | 'resume' | 'approval' |
  *                 'chain' | null: the event a parked job waits for
+ * Constructors take one optional plain object of options (network,
+ * retryable, landed, retryAfterMs, waitFor, cause). Anything else, null and
+ * strings included, and any option that could not be stored on a job,
+ * throws InvalidInputError.
+ *
  * Defaults follow the retry table of the design: transport and rail outages
- * are retryable, a submission that may have landed is retryable with
- * landed 'unknown', everything else is final with landed 'no'. Options may
- * override retryable, landed, retryAfterMs, waitFor and network.
+ * are retryable; everything else is final with landed 'no'. Two codes
+ * default to landed 'unknown': SUBMISSION_UNKNOWN, and RPC_TIMEOUT, because
+ * a timeout on a send may have landed. A read that sent nothing passes
+ * landed 'no'. RPC_LAGGING and RPC_RATE_LIMITED mean nothing was accepted.
  *
- * MandateRuleError(specCode, specName) carries the mandate spec error.
- * INSUFFICIENT_FUNDS waits for funding, DAILY_CAP_EXCEEDED for the next UTC
- * day and MANDATE_PAUSED for a resume, all retryable; every other spec
- * error is final. specCode must be a non negative safe integer and specName
- * a non empty upper snake case name, else InvalidInputError.
+ * InvalidInputError also takes `issues`: at most ten strings of the form
+ * "path (code)", where path is letters, digits, '_', '.' and ':' and code
+ * is lower snake case. They say what was wrong without saying what it was.
  *
- * toJSON() returns the serializable ChainAdapterErrorJson stored on jobs;
- * it never includes the message, which may name an address.
+ * MandateRuleError(specCode, specName, options?) carries the mandate spec
+ * error. INSUFFICIENT_FUNDS waits for funding, DAILY_CAP_EXCEEDED for the
+ * next UTC day and MANDATE_PAUSED for a resume, all retryable; every other
+ * spec error is final. specCode must be a non negative safe integer and
+ * specName a non empty upper snake case name, else InvalidInputError.
+ *
+ * toJSON() returns the serializable ChainAdapterErrorJson stored on jobs.
  * Signer errors arrive with the signer port and are not part of this set.
  */
 
@@ -36,6 +48,7 @@ import { describe, expect, it } from 'vitest';
 import * as index from './index.js';
 import {
   CHAIN_ADAPTER_ERROR_CODES,
+  CHAIN_ADAPTER_ERROR_MESSAGES,
   ChainAdapterError,
   ChainUnavailableError,
   CrossChainLiveError,
@@ -68,7 +81,7 @@ import {
 } from './index.js';
 import type { ChainAdapterErrorCode } from './index.js';
 
-type Ctor = new (message?: string, options?: object) => ChainAdapterError;
+type Ctor = new (options?: object) => ChainAdapterError;
 
 // Code, class, retryable by default, landed by default.
 const TABLE: [ChainAdapterErrorCode, Ctor, boolean, 'no' | 'unknown'][] = [
@@ -77,7 +90,7 @@ const TABLE: [ChainAdapterErrorCode, Ctor, boolean, 'no' | 'unknown'][] = [
   ['TENANT_MISMATCH', TenantMismatchError, false, 'no'],
   ['MANDATE_UNTRUSTED', MandateUntrustedError, false, 'no'],
   ['CHAIN_UNAVAILABLE', ChainUnavailableError, true, 'no'],
-  ['RPC_TIMEOUT', RpcTimeoutError, true, 'no'],
+  ['RPC_TIMEOUT', RpcTimeoutError, true, 'unknown'],
   ['RPC_LAGGING', RpcLaggingError, true, 'no'],
   ['RPC_RATE_LIMITED', RpcRateLimitedError, true, 'no'],
   ['SUBMISSION_REJECTED', SubmissionRejectedError, false, 'no'],
@@ -111,12 +124,12 @@ function thrown(run: () => unknown): unknown {
 
 describe('chain adapter errors', () => {
   it.each(TABLE)('every error class has code and name: %s', (code, Ctor, retryable, landed) => {
-    const err = new Ctor('boom');
+    const err = new Ctor();
     expect(err).toBeInstanceOf(ChainAdapterError);
     expect(err).toBeInstanceOf(Error);
     expect(err.code).toBe(code);
     expect(err.name).toBe(Ctor.name);
-    expect(err.message).toBe('boom');
+    expect(err.message).toBe(CHAIN_ADAPTER_ERROR_MESSAGES[code]);
     expect(err.retryable).toBe(retryable);
     expect(err.landed).toBe(landed);
     expect(err.network).toBeNull();
@@ -137,8 +150,55 @@ describe('chain adapter errors', () => {
     expect(exported['MandateRuleError']).toBe(MandateRuleError);
   });
 
+  it('gives every code its own fixed message', () => {
+    const messages = CHAIN_ADAPTER_ERROR_CODES.map((code) => CHAIN_ADAPTER_ERROR_MESSAGES[code]);
+    expect(new Set(messages).size).toBe(messages.length);
+    for (const message of messages) expect(message).toMatch(/^[A-Z][a-z ]+$/);
+    expect(Object.isFrozen(CHAIN_ADAPTER_ERROR_MESSAGES)).toBe(true);
+  });
+
+  it('defaults landed to unknown only where a send may have landed', () => {
+    const unknown = TABLE.filter(([, Ctor]) => new Ctor().landed === 'unknown').map(([c]) => c);
+    expect(unknown).toEqual(['RPC_TIMEOUT', 'SUBMISSION_UNKNOWN']);
+    expect(new RpcTimeoutError({ landed: 'no' }).landed).toBe('no');
+  });
+
+  it('takes no free text: a string or null in place of the options throws', () => {
+    for (const bad of ['principal 1234 over cap', null, 7, ['x']]) {
+      expect(thrown(() => new SponsorDeniedError(bad as never))).toBeInstanceOf(InvalidInputError);
+      expect(
+        thrown(() => new MandateRuleError(43, 'INSUFFICIENT_FUNDS', bad as never)),
+      ).toBeInstanceOf(InvalidInputError);
+    }
+    expect(
+      thrown(() => new RpcTimeoutError(Object.create({ landed: 'no' }) as never)),
+    ).toBeInstanceOf(InvalidInputError);
+  });
+
+  it('carries safe issue strings on InvalidInputError, and refuses any other', () => {
+    const err = new InvalidInputError({ issues: ['stellar:pubnet.rpc.0.url (invalid_format)'] });
+    expect(err.issues).toEqual(['stellar:pubnet.rpc.0.url (invalid_format)']);
+    expect(Object.isFrozen(err.issues)).toBe(true);
+    expect(err.message).toBe(CHAIN_ADAPTER_ERROR_MESSAGES.INVALID_INPUT);
+    expect(err.toJSON()).toMatchObject({ code: 'INVALID_INPUT', issues: err.issues });
+    expect(new InvalidInputError().issues).toEqual([]);
+    for (const issues of [
+      ['https://rpc.example/key (invalid_format)'],
+      ['path'],
+      ['path (Has Upper)'],
+      ['a b (code)'],
+      Array.from({ length: 11 }, () => 'x (y)'),
+      'x (y)',
+      [7],
+    ]) {
+      expect(thrown(() => new InvalidInputError({ issues } as never))).toBeInstanceOf(
+        InvalidInputError,
+      );
+    }
+  });
+
   it('lets options override the defaults', () => {
-    const err = new RpcTimeoutError('slow', {
+    const err = new RpcTimeoutError({
       network: 'stellar:testnet',
       retryAfterMs: 1500,
       waitFor: 'chain',
@@ -146,9 +206,9 @@ describe('chain adapter errors', () => {
     expect(err.network).toBe('stellar:testnet');
     expect(err.retryAfterMs).toBe(1500);
     expect(err.waitFor).toBe('chain');
-    const landed = new SubmissionRejectedError('bad sequence', { landed: 'no', retryable: false });
+    const landed = new SubmissionRejectedError({ landed: 'no', retryable: false });
     expect(landed.landed).toBe('no');
-    const unknown = new InternalError('broadcast then crash', {
+    const unknown = new InternalError({
       landed: 'unknown',
       retryable: true,
     });
@@ -158,16 +218,14 @@ describe('chain adapter errors', () => {
 
   it('keeps the cause without putting it in the JSON', () => {
     const cause = new Error('socket hang up at https://rpc.example/secret-key');
-    const err = new ChainUnavailableError('rpc down', { cause, network: 'eip155:42220' });
+    const err = new ChainUnavailableError({ cause, network: 'eip155:42220' });
     expect(err.cause).toBe(cause);
     expect(JSON.stringify(err.toJSON())).not.toContain('secret-key');
   });
 
   it('refuses a retryAfterMs that is not a whole non negative number', () => {
     for (const retryAfterMs of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
-      expect(thrown(() => new RpcTimeoutError('x', { retryAfterMs }))).toBeInstanceOf(
-        InvalidInputError,
-      );
+      expect(thrown(() => new RpcTimeoutError({ retryAfterMs }))).toBeInstanceOf(InvalidInputError);
     }
   });
 
@@ -179,13 +237,13 @@ describe('chain adapter errors', () => {
       { retryable: 'yes' },
     ];
     for (const options of bad) {
-      expect(thrown(() => new RpcTimeoutError('x', options))).toBeInstanceOf(InvalidInputError);
+      expect(thrown(() => new RpcTimeoutError(options))).toBeInstanceOf(InvalidInputError);
     }
-    expect(new RpcTimeoutError('x', { network: null, waitFor: null }).waitFor).toBeNull();
+    expect(new RpcTimeoutError({ network: null, waitFor: null }).waitFor).toBeNull();
   });
 
   it('serializes to the job form without the message', () => {
-    const err = new SponsorDeniedError('principal 1234 over cap', { network: 'stellar:pubnet' });
+    const err = new SponsorDeniedError({ network: 'stellar:pubnet' });
     expect(err.toJSON()).toEqual({
       code: 'SPONSOR_DENIED',
       network: 'stellar:pubnet',
@@ -194,7 +252,7 @@ describe('chain adapter errors', () => {
       retryAfterMs: null,
       waitFor: 'none',
     });
-    expect(JSON.stringify(err.toJSON())).not.toContain('1234');
+    expect(JSON.stringify(err.toJSON())).not.toContain('message');
   });
 });
 

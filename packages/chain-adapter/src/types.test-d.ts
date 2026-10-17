@@ -13,6 +13,13 @@ import type {
   AdapterCapabilities,
   AdapterPorts,
   AdapterStore,
+  CallOptions,
+  ExecutorLease,
+  LegDeliveryRecord,
+  MandateConfigInput,
+  RoleName,
+  SubmissionOp,
+  SubmissionState,
   BatchStep,
   ChainAdapter,
   ChainAdapterErrorJson,
@@ -131,3 +138,51 @@ type CeloConfig = NonNullable<NetworksConfig['eip155:42220']>;
 expectTypeOf<StellarConfig['feeSponsor']['maxFeePerTxStroops']>().toEqualTypeOf<bigint>();
 expectTypeOf<CeloConfig['executor']['maxFeePerGasCapWei']>().toEqualTypeOf<bigint>();
 expectTypeOf<NetworksConfig['eip155:1' & keyof NetworksConfig]>().toBeNever();
+
+// Every store call that reads or writes a tenant's row takes the tenant.
+// The sweep and the executor lease are platform operations and do not.
+expectTypeOf<
+  Parameters<AdapterStore['recordSubmission']>[0]['scope']
+>().toEqualTypeOf<TenantScope>();
+expectTypeOf<Parameters<AdapterStore['updateSubmission']>[0]>().toEqualTypeOf<TenantScope>();
+expectTypeOf<Parameters<AdapterStore['liveSubmission']>[0]['scope']>().toEqualTypeOf<TenantScope>();
+expectTypeOf<Parameters<AdapterStore['upsertDelivery']>[0]['scope']>().toEqualTypeOf<TenantScope>();
+expectTypeOf<Parameters<AdapterStore['liveDelivery']>[0]>().toEqualTypeOf<TenantScope>();
+
+// Every call that can reach the network takes CallOptions, so the
+// correlation ID always travels.
+expectTypeOf<Parameters<ChainAdapter['health']>[0]>().toEqualTypeOf<CallOptions>();
+expectTypeOf<Parameters<ChainAdapter['pay']>[1]>().toEqualTypeOf<CallOptions>();
+expectTypeOf<Parameters<ChainAdapter['fundingInstructions']>[1]>().toEqualTypeOf<CallOptions>();
+expectTypeOf<Parameters<ChainAdapter['verifyReceipt']>[1]>().toEqualTypeOf<CallOptions>();
+expectTypeOf<CallOptions['correlationId']>().toEqualTypeOf<string>();
+
+// The payout fee and the full set of mandate operations and roles.
+expectTypeOf<PayRequest['fee']>().toEqualTypeOf<TokenAmount>();
+expectTypeOf<RoleName>().toEqualTypeOf<
+  'agent' | 'approver' | 'guardian' | 'executor' | 'recovery'
+>();
+expectTypeOf<
+  | 'set_recovery_threshold'
+  | 'lower_fee_cap'
+  | 'cancel_principal_proposal'
+  | 'recovery_revoke'
+  | 'recovery_rotate_agent'
+>().toExtend<MandateAction['op']>();
+expectTypeOf<Extract<MandateAction, { op: 'add_role' }>['role']>().toEqualTypeOf<RoleName>();
+expectTypeOf<
+  Extract<MandateAction, { op: 'recovery_rotate_agent' }>['new']
+>().toEqualTypeOf<ChainAddress | null>();
+expectTypeOf<MandateAction['op']>().toExtend<SubmissionOp>();
+expectTypeOf<'fund' | 'ttl_extend' | 'restore' | 'forwarder_forward'>().toExtend<SubmissionOp>();
+expectTypeOf<SubmissionState>().toEqualTypeOf<
+  'built' | 'broadcast' | 'unknown' | 'landed' | 'failed' | 'expired' | 'replaced'
+>();
+expectTypeOf<ExecutorLease['leaseId']>().toEqualTypeOf<string>();
+expectTypeOf<LegDeliveryRecord['destination']>().toEqualTypeOf<{
+  readonly address: ChainAddress;
+  readonly tag: bigint | null;
+}>();
+expectTypeOf<MandateConfigInput['recipientMode']>().toEqualTypeOf<
+  'allowlist' | 'attested' | 'both'
+>();

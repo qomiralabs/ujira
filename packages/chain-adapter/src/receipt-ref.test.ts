@@ -14,8 +14,10 @@
  *
  * formatReceiptRef({ network, txHash, eventIndex }) validates and returns
  * the branded ReceiptRef. parseReceiptRef(text) returns the three parts.
- * Anything malformed throws InvalidInputError, whose message never repeats
- * the input.
+ * Anything malformed throws InvalidInputError with a fixed message and an
+ * issue naming what was wrong (receiptRef.network (unknown), and so on),
+ * never the input. formatReceiptRef takes a plain object; null or anything
+ * else throws InvalidInputError too.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -92,7 +94,7 @@ describe('receipt references', () => {
     expect((err as Error).message.length).toBeLessThan(200);
     expect((err as Error).message).not.toContain('xxxx');
     // Refused by the length cap, before any splitting or matching.
-    expect((err as Error).message).toContain('too long');
+    expect((err as InvalidInputError).issues).toEqual(['receiptRef (too_long)']);
   });
 
   it('refuses non strings and bad parts when formatting', () => {
@@ -106,6 +108,9 @@ describe('receipt references', () => {
     ];
     for (const parts of bad) {
       expect(thrown(() => formatReceiptRef(parts))).toBeInstanceOf(InvalidInputError);
+    }
+    for (const parts of [null, undefined, 'ref', Object.create({ network: 'eip155:42220' })]) {
+      expect(thrown(() => formatReceiptRef(parts as never))).toBeInstanceOf(InvalidInputError);
     }
   });
 });
