@@ -7,7 +7,7 @@ The UJIRA design system, shared by the dashboard and the website. This first sli
 | Path                                 | What it is                                                                                                                         |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `assets/brand/Tokens.json`           | Brand colour tokens, copied unchanged from the brand kit                                                                           |
-| `assets/brand/ujira_icon-sprite_...` | Brand icon sprite, copied unchanged from the brand kit                                                                             |
+| `assets/brand/ujira_icon-sprite_...` | Brand icon sprite from the brand kit, embedded provenance metadata removed                                                         |
 | `tokens/system.json`                 | Design system tokens on top of the brand: density, radius, focus, shadow, motion, fonts, type scale and data visualisation colours |
 | `tokens/generate.ts`                 | Turns the three sources into the generated files below                                                                             |
 | `tokens/build.ts`                    | Writes the generated files                                                                                                         |
@@ -19,7 +19,9 @@ The UJIRA design system, shared by the dashboard and the website. This first sli
 
 ## Tokens
 
-Never type a brand hex value by hand. Colours come from `assets/brand/Tokens.json`; `tokens/system.json` refers to them as `{core.teal}`, `{neutral.mist-300}`, `{status.paid.fill}` or `{mode.rule}`. The only literal hex values in `system.json` are the data visualisation steps the brand palette does not have, and a test fails if one of them duplicates a brand colour.
+Never type a brand hex value by hand. Colours come from `assets/brand/Tokens.json`; `tokens/system.json` refers to them as `{core.teal}`, `{neutral.mist-300}`, `{status.paid.fill}` or `{mode.rule}`. The only literal hex values in `system.json` are values the brand palette does not have: the data visualisation steps and `status.blocked.dark-text`. A test fails if one of them duplicates a brand colour.
+
+`system.json` also adds mode tokens on top of the brand ones: `paid-fill`, `waiting-fill` and `blocked-fill` for status icons and fills, and a dark `blocked` text value of `#FCA5A5`, because the brand dark red is 3.44:1 on the dark surface. The brand red stays the dark blocked fill and icon colour. The brand file itself is not changed; the brand owner can adopt `status.blocked.dark-text` there later.
 
 After changing any source, regenerate and commit the output:
 
@@ -39,6 +41,24 @@ Light is the default. Dark follows `prefers-color-scheme` unless an ancestor set
 
 `data-density="compact"` lowers the table row height from 44px to 36px.
 
+### Focus ring
+
+`tokens.css` sets one `:focus-visible` rule in `@layer base`: a 2px saffron outline with a 2px offset, and a teal ink ring (`--ujira-focus-ring-inner`) drawn in the offset band with `box-shadow`. Saffron alone is about 2:1 on cream and white, so the ink ring carries the contrast in light mode and keeps the ring visible on a saffron button. A component that sets its own `box-shadow` must add the inner ring to it when focused.
+
+### Contrast and colour vision
+
+The tests hold every value to these minimums on `bg` and `surface` in both modes:
+
+- 4.5:1 for text, secondary and subtle text, accent text and status text
+- 3:1 for status fills, the focus ring, every categorical colour, every sequential step, the highlight and waiting strokes, the paid and blocked series, axis text and tooltip text
+- a CIEDE2000 difference of at least 10 between categorical colours and between each categorical colour and the highlight, and at least 5 between adjacent sequential steps, under normal vision and simulated protanopia, deuteranopia and tritanopia (Machado 2009, full severity)
+
+### Chart rules
+
+- The saffron highlight fill and the light waiting fill are below 3:1 on light grounds, so they are always drawn with `viz-highlight-stroke` or `viz-waiting-stroke`: a 1.5px outline on bars and areas, and the line colour on line series.
+- The lowest sequential step reaches 3:1, so "no data" is never a colour: it is the surface with a `rule` outline, and the table view carries the exact values.
+- Paid and blocked sit close under deuteranopia, so status series always carry direct labels and the blocked series uses a decal pattern (ECharts `aria.decal`). Never colour alone.
+
 ### Tailwind CSS v4
 
 ```css
@@ -46,7 +66,9 @@ Light is the default. Dark follows `prefers-color-scheme` unless an ancestor set
 @import '@ujira/ui/styles/theme.css';
 ```
 
-The theme drops the Tailwind default colours, fonts, type sizes, radii, shadows and easings, so only brand values produce utilities: `bg-surface`, `text-text-secondary`, `border-rule`, `bg-accent`, `text-paid`, `rounded-control`, `rounded-card`, `rounded-overlay`, `shadow-overlay`, `font-mono`, `text-amount-xl`, `h-row`, `ease-out`, `ease-settle`, `outline-focus`. Utilities read the `--ujira-*` variables directly, so they switch with the mode without a rebuild.
+The theme drops the Tailwind default colours, fonts, type sizes, radii, shadows and easings, so only brand values produce utilities: `bg-surface`, `text-text-secondary`, `border-rule`, `bg-accent-fill`, `text-accent-text`, `text-paid`, `bg-paid-fill`, `rounded-control`, `rounded-card`, `rounded-overlay`, `shadow-overlay`, `font-mono`, `text-amount-xl`, `h-row`, `ease-out`, `ease-settle`, `outline-focus`, `ring-focus-inner`. Utilities read the `--ujira-*` variables directly, so they switch with the mode without a rebuild.
+
+Raw saffron and raw status shades are CSS variables only and have no utilities: they ignore the mode, and saffron as text on light fails contrast. The mode accent is exposed as `accent-fill`, so `text-accent-fill` reads as wrong in review; saffron text is `text-accent-text`.
 
 ### TypeScript
 
@@ -66,7 +88,7 @@ import { BrandIcon } from '@ujira/ui';
 <BrandIcon name="pause" label="Mandate paused" />     // announced as an image
 ```
 
-`name` accepts only the nine brand icons: `mandate`, `payout`, `recipient`, `approval`, `receipt`, `rail`, `local-currency`, `agent`, `pause`. The icon draws with a 1.5px round stroke in `currentColor` on the 24px grid; set its colour with a text colour class. The shapes are rendered inline from the sprite, so the icon works in server components and inside shadow DOM without a sprite request. Apps that prefer the sprite file can import `@ujira/ui/assets/brand-icons.svg`. For every other interface icon use Lucide with `strokeWidth={1.5}`.
+`name` accepts only the nine brand icons: `mandate`, `payout`, `recipient`, `approval`, `receipt`, `rail`, `local-currency`, `agent`, `pause`. The icon draws with a 1.5px round stroke in `currentColor` on the 24px grid; set its colour with a text colour class. The stroke is written into the inline style as well, so neither a class nor a `style` prop can change it. The shapes are rendered inline from the sprite, so the icon works in server components and inside shadow DOM without a sprite request. Apps that prefer the sprite file can import `@ujira/ui/assets/brand-icons.svg`. For every other interface icon use Lucide with `strokeWidth={1.5}`.
 
 ## Fonts
 
@@ -84,4 +106,4 @@ Rules the components will enforce: Nunito never below 20px and never in the prod
 
 ## Brand material
 
-`assets/brand/Tokens.json` and `assets/brand/ujira_icon-sprite_all_currentcolor.svg` are internal UJIRA brand material owned by Qomira Labs, copied byte for byte from the brand kit. They are not third party assets and carry no open source license. Update them only from a new brand kit release, then regenerate.
+`assets/brand/Tokens.json` and `assets/brand/ujira_icon-sprite_all_currentcolor.svg` are internal UJIRA brand material owned by Qomira Labs. `Tokens.json` is copied byte for byte from the brand kit. The sprite is the brand kit file with its embedded provenance metadata removed (the `<metadata>` element and the `xmlns:c2pa` namespace); every symbol is byte for byte the same, and a test checks both. They are not third party assets and carry no open source license. Update them only from a new brand kit release, then regenerate.

@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-import type { SVGProps } from 'react';
+import type { CSSProperties, SVGProps } from 'react';
 import { brandIconShapes, type BrandIconName } from './brand-icons.generated.js';
 
 // The brand grid is fixed, so props that would change it are not accepted.
@@ -32,11 +32,21 @@ export interface BrandIconProps extends Omit<SVGProps<SVGSVGElement>, FixedProps
   label?: string;
 }
 
+// Inline style beats presentation attributes and class names, so the brand
+// stroke is also written last into the style.
+const LOCKED_STYLE = {
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.5,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+} as const satisfies CSSProperties;
+
 /**
  * One of the nine brand icons, drawn from the brand sprite with a 1.5px round
  * stroke in currentColor. Set the colour with a text colour class.
  */
-export function BrandIcon({ name, size = 24, label, ...rest }: BrandIconProps) {
+export function BrandIcon({ name, size = 24, label, style, ...rest }: BrandIconProps) {
   const a11y = label
     ? ({ role: 'img', 'aria-label': label } as const)
     : ({ 'aria-hidden': true, focusable: 'false' } as const);
@@ -53,6 +63,7 @@ export function BrandIcon({ name, size = 24, label, ...rest }: BrandIconProps) {
       strokeWidth={1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
+      style={{ ...style, ...LOCKED_STYLE }}
       data-icon={name}
     >
       {brandIconShapes[name].map(([Shape, attributes], index) => (

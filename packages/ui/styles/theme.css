@@ -29,23 +29,11 @@
   --color-teal-ink: var(--ujira-teal-ink);
   --color-cream: var(--ujira-cream);
   --color-white: var(--ujira-white);
-  --color-saffron: var(--ujira-saffron);
-  --color-saffron-deep: var(--ujira-saffron-deep);
-  --color-saffron-lift: var(--ujira-saffron-lift);
   --color-sand-200: var(--ujira-sand-200);
   --color-sand-300: var(--ujira-sand-300);
   --color-stone-500: var(--ujira-stone-500);
   --color-slate-600: var(--ujira-slate-600);
   --color-mist-300: var(--ujira-mist-300);
-  --color-status-paid-fill: var(--ujira-status-paid-fill);
-  --color-status-paid-text: var(--ujira-status-paid-text);
-  --color-status-paid-dark: var(--ujira-status-paid-dark);
-  --color-status-waiting-fill: var(--ujira-status-waiting-fill);
-  --color-status-waiting-text: var(--ujira-status-waiting-text);
-  --color-status-waiting-dark: var(--ujira-status-waiting-dark);
-  --color-status-blocked-fill: var(--ujira-status-blocked-fill);
-  --color-status-blocked-text: var(--ujira-status-blocked-text);
-  --color-status-blocked-dark: var(--ujira-status-blocked-dark);
   --color-bg: var(--ujira-bg);
   --color-surface: var(--ujira-surface);
   --color-rule: var(--ujira-rule);
@@ -53,11 +41,14 @@
   --color-text: var(--ujira-text);
   --color-text-secondary: var(--ujira-text-secondary);
   --color-text-subtle: var(--ujira-text-subtle);
-  --color-accent: var(--ujira-accent);
+  --color-accent-fill: var(--ujira-accent);
   --color-accent-text: var(--ujira-accent-text);
   --color-paid: var(--ujira-paid);
   --color-waiting: var(--ujira-waiting);
   --color-blocked: var(--ujira-blocked);
+  --color-paid-fill: var(--ujira-paid-fill);
+  --color-waiting-fill: var(--ujira-waiting-fill);
+  --color-blocked-fill: var(--ujira-blocked-fill);
   --color-viz-categorical-1: var(--ujira-viz-categorical-1);
   --color-viz-categorical-2: var(--ujira-viz-categorical-2);
   --color-viz-categorical-3: var(--ujira-viz-categorical-3);
@@ -68,8 +59,10 @@
   --color-viz-sequential-4: var(--ujira-viz-sequential-4);
   --color-viz-sequential-5: var(--ujira-viz-sequential-5);
   --color-viz-highlight: var(--ujira-viz-highlight);
+  --color-viz-highlight-stroke: var(--ujira-viz-highlight-stroke);
   --color-viz-paid: var(--ujira-viz-paid);
   --color-viz-waiting: var(--ujira-viz-waiting);
+  --color-viz-waiting-stroke: var(--ujira-viz-waiting-stroke);
   --color-viz-blocked: var(--ujira-viz-blocked);
   --color-viz-grid: var(--ujira-viz-grid);
   --color-viz-axis: var(--ujira-viz-axis);
@@ -77,6 +70,7 @@
   --color-viz-tooltip-rule: var(--ujira-viz-tooltip-rule);
   --color-viz-tooltip-text: var(--ujira-viz-tooltip-text);
   --color-focus: var(--ujira-focus-ring-color);
+  --color-focus-inner: var(--ujira-focus-ring-inner);
 
   --font-display: var(--ujira-font-display);
   --font-sans: var(--ujira-font-sans);

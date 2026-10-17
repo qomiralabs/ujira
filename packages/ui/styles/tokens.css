@@ -33,6 +33,7 @@
   --ujira-status-blocked-fill: #dc2626;
   --ujira-status-blocked-text: #dc2626;
   --ujira-status-blocked-dark: #f87171;
+  --ujira-status-blocked-dark-text: #fca5a5;
   --ujira-font-display: var(--ujira-font-nunito, 'Nunito'), ui-rounded, system-ui, sans-serif;
   --ujira-font-sans: var(--ujira-font-inter, 'Inter'), ui-sans-serif, system-ui, sans-serif;
   --ujira-font-mono:
@@ -43,6 +44,7 @@
   --ujira-radius-overlay: 14px;
   --ujira-row-height: 44px;
   --ujira-focus-ring-color: #f4a300;
+  --ujira-focus-ring-inner: #0b2a33;
   --ujira-focus-ring-width: 2px;
   --ujira-focus-ring-offset: 2px;
   --ujira-shadow-overlay: 0px 8px 24px rgb(11 42 51 / 0.16);
@@ -70,18 +72,23 @@
   --ujira-paid: #15803d;
   --ujira-waiting: #b45309;
   --ujira-blocked: #dc2626;
+  --ujira-paid-fill: #16a34a;
+  --ujira-waiting-fill: #f59e0b;
+  --ujira-blocked-fill: #dc2626;
   --ujira-viz-categorical-1: #0f4c5c;
   --ujira-viz-categorical-2: #5c8f9a;
-  --ujira-viz-categorical-3: #a9bcc1;
+  --ujira-viz-categorical-3: #5b574f;
   --ujira-viz-categorical-4: #8b7e6a;
-  --ujira-viz-sequential-1: #f1ede4;
-  --ujira-viz-sequential-2: #c9dadd;
-  --ujira-viz-sequential-3: #8fb1b9;
-  --ujira-viz-sequential-4: #4f8593;
-  --ujira-viz-sequential-5: #0f4c5c;
+  --ujira-viz-sequential-1: #5c8f9a;
+  --ujira-viz-sequential-2: #427785;
+  --ujira-viz-sequential-3: #2c606f;
+  --ujira-viz-sequential-4: #0f4c5c;
+  --ujira-viz-sequential-5: #0b2a33;
   --ujira-viz-highlight: #f4a300;
+  --ujira-viz-highlight-stroke: #8f5a00;
   --ujira-viz-paid: #16a34a;
   --ujira-viz-waiting: #f59e0b;
+  --ujira-viz-waiting-stroke: #b45309;
   --ujira-viz-blocked: #dc2626;
   --ujira-viz-grid: #e8e0d2;
   --ujira-viz-axis: #4a5a60;
@@ -104,19 +111,24 @@
     --ujira-accent-text: #ffc14d;
     --ujira-paid: #4ade80;
     --ujira-waiting: #fbbf24;
-    --ujira-blocked: #f87171;
+    --ujira-blocked: #fca5a5;
+    --ujira-paid-fill: #4ade80;
+    --ujira-waiting-fill: #fbbf24;
+    --ujira-blocked-fill: #f87171;
     --ujira-viz-categorical-1: #fbf7f0;
     --ujira-viz-categorical-2: #a9bcc1;
-    --ujira-viz-categorical-3: #5c8f9a;
-    --ujira-viz-categorical-4: #d9cfbf;
-    --ujira-viz-sequential-1: #0f4c5c;
-    --ujira-viz-sequential-2: #4f8593;
-    --ujira-viz-sequential-3: #8fb1b9;
-    --ujira-viz-sequential-4: #c9dadd;
-    --ujira-viz-sequential-5: #f1ede4;
+    --ujira-viz-categorical-3: #9a9992;
+    --ujira-viz-categorical-4: #c9c0b0;
+    --ujira-viz-sequential-1: #729ba6;
+    --ujira-viz-sequential-2: #8fb1b9;
+    --ujira-viz-sequential-3: #afc6cc;
+    --ujira-viz-sequential-4: #d1ddde;
+    --ujira-viz-sequential-5: #fbf7f0;
     --ujira-viz-highlight: #f4a300;
+    --ujira-viz-highlight-stroke: #f4a300;
     --ujira-viz-paid: #4ade80;
     --ujira-viz-waiting: #fbbf24;
+    --ujira-viz-waiting-stroke: #fbbf24;
     --ujira-viz-blocked: #f87171;
     --ujira-viz-grid: #155c6e;
     --ujira-viz-axis: #a9bcc1;
@@ -139,23 +151,41 @@
   --ujira-accent-text: #ffc14d;
   --ujira-paid: #4ade80;
   --ujira-waiting: #fbbf24;
-  --ujira-blocked: #f87171;
+  --ujira-blocked: #fca5a5;
+  --ujira-paid-fill: #4ade80;
+  --ujira-waiting-fill: #fbbf24;
+  --ujira-blocked-fill: #f87171;
   --ujira-viz-categorical-1: #fbf7f0;
   --ujira-viz-categorical-2: #a9bcc1;
-  --ujira-viz-categorical-3: #5c8f9a;
-  --ujira-viz-categorical-4: #d9cfbf;
-  --ujira-viz-sequential-1: #0f4c5c;
-  --ujira-viz-sequential-2: #4f8593;
-  --ujira-viz-sequential-3: #8fb1b9;
-  --ujira-viz-sequential-4: #c9dadd;
-  --ujira-viz-sequential-5: #f1ede4;
+  --ujira-viz-categorical-3: #9a9992;
+  --ujira-viz-categorical-4: #c9c0b0;
+  --ujira-viz-sequential-1: #729ba6;
+  --ujira-viz-sequential-2: #8fb1b9;
+  --ujira-viz-sequential-3: #afc6cc;
+  --ujira-viz-sequential-4: #d1ddde;
+  --ujira-viz-sequential-5: #fbf7f0;
   --ujira-viz-highlight: #f4a300;
+  --ujira-viz-highlight-stroke: #f4a300;
   --ujira-viz-paid: #4ade80;
   --ujira-viz-waiting: #fbbf24;
+  --ujira-viz-waiting-stroke: #fbbf24;
   --ujira-viz-blocked: #f87171;
   --ujira-viz-grid: #155c6e;
   --ujira-viz-axis: #a9bcc1;
   --ujira-viz-tooltip: #0f4c5c;
   --ujira-viz-tooltip-rule: #155c6e;
   --ujira-viz-tooltip-text: #fbf7f0;
+}
+
+/*
+ * Saffron outside, teal ink in the offset band, so the ring keeps 3:1
+ * on cream, white and on a saffron button. Layered so components can
+ * compose their own shadow with it.
+ */
+@layer base {
+  :focus-visible {
+    outline: var(--ujira-focus-ring-width) solid var(--ujira-focus-ring-color);
+    outline-offset: var(--ujira-focus-ring-offset);
+    box-shadow: 0 0 0 var(--ujira-focus-ring-offset) var(--ujira-focus-ring-inner);
+  }
 }

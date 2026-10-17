@@ -38,6 +38,7 @@ export const status = {
     fill: '#DC2626',
     text: '#DC2626',
     dark: '#F87171',
+    'dark-text': '#FCA5A5',
   },
 } as const;
 
@@ -57,6 +58,9 @@ export const modes = {
     waiting: '#B45309',
     blocked: '#DC2626',
     logo: 'default',
+    'paid-fill': '#16A34A',
+    'waiting-fill': '#F59E0B',
+    'blocked-fill': '#DC2626',
   },
   dark: {
     bg: '#0A3540',
@@ -70,19 +74,24 @@ export const modes = {
     'accent-text': '#FFC14D',
     paid: '#4ADE80',
     waiting: '#FBBF24',
-    blocked: '#F87171',
+    blocked: '#FCA5A5',
     logo: 'default-reverse',
+    'paid-fill': '#4ADE80',
+    'waiting-fill': '#FBBF24',
+    'blocked-fill': '#F87171',
   },
 } as const;
 
 /** Data visualisation colours per mode, resolved to hex for chart themes. */
 export const viz = {
   light: {
-    categorical: ['#0F4C5C', '#5C8F9A', '#A9BCC1', '#8B7E6A'],
-    sequential: ['#F1EDE4', '#C9DADD', '#8FB1B9', '#4F8593', '#0F4C5C'],
+    categorical: ['#0F4C5C', '#5C8F9A', '#5B574F', '#8B7E6A'],
+    sequential: ['#5C8F9A', '#427785', '#2C606F', '#0F4C5C', '#0B2A33'],
     highlight: '#F4A300',
+    'highlight-stroke': '#8F5A00',
     paid: '#16A34A',
     waiting: '#F59E0B',
+    'waiting-stroke': '#B45309',
     blocked: '#DC2626',
     grid: '#E8E0D2',
     axis: '#4A5A60',
@@ -91,11 +100,13 @@ export const viz = {
     'tooltip-text': '#0B2A33',
   },
   dark: {
-    categorical: ['#FBF7F0', '#A9BCC1', '#5C8F9A', '#D9CFBF'],
-    sequential: ['#0F4C5C', '#4F8593', '#8FB1B9', '#C9DADD', '#F1EDE4'],
+    categorical: ['#FBF7F0', '#A9BCC1', '#9A9992', '#C9C0B0'],
+    sequential: ['#729BA6', '#8FB1B9', '#AFC6CC', '#D1DDDE', '#FBF7F0'],
     highlight: '#F4A300',
+    'highlight-stroke': '#F4A300',
     paid: '#4ADE80',
     waiting: '#FBBF24',
+    'waiting-stroke': '#FBBF24',
     blocked: '#F87171',
     grid: '#155C6E',
     axis: '#A9BCC1',
@@ -123,6 +134,7 @@ export const focus = {
   width: '2px',
   offset: '2px',
   color: '#F4A300',
+  inner: '#0B2A33',
 } as const;
 
 /** The one shadow level, for overlays only. Cards use a rule instead. */

@@ -97,4 +97,20 @@ describe('BrandIcon', () => {
     expect(svg?.getAttribute('stroke')).toBe('currentColor');
     expect(svg?.getAttribute('stroke-width')).toBe('1.5');
   });
+
+  it('keeps the brand stroke when a style tries to change it', () => {
+    const { container } = render(
+      <BrandIcon
+        name="payout"
+        style={{ strokeWidth: 3, stroke: 'red', fill: 'red', color: 'rgb(1, 2, 3)' }}
+      />,
+    );
+    const svg = container.querySelector('svg');
+    expect(svg?.style.strokeWidth).toBe('1.5');
+    expect(svg?.style.stroke).toBe('currentcolor');
+    expect(svg?.style.fill).toBe('none');
+    expect(svg?.style.strokeLinecap).toBe('round');
+    expect(svg?.style.strokeLinejoin).toBe('round');
+    expect(svg?.style.color).toBe('rgb(1, 2, 3)');
+  });
 });

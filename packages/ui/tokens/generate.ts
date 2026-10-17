@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { format, resolveConfig } from 'prettier';
 import { z } from 'zod';
+import { hexToRgb } from './colour.ts';
 
 export const OUTPUT_FILES = [
   'styles/tokens.css',
@@ -86,7 +87,7 @@ export function parseBrandTokens(json: unknown): BrandTokens {
 const colourRef = z
   .string()
   .regex(
-    /^(#[0-9A-F]{6}|\{(core|neutral|mode)\.[a-z0-9-]+\}|\{status\.[a-z0-9-]+\.(fill|text|dark)\})$/,
+    /^(#[0-9A-F]{6}|\{(core|neutral|mode)\.[a-z0-9-]+\}|\{status\.[a-z0-9-]+\.[a-z0-9-]+\})$/,
     'expected an uppercase hex colour or a {group.name} reference',
   );
 const length = z.string().regex(/^\d+(\.\d+)?px$/);
@@ -95,8 +96,10 @@ const vizModeSchema = z.strictObject({
   categorical: z.tuple([colourRef, colourRef, colourRef, colourRef]),
   sequential: z.tuple([colourRef, colourRef, colourRef, colourRef, colourRef]),
   highlight: colourRef,
+  'highlight-stroke': colourRef,
   paid: colourRef,
   waiting: colourRef,
+  'waiting-stroke': colourRef,
   blocked: colourRef,
   grid: colourRef,
   axis: colourRef,
@@ -119,11 +122,25 @@ const typeStepSchema = z.strictObject({
   weight: z.number().int().min(100).max(900),
 });
 
+// Mode tokens added to, or replacing, the brand mode tokens. They may not
+// refer to other mode tokens, so the result never depends on order.
+const modeExtension = z.record(
+  tokenName,
+  colourRef.refine((ref) => !ref.startsWith('{mode.'), 'a mode token cannot refer to {mode.*}'),
+);
+
 const systemSchema = z.strictObject({
   $description: z.string().optional(),
+  status: z.record(tokenName, z.record(tokenName, hex)),
+  mode: z
+    .strictObject({ light: modeExtension, dark: modeExtension })
+    .refine(
+      (m) => Object.keys(m.light).sort().join() === Object.keys(m.dark).sort().join(),
+      'mode extensions must have the same keys in light and dark',
+    ),
   density: z.strictObject({ row: length, 'row-compact': length }),
   radius: z.strictObject({ control: length, card: length, overlay: length }),
-  focus: z.strictObject({ width: length, offset: length, color: colourRef }),
+  focus: z.strictObject({ width: length, offset: length, color: colourRef, inner: colourRef }),
   shadow: z.strictObject({
     overlay: z.strictObject({
       x: length,
@@ -153,30 +170,39 @@ export function parseSystemTokens(json: unknown): SystemTokens {
 
 type VizMode = SystemTokens['viz']['light'];
 
+type Status = Record<string, Record<string, string>>;
+type ModeTokens = Record<Mode, Record<string, string>>;
+
 export interface ResolvedTokens {
   brand: BrandTokens;
   system: SystemTokens;
+  /** Brand status shades plus the design system additions. */
+  status: Status;
+  /** Brand mode tokens with the design system additions and replacements applied. */
+  modes: ModeTokens;
   viz: Record<Mode, VizMode>;
   focusColor: string;
+  focusInner: string;
   shadowOverlay: string;
 }
 
-function resolveColour(ref: string, brand: BrandTokens, mode: Mode | undefined): string {
+interface Scope {
+  brand: BrandTokens;
+  status: Status;
+  modes: ModeTokens | undefined;
+}
+
+function resolveColour(ref: string, scope: Scope, mode: Mode | undefined): string {
   if (ref.startsWith('#')) return ref;
-  const path = ref.slice(1, -1).split('.');
-  const [group, name, shade] = path;
+  const [group, name = '', shade = ''] = ref.slice(1, -1).split('.');
   let value: unknown;
-  if (group === 'core') value = brand.core[name ?? ''];
-  else if (group === 'neutral') value = brand.neutral[name ?? ''];
-  else if (group === 'status') {
-    const entry = brand.status[name ?? ''];
-    value =
-      entry && (shade === 'fill' || shade === 'text' || shade === 'dark')
-        ? entry[shade]
-        : undefined;
-  } else if (group === 'mode') {
-    if (!mode) throw new Error(`${ref} needs a mode, it can only be used inside viz`);
-    value = brand.modes[mode][name ?? ''];
+  if (group === 'core') value = scope.brand.core[name];
+  else if (group === 'neutral') value = scope.brand.neutral[name];
+  else if (group === 'status') value = scope.status[name]?.[shade];
+  else if (group === 'mode') {
+    if (!mode || !scope.modes)
+      throw new Error(`${ref} needs a mode, it can only be used inside viz`);
+    value = scope.modes[mode][name];
   }
   if (typeof value !== 'string' || !value.startsWith('#')) {
     throw new Error(`unknown colour reference ${ref}`);
@@ -184,15 +210,35 @@ function resolveColour(ref: string, brand: BrandTokens, mode: Mode | undefined):
   return value;
 }
 
-function hexToRgb(value: string): [number, number, number] {
-  const n = Number.parseInt(value.slice(1), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+function mergeStatus(brand: BrandTokens, system: SystemTokens): Status {
+  const merged: Status = {};
+  for (const [name, shades] of Object.entries(brand.status)) merged[name] = { ...shades };
+  for (const [name, shades] of Object.entries(system.status)) {
+    const target = merged[name];
+    if (!target) throw new Error(`status "${name}" does not exist in the brand tokens`);
+    for (const [shade, value] of Object.entries(shades)) {
+      if (shade in target)
+        throw new Error(`status ${name}.${shade} already exists in the brand tokens`);
+      target[shade] = value;
+    }
+  }
+  return merged;
 }
 
 export function resolveTokens(brand: BrandTokens, system: SystemTokens): ResolvedTokens {
+  const status = mergeStatus(brand, system);
+  const base: Scope = { brand, status, modes: undefined };
+  const extend = (mode: Mode): Record<string, string> => {
+    const extension = Object.fromEntries(
+      Object.entries(system.mode[mode]).map(([key, ref]) => [key, resolveColour(ref, base, mode)]),
+    );
+    return { ...brand.modes[mode], ...extension };
+  };
+  const modes: ModeTokens = { light: extend('light'), dark: extend('dark') };
+  const scope: Scope = { brand, status, modes };
   const resolveViz = (mode: Mode): VizMode => {
     const source = system.viz[mode];
-    const c = (ref: string): string => resolveColour(ref, brand, mode);
+    const c = (ref: string): string => resolveColour(ref, scope, mode);
     return {
       categorical: [
         c(source.categorical[0]),
@@ -208,8 +254,10 @@ export function resolveTokens(brand: BrandTokens, system: SystemTokens): Resolve
         c(source.sequential[4]),
       ],
       highlight: c(source.highlight),
+      'highlight-stroke': c(source['highlight-stroke']),
       paid: c(source.paid),
       waiting: c(source.waiting),
+      'waiting-stroke': c(source['waiting-stroke']),
       blocked: c(source.blocked),
       grid: c(source.grid),
       axis: c(source.axis),
@@ -219,12 +267,15 @@ export function resolveTokens(brand: BrandTokens, system: SystemTokens): Resolve
     };
   };
   const shadow = system.shadow.overlay;
-  const [r, g, b] = hexToRgb(resolveColour(shadow.color, brand, undefined));
+  const [r, g, b] = hexToRgb(resolveColour(shadow.color, scope, undefined));
   const resolved: ResolvedTokens = {
     brand,
     system,
+    status,
+    modes,
     viz: { light: resolveViz('light'), dark: resolveViz('dark') },
-    focusColor: resolveColour(system.focus.color, brand, undefined),
+    focusColor: resolveColour(system.focus.color, scope, undefined),
+    focusInner: resolveColour(system.focus.inner, scope, undefined),
     shadowOverlay: `${shadow.x} ${shadow.y} ${shadow.blur} rgb(${String(r)} ${String(g)} ${String(b)} / ${String(shadow.alpha)})`,
   };
   assertNoThemeCollisions(resolved);
@@ -241,53 +292,45 @@ function assertNoThemeCollisions(tokens: ResolvedTokens): void {
   }
 }
 
-// Contrast
-
-function luminance(value: string): number {
-  const channel = (c: number): number => {
-    const s = c / 255;
-    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  };
-  const [r, g, b] = hexToRgb(value);
-  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-}
-
-/** WCAG 2 contrast ratio between two hex colours, from 1 to 21. */
-export function contrastRatio(foreground: string, background: string): number {
-  const a = luminance(foreground);
-  const b = luminance(background);
-  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-}
-
 // CSS
 
 type Declaration = readonly [name: string, value: string];
 
-function modeColours(brand: BrandTokens, mode: Mode): Declaration[] {
-  return Object.entries(brand.modes[mode]).filter(([, value]) => value.startsWith('#'));
+function modeColours(tokens: ResolvedTokens, mode: Mode): Declaration[] {
+  return Object.entries(tokens.modes[mode]).filter(([, value]) => value.startsWith('#'));
 }
 
 function vizDeclarations(viz: VizMode): Declaration[] {
   return [
     ...viz.categorical.map((value, i): Declaration => [`viz-categorical-${String(i + 1)}`, value]),
     ...viz.sequential.map((value, i): Declaration => [`viz-sequential-${String(i + 1)}`, value]),
-    ...(['highlight', 'paid', 'waiting', 'blocked', 'grid', 'axis', 'tooltip'] as const).map(
-      (key): Declaration => [`viz-${key}`, viz[key]],
-    ),
-    ['viz-tooltip-rule', viz['tooltip-rule']],
-    ['viz-tooltip-text', viz['tooltip-text']],
+    ...(
+      [
+        'highlight',
+        'highlight-stroke',
+        'paid',
+        'waiting',
+        'waiting-stroke',
+        'blocked',
+        'grid',
+        'axis',
+        'tooltip',
+        'tooltip-rule',
+        'tooltip-text',
+      ] as const
+    ).map((key): Declaration => [`viz-${key}`, viz[key]]),
   ];
 }
 
 function modeDeclarations(tokens: ResolvedTokens, mode: Mode): Declaration[] {
-  return [...modeColours(tokens.brand, mode), ...vizDeclarations(tokens.viz[mode])];
+  return [...modeColours(tokens, mode), ...vizDeclarations(tokens.viz[mode])];
 }
 
-function paletteDeclarations(brand: BrandTokens): Declaration[] {
+function paletteDeclarations(tokens: ResolvedTokens): Declaration[] {
   return [
-    ...Object.entries(brand.core),
-    ...Object.entries(brand.neutral),
-    ...Object.entries(brand.status).flatMap(([name, shades]) =>
+    ...Object.entries(tokens.brand.core),
+    ...Object.entries(tokens.brand.neutral),
+    ...Object.entries(tokens.status).flatMap(([name, shades]) =>
       Object.entries(shades).map(([shade, value]): Declaration => [
         `status-${name}-${shade}`,
         value,
@@ -310,9 +353,9 @@ function block(
 }
 
 export function renderTokensCss(tokens: ResolvedTokens): string {
-  const { brand, system } = tokens;
+  const { system } = tokens;
   const root: Declaration[] = [
-    ...paletteDeclarations(brand),
+    ...paletteDeclarations(tokens),
     ['font-display', fontStack(system.font.display)],
     ['font-sans', fontStack(system.font.sans)],
     ['font-mono', fontStack(system.font.mono)],
@@ -321,6 +364,7 @@ export function renderTokensCss(tokens: ResolvedTokens): string {
     ['radius-overlay', system.radius.overlay],
     ['row-height', system.density.row],
     ['focus-ring-color', tokens.focusColor],
+    ['focus-ring-inner', tokens.focusInner],
     ['focus-ring-width', system.focus.width],
     ['focus-ring-offset', system.focus.offset],
     ['shadow-overlay', tokens.shadowOverlay],
@@ -338,15 +382,47 @@ export function renderTokensCss(tokens: ResolvedTokens): string {
     block(":root,\n[data-theme='light']", light, ['color-scheme: light;']),
     `@media (prefers-color-scheme: dark) {\n${block(":root:not([data-theme='light'])", dark, ['color-scheme: dark;'])}\n}`,
     block("[data-theme='dark']", dark, ['color-scheme: dark;']),
+    [
+      '/*',
+      ' * Saffron outside, teal ink in the offset band, so the ring keeps 3:1',
+      ' * on cream, white and on a saffron button. Layered so components can',
+      ' * compose their own shadow with it.',
+      ' */',
+      '@layer base {',
+      '  :focus-visible {',
+      '    outline: var(--ujira-focus-ring-width) solid var(--ujira-focus-ring-color);',
+      '    outline-offset: var(--ujira-focus-ring-offset);',
+      '    box-shadow: 0 0 0 var(--ujira-focus-ring-offset) var(--ujira-focus-ring-inner);',
+      '  }',
+      '}',
+    ].join('\n'),
   ].join('\n\n');
 }
 
-function themeColourNames(tokens: ResolvedTokens): string[] {
+// The theme leaves out raw saffron and raw status shades: they ignore the
+// mode, and saffron as text on light fails contrast. They stay available as
+// CSS variables. The mode accent is exposed as accent-fill so a saffron
+// text utility reads as wrong in review.
+const THEME_RENAMES: Readonly<Record<string, string>> = { accent: 'accent-fill' };
+
+function themeColours(tokens: ResolvedTokens): Declaration[] {
+  const palette = paletteDeclarations(tokens).filter(
+    ([name]) => !name.startsWith('saffron') && !name.startsWith('status-'),
+  );
+  const mode = modeDeclarations(tokens, 'light').map(([name]): Declaration => [
+    THEME_RENAMES[name] ?? name,
+    name,
+  ]);
   return [
-    ...paletteDeclarations(tokens.brand).map(([name]) => name),
-    ...modeDeclarations(tokens, 'light').map(([name]) => name),
-    'focus',
+    ...palette.map(([name]): Declaration => [name, name]),
+    ...mode,
+    ['focus', 'focus-ring-color'],
+    ['focus-inner', 'focus-ring-inner'],
   ];
+}
+
+function themeColourNames(tokens: ResolvedTokens): string[] {
+  return themeColours(tokens).map(([name]) => name);
 }
 
 function rem(px: number): string {
@@ -354,8 +430,8 @@ function rem(px: number): string {
 }
 
 export function renderThemeCss(tokens: ResolvedTokens): string {
-  const colours = [...paletteDeclarations(tokens.brand), ...modeDeclarations(tokens, 'light')].map(
-    ([name]) => `--color-${name}: var(--ujira-${name});`,
+  const colours = themeColours(tokens).map(
+    ([name, variable]) => `--color-${name}: var(--ujira-${variable});`,
   );
   const type = Object.entries(tokens.system.type).flatMap(([step, t]) => [
     `--text-${step}: ${rem(t.size)};`,
@@ -376,7 +452,6 @@ export function renderThemeCss(tokens: ResolvedTokens): string {
     '--spacing-row: var(--ujira-row-height);',
     '',
     ...colours,
-    '--color-focus: var(--ujira-focus-ring-color);',
     '',
     '--font-display: var(--ujira-font-display);',
     '--font-sans: var(--ujira-font-sans);',
@@ -420,12 +495,12 @@ export function renderTokensTs(tokens: ResolvedTokens): string {
     constant(
       'status',
       'Payment status colours. Payments only, always with a word and an icon.',
-      brand.status,
+      tokens.status,
     ),
     constant(
       'modes',
       'Semantic tokens per colour mode, with keys identical in light and dark.',
-      brand.modes,
+      tokens.modes,
     ),
     constant(
       'viz',
@@ -445,6 +520,7 @@ export function renderTokensTs(tokens: ResolvedTokens): string {
     constant('focus', 'Focus ring on every interactive element, in both modes.', {
       ...system.focus,
       color: tokens.focusColor,
+      inner: tokens.focusInner,
     }),
     constant('shadow', 'The one shadow level, for overlays only. Cards use a rule instead.', {
       overlay: tokens.shadowOverlay,
