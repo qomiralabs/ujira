@@ -13,6 +13,7 @@ import {
   convertMoney,
   convertToToken,
   moneyAt,
+  parseRate,
   rescale,
   tokenAmount,
   tokenToUsd,
@@ -43,6 +44,21 @@ const scaleArb = fc.integer({ min: 2, max: 18 });
 const modeArb = fc.constantFrom(...MODES);
 
 const inRange = (x: bigint): boolean => x >= MIN && x <= MAX;
+
+/** Independent rounding reference: n / d (d > 0) to an integer with a mode. */
+function roundReference(n: bigint, d: bigint, mode: RoundingMode): bigint {
+  const q = n / d;
+  if (n - q * d === 0n) return q;
+  const down = n < 0n ? q - 1n : q;
+  const up = down + 1n;
+  if (mode === 'floor') return down;
+  if (mode === 'ceil') return up;
+  if (mode === 'trunc') return q;
+  const twice = 2n * (n - down * d);
+  if (twice !== d) return twice < d ? down : up;
+  if (mode === 'half-up') return n < 0n ? down : up;
+  return down % 2n === 0n ? down : up;
+}
 
 function outcome<T>(run: () => T): { ok: true; value: T } | { ok: false; error: unknown } {
   try {
@@ -84,7 +100,7 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
     );
   });
 
-  it('convertMoney by a power of ten equals rescale with the same mode', () => {
+  it('convertMoney at a rate of one equals rescale with the same mode', () => {
     fc.assert(
       fc.property(
         i128,
@@ -94,14 +110,60 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
         modeArb,
         (amount, currency, from, to, mode) => {
           const m = moneyAt(amount, currency, from);
-          const rate =
-            to >= from
-              ? { numerator: 10n ** BigInt(to - from), denominator: 1n }
-              : { numerator: 1n, denominator: 10n ** BigInt(from - to) };
+          const one = { numerator: 1n, denominator: 1n };
           const viaRescale = outcome(() => rescale(m, to, mode));
-          const viaRate = outcome(() => convertMoney(m, rate, { currency, scale: to }, mode));
+          const viaRate = outcome(() => convertMoney(m, one, { currency, scale: to }, mode));
           expect(viaRate.ok).toBe(viaRescale.ok);
           if (viaRate.ok && viaRescale.ok) expect(viaRate.value).toEqual(viaRescale.value);
+        },
+      ),
+      RUNS,
+    );
+  });
+
+  it('the same major unit value converts identically whatever scale it is held at', () => {
+    fc.assert(
+      fc.property(
+        fc.bigInt({ min: -(10n ** 20n), max: 10n ** 20n }),
+        fc.integer({ min: 2, max: 10 }),
+        fc.integer({ min: 0, max: 8 }),
+        fc.bigInt({ min: 1n, max: 10n ** 9n }),
+        fc.bigInt({ min: 1n, max: 10n ** 9n }),
+        scaleArb,
+        modeArb,
+        (amount, low, extra, numerator, denominator, to, mode) => {
+          const rate = { numerator, denominator };
+          const coarse = moneyAt(amount, 'USD', low);
+          const fine = moneyAt(amount * 10n ** BigInt(extra), 'USD', low + extra);
+          const a = convertMoney(coarse, rate, { currency: 'NGN', scale: to }, mode);
+          const b = convertMoney(fine, rate, { currency: 'NGN', scale: to }, mode);
+          expect(b).toEqual(a);
+        },
+      ),
+      RUNS,
+    );
+  });
+
+  it('every token holding the same dollars converts identically', () => {
+    fc.assert(
+      fc.property(
+        fc.bigInt({ min: -(10n ** 15n), max: 10n ** 15n }),
+        fc.bigInt({ min: 1n, max: 10n ** 9n }),
+        fc.bigInt({ min: 1n, max: 10n ** 9n }),
+        scaleArb,
+        modeArb,
+        (micros, numerator, denominator, to, mode) => {
+          // micros is the value in millionths of a dollar, exact on every token.
+          const rate = { numerator, denominator };
+          const results = SETTLEMENT_TOKENS.map((t) =>
+            convertMoney(
+              tokenAmount(micros * 10n ** BigInt(t.tokenScale - 6), t.asset, t.chain),
+              rate,
+              { currency: 'NGN', scale: to },
+              mode,
+            ),
+          );
+          for (const r of results) expect(r).toEqual(results[0]);
         },
       ),
       RUNS,
@@ -129,7 +191,8 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
           const r = outcome(() =>
             convertMoney(m, { numerator, denominator }, { currency, scale }, 'floor'),
           );
-          if (!inRange(amount * numerator)) {
+          // Only the result is bounded, never the product on the way.
+          if (!inRange(roundReference(amount * numerator, denominator, 'floor'))) {
             expect(r.ok).toBe(false);
             if (!r.ok) expect(r.error).toBeInstanceOf(MoneyOverflowError);
             return;
@@ -140,6 +203,62 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
           const product = amount * numerator;
           expect(r.value.amount * denominator <= product).toBe(true);
           expect((r.value.amount + 1n) * denominator > product).toBe(true);
+        },
+      ),
+      RUNS,
+    );
+  });
+
+  it('a quoted rate matches an exact rational reference for every unit and mode', () => {
+    // Rates as a quote prints them, from tiny to large.
+    const rateText = fc
+      .tuple(fc.bigInt({ min: 1n, max: 10n ** 12n }), fc.integer({ min: 0, max: 12 }))
+      .map(([digits, places]) => {
+        const text = digits.toString().padStart(places + 1, '0');
+        return places === 0 ? text : `${text.slice(0, -places)}.${text.slice(-places)}`;
+      });
+    const unitArb = fc.oneof(
+      fc.integer({ min: 2, max: 18 }).map((scale) => ({ kind: 'fiat' as const, scale })),
+      tokenArb.map((t) => ({
+        kind: 'token' as const,
+        asset: t.asset,
+        chain: t.chain,
+        scale: t.tokenScale,
+      })),
+    );
+    fc.assert(
+      fc.property(
+        fc.bigInt({ min: -(10n ** 24n), max: 10n ** 24n }),
+        rateText,
+        unitArb,
+        unitArb,
+        modeArb,
+        (amount, text, from, to, mode) => {
+          // The reference reads the rate straight from its text.
+          const [whole = '', fraction = ''] = text.split('.');
+          const n = BigInt(whole + fraction);
+          const d = 10n ** BigInt(fraction.length);
+          const want = roundReference(
+            amount * n * 10n ** BigInt(to.scale),
+            d * 10n ** BigInt(from.scale),
+            mode,
+          );
+          const src =
+            from.kind === 'fiat'
+              ? moneyAt(amount, 'USD', from.scale)
+              : tokenAmount(amount, from.asset, from.chain);
+          const rate = parseRate(text);
+          const r = outcome(() =>
+            to.kind === 'fiat'
+              ? convertMoney(src, rate, { currency: 'EUR', scale: to.scale }, mode)
+              : convertToToken(src, rate, { asset: to.asset, chain: to.chain }, mode),
+          );
+          if (!inRange(want)) {
+            expect(r.ok).toBe(false);
+            return;
+          }
+          expect(r.ok).toBe(true);
+          if (r.ok) expect(r.value.amount).toBe(want);
         },
       ),
       RUNS,

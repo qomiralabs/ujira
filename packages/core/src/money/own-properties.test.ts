@@ -14,13 +14,16 @@ import { formatMoney } from './format.js';
 import * as moneyIndex from './index.js';
 import {
   InvalidAmountError,
+  InvalidScaleError,
   UnknownCurrencyError,
   add,
   compare,
   equals,
   isNegative,
   isZero,
+  convertMoney,
   money,
+  moneyAt,
   multiply,
   negate,
   subtract,
@@ -278,5 +281,46 @@ describe('prototype cleanup', () => {
       expect(Object.hasOwn(Object.prototype, key)).toBe(false);
     }
     expect(Object.hasOwn(Array.prototype, '1')).toBe(false);
+  });
+});
+
+describe('every scale is validated before any lookup', () => {
+  const proto = Object.prototype as Record<string, unknown>;
+  const bad: unknown[] = [-1, 19, 1.5, Number.NaN, '2', 2n];
+
+  it.each(bad)('refuses the scale %s everywhere a scale enters', (scale) => {
+    expectError(() => moneyAt(1n, 'USD', loose(scale)), InvalidScaleError);
+    expectError(() => rescale(money(1n, 'USD'), loose(scale), 'trunc'), InvalidScaleError);
+    expectError(() => parseMoney('1', 'USD', loose({ scale })), InvalidScaleError);
+    expectError(
+      () =>
+        convertMoney(
+          money(1n, 'USD'),
+          { numerator: 1n, denominator: 1n },
+          loose({ currency: 'USD', scale }),
+          'trunc',
+        ),
+      InvalidScaleError,
+    );
+    expectError(
+      () => add(loose({ kind: 'fiat', amount: 1n, currency: 'USD', scale }), money(1n, 'USD')),
+      InvalidScaleError,
+    );
+  });
+
+  it('refuses scale 19 and a fractional scale even when the prototype answers for them', () => {
+    proto['19'] = 19;
+    proto['1.5'] = 2;
+    try {
+      expectError(() => moneyAt(1n, 'USD', 19), InvalidScaleError);
+      expectError(() => moneyAt(1n, 'USD', 1.5), InvalidScaleError);
+      const forged = loose({ kind: 'fiat', amount: 1n, currency: 'USD', scale: 19 });
+      expectError(() => add(forged, forged), InvalidScaleError);
+      expectError(() => parseMoney('1', 'USD', { scale: 19 }), InvalidScaleError);
+      expectError(() => rescale(money(1n, 'USD'), 19, 'trunc'), InvalidScaleError);
+    } finally {
+      delete proto['19'];
+      delete proto['1.5'];
+    }
   });
 });

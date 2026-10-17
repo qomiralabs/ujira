@@ -17,8 +17,10 @@
  *   Back to US dollars at par, at the token's scale (exact). Fiat throws
  *   KindMismatchError.
  * interface Rate { readonly numerator: bigint; readonly denominator: bigint }
- *   Target units per source unit, each at the scale its value is held at.
- *   Both parts are bigints above zero and within i128, else InvalidAmountError.
+ *   Major units of the target per major unit of the source, exactly as a
+ *   rate is quoted: "1600.25" NGN per USD, "1" USDC per USD. Scales never
+ *   enter the rate; the conversion applies them. Both parts are bigints
+ *   above zero and at most 36 digits each, else InvalidAmountError.
  * parseRate(text: string): Rate
  *   A plain positive decimal of at most 36 digits ("1600.25" is 160025/100).
  *   No sign, exponent, separator or whitespace, never zero; anything else
@@ -29,10 +31,13 @@
  * convertToToken(from: Money | TokenAmount, rate: Rate,
  *                to: { asset: TokenAsset; chain: Chain },
  *                rounding: RoundingMode): TokenAmount
- *   result = round(from.amount * numerator / denominator) with the required
- *   rounding mode, at to.scale (default the minor unit) or the token's
- *   decimals. The product and the result are both bounded to i128
- *   (MoneyOverflowError). Validation order: source, rate, target, rounding.
+ *   With s the source scale and t the target scale (to.scale, default the
+ *   minor unit, or the token's decimals):
+ *     result = round(from.amount * numerator * 10^t / (denominator * 10^s))
+ *   rounded once with the required mode. to.scale is validated as an
+ *   integer from 0 to 18 before anything else uses it. Only the result is bounded to i128
+ *   (MoneyOverflowError); bigint products have no intermediate overflow.
+ *   Validation order: source, rate, target, rounding.
  *   The rate and the target must be plain objects; their fields are read once.
  */
 
@@ -225,6 +230,34 @@ describe('parseRate', () => {
   });
 });
 
+describe('the worked example: a quoted rate in major units', () => {
+  // 12.50 USDC at 1600.25 NGN per USDC is NGN 20,003.125, which rounds
+  // half-even to 2,000,312 minor units on every chain and token.
+  const rate = parseRate('1600.25');
+
+  it.each([
+    ['USDC on Stellar (7)', tokenAmount(125_000_000n, 'USDC', 'stellar')],
+    ['USDC on Celo (6)', tokenAmount(12_500_000n, 'USDC', 'celo')],
+    ['USDm on Celo (18)', tokenAmount(125n * 10n ** 17n, 'USDm', 'celo')],
+  ])('converts 12.50 %s to NGN 20,003.12', (_label, usdc) => {
+    expect(convertMoney(usdc, rate, { currency: 'NGN' }, 'half-even')).toEqual(
+      money(2_000_312n, 'NGN'),
+    );
+    expect(convertMoney(usdc, rate, { currency: 'NGN', scale: 3 }, 'half-even')).toEqual(
+      moneyAt(20_003_125n, 'NGN', 3),
+    );
+  });
+
+  it('turns a rate pre-scaled by 10^n into a result exactly 10^n too large', () => {
+    // Documents the misuse: rates are never multiplied by a power of ten.
+    const usdc = tokenAmount(12_500_000n, 'USDC', 'celo');
+    const right = convertMoney(usdc, rate, { currency: 'NGN', scale: 3 }, 'trunc');
+    const prescaled = { numerator: rate.numerator * 10n ** 4n, denominator: rate.denominator };
+    const wrong = convertMoney(usdc, prescaled, { currency: 'NGN', scale: 3 }, 'trunc');
+    expect(wrong.amount).toBe(right.amount * 10n ** 4n);
+  });
+});
+
 describe('convertMoney', () => {
   const ngnPerUsd = parseRate('1600.25');
 
@@ -237,27 +270,66 @@ describe('convertMoney', () => {
     expect(convertMoney(usd, ngnPerUsd, { currency: 'NGN' }, 'floor')).toEqual(
       money(1_968_307n, 'NGN'),
     );
+    // At a finer target scale the same value keeps more digits.
     expect(convertMoney(usd, ngnPerUsd, { currency: 'NGN', scale: 3 }, 'trunc')).toEqual(
-      moneyAt(1_968_307n, 'NGN', 3),
+      moneyAt(19_683_075n, 'NGN', 3),
     );
+    expect(convertMoney(usd, ngnPerUsd, { currency: 'NGN', scale: 6 }, 'trunc')).toEqual(
+      moneyAt(19_683_075_000n, 'NGN', 6),
+    );
+  });
+
+  it('applies a quoted rate whatever the source and target scales', () => {
+    // 1 of each token at 1600.25 NGN per dollar is 1600.25 NGN.
+    for (const [amount, asset, chain] of [
+      [1_000_000n, 'USDC', 'celo'],
+      [10_000_000n, 'USDC', 'stellar'],
+      [10n ** 18n, 'USDm', 'celo'],
+    ] as const) {
+      expect(
+        convertMoney(tokenAmount(amount, asset, chain), ngnPerUsd, { currency: 'NGN' }, 'trunc'),
+      ).toEqual(money(160_025n, 'NGN'));
+    }
+    // A rate of 1 between dollar units at different scales keeps the value.
+    expect(
+      convertMoney(money(100n, 'USD'), parseRate('1'), { currency: 'USD', scale: 6 }, 'trunc'),
+    ).toEqual(moneyAt(1_000_000n, 'USD', 6));
+    expect(
+      convertMoney(moneyAt(1_000_000n, 'USD', 6), parseRate('1'), { currency: 'USD' }, 'trunc'),
+    ).toEqual(money(100n, 'USD'));
   });
 
   it('converts a token amount to fiat', () => {
-    // 1.234567 USDC on Celo to NGN cents, the rate in NGN cents per USDC
-    // unit: 1234567 * 160025 / 10^6 is 197561.584175, so half-up gives 197562.
-    const rate: Rate = { numerator: 160_025n, denominator: 1_000_000n };
+    // 1.234567 USDC at 1600.25 NGN per USDC is 1975.61584175 NGN, so
+    // half-up to cents gives 197562.
     expect(
-      convertMoney(tokenAmount(1_234_567n, 'USDC', 'celo'), rate, { currency: 'NGN' }, 'half-up'),
+      convertMoney(
+        tokenAmount(1_234_567n, 'USDC', 'celo'),
+        ngnPerUsd,
+        { currency: 'NGN' },
+        'half-up',
+      ),
     ).toEqual(money(197_562n, 'NGN'));
   });
 
-  it('bounds the product and the result to i128', () => {
-    const big: Rate = { numerator: MAX, denominator: 1n };
+  it('bounds only the result to i128', () => {
+    // The largest rate part, 36 digits, times an amount near the bound.
+    const big: Rate = { numerator: 10n ** 36n - 1n, denominator: 1n };
     expectMoneyError(
-      () => convertMoney(money(2n, 'USD'), big, { currency: 'USD' }, 'trunc'),
+      () => convertMoney(money(1000n, 'USD'), big, { currency: 'USD' }, 'trunc'),
       MoneyOverflowError,
     );
-    expect(convertMoney(money(1n, 'USD'), big, { currency: 'USD' }, 'trunc').amount).toBe(MAX);
+    expect(convertMoney(money(1n, 'USD'), big, { currency: 'USD' }, 'trunc').amount).toBe(
+      10n ** 36n - 1n,
+    );
+    // The product passes i128 on the way, but the result fits.
+    const wide: Rate = { numerator: 10n ** 20n, denominator: 10n ** 20n };
+    expect(convertMoney(money(10n ** 20n, 'USD'), wide, { currency: 'USD' }, 'trunc')).toEqual(
+      money(10n ** 20n, 'USD'),
+    );
+    expect(
+      convertMoney(tokenAmount(MAX, 'USDm', 'celo'), parseRate('1'), { currency: 'USD' }, 'trunc'),
+    ).toEqual(money(MAX / 10n ** 16n, 'USD'));
   });
 
   it('validates the source, then the rate, then the target, then the rounding', () => {
@@ -295,6 +367,8 @@ describe('convertMoney', () => {
     ['a negative denominator', { numerator: 1n, denominator: -1n }],
     ['a number part', { numerator: 1, denominator: 1n }],
     ['a part past i128', { numerator: MAX + 1n, denominator: 1n }],
+    ['a numerator of 37 digits', { numerator: 10n ** 36n, denominator: 1n }],
+    ['a denominator of 37 digits', { numerator: 1n, denominator: 10n ** 36n }],
     ['a missing part', { numerator: 1n }],
     ['a non plain object', Object.create({ numerator: 1n, denominator: 1n }) as unknown],
     ['null', null],
@@ -317,9 +391,8 @@ describe('convertMoney', () => {
 
 describe('convertToToken', () => {
   it('converts fiat to a token at its decimals with the required mode', () => {
-    // 1600.25 NGN to USDC on Celo at 1 USDC per 1600.25 NGN:
-    // NGN cents to USDC units is 10^6 / 160025.
-    const rate: Rate = { numerator: 1_000_000n, denominator: 160_025n };
+    // 1 USDC per 1600.25 NGN is 100 / 160025 USDC per NGN.
+    const rate: Rate = { numerator: 100n, denominator: 160_025n };
     const r = convertToToken(
       money(160_025n, 'NGN'),
       rate,
@@ -327,14 +400,24 @@ describe('convertToToken', () => {
       'trunc',
     );
     expect(r).toEqual(tokenAmount(1_000_000n, 'USDC', 'celo'));
+    // 0.01 NGN is 62.49... Stellar USDC units, so ceil gives 63.
     expect(
       convertToToken(money(1n, 'NGN'), rate, { asset: 'USDC', chain: 'stellar' }, 'ceil'),
-    ).toEqual(tokenAmount(7n, 'USDC', 'stellar'));
+    ).toEqual(tokenAmount(63n, 'USDC', 'stellar'));
+    // A quoted rate below one, as a quote would print it.
+    expect(
+      convertToToken(
+        money(160_025n, 'NGN'),
+        parseRate('0.000624902'),
+        { asset: 'USDC', chain: 'celo' },
+        'trunc',
+      ),
+    ).toEqual(tokenAmount(999_999n, 'USDC', 'celo'));
   });
 
   it('moves a token between chains only through an explicit rate', () => {
     const celo = tokenAmount(1_234_567n, 'USDC', 'celo');
-    const toStellar: Rate = { numerator: 10n, denominator: 1n };
+    const toStellar: Rate = parseRate('1');
     expect(convertToToken(celo, toStellar, { asset: 'USDC', chain: 'stellar' }, 'trunc')).toEqual(
       tokenAmount(12_345_670n, 'USDC', 'stellar'),
     );
@@ -352,4 +435,54 @@ describe('convertToToken', () => {
       InvalidRoundingModeError,
     );
   });
+});
+
+describe('quoted rates against a bigint reference', () => {
+  type Unit =
+    | { kind: 'fiat'; scale: number }
+    | { kind: 'token'; asset: 'USDC' | 'USDm'; chain: 'celo' | 'stellar'; scale: number };
+  const units: Unit[] = [
+    { kind: 'fiat', scale: 2 },
+    { kind: 'fiat', scale: 6 },
+    { kind: 'fiat', scale: 18 },
+    { kind: 'token', asset: 'USDC', chain: 'celo', scale: 6 },
+    { kind: 'token', asset: 'USDC', chain: 'stellar', scale: 7 },
+    { kind: 'token', asset: 'USDm', chain: 'celo', scale: 18 },
+  ];
+  const source = (unit: Unit, amount: bigint) =>
+    unit.kind === 'fiat'
+      ? moneyAt(amount, 'USD', unit.scale)
+      : tokenAmount(amount, unit.asset, unit.chain);
+
+  // Truncating reference: amount * n * 10^t / (d * 10^s), written out on its own.
+  const reference = (amount: bigint, n: bigint, d: bigint, s: number, t: number): bigint =>
+    (amount * n * 10n ** BigInt(t)) / (d * 10n ** BigInt(s));
+
+  for (const text of ['1600.25', '0.000624902', '1', '3.5']) {
+    const rate = parseRate(text);
+    for (const from of units) {
+      for (const to of units) {
+        it(`converts at ${text} from ${from.kind} scale ${String(from.scale)} to ${to.kind} scale ${String(to.scale)}`, () => {
+          const amount = 123_456_789n;
+          const want = reference(amount, rate.numerator, rate.denominator, from.scale, to.scale);
+          const got =
+            to.kind === 'fiat'
+              ? convertMoney(
+                  source(from, amount),
+                  rate,
+                  { currency: 'NGN', scale: to.scale },
+                  'trunc',
+                )
+              : convertToToken(
+                  source(from, amount),
+                  rate,
+                  { asset: to.asset, chain: to.chain },
+                  'trunc',
+                );
+          expect(got.amount).toBe(want);
+          expect(got.scale).toBe(to.scale);
+        });
+      }
+    }
+  }
 });
