@@ -6,9 +6,9 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import { formatMoney } from './format.js';
-import { money } from './index.js';
-import type { CurrencyCode } from './index.js';
+import { formatMoney, formatTokenAmount } from './format.js';
+import { moneyAt, tokenAmount } from './index.js';
+import type { Chain, FiatCurrencyCode, TokenAsset } from './index.js';
 import { parseMoney } from './parse.js';
 import type { RoundingMode } from './rescale.js';
 
@@ -68,7 +68,7 @@ describe('format properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
         const negative = amount < 0n;
         const digits = (negative ? -amount : amount).toString().padStart(3, '0');
         const text = `${negative ? '-' : ''}${digits.slice(0, -2)}.${digits.slice(-2)}`;
-        const m = parseMoney(text, 'USD', 2);
+        const m = parseMoney(text, 'USD');
         expect(formatMoney(m, { locale: 'en-US' })).toBe(enUS(amount, '$'));
       }),
       RUNS,
@@ -79,16 +79,13 @@ describe('format properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
     fc.assert(
       fc.property(
         i128,
-        fc.integer({ min: 0, max: 18 }),
+        // Fiat scales run from the minor unit (2) to 18, so display only rounds.
+        fc.integer({ min: 2, max: 18 }),
         fc.constantFrom(...MODES),
-        fc.constantFrom<[CurrencyCode, string]>(['USD', '$'], ['NGN', '₦'], ['GBP', '£']),
+        fc.constantFrom<[FiatCurrencyCode, string]>(['USD', '$'], ['NGN', '₦'], ['GBP', '£']),
         (amount, scale, mode, [currency, symbol]) => {
-          const m = money(amount, currency, scale);
-          const shown =
-            scale >= 2
-              ? roundDiv(amount, 10n ** BigInt(scale - 2), mode)
-              : amount * 10n ** BigInt(2 - scale);
-          if (shown > MAX || shown < MIN) return;
+          const m = moneyAt(amount, currency, scale);
+          const shown = roundDiv(amount, 10n ** BigInt(scale - 2), mode);
           expect(formatMoney(m, { locale: 'en-US', rounding: mode })).toBe(enUS(shown, symbol));
         },
       ),
@@ -100,10 +97,14 @@ describe('format properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
     fc.assert(
       fc.property(
         i128,
-        fc.constantFrom<[CurrencyCode, number]>(['USDC', 6], ['USDC', 7], ['USDm', 18]),
-        (amount, [asset, scale]) => {
+        fc.constantFrom<[TokenAsset, Chain, number]>(
+          ['USDC', 'celo', 6],
+          ['USDC', 'stellar', 7],
+          ['USDm', 'celo', 18],
+        ),
+        (amount, [asset, chain, scale]) => {
           const shown = roundDiv(amount, 10n ** BigInt(scale - 2), 'half-even');
-          expect(formatMoney(money(amount, asset, scale), { locale: 'en-US' })).toBe(
+          expect(formatTokenAmount(tokenAmount(amount, asset, chain), { locale: 'en-US' })).toBe(
             `${enUS(shown, '')}${NBSP}${asset}`,
           );
         },
@@ -118,7 +119,7 @@ describe('format properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
         fc.bigInt({ min: -10_000n, max: 10_000n }),
         fc.constantFrom('en-NG', 'en-KE', 'pt-BR', 'es-CO', 'en-IN', 'de-DE'),
         (amount, locale) => {
-          const m = money(amount, 'NGN', 6);
+          const m = moneyAt(amount, 'NGN', 6);
           const a = formatMoney(m, { locale });
           expect(formatMoney(m, { locale })).toBe(a);
           if (roundDiv(amount, 10n ** 4n, 'half-even') === 0n) expect(a).not.toMatch(/[-\u2212]/);

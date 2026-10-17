@@ -515,6 +515,12 @@ describe('money internals stay inside the money module', () => {
   it.each([
     ['build', "import { build } from './money/money.js';\nexport const b = build;\n"],
     ['snapshot', "import { snapshot } from './money/money.js';\nexport const s = snapshot;\n"],
+    ...['buildToken', 'withAmount', 'snapshotFiat', 'snapshotToken'].map(
+      (name): [string, string] => [
+        name,
+        `import { ${name} } from './money/money.js';\nexport const x = ${name};\n`,
+      ],
+    ),
     [
       'a renamed build',
       "import { build as mint } from './money/money.js';\nexport const b = mint;\n",

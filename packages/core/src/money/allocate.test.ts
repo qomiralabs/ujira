@@ -73,14 +73,16 @@ import {
   MoneyOverflowError,
   UnknownCurrencyError,
   money,
+  moneyAt,
+  tokenAmount,
 } from './index.js';
-import type { CurrencyCode, Money } from './index.js';
+import type { FiatCurrencyCode, Money, TokenAmount } from './index.js';
 
 const MAX = 2n ** 127n - 1n;
 const MIN = -(2n ** 127n);
 const MAX_MESSAGE_LENGTH = 200;
 
-const usd = (amount: bigint): Money => money(amount, 'USD', 2);
+const usd = (amount: bigint): Money => money(amount, 'USD');
 
 // The error class comes through the module namespace so a missing export
 // fails the assertions here instead of crashing the whole file at import.
@@ -120,7 +122,7 @@ const amounts = (legs: readonly Money[]): bigint[] => legs.map((leg) => leg.amou
 function expectLegsOf(total: Money, legs: readonly Money[]): void {
   for (const leg of legs) {
     expect(Object.isFrozen(leg)).toBe(true);
-    expect(Object.keys(leg).sort()).toEqual(['amount', 'currency', 'scale']);
+    expect(Object.keys(leg).sort()).toEqual(['amount', 'currency', 'kind', 'scale']);
     expect(typeof leg.amount).toBe('bigint');
     expect(leg.currency).toBe(total.currency);
     expect(leg.scale).toBe(total.scale);
@@ -129,15 +131,24 @@ function expectLegsOf(total: Money, legs: readonly Money[]): void {
 }
 
 /** An operand whose fields answer from a list, one entry per read. */
-function sequenced(fields: { amount: unknown[]; currency: unknown[]; scale: unknown[] }): {
+function sequenced(fields: {
+  kind?: 'fiat';
+  amount: unknown[];
+  currency: unknown[];
+  scale: unknown[];
+}): {
   value: Money;
-  reads: { amount: number; currency: number; scale: number };
+  reads: { kind: number; amount: number; currency: number; scale: number };
 } {
-  const reads = { amount: 0, currency: 0, scale: 0 };
+  const reads = { kind: 0, amount: 0, currency: 0, scale: 0 };
   const value = new Proxy(
     {},
     {
       get(_target, key) {
+        if (key === 'kind') {
+          reads.kind += 1;
+          return 'fiat';
+        }
         if (key === 'amount' || key === 'currency' || key === 'scale') {
           reads[key] += 1;
           const list = fields[key];
@@ -301,20 +312,39 @@ describe('allocate concrete splits', () => {
     expectLegsOf(total, legs);
   });
 
-  it('keeps the currency and scale of every supported unit', () => {
-    const cases: [CurrencyCode, number][] = [
+  it('keeps the currency and scale of every supported fiat unit', () => {
+    const cases: [FiatCurrencyCode, number][] = [
       ['USD', 2],
       ['NGN', 2],
-      ['KES', 0],
-      ['USDC', 6],
-      ['USDC', 7],
-      ['USDm', 18],
+      ['KES', 6],
+      ['USD', 18],
     ];
     for (const [currency, scale] of cases) {
-      const total = money(10n ** 18n + 1n, currency, scale);
+      const total = moneyAt(10n ** 18n + 1n, currency, scale);
       const legs = allocate(total, [5n, 3n, 2n]);
       expectLegsOf(total, legs);
     }
+  });
+
+  it('keeps the asset and chain of every token leg', () => {
+    const totals: TokenAmount[] = [
+      tokenAmount(10n ** 18n + 1n, 'USDC', 'celo'),
+      tokenAmount(10n ** 18n + 1n, 'USDC', 'stellar'),
+      tokenAmount(10n ** 18n + 1n, 'USDm', 'celo'),
+    ];
+    for (const total of totals) {
+      const legs = allocate(total, [5n, 3n, 2n]);
+      expect(legs.reduce((acc, leg) => acc + leg.amount, 0n)).toBe(total.amount);
+      for (const leg of legs) {
+        expect(Object.isFrozen(leg)).toBe(true);
+        expect({ ...leg, amount: 0n }).toEqual({ ...total, amount: 0n });
+      }
+    }
+  });
+
+  it('refuses a token total that disagrees with the token table', () => {
+    const forged = loose({ kind: 'token', amount: 100n, asset: 'USDC', chain: 'celo', scale: 7 });
+    expect(() => allocate(forged, [1n, 1n])).toThrow(InvalidScaleError);
   });
 });
 
@@ -348,11 +378,11 @@ describe('allocate purity', () => {
   });
 
   it('accepts a well formed plain object total, as a row mapper would produce', () => {
-    const row = loose({ amount: 100n, currency: 'KES', scale: 2, chain: 'stellar' });
+    const row = loose({ kind: 'fiat', amount: 100n, currency: 'KES', scale: 2, chain: 'stellar' });
     const legs = allocate(row, [1n, 1n, 1n]);
-    expect(legs).toEqual([money(34n, 'KES', 2), money(33n, 'KES', 2), money(33n, 'KES', 2)]);
+    expect(legs).toEqual([money(34n, 'KES'), money(33n, 'KES'), money(33n, 'KES')]);
     for (const leg of legs)
-      expect(Object.keys(leg).sort()).toEqual(['amount', 'currency', 'scale']);
+      expect(Object.keys(leg).sort()).toEqual(['amount', 'currency', 'kind', 'scale']);
   });
 });
 
@@ -369,20 +399,56 @@ describe('allocate rejects bad totals', () => {
     ['undefined', undefined, InvalidAmountError],
     ['a number', 100, InvalidAmountError],
     ['a bigint', 100n, InvalidAmountError],
-    ['a string amount', { amount: '100', currency: 'USD', scale: 2 }, InvalidAmountError],
-    ['a number amount', { amount: 100, currency: 'USD', scale: 2 }, InvalidAmountError],
     [
-      'a boxed bigint amount',
-      { amount: Object(100n) as unknown, currency: 'USD', scale: 2 },
+      'a string amount',
+      { kind: 'fiat', amount: '100', currency: 'USD', scale: 2 },
       InvalidAmountError,
     ],
-    ['an unknown currency', { amount: 100n, currency: 'BTC', scale: 2 }, UnknownCurrencyError],
-    ['a lower case currency', { amount: 100n, currency: 'usd', scale: 2 }, UnknownCurrencyError],
-    ['a fractional scale', { amount: 100n, currency: 'USD', scale: 1.5 }, InvalidScaleError],
-    ['a scale of 19', { amount: 100n, currency: 'USD', scale: 19 }, InvalidScaleError],
-    ['a string scale', { amount: 100n, currency: 'USD', scale: '2' }, InvalidScaleError],
-    ['an amount above i128', { amount: MAX + 1n, currency: 'USD', scale: 2 }, MoneyOverflowError],
-    ['an amount below i128', { amount: MIN - 1n, currency: 'USD', scale: 2 }, MoneyOverflowError],
+    [
+      'a number amount',
+      { kind: 'fiat', amount: 100, currency: 'USD', scale: 2 },
+      InvalidAmountError,
+    ],
+    [
+      'a boxed bigint amount',
+      { kind: 'fiat', amount: Object(100n) as unknown, currency: 'USD', scale: 2 },
+      InvalidAmountError,
+    ],
+    [
+      'an unknown currency',
+      { kind: 'fiat', amount: 100n, currency: 'BTC', scale: 2 },
+      UnknownCurrencyError,
+    ],
+    [
+      'a lower case currency',
+      { kind: 'fiat', amount: 100n, currency: 'usd', scale: 2 },
+      UnknownCurrencyError,
+    ],
+    [
+      'a fractional scale',
+      { kind: 'fiat', amount: 100n, currency: 'USD', scale: 1.5 },
+      InvalidScaleError,
+    ],
+    [
+      'a scale of 19',
+      { kind: 'fiat', amount: 100n, currency: 'USD', scale: 19 },
+      InvalidScaleError,
+    ],
+    [
+      'a string scale',
+      { kind: 'fiat', amount: 100n, currency: 'USD', scale: '2' },
+      InvalidScaleError,
+    ],
+    [
+      'an amount above i128',
+      { kind: 'fiat', amount: MAX + 1n, currency: 'USD', scale: 2 },
+      MoneyOverflowError,
+    ],
+    [
+      'an amount below i128',
+      { kind: 'fiat', amount: MIN - 1n, currency: 'USD', scale: 2 },
+      MoneyOverflowError,
+    ],
   ];
 
   it.each(forgedCases)('rejects a forged total with %s', (_label, total, Expected) => {
@@ -390,41 +456,47 @@ describe('allocate rejects bad totals', () => {
   });
 
   it('validates the total before the weights', () => {
-    const forged = loose({ amount: '1', currency: 'USD', scale: 2 });
+    const forged = loose({ kind: 'fiat', amount: '1', currency: 'USD', scale: 2 });
     expectMoneyError(() => allocate(forged, []), InvalidAmountError);
     expectMoneyError(
-      () => allocate(loose({ amount: 1n, currency: 'BTC', scale: 2 }), [0n]),
+      () => allocate(loose({ kind: 'fiat', amount: 1n, currency: 'BTC', scale: 2 }), [0n]),
       UnknownCurrencyError,
     );
     expectMoneyError(
-      () => allocate(loose({ amount: MAX + 1n, currency: 'USD', scale: 2 }), loose(null)),
+      () =>
+        allocate(loose({ kind: 'fiat', amount: MAX + 1n, currency: 'USD', scale: 2 }), loose(null)),
       MoneyOverflowError,
     );
   });
 
   it('reads each total field exactly once', () => {
-    const t = sequenced({ amount: [100n], currency: ['USD'], scale: [2] });
+    const t = sequenced({ kind: 'fiat', amount: [100n], currency: ['USD'], scale: [2] });
     allocate(t.value, [1n, 1n, 1n]);
-    expect(t.reads).toEqual({ amount: 1, currency: 1, scale: 1 });
+    expect(t.reads).toEqual({ kind: 1, amount: 1, currency: 1, scale: 1 });
   });
 
   it('never relabels legs when the total currency changes between reads', () => {
-    const t = sequenced({ amount: [100n], currency: ['USD', 'NGN'], scale: [2] });
+    const t = sequenced({ kind: 'fiat', amount: [100n], currency: ['USD', 'NGN'], scale: [2] });
     const legs = allocate(t.value, [1n, 1n]);
     expect(legs).toEqual([usd(50n), usd(50n)]);
   });
 
   it('never rescales legs when the total scale changes between reads', () => {
-    const t = sequenced({ amount: [100n], currency: ['USDC'], scale: [6, 18] });
+    const t = sequenced({ kind: 'fiat', amount: [100n], currency: ['USD'], scale: [6, 18] });
     const legs = allocate(t.value, [1n, 1n]);
-    expect(legs).toEqual([money(50n, 'USDC', 6), money(50n, 'USDC', 6)]);
+    expect(legs).toEqual([moneyAt(50n, 'USD', 6), moneyAt(50n, 'USD', 6)]);
   });
 
   it('never splits an amount that changed after validation', () => {
     // A second read would turn a valid total into a negative or out of range one.
-    const neg = sequenced({ amount: [100n, -100n], currency: ['USD'], scale: [2] });
+    const neg = sequenced({ kind: 'fiat', amount: [100n, -100n], currency: ['USD'], scale: [2] });
     expect(amounts(allocate(neg.value, [1n, 1n, 1n]))).toEqual([34n, 33n, 33n]);
-    const huge = sequenced({ amount: [100n, 2n ** 200n], currency: ['USD'], scale: [2] });
+    const huge = sequenced({
+      kind: 'fiat',
+      amount: [100n, 2n ** 200n],
+      currency: ['USD'],
+      scale: [2],
+    });
     expect(amounts(allocate(huge.value, [1n, 1n, 1n]))).toEqual([34n, 33n, 33n]);
   });
 
@@ -446,19 +518,19 @@ describe('allocate rejects bad totals', () => {
     };
     expectSafeMessage(
       expectMoneyError(
-        () => allocate(loose({ amount: 1n, currency: hostile, scale: 2 }), [1n]),
+        () => allocate(loose({ kind: 'fiat', amount: 1n, currency: hostile, scale: 2 }), [1n]),
         UnknownCurrencyError,
       ),
     );
     expectSafeMessage(
       expectMoneyError(
-        () => allocate(loose({ amount: 1n, currency: 'USD', scale: hostile }), [1n]),
+        () => allocate(loose({ kind: 'fiat', amount: 1n, currency: 'USD', scale: hostile }), [1n]),
         InvalidScaleError,
       ),
     );
     expectSafeMessage(
       expectMoneyError(
-        () => allocate(loose({ amount: hostile, currency: 'USD', scale: 2 }), [1n]),
+        () => allocate(loose({ kind: 'fiat', amount: hostile, currency: 'USD', scale: 2 }), [1n]),
         InvalidAmountError,
       ),
     );
@@ -466,7 +538,12 @@ describe('allocate rejects bad totals', () => {
   });
 
   it('keeps a forged currency with a newline out of the message', () => {
-    const forged = loose({ amount: 1n, currency: 'USD\nlevel=info msg=paid', scale: 2 });
+    const forged = loose({
+      kind: 'fiat',
+      amount: 1n,
+      currency: 'USD\nlevel=info msg=paid',
+      scale: 2,
+    });
     const err = expectMoneyError(() => allocate(forged, [1n]), UnknownCurrencyError);
     expectSafeMessage(err);
     expect(err.message).not.toContain('msg=paid');

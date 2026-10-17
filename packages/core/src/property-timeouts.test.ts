@@ -37,6 +37,7 @@ describe('property test timeouts', () => {
   it('finds the heavy property test files', () => {
     expect(heavy.map(({ file }) => relative(SRC, file)).sort()).toEqual([
       'money/allocate.property.test.ts',
+      'money/convert.property.test.ts',
       'money/format.property.test.ts',
       'money/money-forged.test.ts',
       'money/money.property.test.ts',

@@ -275,8 +275,16 @@ export default defineConfig(
           patterns: [
             {
               regex: MONEY_INTERNALS_PATH.source,
-              importNames: ['build', 'snapshot'],
-              message: 'build and snapshot are internal to the money module. Use money().',
+              importNames: [
+                'build',
+                'buildToken',
+                'snapshot',
+                'snapshotFiat',
+                'snapshotToken',
+                'withAmount',
+              ],
+              message:
+                'build, buildToken, snapshot, snapshotFiat, snapshotToken and withAmount are internal to the money module. Use money(), moneyAt() or tokenAmount().',
             },
           ],
         },
