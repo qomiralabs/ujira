@@ -296,3 +296,112 @@ describe('formatMoney rejects bad input', () => {
     expect(m).toEqual(money(123_456_789n, 'GHS', 2));
   });
 });
+
+// The currencyCode option and its contract are documented in dollar-sign.test.ts.
+describe('currency code for ambiguous dollar signs', () => {
+  const InvalidFormatOptionError = exported('InvalidFormatOptionError');
+  const ambiguous = { currencyCode: 'whenAmbiguous' } as const;
+
+  it('COP and MXN show their code when ambiguous', () => {
+    expect(formatMoney(money(150_000n, 'COP', 2), { locale: 'en-US', ...ambiguous })).toBe(
+      `$1,500.00${NBSP}COP`,
+    );
+    expect(formatMoney(money(150_000n, 'MXN', 2), { locale: 'es-MX', ...ambiguous })).toBe(
+      `$1,500.00${NBSP}MXN`,
+    );
+    expect(formatMoney(money(150_000n, 'USD', 2), { locale: 'en-US', ...ambiguous })).toBe(
+      `$1,500.00${NBSP}USD`,
+    );
+    expect(formatMoney(money(123_456n, 'COP', 2), { locale: 'es-CO', ...ambiguous })).toBe(
+      `$${NBSP}1.234,56${NBSP}COP`,
+    );
+  });
+
+  it('NGN and USDC are unchanged when ambiguous', () => {
+    expect(formatMoney(money(2_000_000n, 'NGN', 2), { locale: 'en-NG', ...ambiguous })).toBe(
+      '₦20,000.00',
+    );
+    expect(formatMoney(money(1_234_567n, 'USDC', 6), { locale: 'en-US', ...ambiguous })).toBe(
+      `1.23${NBSP}USDC`,
+    );
+    for (const currency of ['KES', 'GHS', 'ZAR', 'PHP', 'INR', 'BRL', 'EUR', 'GBP'] as const) {
+      const m = money(123_456n, currency, 2);
+      expect(formatMoney(m, { locale: 'en-US', ...ambiguous })).toBe(
+        formatMoney(m, { locale: 'en-US' }),
+      );
+    }
+    const usdm = money(1_234n * 10n ** 18n, 'USDm', 18);
+    expect(formatMoney(usdm, { locale: 'en-US', ...ambiguous })).toBe(
+      formatMoney(usdm, { locale: 'en-US' }),
+    );
+  });
+
+  it('never appends the code by default or with never', () => {
+    const cop = money(150_000n, 'COP', 2);
+    expect(formatMoney(cop, { locale: 'en-US' })).toBe('$1,500.00');
+    expect(formatMoney(cop, { locale: 'en-US', currencyCode: 'never' })).toBe('$1,500.00');
+  });
+
+  it('appends the code after a negative amount and with any rounding', () => {
+    expect(formatMoney(money(-150n, 'USD', 2), { locale: 'en-US', ...ambiguous })).toBe(
+      `${MINUS}$1.50${NBSP}USD`,
+    );
+    expect(
+      formatMoney(money(1005n, 'MXN', 3), { locale: 'en-US', rounding: 'ceil', ...ambiguous }),
+    ).toBe(`$1.01${NBSP}MXN`);
+  });
+
+  it('rejects any other currencyCode after the locale and rounding checks', () => {
+    const m = money(100n, 'USD', 2);
+    const values: unknown[] = ['always', 'WHEN_AMBIGUOUS', '', null, true, 1, Object('never')];
+    for (const currencyCode of values) {
+      expectMoneyError(
+        () => formatMoney(m, loose({ locale: 'en-US', currencyCode })),
+        InvalidFormatOptionError,
+      );
+    }
+    expectMoneyError(
+      () => formatMoney(m, loose({ locale: '!!', currencyCode: 'bogus' })),
+      InvalidLocaleError,
+    );
+    expectMoneyError(
+      () => formatMoney(m, loose({ locale: 'en-US', rounding: 'bogus', currencyCode: 'bogus' })),
+      InvalidRoundingModeError,
+    );
+  });
+
+  it('reads currencyCode at most once', () => {
+    let reads = 0;
+    const answers: unknown[] = ['whenAmbiguous', 'bogus'];
+    const options = {
+      locale: 'en-US',
+      get currencyCode() {
+        reads += 1;
+        return answers[Math.min(reads, answers.length) - 1];
+      },
+    };
+    expect(formatMoney(money(150n, 'COP', 2), loose(options))).toBe(`$1.50${NBSP}COP`);
+    expect(reads).toBeLessThanOrEqual(1);
+  });
+
+  it('reads currencyCode only from a plain options object', () => {
+    const cop = money(150n, 'COP', 2);
+    const inherited = Object.create({ locale: 'en-US', currencyCode: 'whenAmbiguous' }) as object;
+    expectMoneyError(() => formatMoney(cop, loose(inherited)), InvalidLocaleError);
+    const bare = Object.assign(Object.create(null) as object, {
+      locale: 'en-US',
+      currencyCode: 'whenAmbiguous',
+    });
+    expect(formatMoney(cop, loose(bare))).toBe(`$1.50${NBSP}COP`);
+  });
+
+  it('ignores a currencyCode inherited from Object.prototype', () => {
+    const proto = Object.prototype as Record<string, unknown>;
+    proto['currencyCode'] = 'whenAmbiguous';
+    try {
+      expect(formatMoney(money(150n, 'COP', 2), { locale: 'en-US' })).toBe('$1.50');
+    } finally {
+      delete proto['currencyCode'];
+    }
+  });
+});
