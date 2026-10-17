@@ -45,8 +45,11 @@ export const FIAT_CURRENCIES: readonly FiatCurrency[] = Object.freeze([
   fiat('GBP', 2),
 ]);
 
+/** Every settlement token is shown to people at two places, like the dollar it tracks. */
+export const TOKEN_DISPLAY_SCALE = 2;
+
 const token = (asset: TokenAsset, chain: Chain, tokenScale: number): SettlementToken =>
-  Object.freeze({ asset, chain, tokenScale, displayScale: 2 });
+  Object.freeze({ asset, chain, tokenScale, displayScale: TOKEN_DISPLAY_SCALE });
 
 // The same asset can carry different decimals per chain (Stellar assets are
 // always 7), so the key is the asset and chain pair, never the asset alone.
