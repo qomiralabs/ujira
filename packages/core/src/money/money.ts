@@ -72,8 +72,19 @@ function parseCurrency(currency: unknown): CurrencyCode {
   return currency;
 }
 
-function build(amount: bigint, currency: CurrencyCode, scale: number): Money {
-  return Object.freeze({ amount: checked(amount), currency, scale });
+// Exported for sibling modules such as allocate. Lint keeps it inside the
+// money module and the indexes never re-export it. It validates on its own
+// anyway, so a caller in this module cannot mint a value money() would refuse.
+export function build(amount: bigint, currency: CurrencyCode, scale: number): Money {
+  const code = parseCurrency(currency);
+  const normalScale = parseScale(scale);
+  // The range check uses < and >, which compare a number or a string with a
+  // bigint without throwing, so the type has to be checked on its own.
+  const value: unknown = amount;
+  if (typeof value !== 'bigint') {
+    throw new InvalidAmountError('money amount must be a bigint');
+  }
+  return Object.freeze({ amount: checked(value), currency: code, scale: normalScale });
 }
 
 export function money(amount: bigint | string, currency: CurrencyCode, scale: number): Money {
@@ -91,7 +102,7 @@ export function money(amount: bigint | string, currency: CurrencyCode, scale: nu
  * and a getter can answer differently on every read. So each field is read
  * exactly once, validated like money() does, and only this copy is used.
  */
-function snapshot(value: Money): Money {
+export function snapshot(value: Money): Money {
   const candidate: unknown = value;
   if (typeof candidate !== 'object' || candidate === null) {
     throw new InvalidAmountError('expected a money value');
