@@ -270,7 +270,10 @@ function notPlainData(value: unknown, path: string, depth: number): string | und
     }
     // A key that does not look like a schema key is never echoed; the
     // issue then points at its parent.
-    const next = SAFE_SEGMENT.test(key) ? `${path}.${key}`.slice(0, 96) : path;
+    // Paths stop growing at the issue length limit rather than being cut
+    // mid segment.
+    const longer = `${path}.${key}`;
+    const next = SAFE_SEGMENT.test(key) && longer.length <= 96 ? longer : path;
     const inner = notPlainData(descriptor.value, next, depth + 1);
     if (inner !== undefined) return inner;
   }
@@ -278,13 +281,10 @@ function notPlainData(value: unknown, path: string, depth: number): string | und
 }
 
 function issuePath(path: readonly PropertyKey[]): string {
-  const parts = ['networks'];
-  for (const segment of path) {
-    const text = String(segment);
-    if (!SAFE_SEGMENT.test(text)) break;
-    parts.push(text);
-  }
-  return parts.join('.').slice(0, 96);
+  // zod paths hold schema keys and indexes only; the filter is a backstop
+  // so nothing else could ever be echoed.
+  const parts = path.map(String).filter((segment) => SAFE_SEGMENT.test(segment));
+  return ['networks', ...parts].join('.').slice(0, 96);
 }
 
 /**

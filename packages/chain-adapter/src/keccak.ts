@@ -46,12 +46,18 @@ const ROTATIONS = [
   [27n, 20n, 39n, 8n, 14n],
 ];
 
+// Indexes here are always in range by construction; the assertion only
+// tells the compiler so, without a fallback branch that can never run.
+function at<T>(list: ArrayLike<T>, index: number): T {
+  return list[index] as T;
+}
+
 function rotate(value: bigint, by: bigint): bigint {
   return by === 0n ? value : ((value << by) | (value >> (64n - by))) & MASK;
 }
 
 function lane(state: readonly bigint[], x: number, y: number): bigint {
-  return state[(x % 5) + 5 * (y % 5)] ?? 0n;
+  return at(state, (x % 5) + 5 * (y % 5));
 }
 
 function permute(state: bigint[]): void {
@@ -65,13 +71,13 @@ function permute(state: bigint[]): void {
         lane(state, x, 4),
     );
     const mixed = [0, 1, 2, 3, 4].map(
-      (x) => (columns[(x + 4) % 5] ?? 0n) ^ rotate(columns[(x + 1) % 5] ?? 0n, 1n),
+      (x) => at(columns, (x + 4) % 5) ^ rotate(at(columns, (x + 1) % 5), 1n),
     );
     const moved = new Array<bigint>(25).fill(0n);
     for (let x = 0; x < 5; x += 1) {
       for (let y = 0; y < 5; y += 1) {
-        const value = lane(state, x, y) ^ (mixed[x] ?? 0n);
-        moved[y + 5 * ((2 * x + 3 * y) % 5)] = rotate(value, ROTATIONS[x]?.[y] ?? 0n);
+        const value = lane(state, x, y) ^ at(mixed, x);
+        moved[y + 5 * ((2 * x + 3 * y) % 5)] = rotate(value, at(at(ROTATIONS, x), y));
       }
     }
     for (let x = 0; x < 5; x += 1) {
@@ -80,7 +86,7 @@ function permute(state: bigint[]): void {
           lane(moved, x, y) ^ (~lane(moved, x + 1, y) & MASK & lane(moved, x + 2, y));
       }
     }
-    state[0] = (state[0] ?? 0n) ^ constant;
+    state[0] = at(state, 0) ^ constant;
   }
 }
 
@@ -92,23 +98,23 @@ export function keccak256(input: Uint8Array): Uint8Array {
   padded.set(input);
   padded[input.length] = 0x01;
   const last = padded.length - 1;
-  padded[last] = (padded[last] ?? 0) | 0x80;
+  padded[last] = at(padded, last) | 0x80;
 
   const state = new Array<bigint>(25).fill(0n);
   for (let offset = 0; offset < padded.length; offset += RATE_BYTES) {
     for (let i = 0; i < RATE_BYTES / 8; i += 1) {
       let word = 0n;
       for (let b = 7; b >= 0; b -= 1) {
-        word = (word << 8n) | BigInt(padded[offset + i * 8 + b] ?? 0);
+        word = (word << 8n) | BigInt(at(padded, offset + i * 8 + b));
       }
-      state[i] = (state[i] ?? 0n) ^ word;
+      state[i] = at(state, i) ^ word;
     }
     permute(state);
   }
 
   const out = new Uint8Array(32);
   for (let i = 0; i < 32; i += 1) {
-    const word = state[Math.floor(i / 8)] ?? 0n;
+    const word = at(state, Math.floor(i / 8));
     out[i] = Number((word >> BigInt((i % 8) * 8)) & 0xffn);
   }
   return out;
@@ -129,7 +135,7 @@ export function isEip55Address(text: string): boolean {
   for (let i = 0; i < 40; i += 1) {
     const char = hex.charAt(i);
     if (char >= '0' && char <= '9') continue;
-    const byte = digest[Math.floor(i / 2)] ?? 0;
+    const byte = at(digest, Math.floor(i / 2));
     const nibble = i % 2 === 0 ? byte >> 4 : byte & 0x0f;
     const upper = char !== lower.charAt(i);
     if (upper !== nibble >= 8) return false;

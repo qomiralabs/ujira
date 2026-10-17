@@ -173,6 +173,13 @@ describe('chain adapter errors', () => {
     expect(
       thrown(() => new RpcTimeoutError(Object.create({ landed: 'no' }) as never)),
     ).toBeInstanceOf(InvalidInputError);
+    const getter = {
+      get landed() {
+        return 'no';
+      },
+    };
+    expect(thrown(() => new RpcTimeoutError(getter as never))).toBeInstanceOf(InvalidInputError);
+    expect(thrown(() => new InvalidInputError(getter as never))).toBeInstanceOf(InvalidInputError);
   });
 
   it('carries safe issue strings on InvalidInputError, and refuses any other', () => {

@@ -196,16 +196,15 @@ export abstract class ChainAdapterError extends Error {
     fallback: { readonly retryable?: boolean; readonly waitFor?: WaitFor } = {},
   ) {
     const defaults = DEFAULTS[code];
-    const options = readOptions(rawOptions);
-    const cause = options?.['cause'];
-    super(defaults.message, cause === undefined ? undefined : { cause });
     // An error that cannot be stored on a job would be lost exactly when it
     // matters, so bad options fail where they are written.
+    const options = readOptions(rawOptions);
     const bad = options === undefined ? 'options' : badOption(options);
-    if (options === undefined || bad !== undefined) {
-      throw new InvalidInputError({ issues: [`errorOptions.${bad ?? 'options'} (invalid)`] });
+    if (bad !== undefined) {
+      throw new InvalidInputError({ issues: [`errorOptions.${bad} (invalid)`] });
     }
     const read = options as ChainAdapterErrorOptions;
+    super(defaults.message, read.cause === undefined ? undefined : { cause: read.cause });
     this.code = code;
     this.network = read.network ?? null;
     this.retryable = read.retryable ?? fallback.retryable ?? defaults.retryable;
@@ -242,9 +241,7 @@ export interface InvalidInputErrorOptions extends ChainAdapterErrorOptions {
   readonly issues?: readonly string[];
 }
 
-function readIssues(options: unknown): readonly string[] | undefined {
-  const read = readOptions(options);
-  if (read === undefined) return [];
+function readIssues(read: Record<string, unknown>): readonly string[] | undefined {
   const list = read['issues'] ?? [];
   if (
     !Array.isArray(list) ||
@@ -256,9 +253,7 @@ function readIssues(options: unknown): readonly string[] | undefined {
   return Object.freeze([...list]);
 }
 
-function withoutIssues(options: unknown): unknown {
-  const read = readOptions(options);
-  if (read === undefined) return options;
+function withoutIssues(read: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(read).filter(([key]) => key !== 'issues'));
 }
 
@@ -270,13 +265,16 @@ export class InvalidInputError extends ChainAdapterError {
   readonly issues: readonly string[];
 
   constructor(options?: InvalidInputErrorOptions) {
-    super('INVALID_INPUT', withoutIssues(options));
-    const issues = readIssues(options);
+    // Options that are not plain data go to the base constructor as they
+    // are, so it refuses them the same way as for every other class.
+    const read = readOptions(options);
+    const issues = read === undefined ? [] : readIssues(read);
     if (issues === undefined) {
       // A malformed list is a bug at the throw site; replacing it keeps
       // whatever it held out of the error.
       throw new InvalidInputError({ issues: ['errorOptions.issues (invalid)'] });
     }
+    super('INVALID_INPUT', read === undefined ? options : withoutIssues(read));
     this.issues = issues;
   }
 

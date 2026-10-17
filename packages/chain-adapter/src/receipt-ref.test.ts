@@ -117,6 +117,13 @@ describe('receipt references', () => {
       Object.create({ network: 'eip155:42220' }),
       // Own fields that would pass, on an object that is not plain.
       Object.assign(new Date(0), own),
+      {},
+      {
+        ...own,
+        get network() {
+          return 'eip155:42220';
+        },
+      },
     ]) {
       expect(thrown(() => formatReceiptRef(parts as never))).toBeInstanceOf(InvalidInputError);
     }

@@ -117,6 +117,12 @@ function inheritsMento(): object {
   return Object.assign(Object.create({ mento }) as object, rest);
 }
 
+function deeplyNested(levels: number): object {
+  let node: object = {};
+  for (let i = 0; i < levels; i += 1) node = { inner: node };
+  return node;
+}
+
 function thrown(run: () => unknown): unknown {
   try {
     run();
@@ -250,6 +256,19 @@ describe('parseNetworksConfig', () => {
     ],
     ['an inherited network', Object.create({ 'eip155:42220': celo() }) as unknown],
     ['an inherited nested field', { 'eip155:42220': inheritsMento() }],
+    ['nesting past sixteen levels', { 'eip155:42220': deeplyNested(20) }],
+    [
+      'a getter under a key that is never echoed',
+      {
+        'stellar:pubnet': {
+          'not a key!': {
+            get x() {
+              return 1;
+            },
+          },
+        },
+      },
+    ],
     ['a class instance', { 'eip155:42220': Object.assign(new Date(0), celo()) }],
     ['a missing USDm', withChange('eip155:42220', 'assets', { USDC: { token: ADDR(3) } })],
     ['a fee as a number', withChange('stellar:pubnet', 'feeSponsor.maxFeePerTxStroops', 1_000_000)],
@@ -321,6 +340,25 @@ describe('parseNetworksConfig', () => {
       expect(text).not.toContain('sk_live');
       expect(text).not.toContain('rpc.example');
     }
+  });
+
+  it('reports a non plain node by its path, and never an unsafe key', () => {
+    const deep = thrown(() => parseNetworksConfig({ 'eip155:42220': deeplyNested(20) }));
+    expect((deep as InvalidInputError).issues[0]).toMatch(
+      /^networks\.eip155:42220(\.inner)+ \(too_deep\)$/,
+    );
+    const getter = thrown(() =>
+      parseNetworksConfig({
+        'stellar:pubnet': {
+          'sk_live key': {
+            get x() {
+              return 1;
+            },
+          },
+        },
+      }),
+    );
+    expect((getter as InvalidInputError).issues).toEqual(['networks.stellar:pubnet (not_plain)']);
   });
 
   it('caps the message when many fields fail', () => {
