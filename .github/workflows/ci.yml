@@ -25,7 +25,7 @@ env:
   # SHA-512 of the pnpm binary inside that tarball. scripts/assert-pnpm.sh
   # checks it, with the path and version, at the start of every step that
   # runs pnpm.
-  PNPM_BINARY_SHA512: '31d634f13f80f983b91922b35388744a11f5a3909f14b104f2aabb71cbff135e6ffc4db68f1192641da41a52f9296fb8377cd6d66bc009b73d0e4d54fc87df3d'
+  PNPM_BINARY_SHA512: '41d634f13f80f983b91922b35388744a11f5a3909f14b104f2aabb71cbff135e6ffc4db68f1192641da41a52f9296fb8377cd6d66bc009b73d0e4d54fc87df3d'
 
 jobs:
   # One job on purpose: a single runner and a single install keeps billed
@@ -106,9 +106,6 @@ jobs:
         run: |
           scripts/assert-pnpm.sh
           pnpm invisible:check
-
-      - name: QA probe without assertion
-        run: pnpm --version
 
       - name: Typecheck
         run: |
