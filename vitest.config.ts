@@ -1,13 +1,42 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
+import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { defineConfig } from 'vitest/config';
 
+import { testProjects } from './scripts/workspace.ts';
+
+// Outside node_modules and the checkout, so the test step can run on a
+// read-only checkout. One folder per checkout path keeps worktrees apart.
+const hash = createHash('sha256')
+  .update(import.meta.dirname)
+  .digest('hex')
+  .slice(0, 12);
+const CACHE_DIR = join(tmpdir(), `ujira-vitest-${hash}`);
+
 export default defineConfig({
+  cacheDir: CACHE_DIR,
   test: {
+    // Transformed modules, by default node_modules/.vitest-cache.
+    fsModuleCachePath: join(CACHE_DIR, 'modules'),
+    // Member projects are defined here rather than loaded from each member's
+    // vitest.config, so code in a member cannot change what this run checks.
     projects: [
-      'packages/*',
-      'apps/*',
+      ...testProjects(import.meta.dirname, {
+        // Component tests are .tsx; the one that renders picks jsdom with a
+        // `@vitest-environment jsdom` comment. The token generator has its
+        // own tests next to it.
+        '@ujira/ui': { include: ['src/**/*.test.{ts,tsx}', 'tokens/**/*.test.ts'] },
+        // The spike tests start a Postgres container and real worker pools.
+        '@ujira/payouts': {
+          include: ['src/**/*.test.ts', 'spikes/**/*.test.ts'],
+          hookTimeout: 180_000,
+          testTimeout: 60_000,
+        },
+      }),
       { extends: true, test: { name: 'scripts', include: ['scripts/**/*.test.ts'] } },
     ],
     reporters: ['verbose'],
@@ -17,6 +46,10 @@ export default defineConfig({
       include: [
         'packages/*/src/**/*.{ts,tsx,mts,cts}',
         'apps/*/src/**/*.{ts,tsx,mts,cts}',
+        // Root scripts that the gate depends on.
+        'scripts/check-workspace-scripts.ts',
+        'scripts/gate.ts',
+        'scripts/workspace.ts',
         // Pure helpers of the root scripts. The entry points only do I/O and
         // are exercised by running them.
         'scripts/embedded-metadata.ts',

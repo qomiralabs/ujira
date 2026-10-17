@@ -7,6 +7,8 @@ import globals from 'globals';
 import ts from 'typescript';
 import tseslint from 'typescript-eslint';
 
+import { lintProjects } from './scripts/workspace.ts';
+
 // The year on the copyright line is the year the file was created, so any
 // four digit year is accepted. Everything else must match exactly.
 const HEADER_PATTERNS = [
@@ -190,7 +192,19 @@ const noNumberConversion = {
 
 export default defineConfig(
   {
-    ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**', '**/.turbo/**'],
+    // Output folders only where the tools write them, at the root and at each
+    // member root. The same names deeper in a member are source and linted.
+    ignores: [
+      '**/node_modules/**',
+      'coverage/**',
+      '.turbo/**',
+      'packages/*/dist/**',
+      'packages/*/coverage/**',
+      'packages/*/.turbo/**',
+      'apps/*/dist/**',
+      'apps/*/coverage/**',
+      'apps/*/.turbo/**',
+    ],
   },
   {
     linterOptions: {
@@ -207,8 +221,14 @@ export default defineConfig(
       sourceType: 'module',
       globals: { ...globals.node },
       parserOptions: {
-        projectService: true,
+        // An explicit list rather than the nearest tsconfig to each file, so
+        // lint sees the same program as typecheck.
+        project: lintProjects(import.meta.dirname),
         tsconfigRootDir: import.meta.dirname,
+        // typescript-eslint treats CI=true as a single run and stops tracking
+        // files it was not started with, which breaks the lint tests that
+        // check text not on disk. Keep CI behaving like a local run.
+        disallowAutomaticSingleRunInference: true,
       },
     },
     plugins: {

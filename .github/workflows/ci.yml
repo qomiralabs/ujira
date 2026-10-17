@@ -80,10 +80,12 @@ jobs:
       - name: Check packageManager
         run: node scripts/check-package-manager.ts "${PNPM_VERSION}"
 
+      # No dependency or workspace member needs an install script, and the
+      # workspace check rejects them in members, so none run here.
       - name: Install
         run: |
           scripts/assert-pnpm.sh
-          pnpm install --frozen-lockfile
+          pnpm install --frozen-lockfile --ignore-scripts
 
       # Fails on any dependency outside the license allowlists, then fails
       # again if the committed notices are out of date.
@@ -112,6 +114,16 @@ jobs:
           scripts/assert-pnpm.sh
           pnpm typecheck
 
+      # Gate steps may only write ignored output such as dist/. A change to a
+      # tracked or new file means a step rewrote something later steps read.
+      - name: Working tree unchanged after typecheck
+        run: |
+          changes="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$changes" ]; then
+            echo "$changes"
+            exit 1
+          fi
+
       - name: Lint
         run: |
           scripts/assert-pnpm.sh
@@ -122,13 +134,64 @@ jobs:
           scripts/assert-pnpm.sh
           pnpm format:check
 
+      # The build uses its own tsconfig, so typecheck passing does not prove
+      # the packages compile for release. It runs before the tests, and so
+      # does every other check: test files are member code, and once they
+      # have run, ignored folders such as node_modules may have changed.
+      - name: Build
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm build
+
+      # Gate steps may only write ignored output such as dist/. A change to a
+      # tracked or new file means a step rewrote something later steps read.
+      - name: Working tree unchanged after build
+        run: |
+          changes="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$changes" ]; then
+            echo "$changes"
+            exit 1
+          fi
+
+      - name: Audit production dependencies
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm audit --prod
+
+      # Test files are member code, so the checkout, node_modules included,
+      # is mounted read-only for this step against ordinary writes from a
+      # test. It does not stop a test that uses sudo to remount, or writes to
+      # the pnpm store outside the checkout; those are a known gap tracked
+      # separately. The JUnit report, the coverage report and the Vitest cache
+      # are written outside the checkout.
       # The JUnit report names every test and its result, so a flaky or slow
-      # test can be identified from the artifact. It is written outside the
-      # checkout.
+      # test can be identified from the artifact.
       - name: Test with coverage
         run: |
           scripts/assert-pnpm.sh
-          pnpm test --reporter=verbose --reporter=junit --outputFile.junit="${RUNNER_TEMP}/vitest/junit.xml"
+          touch "${RUNNER_TEMP}/before-test"
+          sudo mount --bind "${PWD}" "${PWD}"
+          trap 'sudo umount "${PWD}"' EXIT
+          sudo mount -o remount,bind,ro "${PWD}"
+          pnpm test --coverage.reportsDirectory="${RUNNER_TEMP}/coverage" --reporter=verbose --reporter=junit --outputFile.junit="${RUNNER_TEMP}/vitest/junit.xml"
+
+      # A backstop for the read-only mount: nothing in the checkout, tracked,
+      # untracked or ignored, may change while the tests run. It compares
+      # ctime, which touch cannot set back; a privileged writer can still
+      # hide a change, as noted above.
+      - name: Working tree and node_modules unchanged after test
+        if: ${{ !cancelled() }}
+        run: |
+          changes="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$changes" ]; then
+            echo "$changes"
+            exit 1
+          fi
+          newer="$(find . -mindepth 1 -path ./.git -prune -o -cnewer "${RUNNER_TEMP}/before-test" -print)"
+          if [ -n "$newer" ]; then
+            echo "$newer"
+            exit 1
+          fi
 
       - name: Upload test report
         if: ${{ !cancelled() }}
@@ -146,18 +209,6 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage
-          path: coverage/
+          path: ${{ runner.temp }}/coverage/
           if-no-files-found: ${{ job.status == 'success' && 'error' || 'ignore' }}
           retention-days: 14
-
-      # The build uses its own tsconfig, so typecheck passing does not prove
-      # the packages compile for release.
-      - name: Build
-        run: |
-          scripts/assert-pnpm.sh
-          pnpm build
-
-      - name: Audit production dependencies
-        run: |
-          scripts/assert-pnpm.sh
-          pnpm audit --prod

@@ -9,12 +9,12 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "turbo run build",
-    "typecheck": "node scripts/check-workspace-scripts.ts && turbo run typecheck && tsc -p tsconfig.json",
-    "lint": "node scripts/check-workspace-scripts.ts && turbo run lint && eslint --max-warnings 0 --ignore-pattern 'packages/**' --ignore-pattern 'apps/**' .",
-    "test": "vitest run --coverage",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "build": "node scripts/check-workspace-scripts.ts && node scripts/gate.ts build",
+    "typecheck": "node scripts/check-workspace-scripts.ts && node scripts/gate.ts typecheck",
+    "lint": "node scripts/check-workspace-scripts.ts && eslint --config eslint.config.js --max-warnings 0 .",
+    "test": "vitest run --coverage --configLoader native",
+    "format": "prettier --config .prettierrc.json --no-editorconfig --ignore-path .prettierignore --write .",
+    "format:check": "prettier --config .prettierrc.json --no-editorconfig --ignore-path .prettierignore --check .",
     "licenses:check": "node scripts/check-licenses.ts",
     "metadata:check": "node scripts/check-embedded-metadata.ts",
     "metadata:strip": "node scripts/strip-embedded-metadata.ts",
@@ -30,6 +30,7 @@
     "turbo": "2.11.8",
     "typescript": "6.0.3",
     "typescript-eslint": "8.71.2",
-    "vitest": "5.0.5"
+    "vitest": "5.0.5",
+    "yaml": "2.9.1"
   }
 }
