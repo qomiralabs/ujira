@@ -20,8 +20,8 @@ env:
   # PNPM_EXE_SHA512 is the SHA-512 of that tarball for PNPM_VERSION, which
   # must match packageManager in package.json. Quoted so YAML never reads an
   # all digit hash as a number.
-  PNPM_VERSION: 12.14.0
-  PNPM_EXE_SHA512: '27a2bc7bf8d6c62b84609690b514541bdca70524c41dafadecb7fce8c2ae38ee5403b59554c6e2fa807c9d8ea2296fbe9dc592db21ba4fd7da5d91b1a8db1fa1'
+  PNPM_VERSION: 12.13.0
+  PNPM_EXE_SHA512: '17a2bc7bf8d6c62b84609690b514541bdca70524c41dafadecb7fce8c2ae38ee5403b59554c6e2fa807c9d8ea2296fbe9dc592db21ba4fd7da5d91b1a8db1fa1'
 
 jobs:
   # One job on purpose: a single runner and a single install keeps billed
