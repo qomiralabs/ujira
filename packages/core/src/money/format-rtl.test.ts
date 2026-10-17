@@ -13,12 +13,19 @@
  * locales get exactly the output they had before: no isolate characters.
  * Nothing else changes: without the option, or for a currency that does
  * not print "$", right to left output has no isolates either.
+ *
+ * formatTokenAmount always shows its asset code, so in a right to left
+ * locale the code is always isolated the same way: U+00A0, U+2068, the
+ * asset, U+2069. The direction comes from the same lookup as fiat, with the
+ * same fallbacks. Left to right token output is byte for byte what it was.
+ * The fiat only currencyCode option has no effect on token amounts.
  */
 
 import { describe, expect, it } from 'vitest';
 
-import { formatMoney } from './format.js';
-import { money } from './index.js';
+import { formatMoney, formatTokenAmount } from './format.js';
+import { money, tokenAmount } from './index.js';
+import type { TokenAmount } from './index.js';
 
 const NBSP = '\u00a0';
 const FSI = '\u2068';
@@ -197,5 +204,130 @@ describe('direction lookup on engines without text info', () => {
     expect(typeof proto['maximize']).toBe('function');
     expect(typeof proto['getTextInfo']).toBe('function');
     expect(Object.getOwnPropertyDescriptor(proto, 'textInfo')).toBeDefined();
+  });
+});
+
+const RTL_LOCALES = ['ar-EG', 'he-IL', 'ur-PK', 'fa-IR'];
+const TOKENS: [string, (amount: bigint) => TokenAmount][] = [
+  ['USDC', (whole) => tokenAmount(whole * 1_234_567n, 'USDC', 'celo')],
+  ['USDm', (whole) => tokenAmount(whole * 1_234_567n * 10n ** 12n, 'USDm', 'celo')],
+];
+
+describe('token codes in right to left locales', () => {
+  for (const locale of RTL_LOCALES) {
+    it.each(TOKENS)(
+      `isolates the code for a positive and a negative %s in ${locale}`,
+      (asset, make) => {
+        const positive = formatTokenAmount(make(1n), { locale });
+        const negative = formatTokenAmount(make(-1n), { locale });
+        for (const s of [positive, negative]) {
+          expect(s.endsWith(`${NBSP}${FSI}${asset}${PDI}`)).toBe(true);
+          expect(s.match(/\u2068/g)).toHaveLength(1);
+          expect(s.match(/\u2069/g)).toHaveLength(1);
+        }
+        expect(negative).toContain(MINUS);
+        // Same layout: the negative is the positive plus a minus sign and marks.
+        expect(negative.replace(BIDI_CONTROLS, '').replace(MINUS, '')).toBe(
+          positive.replace(BIDI_CONTROLS, ''),
+        );
+      },
+    );
+  }
+
+  it('isolates the code on either chain, since the chain is never shown', () => {
+    const celo = formatTokenAmount(tokenAmount(-1_234_567n, 'USDC', 'celo'), { locale: 'ar-EG' });
+    const stellar = formatTokenAmount(tokenAmount(-12_345_670n, 'USDC', 'stellar'), {
+      locale: 'ar-EG',
+    });
+    expect(stellar).toBe(celo);
+    expect(celo.endsWith(`${NBSP}${FSI}USDC${PDI}`)).toBe(true);
+  });
+});
+
+describe('left to right token output is unchanged', () => {
+  it('keeps the exact bytes', () => {
+    expect(formatTokenAmount(tokenAmount(-1_234_567n, 'USDC', 'celo'), { locale: 'en-US' })).toBe(
+      `${MINUS}1.23${NBSP}USDC`,
+    );
+    expect(formatTokenAmount(tokenAmount(1_234_567n, 'USDC', 'stellar'), { locale: 'en-US' })).toBe(
+      `0.12${NBSP}USDC`,
+    );
+    expect(
+      formatTokenAmount(tokenAmount(-1_234_567n * 10n ** 15n, 'USDm', 'celo'), { locale: 'de-DE' }),
+    ).toBe(`${MINUS}1.234,57${NBSP}USDm`);
+    expect(
+      formatTokenAmount(tokenAmount(1_234_567_890_000n, 'USDC', 'celo'), { locale: 'fr-FR' }),
+    ).toBe(`1${NBSP}234${NBSP}567,89${NBSP}USDC`);
+  });
+
+  it.each([
+    'en-US',
+    'en-NG',
+    'en-KE',
+    'pt-BR',
+    'es-CO',
+    'de-DE',
+    'fr-FR',
+    'sv-SE',
+    'bn-BD',
+    'my-MM',
+  ])('adds no isolate characters in %s', (locale) => {
+    for (const [asset, make] of TOKENS) {
+      for (const sign of [1n, -1n]) {
+        const s = formatTokenAmount(make(sign), { locale });
+        expect(s).not.toMatch(/[\u2066-\u2069]/);
+        expect(s.endsWith(`${NBSP}${asset}`)).toBe(true);
+      }
+    }
+  });
+});
+
+describe('token direction uses the fiat lookup and its fallbacks', () => {
+  const renderToken = (locale: string): string[] =>
+    [1n, -1n].map((sign) =>
+      formatTokenAmount(tokenAmount(sign * 1_234_567n, 'USDC', 'celo'), { locale }),
+    );
+  const LOCALES = ['ar-EG', 'he-IL', 'en-US'];
+  const expected = new Map(LOCALES.map((locale) => [locale, renderToken(locale)]));
+
+  it.each(LOCALES)('gives the same output from each fallback in %s', (locale) => {
+    withLocaleApi({ getTextInfo: 'remove' }, () => {
+      expect(renderToken(locale)).toEqual(expected.get(locale));
+    });
+    withLocaleApi({ getTextInfo: 'remove', textInfo: 'remove' }, () => {
+      expect(renderToken(locale)).toEqual(expected.get(locale));
+    });
+    withLocaleApi({ getTextInfo: 'throw', textInfo: 'throw' }, () => {
+      expect(renderToken(locale)).toEqual(expected.get(locale));
+    });
+  });
+
+  it('agrees with fiat about which locales are right to left', () => {
+    for (const locale of [...RTL_LOCALES, 'en-US', 'de-DE']) {
+      const fiat = formatMoney(money(-150n, 'USD'), { locale, ...ambiguous }).includes(FSI);
+      const token = formatTokenAmount(tokenAmount(-1n, 'USDC', 'celo'), { locale }).includes(FSI);
+      expect(token).toBe(fiat);
+    }
+  });
+
+  it('falls back to plain left to right output when nothing is available', () => {
+    withLocaleApi({ getTextInfo: 'remove', textInfo: 'remove', maximize: 'throw' }, () => {
+      for (const locale of LOCALES) {
+        for (const s of renderToken(locale)) expect(s).not.toMatch(/[\u2068\u2069]/);
+      }
+    });
+  });
+});
+
+describe('currencyCode on token amounts', () => {
+  it('is ignored, whatever its value', () => {
+    for (const locale of ['en-US', 'ar-EG']) {
+      const token = tokenAmount(-1_234_567n, 'USDC', 'celo');
+      const plain = formatTokenAmount(token, { locale });
+      for (const currencyCode of ['whenAmbiguous', 'never', 'bogus']) {
+        const options = { locale, currencyCode } as unknown as { locale: string };
+        expect(formatTokenAmount(token, options)).toBe(plain);
+      }
+    }
   });
 });
