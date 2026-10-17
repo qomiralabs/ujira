@@ -411,11 +411,19 @@ function pngText(chunk: PngChunk, budget: InflateBudget): PngText | undefined {
 }
 
 // Some converters store profiles as `Raw profile type <name>` text: a name
-// line, a length line, then the profile in hex. The header is read line by
-// line rather than with one regular expression, whose overlapping whitespace
-// runs made it quadratic on crafted input.
-function decodeRawProfile(keyword: string, text: Buffer): Buffer | undefined {
+// line, a line with the profile length in bytes, then the profile in hex,
+// wrapped over lines. A body that does not parse exactly, with the hex
+// matching the length, is reported rather than skipped, since hex encoded
+// XMP holds none of the strings the plain scan looks for. The header is read
+// line by line rather than with one regular expression, whose overlapping
+// whitespace runs made it quadratic on crafted input.
+function decodeRawProfile(chunk: PngChunk, keyword: string, text: Buffer): Buffer | undefined {
   if (!/^Raw profile type /i.test(keyword)) return undefined;
+  const fail = (reason: string): never => {
+    throw new MalformedFileError(
+      `${chunk.type} chunk at byte ${String(chunk.start)} holds a raw profile that ${reason}`,
+    );
+  };
   const body = text.toString('latin1');
   // Blank lines may come before the name line.
   let start = 0;
@@ -424,13 +432,16 @@ function decodeRawProfile(keyword: string, text: Buffer): Buffer | undefined {
     start = nameEnd + 1;
     nameEnd = body.indexOf('\n', start);
   }
-  if (nameEnd === -1) return undefined;
+  if (nameEnd === -1) return fail('has no name line followed by a length line');
   const lengthEnd = body.indexOf('\n', nameEnd + 1);
-  if (lengthEnd === -1 || !/^\d+$/.test(body.slice(nameEnd + 1, lengthEnd).trim())) {
-    return undefined;
-  }
+  if (lengthEnd === -1) return fail('has no length line');
+  const length = body.slice(nameEnd + 1, lengthEnd).trim();
+  if (!/^\d{1,10}$/.test(length)) return fail('has a length that is not a number');
   const hex = body.slice(lengthEnd + 1).replace(/\s+/g, '');
-  if (hex.length % 2 !== 0 || !/^[0-9a-f]*$/i.test(hex)) return undefined;
+  if (!/^[0-9a-f]*$/i.test(hex)) return fail('holds characters that are not hex');
+  if (hex.length !== 2 * parseInt(length, 10)) {
+    return fail(`holds ${String(hex.length)} hex digits for a length of ${length} bytes`);
+  }
   return Buffer.from(hex, 'hex');
 }
 
@@ -440,7 +451,7 @@ function pngChunkFinding(chunk: PngChunk, budget: InflateBudget): string | undef
   const text = pngText(chunk, budget);
   if (!text) return undefined;
   if (text.keyword === PNG_XMP_KEYWORD) return `PNG ${chunk.type} chunk holds an XMP packet`;
-  const decoded = decodeRawProfile(text.keyword, text.text);
+  const decoded = decodeRawProfile(chunk, text.keyword, text.text);
   const reasons = [...genericFindings(text.text), ...(decoded ? genericFindings(decoded) : [])];
   if (reasons.includes(XMP_REASON)) return `PNG ${chunk.type} chunk holds an XMP packet`;
   if (reasons.length > 0) return `PNG ${chunk.type} chunk holds a C2PA manifest`;

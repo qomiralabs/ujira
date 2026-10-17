@@ -736,7 +736,7 @@ describe('review: JPEG', () => {
 describe('review: file names', () => {
   it('escapes control characters and bytes that are not UTF-8', () => {
     expect(showPath(Buffer.from('logo.png'))).toBe('logo.png');
-    expect(showPath(Buffer.from('café.svg'))).toBe('café.svg');
+    expect(showPath(Buffer.from('caf\u00E9.svg'))).toBe('caf\u00E9.svg');
     expect(showPath(Buffer.from('evil\n::warning::x.png'))).toBe('"evil\\x0a::warning::x.png"');
     expect(showPath(Buffer.from([0x62, 0xff, 0x22, 0x5c]))).toBe('"b\\xff\\x22\\x5c"');
   });
@@ -838,7 +838,9 @@ describe('review: inflation limits', () => {
       Buffer.concat([Buffer.from('Raw profile type xmp\0', 'latin1'), text]),
     );
     const started = Date.now();
-    expect(findEmbeddedMetadata('icon.png', pngWith(chunk))).toEqual([]);
+    expect(findEmbeddedMetadata('icon.png', pngWith(chunk))).toEqual([
+      'not a valid png: tEXt chunk at byte 33 holds a raw profile that has a length that is not a number',
+    ]);
     expect(Date.now() - started).toBeLessThan(1000);
   });
 
@@ -851,20 +853,57 @@ describe('review: inflation limits', () => {
     expect(findEmbeddedMetadata('icon.png', data)).toEqual(['PNG tEXt chunk holds an XMP packet']);
   });
 
+  // Any Raw profile body that does not parse exactly is reported, so a hex
+  // encoded packet cannot hide behind a malformed header or hex run.
+  const hexXmp = (): string => Buffer.from(xmpPacket()).toString('hex');
   it.each([
-    ['no name line', '\n'],
-    ['no length line', '\nxmp'],
-    ['a length that is not a number', '\nxmp\nabc\n00'],
-    ['hex of odd length', '\nxmp\n1\n0'],
-    ['text that is not hex', '\nxmp\n1\nzz'],
-  ])('ignores a raw profile with %s', (_name, body) => {
+    ['an odd trailing nibble', () => `\nxmp\n${String(hexXmp().length / 2)}\n${hexXmp()}0\n`],
+    [
+      'a stray g in the hex',
+      () =>
+        `\nxmp\n${String(hexXmp().length / 2)}\n${hexXmp().slice(0, 10)}g${hexXmp().slice(10)}\n`,
+    ],
+    ['no length line', () => `\nxmp\n${hexXmp()}`],
+    ['a length that is not digits', () => `\nxmp\nabc\n${hexXmp()}\n`],
+    ['everything on one line', () => `xmp ${String(hexXmp().length / 2)} ${hexXmp()}`],
+    ['no name line', () => '\n'],
+    ['only a name line', () => '\nxmp'],
+  ])('reports a raw profile with %s as not valid and refuses to strip it', (_name, body) => {
     const data = pngWith(
       pngChunk(
         'tEXt',
-        Buffer.concat([Buffer.from('Raw profile type xmp\0', 'latin1'), Buffer.from(body)]),
+        Buffer.concat([Buffer.from('Raw profile type xmp\0', 'latin1'), Buffer.from(body())]),
+      ),
+    );
+    const [finding, ...rest] = findEmbeddedMetadata('icon.png', data);
+    expect(rest).toEqual([]);
+    expect(finding).toMatch(/^not a valid png: tEXt chunk at byte 33 holds a raw profile that /);
+    expect(() => stripEmbeddedMetadata('icon.png', data)).toThrow('raw profile');
+  });
+
+  it('decodes a raw profile with CRLF line ends and upper case hex', () => {
+    const hex = hexXmp().toUpperCase();
+    const text = `\r\nxmp\r\n${String(hex.length / 2)}\r\n${hex}\r\n`;
+    const data = pngWith(
+      pngChunk(
+        'tEXt',
+        Buffer.concat([Buffer.from('Raw profile type xmp\0', 'latin1'), Buffer.from(text)]),
+      ),
+    );
+    expect(findEmbeddedMetadata('icon.png', data)).toEqual(['PNG tEXt chunk holds an XMP packet']);
+    expect(stripEmbeddedMetadata('icon.png', data).equals(CLEAN_PNG)).toBe(true);
+  });
+
+  it('keeps a well formed raw profile that holds no metadata', () => {
+    const text = '\nicc\n4\n00112233\n';
+    const data = pngWith(
+      pngChunk(
+        'tEXt',
+        Buffer.concat([Buffer.from('Raw profile type icc\0', 'latin1'), Buffer.from(text)]),
       ),
     );
     expect(findEmbeddedMetadata('icon.png', data)).toEqual([]);
+    expect(stripEmbeddedMetadata('icon.png', data).equals(data)).toBe(true);
   });
 });
 
