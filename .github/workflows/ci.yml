@@ -57,6 +57,11 @@ jobs:
           pnpm licenses:check
           git diff --exit-code THIRD_PARTY_NOTICES.md
 
+      # Provenance manifests and XMP packets in images can name the program
+      # that made them and never show up in a text diff.
+      - name: Check embedded metadata
+        run: pnpm metadata:check
+
       - name: Typecheck
         run: pnpm typecheck
 
