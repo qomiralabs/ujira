@@ -1,14 +1,14 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-import { FIAT_CURRENCIES, TOKEN_DISPLAY_SCALE, isCurrencyCode } from './currencies.js';
-import type { CurrencyCode, FiatCurrencyCode } from './currencies.js';
+import { TOKEN_DISPLAY_SCALE, isFiatCurrencyCode, isTokenAsset } from './currencies.js';
+import type { FiatCurrencyCode, TokenAsset } from './currencies.js';
 import { InvalidFormatOptionError, InvalidLocaleError, UnknownCurrencyError } from './errors.js';
-import { multiply } from './money.js';
-import type { Money } from './money.js';
+import { minorUnits, powerOfTen, snapshotFiat, snapshotToken } from './money.js';
+import type { Money, TokenAmount } from './money.js';
 import { isPlainRecord, readOwnField } from './options.js';
-import { toDecimalString } from './parse.js';
-import { parseRoundingMode, rescale } from './rescale.js';
+import { decimalText } from './parse.js';
+import { divideRounded, parseRoundingMode } from './rescale.js';
 import type { RoundingMode } from './rescale.js';
 
 // The symbol is part of the brand, so it stays the same in every locale.
@@ -60,24 +60,32 @@ interface LocaleTextInfo {
   readonly textInfo?: { direction?: string };
 }
 
-function reportedDirection(locale: Intl.Locale): string | undefined {
-  const info = locale as unknown as LocaleTextInfo;
-  if (typeof info.getTextInfo === 'function') return info.getTextInfo().direction;
-  return info.textInfo?.direction;
+/** The direction one source reports, or undefined when it is missing or throws. */
+function tryDirection(read: () => { direction?: string } | undefined): string | undefined {
+  try {
+    return read()?.direction;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
- * Whether `locale` (already validated) writes right to left: from the
- * engine's text info when it has any, otherwise from the locale's likely
- * script. The answer only decides whether the code is isolated, so if even
- * that lookup fails the amount is formatted left to right rather than not
- * at all.
+ * Whether `locale` (already validated) writes right to left. Each source is
+ * tried on its own, so one that is missing or throws never hides the next:
+ * the engine's getTextInfo method, then the older textInfo accessor, then
+ * the locale's likely script. The answer only decides whether the code is
+ * isolated, so if every source fails the amount is formatted left to right
+ * rather than not at all.
  */
 function isRightToLeft(locale: string): boolean {
+  // The tag already passed Intl.getCanonicalLocales, so this cannot throw.
+  const parsed = new Intl.Locale(locale);
+  const info = parsed as unknown as LocaleTextInfo;
+  const direction =
+    tryDirection(() => (typeof info.getTextInfo === 'function' ? info.getTextInfo() : undefined)) ??
+    tryDirection(() => info.textInfo);
+  if (direction !== undefined) return direction === 'rtl';
   try {
-    const parsed = new Intl.Locale(locale);
-    const direction = reportedDirection(parsed);
-    if (direction !== undefined) return direction === 'rtl';
     return RTL_SCRIPTS.has(parsed.maximize().script);
   } catch {
     return false;
@@ -106,10 +114,13 @@ function parseCurrencyCodeDisplay(value: unknown): CurrencyCodeDisplay {
  * with "$" (USD, COP and MXN today), so their amounts cannot be told apart
  * by symbol. Principal views pass the currencies of the principal's
  * corridors and use the answer for every amount they show, so filtering a
- * table never changes the format. Recipient views never need it. Tokens
- * always print their asset code and never count.
+ * table never changes the format. Recipient views never need it. Token
+ * assets may appear in the list; they print their asset code with
+ * formatTokenAmount and never count.
  */
-export function dollarSignAmbiguous(currencies: readonly CurrencyCode[]): boolean {
+export function dollarSignAmbiguous(
+  currencies: readonly (FiatCurrencyCode | TokenAsset)[],
+): boolean {
   const list: unknown = currencies;
   if (!Array.isArray(list)) {
     throw new InvalidFormatOptionError('currencies must be an array of currency codes');
@@ -120,30 +131,26 @@ export function dollarSignAmbiguous(currencies: readonly CurrencyCode[]): boolea
     const code: unknown = Object.hasOwn(list, index)
       ? (list as readonly unknown[])[index]
       : undefined;
-    if (!isCurrencyCode(code)) {
+    if (isFiatCurrencyCode(code)) {
+      if (BRAND_SYMBOLS[code] === DOLLAR_SIGN) dollars.add(code);
+    } else if (!isTokenAsset(code)) {
       throw new UnknownCurrencyError('currencies must hold only known currency codes');
     }
-    const fiat = FIAT_CURRENCIES.find((c) => c.code === code);
-    if (fiat !== undefined && BRAND_SYMBOLS[fiat.code] === DOLLAR_SIGN) dollars.add(fiat.code);
   }
   return dollars.size >= 2;
 }
+
 const NARROW_NBSP = '\u202f';
 const MINUS = '\u2212';
 
 const MAX_LOCALE_LENGTH = 64;
 
-function readLocale(options: unknown): {
-  locale: string;
-  rounding: unknown;
-  currencyCode: unknown;
-} {
+function readLocale(options: unknown): { locale: string; rounding: unknown } {
   if (!isPlainRecord(options)) {
     throw new InvalidLocaleError('options with a locale are required');
   }
   const locale = readOwnField(options, 'locale');
   const rounding = readOwnField(options, 'rounding');
-  const currencyCode = readOwnField(options, 'currencyCode');
   if (typeof locale !== 'string' || locale === '') {
     throw new InvalidLocaleError('locale must be a non empty language tag');
   }
@@ -158,18 +165,31 @@ function readLocale(options: unknown): {
     // The tag itself never goes into the message, it is caller text.
     throw new InvalidLocaleError('locale is not a valid language tag');
   }
-  return { locale, rounding, currencyCode };
+  return { locale, rounding };
 }
 
-/** Decimal string at exactly `displayScale` places, padded rather than rescaled up. */
-function displayDecimal(value: Money, displayScale: number, mode: RoundingMode): string {
-  if (value.scale >= displayScale) {
-    return toDecimalString(rescale(value, displayScale, mode));
-  }
-  // Padding the text instead of multiplying means a valid Money can never
-  // overflow on the way to the screen.
-  const [whole = '', fraction = ''] = toDecimalString(value).split('.');
-  return `${whole}.${fraction.padEnd(displayScale, '0')}`;
+/**
+ * Decimal string of `amount` units of 10^-scale at exactly `displayScale`
+ * places. Every fiat and token scale is at least its display scale, so this
+ * only ever rounds down in precision, never multiplies, and a valid value
+ * can never overflow on the way to the screen.
+ */
+function displayDecimal(
+  amount: bigint,
+  scale: number,
+  displayScale: number,
+  mode: RoundingMode,
+): `${number}` {
+  const shifted = divideRounded(amount, powerOfTen(scale) / powerOfTen(displayScale), mode);
+  // Intl reads a numeric string as an exact decimal; the cast only satisfies
+  // the type, the value stays a string.
+  return decimalText(shifted, displayScale) as `${number}`;
+}
+
+function readFormatOptions(options: unknown): { locale: string; mode: RoundingMode } {
+  const { locale, rounding } = readLocale(options);
+  const mode = rounding === undefined ? 'half-even' : parseRoundingMode(rounding);
+  return { locale, mode };
 }
 
 /**
@@ -188,14 +208,14 @@ function typeset(parts: readonly Intl.NumberFormatPart[], symbol: string): strin
 }
 
 /**
- * Formats `m` for people in `options.locale`.
+ * Formats fiat `m` for people in `options.locale`.
  *
- * The value is rescaled to the display scale (two places for every launch
- * currency and token) with `options.rounding`, which defaults to half-even.
- * The exact decimal string is handed to Intl.NumberFormat, so no JavaScript
+ * The value is rounded to the currency's minor unit (two places for every
+ * launch currency) with `options.rounding`, which defaults to half-even. The
+ * exact decimal string is handed to Intl.NumberFormat, so no JavaScript
  * number is formed and every digit of an i128 amount survives. Digits are
- * always ASCII. Fiat uses the brand symbol (KES shows KSh); tokens print the
- * locale's decimal format followed by a no break space and the asset code.
+ * always ASCII and the brand symbol never depends on the locale (KES shows
+ * KSh). A token amount throws KindMismatchError; use formatTokenAmount.
  *
  * Negative amounts use the true minus sign U+2212 and spaces are always
  * U+00A0, whatever the locale. toDecimalString stays ASCII for data.
@@ -221,38 +241,47 @@ export function formatMoney(
   m: Money,
   options: { locale: string; rounding?: RoundingMode; currencyCode?: CurrencyCodeDisplay },
 ): string {
-  const value = multiply(m, 1n);
-  const { locale, rounding, currencyCode } = readLocale(options);
-  const mode = rounding === undefined ? 'half-even' : parseRoundingMode(rounding);
-  const codeDisplay = parseCurrencyCodeDisplay(currencyCode);
-
-  const fiat = FIAT_CURRENCIES.find((c) => c.code === value.currency);
-  const displayScale = fiat === undefined ? TOKEN_DISPLAY_SCALE : fiat.minorUnits;
-  // Intl reads a numeric string as an exact decimal; the cast only satisfies
-  // the type, the value stays a string.
-  const text = displayDecimal(value, displayScale, mode) as `${number}`;
-  const digits = { minimumFractionDigits: displayScale, maximumFractionDigits: displayScale };
-
-  if (fiat === undefined) {
-    const parts = new Intl.NumberFormat(locale, {
-      ...digits,
-      numberingSystem: 'latn',
-    }).formatToParts(text);
-    return `${typeset(parts, '')}${NBSP}${value.currency}`;
-  }
+  const value = snapshotFiat(m);
+  const { locale, mode } = readFormatOptions(options);
+  // Read after the locale and the rounding so a bad value is reported in
+  // that order; readFormatOptions has already checked the bag is plain.
+  const codeDisplay = parseCurrencyCodeDisplay(readOwnField(options, 'currencyCode'));
+  const displayScale = minorUnits(value.currency);
   const parts = new Intl.NumberFormat(locale, {
-    ...digits,
+    minimumFractionDigits: displayScale,
+    maximumFractionDigits: displayScale,
     style: 'currency',
-    currency: fiat.code,
+    currency: value.currency,
     currencyDisplay: 'narrowSymbol',
     numberingSystem: 'latn',
-  }).formatToParts(text);
-  const symbol = BRAND_SYMBOLS[fiat.code];
+  }).formatToParts(displayDecimal(value.amount, value.scale, displayScale, mode));
+  const symbol = BRAND_SYMBOLS[value.currency];
   const formatted = typeset(parts, symbol);
   // Only "$" is shared between currencies, so only "$" amounts get the code.
   if (codeDisplay !== 'whenAmbiguous' || symbol !== DOLLAR_SIGN) return formatted;
   // Left to right text is left exactly as it was; only right to left text
   // needs the isolate to lay positive and negative amounts out the same way.
-  const code = isRightToLeft(locale) ? `${FSI}${fiat.code}${PDI}` : fiat.code;
+  const code = isRightToLeft(locale) ? `${FSI}${value.currency}${PDI}` : value.currency;
   return `${formatted}${NBSP}${code}`;
+}
+
+/**
+ * Formats token amount `t` for people in `options.locale`: the locale's
+ * decimal format at the token display scale (two places), a no break space
+ * and the asset code, for example "1.23 USDC". The chain is never shown.
+ * Rounding, digits, minus sign, spaces and option handling follow
+ * formatMoney. Fiat money throws KindMismatchError; use formatMoney.
+ */
+export function formatTokenAmount(
+  t: TokenAmount,
+  options: { locale: string; rounding?: RoundingMode },
+): string {
+  const value = snapshotToken(t);
+  const { locale, mode } = readFormatOptions(options);
+  const parts = new Intl.NumberFormat(locale, {
+    minimumFractionDigits: TOKEN_DISPLAY_SCALE,
+    maximumFractionDigits: TOKEN_DISPLAY_SCALE,
+    numberingSystem: 'latn',
+  }).formatToParts(displayDecimal(value.amount, value.scale, TOKEN_DISPLAY_SCALE, mode));
+  return `${typeset(parts, '')}${NBSP}${value.asset}`;
 }

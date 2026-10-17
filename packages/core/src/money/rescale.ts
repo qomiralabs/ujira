@@ -2,7 +2,7 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 import { InvalidRoundingModeError } from './errors.js';
-import { money, multiply, powerOfTen } from './money.js';
+import { build, minorUnits, parseFiatScale, powerOfTen, snapshotFiat } from './money.js';
 import type { Money } from './money.js';
 
 /**
@@ -52,18 +52,29 @@ export function divideRounded(n: bigint, divisor: bigint, mode: RoundingMode): b
 }
 
 /**
- * Moves `m` to `toScale`. Scaling up is exact and throws MoneyOverflowError
+ * Moves fiat `m` to `toScale`, which must lie between the currency's minor
+ * unit and MAX_SCALE. Scaling up is exact and throws MoneyOverflowError
  * outside i128. Scaling down rounds with `rounding`, which is required on
- * every call so a caller can never fall into an implicit mode.
+ * every call so a caller can never fall into an implicit mode. Token amounts
+ * never change scale and throw KindMismatchError.
  */
 export function rescale(m: Money, toScale: number, rounding: RoundingMode): Money {
-  const value = multiply(m, 1n);
-  const target = money(0n, value.currency, toScale).scale;
+  const value = snapshotFiat(m);
+  const target = parseFiatScale(toScale, value.currency);
   const mode = parseRoundingMode(rounding);
   const from = powerOfTen(value.scale);
   const to = powerOfTen(target);
   if (target >= value.scale) {
-    return money(value.amount * (to / from), value.currency, target);
+    return build(value.amount * (to / from), value.currency, target);
   }
-  return money(divideRounded(value.amount, from / to, mode), value.currency, target);
+  return build(divideRounded(value.amount, from / to, mode), value.currency, target);
+}
+
+/**
+ * A working scale value rounded to the currency's minor unit, the only way
+ * to make it storable as a fiat amount. Same as rescale to the minor unit.
+ */
+export function toMinor(m: Money, rounding: RoundingMode): Money {
+  const value = snapshotFiat(m);
+  return rescale(value, minorUnits(value.currency), rounding);
 }

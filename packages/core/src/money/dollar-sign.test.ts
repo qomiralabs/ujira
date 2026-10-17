@@ -8,7 +8,7 @@
  * Several fiat currencies print with the same "$" brand symbol: USD, COP and
  * MXN. Tokens print with their asset code and never use "$".
  *
- * dollarSignAmbiguous(currencies: readonly CurrencyCode[]): boolean
+ * dollarSignAmbiguous(currencies: readonly (FiatCurrencyCode | TokenAsset)[]): boolean
  *   True when the set holds two or more distinct fiat currencies whose
  *   symbol is "$". Duplicates count once and order does not matter. Tokens
  *   and other fiat currencies never count. Principal views pass the
@@ -35,7 +35,9 @@ import { describe, expect, it } from 'vitest';
 import * as root from '../index.js';
 import * as moneyIndex from './index.js';
 import { MoneyError, UnknownCurrencyError } from './index.js';
-import type { CurrencyCode } from './index.js';
+import type { FiatCurrencyCode, TokenAsset } from './index.js';
+
+type CurrencyCode = FiatCurrencyCode | TokenAsset;
 
 type ErrorClass = abstract new (message?: string) => MoneyError;
 const index = moneyIndex as Record<string, unknown>;

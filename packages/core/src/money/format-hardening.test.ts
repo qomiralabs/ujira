@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { formatMoney } from './format.js';
 import * as moneyIndex from './index.js';
-import { InvalidAmountError, money } from './index.js';
+import { InvalidAmountError, money, moneyAt } from './index.js';
 import type { MoneyError } from './index.js';
 import { parseMoney } from './parse.js';
 
@@ -50,18 +50,18 @@ describe('formatMoney caps the locale length before Intl', () => {
 
   it('accepts a valid tag of exactly 64 characters', () => {
     const tag = tagOfLength(64);
-    expect(formatMoney(money(150n, 'USD', 2), { locale: tag })).toBe('$1.50');
+    expect(formatMoney(money(150n, 'USD'), { locale: tag })).toBe('$1.50');
   });
 
   it.each([65, 200, 10_000])('rejects a valid looking tag of %i characters', (length) => {
-    const err = thrown(() => formatMoney(money(150n, 'USD', 2), { locale: tagOfLength(length) }));
+    const err = thrown(() => formatMoney(money(150n, 'USD'), { locale: tagOfLength(length) }));
     expect(err).toBeInstanceOf(InvalidLocaleError);
   });
 
   it('never calls Intl for an over long tag', () => {
     const canonical = vi.spyOn(Intl, 'getCanonicalLocales');
     const numberFormat = vi.spyOn(Intl, 'NumberFormat');
-    const err = thrown(() => formatMoney(money(150n, 'USD', 2), { locale: tagOfLength(65) }));
+    const err = thrown(() => formatMoney(money(150n, 'USD'), { locale: tagOfLength(65) }));
     expect(err).toBeInstanceOf(InvalidLocaleError);
     expect(canonical).not.toHaveBeenCalled();
     expect(numberFormat).not.toHaveBeenCalled();
@@ -71,7 +71,7 @@ describe('formatMoney caps the locale length before Intl', () => {
     const huge = 'en-x-' + Array.from({ length: 200_000 }, () => 'abcdefgh').join('-');
     expect(huge.length).toBeGreaterThan(1_000_000);
     const started = performance.now();
-    const err = thrown(() => formatMoney(money(150n, 'USD', 2), { locale: huge }));
+    const err = thrown(() => formatMoney(money(150n, 'USD'), { locale: huge }));
     const elapsed = performance.now() - started;
     expect(err).toBeInstanceOf(InvalidLocaleError);
     expect(elapsed).toBeLessThan(250);
@@ -88,27 +88,27 @@ describe('options inherited from Object.prototype are ignored', () => {
 
   it('formatMoney keeps half-even when Object.prototype.rounding is polluted', () => {
     proto['rounding'] = 'ceil';
-    expect(formatMoney(money(1005n, 'USD', 3), { locale: 'en-US' })).toBe('$1.00');
+    expect(formatMoney(moneyAt(1005n, 'USD', 3), { locale: 'en-US' })).toBe('$1.00');
   });
 
   it('formatMoney rejects a missing locale when Object.prototype.locale is polluted', () => {
     proto['locale'] = 'en-US';
-    const err = thrown(() => formatMoney(money(1n, 'USD', 2), {} as never));
+    const err = thrown(() => formatMoney(money(1n, 'USD'), {} as never));
     expect(err).toBeInstanceOf(InvalidLocaleError);
   });
 
   it('formatMoney still uses own options while the prototype is polluted', () => {
     proto['rounding'] = 'floor';
     proto['locale'] = 'de-DE';
-    expect(formatMoney(money(1005n, 'USD', 3), { locale: 'en-US', rounding: 'ceil' })).toBe(
+    expect(formatMoney(moneyAt(1005n, 'USD', 3), { locale: 'en-US', rounding: 'ceil' })).toBe(
       '$1.01',
     );
   });
 
   it('parseMoney does not round when Object.prototype.rounding is polluted', () => {
     proto['rounding'] = 'half-up';
-    expect(thrown(() => parseMoney('1.005', 'USD', 2, {}))).toBeInstanceOf(InvalidAmountError);
-    expect(parseMoney('1.005', 'USD', 2, { rounding: 'floor' }).amount).toBe(100n);
+    expect(thrown(() => parseMoney('1.005', 'USD', {}))).toBeInstanceOf(InvalidAmountError);
+    expect(parseMoney('1.005', 'USD', { rounding: 'floor' }).amount).toBe(100n);
   });
 
   it('leaves the prototype clean after each case', () => {

@@ -2,6 +2,8 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 export { MAX_ALLOCATION_LEGS, allocate } from './allocate.js';
+export { convertMoney, convertToToken, parseRate, tokenToUsd, usdToToken } from './convert.js';
+export type { Rate } from './convert.js';
 export {
   CurrencyMismatchError,
   InvalidAllocationError,
@@ -10,22 +12,26 @@ export {
   InvalidLocaleError,
   InvalidRoundingModeError,
   InvalidScaleError,
+  KindMismatchError,
   MoneyError,
   MoneyOverflowError,
   ScaleMismatchError,
+  TokenMismatchError,
   UnknownCurrencyError,
 } from './errors.js';
 export type { MoneyErrorCode } from './errors.js';
 export {
+  DOLLAR_PEGGED,
   FIAT_CURRENCIES,
   SETTLEMENT_TOKENS,
+  TOKEN_DISPLAY_SCALE,
   fiatCurrency,
-  isCurrencyCode,
+  isFiatCurrencyCode,
+  isTokenAsset,
   settlementToken,
 } from './currencies.js';
 export type {
   Chain,
-  CurrencyCode,
   FiatCurrency,
   FiatCurrencyCode,
   SettlementToken,
@@ -41,14 +47,16 @@ export {
   isNegative,
   isZero,
   money,
+  moneyAt,
   multiply,
   negate,
   subtract,
   sum,
+  tokenAmount,
 } from './money.js';
-export type { Money } from './money.js';
-export { dollarSignAmbiguous, formatMoney } from './format.js';
+export type { Money, TokenAmount } from './money.js';
+export { dollarSignAmbiguous, formatMoney, formatTokenAmount } from './format.js';
 export type { CurrencyCodeDisplay } from './format.js';
-export { parseMoney, toDecimalString } from './parse.js';
-export { ROUNDING_MODES, rescale } from './rescale.js';
+export { parseMoney, parseTokenAmount, toDecimalString } from './parse.js';
+export { ROUNDING_MODES, rescale, toMinor } from './rescale.js';
 export type { RoundingMode } from './rescale.js';

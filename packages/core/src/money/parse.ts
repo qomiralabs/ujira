@@ -1,10 +1,19 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-import type { CurrencyCode } from './currencies.js';
-import { InvalidAmountError, InvalidRoundingModeError } from './errors.js';
-import { money, multiply, powerOfTen } from './money.js';
-import type { Money } from './money.js';
+import { settlementToken } from './currencies.js';
+import type { Chain, FiatCurrencyCode, TokenAsset } from './currencies.js';
+import { InvalidAmountError, InvalidRoundingModeError, InvalidScaleError } from './errors.js';
+import {
+  build,
+  buildToken,
+  minorUnits,
+  parseFiatCurrency,
+  parseFiatScale,
+  powerOfTen,
+  snapshot,
+} from './money.js';
+import type { Money, TokenAmount } from './money.js';
 import { isPlainRecord, readOwnField } from './options.js';
 import { divideRounded, parseRoundingMode } from './rescale.js';
 import type { RoundingMode } from './rescale.js';
@@ -16,72 +25,112 @@ const NEGATIVE_ZERO = /^-0(\.0+)?$/;
 // short enough that the regex and BigInt never see a hostile megabyte.
 const MAX_INPUT_LENGTH = 100;
 
-function readRounding(options: unknown): RoundingMode | undefined {
-  if (options === undefined) return undefined;
-  if (!isPlainRecord(options)) {
-    throw new InvalidRoundingModeError('options must be a plain object');
-  }
-  const rounding = readOwnField(options, 'rounding');
-  return rounding === undefined ? undefined : parseRoundingMode(rounding);
-}
-
-/**
- * Parses a plain decimal such as "12.30" into minor units at `scale`.
- *
- * Only ASCII digits, an optional leading minus and one optional fraction are
- * accepted. A fraction shorter than `scale` is padded. A longer one throws
- * InvalidAmountError, even when the extra digits are zeros, unless
- * `options.rounding` is given, in which case the exact value is rounded.
- */
-export function parseMoney(
-  input: string,
-  currency: CurrencyCode,
-  scale: number,
-  options?: { rounding?: RoundingMode },
-): Money {
-  const text: unknown = input;
+function readText(input: unknown): string {
   if (
-    typeof text !== 'string' ||
-    text.length > MAX_INPUT_LENGTH ||
-    !DECIMAL.test(text) ||
-    NEGATIVE_ZERO.test(text)
+    typeof input !== 'string' ||
+    input.length > MAX_INPUT_LENGTH ||
+    !DECIMAL.test(input) ||
+    NEGATIVE_ZERO.test(input)
   ) {
     throw new InvalidAmountError('amount must be a plain decimal string');
   }
-  // Validates the currency, then the scale, exactly as money() does.
-  const unit = money(0n, currency, scale);
-  const mode = readRounding(options);
+  return input;
+}
 
+/** Options must be absent or an object; each field is read at most once. */
+function readOptions(options: unknown): { scale: unknown; rounding: unknown } {
+  if (options === undefined) return { scale: undefined, rounding: undefined };
+  // A bare number is almost certainly a scale passed the old way.
+  if (typeof options === 'number') {
+    throw new InvalidScaleError('pass the scale as options.scale');
+  }
+  if (!isPlainRecord(options)) {
+    throw new InvalidRoundingModeError('options must be a plain object');
+  }
+  return { scale: readOwnField(options, 'scale'), rounding: readOwnField(options, 'rounding') };
+}
+
+/**
+ * The exact amount of `text` in units of 10^-scale. A fraction shorter than
+ * `scale` is padded; a longer one needs `mode`, otherwise it throws.
+ */
+function amountAt(text: string, scale: number, mode: RoundingMode | undefined): bigint {
   const negative = text.startsWith('-');
   const [whole = '', fraction = ''] = (negative ? text.slice(1) : text).split('.');
   const sign = negative ? -1n : 1n;
-
-  if (fraction.length <= unit.scale) {
-    const amount = sign * BigInt(whole + fraction.padEnd(unit.scale, '0'));
-    return money(amount, unit.currency, unit.scale);
+  if (fraction.length <= scale) {
+    return sign * BigInt(whole + fraction.padEnd(scale, '0'));
   }
   if (mode === undefined) {
     throw new InvalidAmountError('amount has more fraction digits than the scale allows');
   }
-  const exact = sign * BigInt(whole + fraction);
   // One zero per dropped digit gives the divisor as text, so its size never
   // passes through a number.
-  const divisor = BigInt(`1${fraction.slice(unit.scale).replace(/[0-9]/g, '0')}`);
-  return money(divideRounded(exact, divisor, mode), unit.currency, unit.scale);
+  const divisor = BigInt(`1${fraction.slice(scale).replace(/[0-9]/g, '0')}`);
+  return divideRounded(sign * BigInt(whole + fraction), divisor, mode);
 }
 
 /**
- * Canonical plain decimal with exactly `m.scale` fraction digits, for
- * example "12.30" for 1230 at scale 2. Never a negative zero.
+ * Parses a plain decimal such as "12.30" into fiat money, at the currency's
+ * minor unit unless `options.scale` asks for a finer one.
+ *
+ * Only ASCII digits, an optional leading minus and one optional fraction are
+ * accepted. A fraction shorter than the scale is padded. A longer one throws
+ * InvalidAmountError, even when the extra digits are zeros, unless
+ * `options.rounding` is given, in which case the exact value is rounded.
+ * Validation order: text, currency, options, scale, rounding, fraction
+ * length, range.
  */
-export function toDecimalString(m: Money): string {
-  const value = multiply(m, 1n);
-  const negative = value.amount < 0n;
-  const magnitude = negative ? -value.amount : value.amount;
-  const unit = powerOfTen(value.scale);
+export function parseMoney(
+  input: string,
+  currency: FiatCurrencyCode,
+  options?: { scale?: number; rounding?: RoundingMode },
+): Money {
+  const text = readText(input);
+  const code = parseFiatCurrency(currency);
+  const { scale, rounding } = readOptions(options);
+  const target = scale === undefined ? minorUnits(code) : parseFiatScale(scale, code);
+  const mode = rounding === undefined ? undefined : parseRoundingMode(rounding);
+  return build(amountAt(text, target, mode), code, target);
+}
+
+/**
+ * Parses a plain decimal token amount such as "1.234567" at the token's
+ * decimals on `chain`. More fraction digits than the token has throw unless
+ * `options.rounding` is given. Validation order: text, asset and chain,
+ * options, rounding, fraction length, range.
+ */
+export function parseTokenAmount(
+  input: string,
+  asset: TokenAsset,
+  chain: Chain,
+  options?: { rounding?: RoundingMode },
+): TokenAmount {
+  const text = readText(input);
+  const token = settlementToken(asset, chain);
+  const { rounding } = readOptions(options);
+  const mode = rounding === undefined ? undefined : parseRoundingMode(rounding);
+  return buildToken(amountAt(text, token.tokenScale, mode), token.asset, token.chain);
+}
+
+/** Plain decimal text of `amount` units of 10^-scale, for example "-0.05". */
+export function decimalText(amount: bigint, scale: number): string {
+  const negative = amount < 0n;
+  const magnitude = negative ? -amount : amount;
+  const unit = powerOfTen(scale);
   const whole = (magnitude / unit).toString();
   const sign = negative ? '-' : '';
-  if (value.scale === 0) return sign + whole;
-  const fraction = (magnitude % unit).toString().padStart(value.scale, '0');
+  if (scale === 0) return sign + whole;
+  const fraction = (magnitude % unit).toString().padStart(scale, '0');
   return `${sign}${whole}.${fraction}`;
+}
+
+/**
+ * Canonical plain decimal with exactly the value's scale in fraction digits:
+ * "12.30" for 1230 USD cents, "1.234567" for 1234567 USDC units on Celo.
+ * Never a negative zero, always ASCII, for data rather than display.
+ */
+export function toDecimalString(m: Money | TokenAmount): string {
+  const value = snapshot(m);
+  return decimalText(value.amount, value.scale);
 }

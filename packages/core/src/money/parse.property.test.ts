@@ -6,9 +6,16 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import { InvalidAmountError, MoneyError, MoneyOverflowError, money } from './index.js';
-import type { CurrencyCode } from './index.js';
-import { parseMoney, toDecimalString } from './parse.js';
+import {
+  InvalidAmountError,
+  MoneyError,
+  MoneyOverflowError,
+  SETTLEMENT_TOKENS,
+  moneyAt,
+  tokenAmount,
+} from './index.js';
+import type { FiatCurrencyCode } from './index.js';
+import { parseMoney, parseTokenAmount, toDecimalString } from './parse.js';
 import type { RoundingMode } from './rescale.js';
 
 const MAX = 2n ** 127n - 1n;
@@ -23,7 +30,7 @@ const RUNS = { seed: 0x9a75e, numRuns: 1000 } as const;
 // seconds covers a heavily loaded runner and still catches a real hang.
 const PROPERTY_TIMEOUT_MS = 30_000;
 
-const CODES: CurrencyCode[] = [
+const CODES: FiatCurrencyCode[] = [
   'USD',
   'NGN',
   'KES',
@@ -36,8 +43,6 @@ const CODES: CurrencyCode[] = [
   'MXN',
   'EUR',
   'GBP',
-  'USDC',
-  'USDm',
 ];
 
 // Independent of the implementation: the grammar from the contract.
@@ -48,7 +53,8 @@ const i128 = fc.oneof(
   fc.bigInt({ min: -10_000n, max: 10_000n }),
   fc.constantFrom(MIN, MIN + 1n, -1n, 0n, 1n, MAX - 1n, MAX),
 );
-const scaleArb = fc.integer({ min: 0, max: 18 });
+// Fiat holds its minor unit (2 for every launch currency) up to 18.
+const scaleArb = fc.integer({ min: 2, max: 18 });
 const codeArb = fc.constantFrom(...CODES);
 
 /** Reference decimal printer, written without the code under test. */
@@ -98,10 +104,22 @@ describe('parse properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
   it('parseMoney(toDecimalString(m)) equals m for any m', () => {
     fc.assert(
       fc.property(i128, codeArb, scaleArb, (amount, currency, scale) => {
-        const m = money(amount, currency, scale);
+        const m = moneyAt(amount, currency, scale);
         const text = toDecimalString(m);
         expect(text).toBe(decimal(amount, scale));
-        expect(parseMoney(text, currency, scale)).toEqual(m);
+        expect(parseMoney(text, currency, { scale })).toEqual(m);
+      }),
+      RUNS,
+    );
+  });
+
+  it('parseTokenAmount(toDecimalString(t)) equals t for any token amount', () => {
+    fc.assert(
+      fc.property(i128, fc.constantFrom(...SETTLEMENT_TOKENS), (amount, token) => {
+        const t = tokenAmount(amount, token.asset, token.chain);
+        const text = toDecimalString(t);
+        expect(text).toBe(decimal(amount, token.tokenScale));
+        expect(parseTokenAmount(text, token.asset, token.chain)).toEqual(t);
       }),
       RUNS,
     );
@@ -112,7 +130,7 @@ describe('parse properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
       fc.property(canonicalArb, codeArb, ({ scale, fracDigits, text, value }, currency) => {
         // A zero printed from a negative raw value is "0", never "-0".
         expect(GRAMMAR.test(text)).toBe(true);
-        const m = parseMoney(text, currency, scale);
+        const m = parseMoney(text, currency, { scale });
         const padded = decimal(value * 10n ** BigInt(scale - fracDigits), scale);
         expect(toDecimalString(m)).toBe(padded);
         expect(m.amount).toBe(value * 10n ** BigInt(scale - fracDigits));
@@ -123,7 +141,7 @@ describe('parse properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
 
   it('excess fraction digits always throw without a mode and match the reference with one', () => {
     const excessArb = fc.record({
-      scale: fc.integer({ min: 0, max: 16 }),
+      scale: fc.integer({ min: 2, max: 16 }),
       extra: fc.integer({ min: 1, max: 20 }),
       amount: fc.oneof(
         fc.bigInt({ min: -(10n ** 30n), max: 10n ** 30n }),
@@ -137,7 +155,7 @@ describe('parse properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
         if (text.length > 100) return;
         const err = (() => {
           try {
-            parseMoney(text, 'USD', scale);
+            parseMoney(text, 'USD', { scale });
           } catch (e) {
             return e;
           }
@@ -145,7 +163,7 @@ describe('parse properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
         })();
         expect(err).toBeInstanceOf(InvalidAmountError);
         const want = roundDiv(amount, 10n ** BigInt(extra), mode);
-        expect(parseMoney(text, 'USD', scale, { rounding: mode }).amount).toBe(want);
+        expect(parseMoney(text, 'USD', { scale, rounding: mode }).amount).toBe(want);
       }),
       RUNS,
     );
@@ -169,7 +187,7 @@ describe('parse properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
         let result: unknown;
         let err: unknown;
         try {
-          result = parseMoney(text, 'USD', scale);
+          result = parseMoney(text, 'USD', { scale });
         } catch (e) {
           err = e;
         }

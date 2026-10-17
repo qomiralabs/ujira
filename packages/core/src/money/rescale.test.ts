@@ -9,12 +9,15 @@ import * as moneyIndex from './index.js';
 import {
   InvalidAmountError,
   InvalidScaleError,
+  KindMismatchError,
   MoneyOverflowError,
   UnknownCurrencyError,
   money,
+  moneyAt,
+  tokenAmount,
 } from './index.js';
 import type { Money, MoneyError } from './index.js';
-import { rescale } from './rescale.js';
+import { rescale, toMinor } from './rescale.js';
 import type { RoundingMode } from './rescale.js';
 
 const MAX = 2n ** 127n - 1n;
@@ -46,7 +49,7 @@ function expectMoneyError(run: () => unknown, Expected: ErrorClass): MoneyError 
   return err as MoneyError;
 }
 
-const usd = (amount: bigint, scale: number): Money => money(amount, 'USD', scale);
+const usd = (amount: bigint, scale: number): Money => moneyAt(amount, 'USD', scale);
 
 describe('rescale down', () => {
   it('rounds 1.005 to 1.00 half-even and 1.01 half-up', () => {
@@ -90,8 +93,8 @@ describe('rescale down', () => {
   });
 
   it('looks at every dropped digit, not only the first, to find a tie', () => {
-    // USDC at scale 6 shown at scale 2: four dropped digits.
-    const usdc = (amount: bigint): Money => money(amount, 'USDC', 6);
+    // USD at a working scale of 6 rounded to cents: four dropped digits.
+    const usdc = (amount: bigint): Money => usd(amount, 6);
     expect(rescale(usdc(1_225_000n), 2, 'half-even').amount).toBe(122n);
     expect(rescale(usdc(1_225_001n), 2, 'half-even').amount).toBe(123n);
     expect(rescale(usdc(1_224_999n), 2, 'half-up').amount).toBe(122n);
@@ -102,15 +105,15 @@ describe('rescale down', () => {
     expect(rescale(usdc(1_234_567n), 2, 'trunc').amount).toBe(123n);
   });
 
-  it('drops all 18 digits of USDm at the extremes', () => {
-    const e18 = 10n ** 18n;
-    expect(rescale(money(MAX, 'USDm', 18), 0, 'floor').amount).toBe(MAX / e18);
-    expect(rescale(money(MAX, 'USDm', 18), 0, 'ceil').amount).toBe(MAX / e18 + 1n);
-    expect(rescale(money(MIN, 'USDm', 18), 0, 'trunc').amount).toBe(MIN / e18);
-    expect(rescale(money(MIN, 'USDm', 18), 0, 'floor').amount).toBe(MIN / e18 - 1n);
-    expect(rescale(money(5n * 10n ** 17n, 'USDm', 18), 0, 'half-even').amount).toBe(0n);
-    expect(rescale(money(15n * 10n ** 17n, 'USDm', 18), 0, 'half-even').amount).toBe(2n);
-    expect(rescale(money(-5n * 10n ** 17n, 'USDm', 18), 0, 'half-up').amount).toBe(-1n);
+  it('drops 16 digits at the extremes, from scale 18 to cents', () => {
+    const e16 = 10n ** 16n;
+    expect(rescale(usd(MAX, 18), 2, 'floor').amount).toBe(MAX / e16);
+    expect(rescale(usd(MAX, 18), 2, 'ceil').amount).toBe(MAX / e16 + 1n);
+    expect(rescale(usd(MIN, 18), 2, 'trunc').amount).toBe(MIN / e16);
+    expect(rescale(usd(MIN, 18), 2, 'floor').amount).toBe(MIN / e16 - 1n);
+    expect(rescale(usd(5n * 10n ** 15n, 18), 2, 'half-even').amount).toBe(0n);
+    expect(rescale(usd(15n * 10n ** 15n, 18), 2, 'half-even').amount).toBe(2n);
+    expect(rescale(usd(-5n * 10n ** 15n, 18), 2, 'half-up').amount).toBe(-1n);
   });
 
   it('an exact downscale gives the same result in every mode', () => {
@@ -125,7 +128,7 @@ describe('rescale up and same scale', () => {
   it('scales up exactly in every mode', () => {
     for (const mode of MODES) {
       expect(rescale(usd(123n, 2), 6, mode)).toEqual(usd(1_230_000n, 6));
-      expect(rescale(usd(-1n, 0), 18, mode)).toEqual(usd(-(10n ** 18n), 18));
+      expect(rescale(usd(-1n, 2), 18, mode)).toEqual(usd(-(10n ** 16n), 18));
     }
   });
 
@@ -136,17 +139,46 @@ describe('rescale up and same scale', () => {
   });
 
   it('throws MoneyOverflowError when scaling up leaves i128', () => {
-    expectMoneyError(() => rescale(usd(MAX, 0), 1, 'half-even'), MoneyOverflowError);
-    expectMoneyError(() => rescale(usd(MIN, 0), 1, 'half-even'), MoneyOverflowError);
-    expectMoneyError(() => rescale(usd(10n ** 21n, 0), 18, 'floor'), MoneyOverflowError);
-    expect(rescale(usd(MAX / 10n, 0), 1, 'floor').amount).toBe((MAX / 10n) * 10n);
-    expect(rescale(usd(MIN / 10n, 0), 1, 'floor').amount).toBe((MIN / 10n) * 10n);
+    expectMoneyError(() => rescale(usd(MAX, 2), 3, 'half-even'), MoneyOverflowError);
+    expectMoneyError(() => rescale(usd(MIN, 2), 3, 'half-even'), MoneyOverflowError);
+    expectMoneyError(() => rescale(usd(10n ** 23n, 2), 18, 'floor'), MoneyOverflowError);
+    expect(rescale(usd(MAX / 10n, 2), 3, 'floor').amount).toBe((MAX / 10n) * 10n);
+    expect(rescale(usd(MIN / 10n, 2), 3, 'floor').amount).toBe((MIN / 10n) * 10n);
   });
 
-  it('keeps every unit, fiat and token', () => {
-    const r = rescale(money(1_234_567n, 'USDC', 6), 7, 'trunc');
-    expect(r).toEqual(money(12_345_670n, 'USDC', 7));
-    expect(rescale(money(5n, 'NGN', 2), 0, 'half-up')).toEqual(money(0n, 'NGN', 0));
+  it('keeps the currency', () => {
+    expect(rescale(moneyAt(1_234_567n, 'NGN', 6), 2, 'trunc')).toEqual(money(123n, 'NGN'));
+    expect(rescale(money(5n, 'KES'), 9, 'half-up')).toEqual(moneyAt(50_000_000n, 'KES', 9));
+  });
+
+  it('never goes coarser than the minor unit', () => {
+    for (const scale of [0, 1]) {
+      expectMoneyError(() => rescale(money(5n, 'NGN'), scale, 'half-up'), InvalidScaleError);
+    }
+  });
+
+  it('refuses a token amount, whose scale never changes', () => {
+    expectMoneyError(
+      () => rescale(loose(tokenAmount(1_234_567n, 'USDC', 'celo')), 7, 'trunc'),
+      KindMismatchError,
+    );
+  });
+});
+
+describe('toMinor', () => {
+  it('rounds a working scale value to the minor unit with the given mode', () => {
+    expect(toMinor(usd(1005n, 3), 'half-even')).toEqual(money(100n, 'USD'));
+    expect(toMinor(usd(1005n, 3), 'half-up')).toEqual(money(101n, 'USD'));
+    expect(toMinor(moneyAt(-1_234_567n, 'NGN', 6), 'floor')).toEqual(money(-124n, 'NGN'));
+    expect(toMinor(money(42n, 'GBP'), 'trunc')).toEqual(money(42n, 'GBP'));
+  });
+
+  it('requires a rounding mode and refuses tokens', () => {
+    expectMoneyError(() => toMinor(usd(1n, 6), loose(undefined)), InvalidRoundingModeError);
+    expectMoneyError(
+      () => toMinor(loose(tokenAmount(1n, 'USDC', 'celo')), 'trunc'),
+      KindMismatchError,
+    );
   });
 });
 
@@ -189,7 +221,7 @@ describe('rescale rejects bad input', () => {
       },
     };
     const err = expectMoneyError(
-      () => rescale(usd(1n, 2), 1, loose(hostile)),
+      () => rescale(usd(1n, 2), 3, loose(hostile)),
       InvalidRoundingModeError,
     );
     expect(err.message.length).toBeLessThanOrEqual(200);
@@ -198,7 +230,7 @@ describe('rescale rejects bad input', () => {
   });
 
   it('rejects a bad target scale before the rounding mode', () => {
-    for (const scale of [-1, 19, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    for (const scale of [-1, 0, 1, 19, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
       expectMoneyError(() => rescale(usd(1n, 2), scale, 'trunc'), InvalidScaleError);
       expectMoneyError(() => rescale(usd(1n, 2), scale, loose('bogus')), InvalidScaleError);
     }
@@ -208,10 +240,22 @@ describe('rescale rejects bad input', () => {
 
   const forged: [string, unknown, ErrorClass][] = [
     ['null', null, InvalidAmountError],
-    ['a string amount', { amount: '1', currency: 'USD', scale: 2 }, InvalidAmountError],
-    ['an unknown currency', { amount: 1n, currency: 'BTC', scale: 2 }, UnknownCurrencyError],
-    ['a scale of 19', { amount: 1n, currency: 'USD', scale: 19 }, InvalidScaleError],
-    ['an out of range amount', { amount: MIN - 1n, currency: 'USD', scale: 2 }, MoneyOverflowError],
+    [
+      'a string amount',
+      { kind: 'fiat', amount: '1', currency: 'USD', scale: 2 },
+      InvalidAmountError,
+    ],
+    [
+      'an unknown currency',
+      { kind: 'fiat', amount: 1n, currency: 'BTC', scale: 2 },
+      UnknownCurrencyError,
+    ],
+    ['a scale of 19', { kind: 'fiat', amount: 1n, currency: 'USD', scale: 19 }, InvalidScaleError],
+    [
+      'an out of range amount',
+      { kind: 'fiat', amount: MIN - 1n, currency: 'USD', scale: 2 },
+      MoneyOverflowError,
+    ],
   ];
 
   it.each(forged)(
@@ -223,12 +267,21 @@ describe('rescale rejects bad input', () => {
   );
 
   it('reads each operand field once and computes from the snapshot', () => {
-    const reads = { amount: 0, currency: 0, scale: 0 };
-    const answers = { amount: [1005n, 2n ** 200n], currency: ['USD', 'NGN'], scale: [3, 18] };
+    const reads = { kind: 0, amount: 0, currency: 0, scale: 0 };
+    const answers = {
+      kind: 'fiat',
+      amount: [1005n, 2n ** 200n],
+      currency: ['USD', 'NGN'],
+      scale: [3, 18],
+    };
     const value = new Proxy(
       {},
       {
         get(_target, key) {
+          if (key === 'kind') {
+            reads.kind += 1;
+            return 'fiat';
+          }
           if (key === 'amount' || key === 'currency' || key === 'scale') {
             reads[key] += 1;
             const list: unknown[] = answers[key];

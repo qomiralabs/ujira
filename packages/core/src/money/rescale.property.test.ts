@@ -6,8 +6,8 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import { MoneyOverflowError, compare, money } from './index.js';
-import type { CurrencyCode, Money } from './index.js';
+import { MoneyOverflowError, compare, moneyAt } from './index.js';
+import type { FiatCurrencyCode, Money } from './index.js';
 import { rescale } from './rescale.js';
 import type { RoundingMode } from './rescale.js';
 
@@ -23,7 +23,7 @@ const RUNS = { seed: 0x5ca1e, numRuns: 1000 } as const;
 // seconds covers a heavily loaded runner and still catches a real hang.
 const PROPERTY_TIMEOUT_MS = 30_000;
 
-const CODES: CurrencyCode[] = ['USD', 'NGN', 'KES', 'BRL', 'EUR', 'USDC', 'USDm'];
+const CODES: FiatCurrencyCode[] = ['USD', 'NGN', 'KES', 'BRL', 'EUR'];
 
 const i128 = fc.oneof(
   fc.bigInt({ min: MIN, max: MAX }),
@@ -39,7 +39,8 @@ const tieArb = fc
   )
   .map(([d, k, nudge]) => 10n ** BigInt(d) * k + 10n ** BigInt(d) / 2n + nudge);
 const amountArb = fc.oneof(i128, tieArb);
-const scaleArb = fc.integer({ min: 0, max: 18 });
+// Fiat holds its minor unit (2 for every launch currency) up to 18.
+const scaleArb = fc.integer({ min: 2, max: 18 });
 const modeArb = fc.constantFrom(...MODES);
 const codeArb = fc.constantFrom(...CODES);
 
@@ -87,7 +88,7 @@ describe('rescale properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
         (amount, currency, a, b, upMode, downMode) => {
           const from = Math.min(a, b);
           const to = Math.max(a, b);
-          const m = money(amount, currency, from);
+          const m = moneyAt(amount, currency, from);
           const up = attempt(() => rescale(m, to, upMode));
           if (up.value === undefined) {
             expect(up.err).toBeInstanceOf(MoneyOverflowError);
@@ -103,7 +104,7 @@ describe('rescale properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
   it('rounding modes match a bigint reference', () => {
     fc.assert(
       fc.property(amountArb, scaleArb, scaleArb, modeArb, (amount, from, to, mode) => {
-        const m = money(amount, 'USD', from);
+        const m = moneyAt(amount, 'USD', from);
         const got = attempt(() => rescale(m, to, mode));
         if (to >= from) {
           const want = amount * 10n ** BigInt(to - from);
@@ -132,7 +133,7 @@ describe('rescale properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
       fc.property(amountArb, fc.integer({ min: 1, max: 18 }), scaleArb, (amount, drop, to) => {
         const from = Math.min(18, to + drop);
         const d = 10n ** BigInt(from - to);
-        const m = money(amount, 'USD', from);
+        const m = moneyAt(amount, 'USD', from);
         const at = (mode: RoundingMode): bigint => rescale(m, to, mode).amount;
         const floor = at('floor');
         const ceil = at('ceil');
@@ -154,8 +155,8 @@ describe('rescale properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
       fc.property(amountArb, amountArb, scaleArb, scaleArb, modeArb, (x, y, from, to, mode) => {
         if (to > from) return;
         const [lo, hi] = x <= y ? [x, y] : [y, x];
-        const a = rescale(money(lo, 'EUR', from), to, mode);
-        const b = rescale(money(hi, 'EUR', from), to, mode);
+        const a = rescale(moneyAt(lo, 'EUR', from), to, mode);
+        const b = rescale(moneyAt(hi, 'EUR', from), to, mode);
         expect(compare(a, b) <= 0).toBe(true);
       }),
       RUNS,
@@ -166,8 +167,8 @@ describe('rescale properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
     fc.assert(
       fc.property(amountArb, scaleArb, scaleArb, (amount, from, to) => {
         if (to > from || amount === MIN) return;
-        const pos = money(amount, 'USD', from);
-        const neg = money(-amount, 'USD', from);
+        const pos = moneyAt(amount, 'USD', from);
+        const neg = moneyAt(-amount, 'USD', from);
         expect(rescale(neg, to, 'floor').amount).toBe(-rescale(pos, to, 'ceil').amount);
         expect(rescale(neg, to, 'trunc').amount).toBe(-rescale(pos, to, 'trunc').amount);
         expect(rescale(neg, to, 'half-up').amount).toBe(-rescale(pos, to, 'half-up').amount);

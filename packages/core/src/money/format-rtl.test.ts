@@ -33,8 +33,8 @@ describe('the appended code in right to left locales', () => {
   it.each(['ar-EG', 'ur-PK'])(
     'isolates the code for a positive and a negative COP amount in %s',
     (locale) => {
-      const positive = formatMoney(money(150_000n, 'COP', 2), { locale, ...ambiguous });
-      const negative = formatMoney(money(-150_000n, 'COP', 2), { locale, ...ambiguous });
+      const positive = formatMoney(money(150_000n, 'COP'), { locale, ...ambiguous });
+      const negative = formatMoney(money(-150_000n, 'COP'), { locale, ...ambiguous });
       for (const s of [positive, negative]) {
         expect(s.endsWith(`${NBSP}${FSI}COP${PDI}`)).toBe(true);
         expect(s.match(/\u2068/g)).toHaveLength(1);
@@ -49,19 +49,19 @@ describe('the appended code in right to left locales', () => {
 
   it('isolates the code for every dollar currency in a right to left locale', () => {
     for (const currency of ['USD', 'COP', 'MXN'] as const) {
-      const s = formatMoney(money(-150n, currency, 2), { locale: 'he-IL', ...ambiguous });
+      const s = formatMoney(money(-150n, currency), { locale: 'he-IL', ...ambiguous });
       expect(s.endsWith(`${NBSP}${FSI}${currency}${PDI}`)).toBe(true);
     }
   });
 
   it('adds no isolates without the option or for a currency without "$"', () => {
     for (const locale of ['ar-EG', 'ur-PK', 'fa-IR', 'he-IL']) {
-      const plain = formatMoney(money(-150_000n, 'COP', 2), { locale });
+      const plain = formatMoney(money(-150_000n, 'COP'), { locale });
       expect(plain).not.toMatch(/[\u2068\u2069]/);
-      const never = formatMoney(money(-150_000n, 'COP', 2), { locale, currencyCode: 'never' });
+      const never = formatMoney(money(-150_000n, 'COP'), { locale, currencyCode: 'never' });
       expect(never).toBe(plain);
-      const naira = formatMoney(money(-150_000n, 'NGN', 2), { locale, ...ambiguous });
-      expect(naira).toBe(formatMoney(money(-150_000n, 'NGN', 2), { locale }));
+      const naira = formatMoney(money(-150_000n, 'NGN'), { locale, ...ambiguous });
+      expect(naira).toBe(formatMoney(money(-150_000n, 'NGN'), { locale }));
     }
   });
 });
@@ -71,7 +71,7 @@ describe('left to right output is unchanged', () => {
     'appends the code without isolates in %s',
     (locale) => {
       for (const amount of [150_000n, -150_000n]) {
-        const m = money(amount, 'COP', 2);
+        const m = money(amount, 'COP');
         const s = formatMoney(m, { locale, ...ambiguous });
         expect(s).not.toMatch(/[\u2068\u2069]/);
         expect(s).toBe(`${formatMoney(m, { locale })}${NBSP}COP`);
@@ -80,7 +80,7 @@ describe('left to right output is unchanged', () => {
   );
 
   it('keeps the exact en-US bytes', () => {
-    expect(formatMoney(money(-150n, 'USD', 2), { locale: 'en-US', ...ambiguous })).toBe(
+    expect(formatMoney(money(-150n, 'USD'), { locale: 'en-US', ...ambiguous })).toBe(
       `${MINUS}$1.50${NBSP}USD`,
     );
   });
@@ -91,7 +91,11 @@ describe('left to right output is unchanged', () => {
  * an engine without text info looks, and puts them back afterwards.
  */
 function withLocaleApi(
-  changes: { getTextInfo?: 'remove'; textInfo?: 'remove'; maximize?: 'throw' },
+  changes: {
+    getTextInfo?: 'remove' | 'throw';
+    textInfo?: 'remove' | 'throw';
+    maximize?: 'throw';
+  },
   run: () => void,
 ): void {
   const proto = Intl.Locale.prototype as unknown as Record<string, unknown>;
@@ -101,8 +105,17 @@ function withLocaleApi(
     if (descriptor !== undefined) saved.set(key, descriptor);
   }
   try {
+    const broken = (): never => {
+      throw new RangeError('text info is unavailable');
+    };
     if (changes.getTextInfo === 'remove') delete proto['getTextInfo'];
+    if (changes.getTextInfo === 'throw') {
+      Object.defineProperty(proto, 'getTextInfo', { configurable: true, value: broken });
+    }
     if (changes.textInfo === 'remove') delete proto['textInfo'];
+    if (changes.textInfo === 'throw') {
+      Object.defineProperty(proto, 'textInfo', { configurable: true, get: broken });
+    }
     if (changes.maximize === 'throw') {
       Object.defineProperty(proto, 'maximize', {
         configurable: true,
@@ -120,14 +133,17 @@ function withLocaleApi(
 describe('direction lookup on engines without text info', () => {
   const amounts = [150_000n, -150_000n];
   const render = (locale: string): string[] =>
-    amounts.map((amount) => formatMoney(money(amount, 'COP', 2), { locale, ...ambiguous }));
-  const LOCALES = ['ar-EG', 'ur-PK', 'en-US'];
+    amounts.map((amount) => formatMoney(money(amount, 'COP'), { locale, ...ambiguous }));
+  // ar-EG and ur-PK fall back to Arab and he-IL to Hebr, so each right to
+  // left script in the fallback set that a launch locale uses is exercised.
+  const LOCALES = ['ar-EG', 'ur-PK', 'he-IL', 'en-US'];
   // Taken with the full API in place, before any test changes the prototype.
   const expected = new Map(LOCALES.map((locale) => [locale, render(locale)]));
 
-  it('finds right to left isolates in the baseline for ar-EG and ur-PK only', () => {
+  it('finds right to left isolates in the baseline for ar-EG, ur-PK and he-IL only', () => {
     expect(expected.get('ar-EG')?.every((s) => s.includes(FSI))).toBe(true);
     expect(expected.get('ur-PK')?.every((s) => s.includes(FSI))).toBe(true);
+    expect(expected.get('he-IL')?.every((s) => s.includes(FSI))).toBe(true);
     expect(expected.get('en-US')?.some((s) => s.includes(FSI))).toBe(false);
   });
 
@@ -145,6 +161,24 @@ describe('direction lookup on engines without text info', () => {
     'gives the same output with getTextInfo and textInfo both removed in %s',
     (locale) => {
       withLocaleApi({ getTextInfo: 'remove', textInfo: 'remove' }, () => {
+        expect(render(locale)).toEqual(expected.get(locale));
+      });
+    },
+  );
+
+  it.each(LOCALES)(
+    'falls through a throwing getTextInfo to the textInfo accessor in %s',
+    (locale) => {
+      withLocaleApi({ getTextInfo: 'throw', maximize: 'throw' }, () => {
+        expect(render(locale)).toEqual(expected.get(locale));
+      });
+    },
+  );
+
+  it.each(LOCALES)(
+    'falls through a throwing getTextInfo and textInfo to the script lookup in %s',
+    (locale) => {
+      withLocaleApi({ getTextInfo: 'throw', textInfo: 'throw' }, () => {
         expect(render(locale)).toEqual(expected.get(locale));
       });
     },
