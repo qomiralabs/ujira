@@ -25,6 +25,7 @@ export default defineConfig({
         'scripts/license-tree.ts',
         'scripts/lockfile.ts',
         'scripts/pnpm-command.ts',
+        'scripts/strict-json.ts',
       ],
       exclude: ['**/*.test.ts', '**/*.d.ts'],
       reporter: ['text', 'json-summary', 'lcov'],

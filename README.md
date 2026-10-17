@@ -12,7 +12,13 @@ Requirements:
 To bump pnpm, update both pins in the same change:
 
 1. `package.json`: take `npm view pnpm@<version> dist.integrity`, drop the `sha512-` prefix, base64 decode it, hex encode the result and write `pnpm@<version>+sha512.<hex>` to `packageManager`.
-2. `.github/workflows/ci.yml`: set `PNPM_VERSION` to `<version>`, and set `PNPM_EXE_SHA512` to the same conversion of `npm view @pnpm/exe.linux-x64@<version> dist.integrity` (for example `node -p "Buffer.from('<base64>', 'base64').toString('hex')"`). The setup step also fails if `PNPM_VERSION` does not match `packageManager`.
+2. `.github/workflows/ci.yml`: set `PNPM_VERSION` to `<version>`, and set `PNPM_EXE_SHA512` to the same conversion of `npm view @pnpm/exe.linux-x64@<version> dist.integrity` (for example `node -p "Buffer.from('<base64>', 'base64').toString('hex')"`). Then set `PNPM_BINARY_SHA512` to the SHA-512 of the `package/pnpm` file inside that tarball (`tar -xzf exe.linux-x64-<version>.tgz package/pnpm && sha512sum package/pnpm`), after checking the tarball against `PNPM_EXE_SHA512`.
+
+CI checks these pins in three ways:
+
+- `node scripts/check-package-manager.ts "$PNPM_VERSION"` parses `package.json` with a strict JSON parser (`scripts/strict-json.ts`) that rejects duplicate keys at any depth, so a second `packageManager` key cannot hide behind the first, and fails unless `packageManager` is `pnpm@$PNPM_VERSION+sha512.<128 hex>`.
+- Every step that runs pnpm starts with `scripts/assert-pnpm.sh`, which fails unless `pnpm` on `PATH` is `${RUNNER_TEMP}/pnpm/pnpm`, hashes to `PNPM_BINARY_SHA512` and reports `PNPM_VERSION`. A step that only uses an action, such as the pnpm cache in `actions/setup-node`, cannot run the script; the setup step asserts the binary just before it.
+- `scripts/check-workflow-pnpm.sh` fails on any workflow step whose `run` script calls pnpm without running `scripts/assert-pnpm.sh` first. `scripts/check-workflow-pnpm.test.sh` and `scripts/assert-pnpm.test.sh` test both scripts.
 
 TypeScript is pinned to 6.0.3 because typescript-eslint 8 supports only `typescript <6.1.0`. Upgrade to TypeScript 7 once a typescript-eslint release lists it in its peer range.
 
@@ -65,6 +71,12 @@ Before committing brand assets, run `pnpm metadata:strip <file...>`. It parses P
 ## Invisible characters
 
 `pnpm invisible:check` reads every tracked file as bytes. Only files with an extension on the short binary list in `scripts/invisible-characters.ts` (`png`, `jpg`, `jpeg`, `gif`, `webp`, `ico`, `woff`, `woff2`, `wasm`, `pdf`) are skipped, and only when their content starts with that format's signature; a listed name with other content fails. Every other file must be valid UTF-8 and is scanned in full, and a NUL byte in it is reported as U+0000, so a NUL cannot make a source file skip the check. It fails on any character in the Unicode categories Cf (format characters such as the byte order mark, zero width characters and the bidirectional controls U+202A to U+202E and U+2066 to U+2069), Zl and Zp (U+2028 and U+2029), using the Unicode tables built into Node.js rather than a hand written list. It also fails on the lookalike no break space (U+00A0), narrow no break space (U+202F) and minus sign (U+2212), except in files listed in `scripts/invisible-characters-allowlist.txt`. Tests and data that need any of these characters write them as escapes such as `\u202E`.
+
+## Dependency release age
+
+A dependency version must be at least 14 days old before pnpm installs or locks it (`minimumReleaseAge: 20160`, in minutes, in `pnpm-workspace.yaml`). Most malicious releases are found and pulled within that window. `pnpm install --frozen-lockfile` checks every lockfile entry against the setting again, so CI fails at the install step on any version that is too new, and also on any version the registry cannot date (`minimumReleaseAgeIgnoreMissingTime: false`). `scripts/release-age.test.ts` proves both against a local registry stub using the repository's own settings.
+
+`minimumReleaseAgeExclude` lists exact `name@version` entries only. The entries under the 2026-10-17 baseline comment are the versions that were already locked when the setting was introduced; `minimumReleaseAgeExcludePrune` drops each one when its version leaves the lockfile. Add a new entry only for an urgent security patch that cannot wait 14 days, with a comment above it giving the advisory and the reason. Never exclude a package name or a scope.
 
 ## Continuous integration
 
