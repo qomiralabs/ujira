@@ -41,6 +41,12 @@ Packages that declare `os`, `cpu` or `libc` are installed only on matching platf
 
 Run the check through pnpm (`pnpm licenses:check`). It uses the pnpm binary that runs the script, never one found on `PATH`, and refuses one installed inside the repository.
 
+## Dependency release age
+
+A dependency version must be at least 14 days old before pnpm installs or locks it (`minimumReleaseAge: 20160`, in minutes, in `pnpm-workspace.yaml`). Most malicious releases are found and pulled within that window. `pnpm install --frozen-lockfile` checks every lockfile entry against the setting again, so CI fails at the install step on any version that is too new, and also on any version the registry cannot date (`minimumReleaseAgeIgnoreMissingTime: false`). `scripts/release-age.test.ts` proves both against a local registry stub using the repository's own settings.
+
+`minimumReleaseAgeExclude` lists exact `name@version` entries only. The entries under the 2026-10-17 baseline comment are the versions that were already locked when the setting was introduced; `minimumReleaseAgeExcludePrune` drops each one when its version leaves the lockfile. Add a new entry only for an urgent security patch that cannot wait 14 days, with a comment above it giving the advisory and the reason. Never exclude a package name or a scope.
+
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every pull request and on pushes to `development`, `staging` and `main`. A single `Verify` job lints the workflow files with actionlint, installs with `pnpm install --frozen-lockfile`, runs `pnpm licenses:check` and fails if `THIRD_PARTY_NOTICES.md` then differs from the committed file, then runs `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test`, `pnpm build` and `pnpm audit --prod`. The build runs because it compiles with each package's `tsconfig.build.json`, which typecheck does not use. The coverage report is uploaded as the `coverage` artifact even when tests fail (Vitest writes it on failure because `coverage.reportOnFailure` is set), so a failing test or a missed threshold can be inspected; a missing report is only an error when every earlier step passed. Any failing step fails the run, and a newer push to the same ref cancels the run in progress.
