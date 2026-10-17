@@ -16,6 +16,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "licenses:check": "node scripts/check-licenses.ts",
+    "metadata:check": "node scripts/check-embedded-metadata.ts",
+    "metadata:strip": "node scripts/strip-embedded-metadata.ts",
     "invisible:check": "node scripts/check-invisible-characters.ts"
   },
   "devDependencies": {

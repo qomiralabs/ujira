@@ -8,7 +8,7 @@ export default defineConfig({
     projects: [
       'packages/*',
       'apps/*',
-      { test: { name: 'scripts', include: ['scripts/**/*.test.ts'] } },
+      { extends: true, test: { name: 'scripts', include: ['scripts/**/*.test.ts'] } },
     ],
     reporters: ['verbose'],
     coverage: {
@@ -19,6 +19,7 @@ export default defineConfig({
         'apps/*/src/**/*.{ts,tsx,mts,cts}',
         // Pure helpers of the root scripts. The entry points only do I/O and
         // are exercised by running them.
+        'scripts/embedded-metadata.ts',
         'scripts/invisible-characters.ts',
         'scripts/license-policy.ts',
         'scripts/license-tree.ts',

@@ -52,12 +52,62 @@ const BAN_RULES = new Set([
   'ujira/no-number-arithmetic',
   'no-eval',
   'no-implied-eval',
+  'ujira/no-number-conversion',
 ]);
 const banErrors = (messages: ESLint.LintResult['messages']): ESLint.LintResult['messages'] =>
   ruleErrors(messages).filter((msg) => msg.ruleId !== null && BAN_RULES.has(msg.ruleId));
 
 // Ways around the first version of the ban.
 const BYPASSES: [string, string][] = [
+  // Global object aliases and nesting.
+  ['an alias of globalThis', 'const g = globalThis;\nexport const x = g.Math.round(1);\n'],
+  ['an alias of global', 'const g = global;\nexport const x = g.Math.round(1);\n'],
+  ['computed globalThis access', "export const x: unknown = globalThis['Math'];\n"],
+  ['globalThis.global.Math', 'export const x = globalThis.global.Math.round(1);\n'],
+  ['global.globalThis.Math', 'export const x = global.globalThis.Math.round(1);\n'],
+  // Number reached without calling it directly.
+  ['Number.call', "export const x = Number.call(null, '15');\n"],
+  ['Number.apply', "export const x = Number.apply(null, ['15']);\n"],
+  ['Number.bind', "export const x = Number.bind(null)('15');\n"],
+  ['shorthand Number in an object', 'const o = { Number };\nexport const x: unknown = o;\n'],
+  ['Number.MAX_VALUE', 'export const x = Number.MAX_VALUE;\n'],
+  // Other float sources.
+  ['Atomics', 'export const x = Atomics.load(new BigInt64Array(1), 0);\n'],
+  ['Float16Array', 'export const x: unknown = new Float16Array(1);\n'],
+  ['a Buffer double read', 'export const f = (b: Buffer): number => b.readDoubleLE(0);\n'],
+  ['a Buffer float read', 'export const f = (b: Buffer): number => b.readFloatBE(0);\n'],
+  [
+    'a getFloat64 call on any view',
+    'export const f = (v: { getFloat64(o: number): number }): number => v.getFloat64(0);\n',
+  ],
+  ['a large exponent literal 1e21', 'export const x = 1e21;\n'],
+  ['a positive exponent literal 2E+3', 'export const x = 2E+3;\n'],
+  // Conversions between number and bigint.
+  ['BigInt of a number variable', 'export const f = (n: number): bigint => BigInt(n);\n'],
+  ['BigInt of an integer literal', 'export const x = BigInt(15);\n'],
+  ['BigInt.asIntN', 'export const x = BigInt.asIntN(64, 2n ** 70n);\n'],
+  ['BigInt.asUintN', 'export const x = BigInt.asUintN(64, 2n ** 70n);\n'],
+  // Formatting that works on a number.
+  ['toLocaleString on a bigint', 'export const x = (15n).toLocaleString();\n'],
+  ['Intl formatting of a number', "export const x = new Intl.NumberFormat('en-US').format(15);\n"],
+  [
+    'Intl formatToParts of a number',
+    "export const x = new Intl.NumberFormat('en-US').formatToParts(15);\n",
+  ],
+  // Runtime loaders that reach code no import rule sees.
+  ['a dynamic import of node:module', "export const m: unknown = await import('node:module');\n"],
+  ['a dynamic import of module', "export const m: unknown = await import('module');\n"],
+  ['a dynamic import of node:vm', "export const m: unknown = await import('node:vm');\n"],
+  ['a dynamic import of vm', "export const m: unknown = await import('vm');\n"],
+  [
+    'a dynamic import of node:worker_threads',
+    "export const m: unknown = await import('node:worker_threads');\n",
+  ],
+  [
+    'a dynamic import of worker_threads',
+    "export const m: unknown = await import('worker_threads');\n",
+  ],
+  ['a static import of node:vm', "import vm from 'node:vm';\nexport const v: unknown = vm;\n"],
   ['global.Math', 'export const x = global.Math.floor(15);\n'],
   ['direct eval', "export const x: unknown = eval('Math.round(1.005 * 100)');\n"],
   ['indirect eval', "export const x: unknown = (0, eval)('Math.round(1.005 * 100)');\n"],
@@ -136,6 +186,12 @@ const ALLOWED: [string, string][] = [
     'export const ok = (s: number): boolean => Number.isSafeInteger(s) && s >= 0;\n',
   ],
   ['BigInt of a string', "export const x = BigInt('15');\n"],
+  ['an object key named Number', 'export const x = { Number: 1n };\n'],
+  ['a type member named Number', 'export interface Row {\n  Number: bigint;\n}\n'],
+  [
+    'Intl formatting of a numeric string',
+    "export const x = new Intl.NumberFormat('en-US').format('15' as `${number}`);\n",
+  ],
 ];
 
 describe('float ban in packages/core/src/money', () => {
@@ -317,9 +373,135 @@ describe('float ban in packages/core/src/money', () => {
     ).toThrow(/needs type information/);
   }, 120_000);
 
+  it('makes the number conversion rule fail loudly when type information is missing', async () => {
+    const configUrl = pathToFileURL(path.join(REPO_ROOT, 'eslint.config.js')).href;
+    const mod = (await import(configUrl)) as {
+      default: readonly { plugins?: Record<string, ESLint.Plugin> }[];
+    };
+    const plugin = mod.default.find((entry) => entry.plugins?.['ujira'] !== undefined)?.plugins?.[
+      'ujira'
+    ];
+    expect(plugin?.rules?.['no-number-conversion']).toBeDefined();
+    const linter = new Linter({ configType: 'flat' });
+    expect(() =>
+      linter.verify(
+        'export const x = BigInt(1);\n',
+        [
+          {
+            files: ['**/*.js'],
+            plugins: { ujira: plugin ?? {} },
+            rules: { 'ujira/no-number-conversion': 'error' },
+          },
+        ],
+        'x.js',
+      ),
+    ).toThrow(/needs type information/);
+  }, 120_000);
+
   it('does not apply outside the money module', async () => {
     const messages = await errorsFor('export const x = Math.max(1, 2) + 0.5;\n', OUTSIDE_FILE);
     expect(messages).toEqual([]);
+  }, 120_000);
+});
+
+// eval runs code no rule can see, so it is banned in every file, not only in
+// money source.
+describe('eval is banned across the repo', () => {
+  const ROOT_FILE = path.join(REPO_ROOT, 'vitest.config.ts');
+  const SCRIPT_FILE = path.join(REPO_ROOT, 'scripts/check-licenses.ts');
+
+  it.each([OUTSIDE_FILE, ROOT_FILE, SCRIPT_FILE])(
+    'turns on no-eval and no-implied-eval for %s',
+    async (file) => {
+      const config = (await eslint.calculateConfigForFile(file)) as {
+        rules: Record<string, unknown>;
+      };
+      for (const rule of ['no-eval', 'no-implied-eval']) {
+        expect((config.rules[rule] as unknown[] | undefined)?.[0]).toBe(2);
+      }
+    },
+    120_000,
+  );
+
+  it.each([
+    ['direct eval', "export const x: unknown = eval('1');\n"],
+    ['indirect eval', "export const x: unknown = (0, eval)('1');\n"],
+  ])(
+    'reports %s outside the money module',
+    async (_label, code) => {
+      for (const file of [OUTSIDE_FILE, ROOT_FILE]) {
+        const messages = await errorsFor(code, file);
+        expect(messages.filter((msg) => msg.ruleId === 'no-eval').length).toBeGreaterThan(0);
+      }
+    },
+    120_000,
+  );
+});
+
+// Outside the money module the fence keeps build and snapshot out of reach.
+// Runtime loaders and the process object can reach any file by path, and an
+// inline disable comment must not switch the fence off.
+describe('the import fence closes runtime loaders', () => {
+  const restricted = (messages: ESLint.LintResult['messages']): ESLint.LintResult['messages'] =>
+    messages.filter(
+      (msg) =>
+        msg.ruleId === 'no-restricted-syntax' ||
+        msg.ruleId === 'no-restricted-properties' ||
+        msg.ruleId === 'no-restricted-imports',
+    );
+
+  it.each([
+    ['node:module', "export const m: unknown = await import('node:module');\n"],
+    ['module', "export const m: unknown = await import('module');\n"],
+    ['node:vm', "export const m: unknown = await import('node:vm');\n"],
+    ['vm', "export const m: unknown = await import('vm');\n"],
+    ['node:worker_threads', "export const m: unknown = await import('node:worker_threads');\n"],
+    ['worker_threads', "export const m: unknown = await import('worker_threads');\n"],
+    ['a static node:vm import', "import vm from 'node:vm';\nexport const v: unknown = vm;\n"],
+    [
+      'a static worker_threads import',
+      "import { Worker } from 'node:worker_threads';\nexport const w: unknown = Worker;\n",
+    ],
+    [
+      'globalThis.process',
+      "export const m: unknown = globalThis.process.getBuiltinModule('node:module');\n",
+    ],
+    [
+      'global.process',
+      "export const m: unknown = global.process.getBuiltinModule('node:module');\n",
+    ],
+  ])(
+    'reports %s outside the money module',
+    async (_label, code) => {
+      const messages = await errorsFor(code, OUTSIDE_FILE);
+      expect(restricted(messages).length).toBeGreaterThan(0);
+    },
+    120_000,
+  );
+
+  it.each([
+    [
+      'eslint-disable-next-line',
+      "// eslint-disable-next-line no-restricted-syntax\nexport const m: unknown = await import('node:vm');\n",
+    ],
+    [
+      'block eslint-disable',
+      "/* eslint-disable */\nexport const m: unknown = await import('node:module');\n",
+    ],
+  ])(
+    'ignores a %s comment in fenced source',
+    async (_label, code) => {
+      const messages = await errorsFor(code, OUTSIDE_FILE);
+      expect(restricted(messages).length).toBeGreaterThan(0);
+    },
+    120_000,
+  );
+
+  it('sets noInlineConfig for fenced source', async () => {
+    const config = (await eslint.calculateConfigForFile(OUTSIDE_FILE)) as {
+      linterOptions: { noInlineConfig?: boolean };
+    };
+    expect(config.linterOptions.noInlineConfig).toBe(true);
   }, 120_000);
 });
 
