@@ -384,6 +384,17 @@ describe('currency code for ambiguous dollar signs', () => {
     expect(reads).toBeLessThanOrEqual(1);
   });
 
+  it('reads currencyCode only from a plain options object', () => {
+    const cop = money(150n, 'COP', 2);
+    const inherited = Object.create({ locale: 'en-US', currencyCode: 'whenAmbiguous' }) as object;
+    expectMoneyError(() => formatMoney(cop, loose(inherited)), InvalidLocaleError);
+    const bare = Object.assign(Object.create(null) as object, {
+      locale: 'en-US',
+      currencyCode: 'whenAmbiguous',
+    });
+    expect(formatMoney(cop, loose(bare))).toBe(`$1.50${NBSP}COP`);
+  });
+
   it('ignores a currencyCode inherited from Object.prototype', () => {
     const proto = Object.prototype as Record<string, unknown>;
     proto['currencyCode'] = 'whenAmbiguous';
