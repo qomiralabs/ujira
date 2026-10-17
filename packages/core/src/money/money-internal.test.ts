@@ -257,6 +257,20 @@ describe('powerOfTen', () => {
     },
   );
 
+  it('never takes a power from a polluted prototype', () => {
+    const proto = Object.prototype as Record<string, unknown>;
+    proto['19'] = 10n ** 19n;
+    proto['1.5'] = 10n;
+    try {
+      expectMoneyError(() => powerOfTen(19), InvalidScaleError);
+      expectMoneyError(() => powerOfTen(1.5), InvalidScaleError);
+      expect(powerOfTen(18)).toBe(10n ** 18n);
+    } finally {
+      delete proto['19'];
+      delete proto['1.5'];
+    }
+  });
+
   it('is not exported from the money index or the package root', () => {
     expect((moneyIndex as Record<string, unknown>)['powerOfTen']).toBeUndefined();
     expect((root as Record<string, unknown>)['powerOfTen']).toBeUndefined();

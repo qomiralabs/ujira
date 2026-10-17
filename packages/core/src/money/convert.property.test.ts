@@ -135,9 +135,11 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
           const rate = { numerator, denominator };
           const coarse = moneyAt(amount, 'USD', low);
           const fine = moneyAt(amount * 10n ** BigInt(extra), 'USD', low + extra);
-          const a = convertMoney(coarse, rate, { currency: 'NGN', scale: to }, mode);
-          const b = convertMoney(fine, rate, { currency: 'NGN', scale: to }, mode);
-          expect(b).toEqual(a);
+          // Both refuse or both give the same value; large rates can overflow.
+          const a = outcome(() => convertMoney(coarse, rate, { currency: 'NGN', scale: to }, mode));
+          const b = outcome(() => convertMoney(fine, rate, { currency: 'NGN', scale: to }, mode));
+          expect(b.ok).toBe(a.ok);
+          if (a.ok && b.ok) expect(b.value).toEqual(a.value);
         },
       ),
       RUNS,
@@ -156,14 +158,19 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
           // micros is the value in millionths of a dollar, exact on every token.
           const rate = { numerator, denominator };
           const results = SETTLEMENT_TOKENS.map((t) =>
-            convertMoney(
-              tokenAmount(micros * 10n ** BigInt(t.tokenScale - 6), t.asset, t.chain),
-              rate,
-              { currency: 'NGN', scale: to },
-              mode,
+            outcome(() =>
+              convertMoney(
+                tokenAmount(micros * 10n ** BigInt(t.tokenScale - 6), t.asset, t.chain),
+                rate,
+                { currency: 'NGN', scale: to },
+                mode,
+              ),
             ),
           );
-          for (const r of results) expect(r).toEqual(results[0]);
+          for (const r of results) {
+            expect(r.ok).toBe(results[0]?.ok);
+            if (r.ok && results[0]?.ok) expect(r.value).toEqual(results[0].value);
+          }
         },
       ),
       RUNS,

@@ -47,12 +47,6 @@ export interface TokenAmount {
   readonly scale: number;
 }
 
-// Scales 0 to MAX_SCALE by index. A lookup validates and normalises at once:
-// a fraction, a negative or a value past 18 misses, and -0 reads index 0.
-const SCALES: readonly number[] = Object.freeze([
-  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
-]);
-
 // 10^0 through 10^MAX_SCALE, built from bigint exponents so that no number
 // is ever converted to a bigint.
 const POWERS_OF_TEN: readonly bigint[] = Object.freeze(
@@ -64,8 +58,19 @@ const POWERS_OF_TEN: readonly bigint[] = Object.freeze(
 const SCALE_MESSAGE = `scale must be an integer from 0 to ${String(MAX_SCALE)}`;
 
 /** 10 to the power of a scale. A scale outside 0 to MAX_SCALE throws InvalidScaleError. */
+/**
+ * True only for a safe integer from 0 to MAX_SCALE. Every scale is checked
+ * with this before it indexes a table, so a value the table does not hold
+ * can never be answered by a polluted Array or Object prototype.
+ */
+export function isScaleNumber(scale: unknown): scale is number {
+  return (
+    typeof scale === 'number' && Number.isSafeInteger(scale) && scale >= 0 && scale <= MAX_SCALE
+  );
+}
+
 export function powerOfTen(scale: number): bigint {
-  const power = POWERS_OF_TEN[scale];
+  const power = isScaleNumber(scale) ? POWERS_OF_TEN[scale] : undefined;
   if (power === undefined) throw new InvalidScaleError(SCALE_MESSAGE);
   return power;
 }
@@ -120,13 +125,14 @@ export function minorUnits(currency: FiatCurrencyCode): number {
  * coarser ones would let a whole-unit amount pass for minor units.
  */
 export function parseFiatScale(scale: unknown, currency: FiatCurrencyCode): number {
-  const normal = typeof scale === 'number' ? SCALES[scale] : undefined;
-  if (normal === undefined || normal < minorUnits(currency)) {
+  if (!isScaleNumber(scale) || scale < minorUnits(currency)) {
     throw new InvalidScaleError(
       `scale must be an integer from the currency's minor unit to ${String(MAX_SCALE)}`,
     );
   }
-  return normal;
+  // Every fiat minor unit is above zero today, so a negative zero can never
+  // get this far; a currency with no minor digits would need it collapsed.
+  return scale;
 }
 
 // Exported for sibling modules. Lint keeps it inside the money module and the

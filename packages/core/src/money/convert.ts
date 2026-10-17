@@ -13,10 +13,8 @@ import {
   UnknownCurrencyError,
 } from './errors.js';
 import {
-  I128_MAX,
   build,
   buildToken,
-  checked,
   minorUnits,
   parseFiatCurrency,
   parseFiatScale,
@@ -31,8 +29,12 @@ import { divideRounded, parseRoundingMode } from './rescale.js';
 import type { RoundingMode } from './rescale.js';
 
 /**
- * An exact rate: numerator / denominator target units per source unit, each
- * at the scale its value is held at. Both parts are bigints above zero.
+ * An exact rate in major units, exactly as quoted: numerator / denominator
+ * major units of the target per major unit of the source, so "1600.25" NGN
+ * per USD is 160025 / 100 whatever the token's decimals or the target's
+ * scale. A rate is never pre-scaled by a power of ten; the conversions
+ * apply both scales themselves. Both parts are bigints above zero of at
+ * most 36 digits.
  */
 export interface Rate {
   readonly numerator: bigint;
@@ -75,10 +77,12 @@ export function tokenToUsd(t: TokenAmount): Money {
 
 const RATE_TEXT = /^(0|[1-9][0-9]*)(\.[0-9]+)?$/;
 
-// Enough for any quoted rate, and the parts stay below I128_MAX.
+// Enough for any quoted rate. Each part of a Rate is held to the same bound,
+// so a product in a conversion stays well under 10^100.
 const MAX_RATE_DIGITS = 36;
 // The digits plus one decimal point.
 const MAX_RATE_TEXT_LENGTH = 37;
+const MAX_RATE_PART = 10n ** 36n - 1n;
 
 /**
  * Parses a quoted decimal rate such as "1600.25" into an exact Rate
@@ -108,8 +112,8 @@ export function parseRate(text: string): Rate {
 
 function readRatePart(rate: object, key: 'numerator' | 'denominator'): bigint {
   const part = readOwnField(rate, key);
-  if (typeof part !== 'bigint' || part <= 0n || part > I128_MAX) {
-    throw new InvalidAmountError('rate parts must be bigints above zero within i128');
+  if (typeof part !== 'bigint' || part <= 0n || part > MAX_RATE_PART) {
+    throw new InvalidAmountError('rate parts must be bigints above zero of at most 36 digits');
   }
   return part;
 }
@@ -133,9 +137,24 @@ function readTarget(to: unknown): object {
   return to;
 }
 
-/** source amount * rate, rounded once, with the product bounded to i128. */
-function priced(amount: bigint, rate: Rate, mode: RoundingMode): bigint {
-  return divideRounded(checked(amount * rate.numerator), rate.denominator, mode);
+/**
+ * A rate is major units of target per major unit of source, so the amount
+ * moves from its own scale to the target's inside one division and is
+ * rounded once. Bigint products cannot overflow on the way; the caller's
+ * build bounds the result to i128.
+ */
+function priced(
+  amount: bigint,
+  sourceScale: number,
+  targetScale: number,
+  rate: Rate,
+  mode: RoundingMode,
+): bigint {
+  return divideRounded(
+    amount * rate.numerator * powerOfTen(targetScale),
+    rate.denominator * powerOfTen(sourceScale),
+    mode,
+  );
 }
 
 /**
@@ -159,7 +178,7 @@ export function convertMoney(
   const scale =
     scaleOption === undefined ? minorUnits(currency) : parseFiatScale(scaleOption, currency);
   const mode = parseRoundingMode(rounding);
-  return build(priced(value.amount, r, mode), currency, scale);
+  return build(priced(value.amount, value.scale, scale, r, mode), currency, scale);
 }
 
 /**
@@ -182,5 +201,9 @@ export function convertToToken(
     readOwnField(target, 'chain') as string,
   );
   const mode = parseRoundingMode(rounding);
-  return buildToken(priced(value.amount, r, mode), token.asset, token.chain);
+  return buildToken(
+    priced(value.amount, value.scale, token.tokenScale, r, mode),
+    token.asset,
+    token.chain,
+  );
 }
