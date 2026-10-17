@@ -46,7 +46,7 @@ export function resolvePnpmCommand(
 ): Command {
   if (execpath === undefined || execpath.trim() === '') {
     throw new PnpmCommandError(
-      'npm_execpath is not set. Run this check through pnpm: `pnpm licenses:check`.',
+      'npm_execpath is not set. Run this through a pnpm script, such as `pnpm lint` or `pnpm licenses:check`.',
     );
   }
   if (!isAbsolute(execpath)) {

@@ -3,11 +3,14 @@
 
 import { defineConfig } from 'vitest/config';
 
+import { testProjects } from './scripts/workspace.ts';
+
 export default defineConfig({
   test: {
+    // Member projects are defined here rather than loaded from each member's
+    // vitest.config, so code in a member cannot change what this run checks.
     projects: [
-      'packages/*',
-      'apps/*',
+      ...testProjects(import.meta.dirname),
       { test: { name: 'scripts', include: ['scripts/**/*.test.ts'] } },
     ],
     reporters: ['verbose'],

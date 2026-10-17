@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   checkWorkspace,
+  LIFECYCLE_SCRIPTS,
   MEMBER_COMPILER_OPTIONS,
   scriptProblems,
 } from './check-workspace-scripts.ts';
@@ -297,8 +298,14 @@ describe('check-workspace-scripts', () => {
       });
 
       it('accepts every allowed compiler option', () => {
+        const values: Record<string, unknown> = {
+          rootDir: '.',
+          outDir: 'dist',
+          noEmit: true,
+          allowImportingTsExtensions: true,
+        };
         const options = Object.fromEntries(
-          MEMBER_COMPILER_OPTIONS.map((key) => [key, key === 'noEmit' ? true : 'x']),
+          MEMBER_COMPILER_OPTIONS.map((key) => [key, values[key] ?? 'x']),
         );
         const root = workspace({
           'packages/a': member('a', { 'tsconfig.json': tsconfig(options) }),
@@ -348,6 +355,224 @@ describe('check-workspace-scripts', () => {
         expect(problems[1]).toMatch(/^b: tsconfig\.json is not valid: /);
         expect(problems[2]).toBe('c: tsconfig.json: compilerOptions must be an object');
       });
+    });
+
+    describe('confinement of member tsconfig paths', () => {
+      const withOptions = (
+        compilerOptions: Record<string, unknown>,
+        extra: Record<string, unknown> = {},
+      ) => JSON.stringify({ extends: '../../tsconfig.base.json', compilerOptions, ...extra });
+
+      it.each(['..', '../..', '/tmp/out', '../other/dist', 'src', '.'])(
+        'rejects a build outDir of %s',
+        (outDir) => {
+          const root = workspace({
+            'packages/a': member('a', {
+              'tsconfig.build.json': withOptions({ rootDir: 'src', outDir }),
+            }),
+          });
+          expect(checkWorkspace(root)).toEqual([
+            `a: tsconfig.build.json compilerOptions.outDir must be "dist", found "${outDir}"`,
+          ]);
+        },
+      );
+
+      it('accepts outDir dist written as ./dist/', () => {
+        const root = workspace({
+          'packages/a': member('a', {
+            'tsconfig.build.json': withOptions({ rootDir: 'src', outDir: './dist/' }),
+          }),
+        });
+        expect(checkWorkspace(root)).toEqual([]);
+      });
+
+      it.each(['..', '../..', '/abs'])('rejects a rootDir of %s', (rootDir) => {
+        const root = workspace({
+          'packages/a': member('a', { 'tsconfig.json': withOptions({ noEmit: true, rootDir }) }),
+        });
+        expect(checkWorkspace(root)).toEqual([
+          `a: tsconfig.json compilerOptions.rootDir must stay inside the member folder, found "${rootDir}"`,
+        ]);
+      });
+
+      it.each([
+        ['include', ['../other/src']],
+        ['include', ['/abs/**/*']],
+        ['include', ['src\\..\\..\\x']],
+        ['exclude', ['../../scripts']],
+        ['files', ['../x.ts']],
+      ])('rejects a %s entry outside the member folder', (key, entries) => {
+        const root = workspace({
+          'packages/a': member('a', {
+            'tsconfig.json': withOptions({ noEmit: true }, { [key]: entries }),
+          }),
+        });
+        expect(checkWorkspace(root)).toEqual([
+          `a: tsconfig.json ${key} entry "${entries[0] ?? ''}" must stay inside the member folder`,
+        ]);
+      });
+
+      it('rejects include, exclude or files that are not string arrays', () => {
+        const root = workspace({
+          'packages/a': member('a', {
+            'tsconfig.json': withOptions({ noEmit: true }, { include: 'src' }),
+          }),
+        });
+        expect(checkWorkspace(root)).toEqual([
+          'a: tsconfig.json include must be an array of strings',
+        ]);
+      });
+
+      it('accepts include, exclude and files inside the member folder', () => {
+        const extra = {
+          include: ['src', './vitest.config.ts'],
+          exclude: ['src/**/*.test.ts'],
+          files: ['src/index.ts'],
+        };
+        const root = workspace({
+          'packages/a': member('a', { 'tsconfig.json': withOptions({ noEmit: true }, extra) }),
+        });
+        expect(checkWorkspace(root)).toEqual([]);
+      });
+
+      it.each(['references', 'watchOptions', 'compileOnSave', 'typeAcquisition'])(
+        'rejects the top level key %s',
+        (key) => {
+          const root = workspace({
+            'packages/a': member('a', {
+              'tsconfig.json': withOptions({ noEmit: true }, { [key]: [] }),
+            }),
+          });
+          expect(checkWorkspace(root)).toEqual([`a: tsconfig.json must not set ${key}`]);
+        },
+      );
+
+      it('allows allowImportingTsExtensions only together with noEmit', () => {
+        const ok = workspace({
+          'packages/a': member('a', {
+            'tsconfig.json': withOptions({ noEmit: true, allowImportingTsExtensions: true }),
+          }),
+        });
+        expect(checkWorkspace(ok)).toEqual([]);
+        const bad = workspace({
+          'packages/a': member('a', {
+            'tsconfig.build.json': withOptions({
+              outDir: 'dist',
+              allowImportingTsExtensions: true,
+            }),
+          }),
+        });
+        expect(checkWorkspace(bad)).toEqual([
+          'a: tsconfig.build.json may set allowImportingTsExtensions only together with noEmit: true',
+        ]);
+      });
+    });
+
+    describe('install time scripts', () => {
+      it.each(LIFECYCLE_SCRIPTS)('rejects a member %s script', (name) => {
+        const pkg = JSON.stringify({
+          name: 'a',
+          scripts: { ...SCRIPTS, [name]: 'tsc -p tsconfig.json' },
+        });
+        expect(
+          checkWorkspace(workspace({ 'packages/a': member('a', { 'package.json': pkg }) })),
+        ).toEqual([
+          `a: must not define a "${name}" script; install time scripts run before the gate`,
+        ]);
+      });
+
+      it('rejects install time scripts in the root package.json', () => {
+        const root = workspace(
+          { 'packages/a': member('a') },
+          {
+            'package.json': JSON.stringify({
+              name: 'root',
+              scripts: { postinstall: 'x', 'pnpm:devPreinstall': 'y' },
+            }),
+          },
+        );
+        expect(checkWorkspace(root)).toEqual([
+          'package.json: must not define a "pnpm:devPreinstall" script; install time scripts run before the gate',
+          'package.json: must not define a "postinstall" script; install time scripts run before the gate',
+        ]);
+      });
+
+      it('accepts the real repository', () => {
+        expect(checkWorkspace(join(import.meta.dirname, '..'))).toEqual([]);
+      });
+    });
+
+    describe('pnpm-workspace.yaml parsing', () => {
+      it('keeps reading the list past a comment in column 0', () => {
+        const yaml = 'packages:\n  - packages/*\n# apps live here\n  - apps/*\n';
+        const root = workspace(
+          { 'packages/a': member('a'), 'apps/b': member('b') },
+          { 'pnpm-workspace.yaml': yaml },
+        );
+        expect(checkWorkspace(root)).toEqual([]);
+      });
+
+      it('reads a flow sequence', () => {
+        const yaml = 'packages: [packages/*, "apps/*"]\n';
+        const root = workspace(
+          { 'packages/a': member('a'), 'apps/b': member('b') },
+          { 'pnpm-workspace.yaml': yaml },
+        );
+        expect(checkWorkspace(root)).toEqual([]);
+      });
+
+      it.each([
+        ['invalid YAML', 'packages: [packages/*\n', /^pnpm-workspace\.yaml: invalid YAML: /],
+        [
+          'a packages value that is not a list',
+          'packages: packages/*\n',
+          /^pnpm-workspace\.yaml: "packages" must be a list of strings$/,
+        ],
+        [
+          'a non string entry',
+          'packages:\n  - 1\n',
+          /^pnpm-workspace\.yaml: "packages" must be a list of strings$/,
+        ],
+        [
+          'a negated entry',
+          'packages:\n  - packages/*\n  - "!packages/x"\n',
+          /unsupported glob "!packages\/x"/,
+        ],
+      ])('reports %s', (_label, yaml, pattern) => {
+        const problems = checkWorkspace(
+          workspace({ 'packages/a': member('a') }, { 'pnpm-workspace.yaml': yaml }),
+        );
+        expect(problems.some((p) => pattern.test(p))).toBe(true);
+      });
+
+      it('fails when pnpm sees a different member set', () => {
+        const root = workspace({ 'packages/a': member('a') });
+        expect(checkWorkspace(root, { pnpmMembers: ['packages/a', 'tools/x'] })).toEqual([
+          'tools/x: pnpm treats this folder as a workspace member, but the checks do not',
+        ]);
+        expect(checkWorkspace(root, { pnpmMembers: [] })).toEqual([
+          'packages/a: the checks treat this folder as a workspace member, but pnpm does not',
+        ]);
+        expect(checkWorkspace(root, { pnpmMembers: ['packages/a'] })).toEqual([]);
+      });
+    });
+
+    describe('Next.js apps', () => {
+      it.each(['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'])(
+        'rejects a member with next in %s',
+        (field) => {
+          const pkg = JSON.stringify({
+            name: 'web',
+            scripts: SCRIPTS,
+            [field]: { next: '16.0.0' },
+          });
+          expect(
+            checkWorkspace(workspace({ 'apps/web': member('web', { 'package.json': pkg }) })),
+          ).toEqual([
+            'web: Next.js apps are not built by the root gate yet; extend scripts/gate.ts first',
+          ]);
+        },
+      );
     });
   });
 });

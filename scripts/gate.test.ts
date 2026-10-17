@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { plan, run } from './gate.ts';
-import { buildOrder, workspaceDependencies, type Member } from './workspace.ts';
+import { buildOrder, testProjects, workspaceDependencies, type Member } from './workspace.ts';
 
 function member(name: string, path: string, manifest: Record<string, unknown> = {}): Member {
   return { dir: `/r/${path}`, path, name, manifest: { name, ...manifest } };
@@ -151,6 +151,41 @@ describe('gate', () => {
       expect(result.status).toBe(1);
       expect(result.calls).toEqual([]);
       expect(result.err).toContain('unsupported glob');
+    });
+  });
+
+  describe('testProjects', () => {
+    it('defines one inline project per member, so member Vitest configs are never loaded', () => {
+      const root = mkdtempSync(join(tmpdir(), 'ujira-projects-'));
+      writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n');
+      for (const name of ['b', 'a']) {
+        mkdirSync(join(root, 'packages', name), { recursive: true });
+        writeFileSync(
+          join(root, 'packages', name, 'package.json'),
+          JSON.stringify({ name: `@u/${name}` }),
+        );
+        writeFileSync(
+          join(root, 'packages', name, 'vitest.config.ts'),
+          'throw new Error("loaded");\n',
+        );
+      }
+      const projects = testProjects(root);
+      rmSync(root, { recursive: true, force: true });
+      expect(projects).toEqual([
+        {
+          test: { name: '@u/a', root: join(root, 'packages', 'a'), include: ['src/**/*.test.ts'] },
+        },
+        {
+          test: { name: '@u/b', root: join(root, 'packages', 'b'), include: ['src/**/*.test.ts'] },
+        },
+      ]);
+    });
+
+    it('fails on an unsupported workspace file', () => {
+      const root = mkdtempSync(join(tmpdir(), 'ujira-projects-'));
+      writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - packages/**\n');
+      expect(() => testProjects(root)).toThrow('unsupported glob');
+      rmSync(root, { recursive: true, force: true });
     });
   });
 });

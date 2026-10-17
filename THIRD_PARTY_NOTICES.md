@@ -165,6 +165,7 @@ Used to build and test UJIRA. They are not shipped.
 | which | 2.0.2 | ISC | https://github.com/isaacs/node-which |
 | why-is-node-running | 3.2.1 | MIT | https://github.com/mafintosh/why-is-node-running |
 | word-wrap | 1.2.5 | MIT | https://github.com/jonschlinkert/word-wrap |
+| yaml | 2.9.1 | ISC | https://github.com/eemeli/yaml |
 | yocto-queue | 0.1.0 | MIT | https://github.com/sindresorhus/yocto-queue |
 
 ## Development platform specific packages

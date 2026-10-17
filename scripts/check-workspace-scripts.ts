@@ -8,11 +8,13 @@
 // check enforces both, and keeps package scripts to plain tool commands so
 // running them by hand behaves like the gate.
 
-import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 
 import ts from 'typescript';
 
+import { resolvePnpmCommand } from './pnpm-command.ts';
 import { listMembers, readWorkspaceGlobs, SCANNED_DIRS } from './workspace.ts';
 
 const SKIPPED_DIRS = new Set(['node_modules', 'dist', 'coverage', '.turbo']);
@@ -85,6 +87,39 @@ export const MEMBER_COMPILER_OPTIONS: readonly string[] = [
   'types',
   'jsx',
   'plugins',
+  // Only together with noEmit, since tsc cannot emit such imports.
+  'allowImportingTsExtensions',
+];
+// Top level keys a member tsconfig may set. `references` would pull other
+// projects into a build, so it is not one of them.
+const MEMBER_TSCONFIG_KEYS = new Set([
+  '$schema',
+  'extends',
+  'compilerOptions',
+  'include',
+  'exclude',
+  'files',
+]);
+const PATH_LISTS = ['include', 'exclude', 'files'];
+// The only output folder a member may write to. CI also fails if a gate step
+// changes anything git tracks or a new unignored file appears.
+const OUT_DIR = 'dist';
+// Scripts that pnpm runs during install, before any gate step.
+export const LIFECYCLE_SCRIPTS: readonly string[] = [
+  'preinstall',
+  'install',
+  'postinstall',
+  'preprepare',
+  'prepare',
+  'postprepare',
+  'prepublish',
+  'pnpm:devPreinstall',
+];
+const DEPENDENCY_FIELDS = [
+  'dependencies',
+  'devDependencies',
+  'peerDependencies',
+  'optionalDependencies',
 ];
 const MEMBER_TSCONFIGS = ['tsconfig.json', 'tsconfig.build.json'];
 const BASE_TSCONFIG = '../../tsconfig.base.json';
@@ -100,6 +135,44 @@ function readJsonc(file: string): { value?: unknown; error?: string } {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// True when `entry`, read relative to `dir` the way tsc reads it, cannot
+// point outside `dir`. Absolute paths, drive letters and backslashes are
+// rejected outright.
+function staysInside(dir: string, entry: string): boolean {
+  if (entry === '' || isAbsolute(entry) || /^[A-Za-z]:/.test(entry) || entry.includes('\\')) {
+    return false;
+  }
+  const target = resolve(dir, entry);
+  return target === dir || target.startsWith(dir + sep);
+}
+
+function isOutDir(outDir: string): boolean {
+  return !isAbsolute(outDir) && posix.normalize(outDir).replace(/\/+$/, '') === OUT_DIR;
+}
+
+function show(value: unknown): string {
+  return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+function lifecycleProblems(scripts: Record<string, unknown>, label: string): string[] {
+  return Object.keys(scripts)
+    .filter((name) => LIFECYCLE_SCRIPTS.includes(name))
+    .sort()
+    .map(
+      (name) =>
+        `${label}: must not define a "${name}" script; install time scripts run before the gate`,
+    );
+}
+
+// A member is a Next.js app when it depends on next or has a next.config.
+function usesNext(manifest: Record<string, unknown>, dir: string): boolean {
+  const declared = DEPENDENCY_FIELDS.some((field) => {
+    const deps = manifest[field];
+    return isObject(deps) && Object.hasOwn(deps, 'next');
+  });
+  return declared || readdirSync(dir).some((entry) => NEXT_CONFIG.test(entry));
 }
 
 function tsconfigProblems(memberDir: string, label: string): string[] {
@@ -119,6 +192,22 @@ function tsconfigProblems(memberDir: string, label: string): string[] {
     if (value['extends'] !== BASE_TSCONFIG) {
       problems.push(`${where} must extend exactly "${BASE_TSCONFIG}"`);
     }
+    for (const key of Object.keys(value)) {
+      if (!MEMBER_TSCONFIG_KEYS.has(key)) problems.push(`${where} must not set ${key}`);
+    }
+    for (const key of PATH_LISTS) {
+      const list = value[key];
+      if (list === undefined) continue;
+      if (!Array.isArray(list) || !list.every((entry) => typeof entry === 'string')) {
+        problems.push(`${where} ${key} must be an array of strings`);
+        continue;
+      }
+      for (const entry of list) {
+        if (!staysInside(memberDir, entry)) {
+          problems.push(`${where} ${key} entry "${entry}" must stay inside the member folder`);
+        }
+      }
+    }
     const options = value['compilerOptions'] ?? {};
     if (!isObject(options)) {
       problems.push(`${where}: compilerOptions must be an object`);
@@ -131,8 +220,25 @@ function tsconfigProblems(memberDir: string, label: string): string[] {
         );
       }
     }
+    const { rootDir, outDir } = options;
+    if (
+      rootDir !== undefined &&
+      (typeof rootDir !== 'string' || !staysInside(memberDir, rootDir))
+    ) {
+      problems.push(
+        `${where} compilerOptions.rootDir must stay inside the member folder, found "${show(rootDir)}"`,
+      );
+    }
+    if (outDir !== undefined && (typeof outDir !== 'string' || !isOutDir(outDir))) {
+      problems.push(
+        `${where} compilerOptions.outDir must be "${OUT_DIR}", found "${show(outDir)}"`,
+      );
+    }
     if (name === 'tsconfig.build.json' && options['noEmit'] !== undefined) {
       problems.push(`${where} must not set noEmit; the build has to emit`);
+    }
+    if (options['allowImportingTsExtensions'] !== undefined && options['noEmit'] !== true) {
+      problems.push(`${where} may set allowImportingTsExtensions only together with noEmit: true`);
     }
   }
   return problems;
@@ -184,9 +290,41 @@ function findManifests(root: string, dir: string, found: string[], problems: str
   }
 }
 
-export function checkWorkspace(root: string): string[] {
+export interface CheckOptions {
+  // Member paths relative to the root as pnpm sees them. When given, they
+  // must match the members the checks find.
+  pnpmMembers?: readonly string[];
+}
+
+export function checkWorkspace(root: string, options: CheckOptions = {}): string[] {
   const { globs, problems } = readWorkspaceGlobs(root);
-  const memberDirs = new Set(listMembers(root, globs).map((m) => m.dir));
+  const members = listMembers(root, globs);
+  const memberDirs = new Set(members.map((m) => m.dir));
+  const rootManifest = join(root, 'package.json');
+  if (existsSync(rootManifest)) {
+    const rootPkg = JSON.parse(readFileSync(rootManifest, 'utf8')) as { scripts?: unknown };
+    if (isObject(rootPkg.scripts)) {
+      problems.push(...lifecycleProblems(rootPkg.scripts, 'package.json'));
+    }
+  }
+  if (options.pnpmMembers !== undefined) {
+    const ours = new Set(members.map((m) => m.path));
+    const theirs = new Set(options.pnpmMembers);
+    for (const path of [...theirs].sort()) {
+      if (!ours.has(path)) {
+        problems.push(
+          `${path}: pnpm treats this folder as a workspace member, but the checks do not`,
+        );
+      }
+    }
+    for (const path of [...ours].sort()) {
+      if (!theirs.has(path)) {
+        problems.push(
+          `${path}: the checks treat this folder as a workspace member, but pnpm does not`,
+        );
+      }
+    }
+  }
   const manifests: string[] = [];
   for (const dir of SCANNED_DIRS) {
     const base = join(root, dir);
@@ -222,7 +360,8 @@ export function checkWorkspace(root: string): string[] {
       names.set(pkg.name, path);
     }
     const label = pkg.name ?? path;
-    if (readdirSync(manifestDir).some((entry) => NEXT_CONFIG.test(entry))) {
+    problems.push(...lifecycleProblems(pkg.scripts ?? {}, label));
+    if (usesNext(pkg as Record<string, unknown>, manifestDir)) {
       problems.push(
         `${label}: Next.js apps are not built by the root gate yet; extend scripts/gate.ts first`,
       );
@@ -233,8 +372,52 @@ export function checkWorkspace(root: string): string[] {
   return problems;
 }
 
+// Member folders as pnpm resolves them, relative to the root. pnpm is run
+// from npm_execpath, never looked up on PATH.
+function pnpmMembers(root: string): string[] {
+  const realpath = (path: string): string | undefined => {
+    try {
+      return realpathSync(path);
+    } catch {
+      return undefined;
+    }
+  };
+  const command = resolvePnpmCommand(
+    process.env['npm_execpath'],
+    process.execPath,
+    root,
+    ['ls', '-r', '--json', '--depth', '-1'],
+    {
+      realpath,
+      packageName: (dir) => {
+        const file = join(dir, 'package.json');
+        if (!existsSync(file)) return undefined;
+        const name = (JSON.parse(readFileSync(file, 'utf8')) as { name?: unknown }).name;
+        return typeof name === 'string' ? name : undefined;
+      },
+    },
+  );
+  const out = execFileSync(command.file, command.args, { cwd: root, encoding: 'utf8' });
+  const projects = JSON.parse(out) as { path?: unknown }[];
+  const realRoot = realpathSync(root);
+  return projects
+    .map((project) =>
+      typeof project.path === 'string'
+        ? relative(realRoot, realpath(project.path) ?? project.path)
+        : '',
+    )
+    .filter((path) => path !== '')
+    .map((path) => path.split(sep).join('/'));
+}
+
 if (import.meta.main) {
-  const problems = checkWorkspace(join(import.meta.dirname, '..'));
+  const root = join(import.meta.dirname, '..');
+  let problems: string[];
+  try {
+    problems = checkWorkspace(root, { pnpmMembers: pnpmMembers(root) });
+  } catch (error) {
+    problems = [error instanceof Error ? error.message : String(error)];
+  }
   if (problems.length > 0) {
     process.stderr.write(`Workspace check failed:\n  ${problems.join('\n  ')}\n`);
     process.exitCode = 1;

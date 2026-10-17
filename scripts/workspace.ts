@@ -8,6 +8,8 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { parse as parseYaml } from 'yaml';
+
 export const SCANNED_DIRS = ['packages', 'apps'];
 
 export interface Member {
@@ -19,31 +21,40 @@ export interface Member {
   manifest: Record<string, unknown>;
 }
 
-// Reads the `packages:` list from pnpm-workspace.yaml. Only plain `<dir>/*`
-// globs are supported; anything else is reported so the checks are extended
-// rather than silently matching the wrong folders.
+const PLAIN_GLOB = /^[\w.-]+\/\*$/;
+
+// Reads the `packages` list from pnpm-workspace.yaml with a YAML parser, so
+// comments, quoting and flow sequences are read the way pnpm reads them. Only
+// plain `<dir>/*` globs under the scanned folders are supported; anything
+// else is reported so the checks are extended rather than silently matching
+// the wrong folders.
 export function readWorkspaceGlobs(root: string): { globs: string[]; problems: string[] } {
   const text = readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8');
-  const globs: string[] = [];
+  let doc: unknown;
+  try {
+    doc = parseYaml(text, { prettyErrors: false });
+  } catch (error) {
+    const message = error instanceof Error ? (error.message.split('\n')[0] ?? '') : String(error);
+    return { globs: [], problems: [`pnpm-workspace.yaml: invalid YAML: ${message}`] };
+  }
+  const packages =
+    typeof doc === 'object' && doc !== null
+      ? (doc as Record<string, unknown>)['packages']
+      : undefined;
+  if (
+    packages === undefined ||
+    packages === null ||
+    (Array.isArray(packages) && packages.length === 0)
+  ) {
+    return { globs: [], problems: ['pnpm-workspace.yaml: no entries found under "packages:"'] };
+  }
+  if (!Array.isArray(packages) || !packages.every((item) => typeof item === 'string')) {
+    return { globs: [], problems: ['pnpm-workspace.yaml: "packages" must be a list of strings'] };
+  }
+  const globs = packages;
   const problems: string[] = [];
-  let inPackages = false;
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.replace(/\s+#.*$/, '');
-    if (/^packages:\s*$/.test(line)) {
-      inPackages = true;
-      continue;
-    }
-    if (!inPackages) continue;
-    if (line.trim() === '') continue;
-    const item = /^\s+-\s+['"]?([^'"]+?)['"]?\s*$/.exec(line);
-    if (!item?.[1]) break;
-    globs.push(item[1]);
-  }
-  if (globs.length === 0) {
-    problems.push('pnpm-workspace.yaml: no entries found under "packages:"');
-  }
   for (const glob of globs) {
-    if (!/^[\w.-]+\/\*$/.test(glob)) {
+    if (!PLAIN_GLOB.test(glob)) {
       problems.push(`pnpm-workspace.yaml: unsupported glob "${glob}", expected the form "<dir>/*"`);
     }
     if (!SCANNED_DIRS.includes(glob.slice(0, -'/*'.length))) {
@@ -62,7 +73,7 @@ export function listMembers(root: string, globs: readonly string[]): Member[] {
   const members: Member[] = [];
   for (const glob of globs) {
     // Unsupported globs are reported by readWorkspaceGlobs and match nothing.
-    if (!/^[\w.-]+\/\*$/.test(glob)) continue;
+    if (!PLAIN_GLOB.test(glob)) continue;
     const base = glob.slice(0, -'/*'.length);
     const baseDir = join(root, base);
     if (!existsSync(baseDir)) continue;
@@ -121,4 +132,20 @@ export function buildOrder(members: readonly Member[]): Member[] {
   };
   for (const member of [...members].sort((a, b) => (a.path < b.path ? -1 : 1))) visit(member, []);
   return ordered;
+}
+
+export interface TestProject {
+  test: { name: string; root: string; include: string[] };
+}
+
+// Vitest projects for every member, defined here instead of loaded from the
+// members' own vitest.config files. Vitest only reads a member config when a
+// project points at it, so with inline projects member code cannot change
+// what `pnpm test` runs.
+export function testProjects(root: string): TestProject[] {
+  const { globs, problems } = readWorkspaceGlobs(root);
+  if (problems.length > 0) throw new Error(problems.join('\n'));
+  return listMembers(root, globs).map((member) => ({
+    test: { name: member.name, root: member.dir, include: ['src/**/*.test.ts'] },
+  }));
 }
