@@ -452,6 +452,12 @@ describe('gate', () => {
       const cacheDir = (vitestConfig as { cacheDir?: string }).cacheDir ?? '';
       expect(cacheDir).not.toBe('');
       expect(relative(root, cacheDir).startsWith('..')).toBe(true);
+      // Vitest keeps transformed modules in a second cache, by default
+      // node_modules/.vitest-cache.
+      const modules =
+        (vitestConfig as { test?: { fsModuleCachePath?: string } }).test?.fsModuleCachePath ?? '';
+      expect(modules).not.toBe('');
+      expect(relative(root, modules).startsWith('..')).toBe(true);
     });
   });
 
