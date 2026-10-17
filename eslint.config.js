@@ -263,7 +263,8 @@ export default defineConfig(
                 'snapshotToken',
                 'withAmount',
               ],
-              message: 'build and snapshot are internal to the money module. Use money().',
+              message:
+                'build, buildToken, snapshot, snapshotFiat, snapshotToken and withAmount are internal to the money module. Use money(), moneyAt() or tokenAmount().',
             },
           ],
         },

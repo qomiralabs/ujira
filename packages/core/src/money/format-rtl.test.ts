@@ -134,13 +134,16 @@ describe('direction lookup on engines without text info', () => {
   const amounts = [150_000n, -150_000n];
   const render = (locale: string): string[] =>
     amounts.map((amount) => formatMoney(money(amount, 'COP'), { locale, ...ambiguous }));
-  const LOCALES = ['ar-EG', 'ur-PK', 'en-US'];
+  // ar-EG and ur-PK fall back to Arab and he-IL to Hebr, so each right to
+  // left script in the fallback set that a launch locale uses is exercised.
+  const LOCALES = ['ar-EG', 'ur-PK', 'he-IL', 'en-US'];
   // Taken with the full API in place, before any test changes the prototype.
   const expected = new Map(LOCALES.map((locale) => [locale, render(locale)]));
 
-  it('finds right to left isolates in the baseline for ar-EG and ur-PK only', () => {
+  it('finds right to left isolates in the baseline for ar-EG, ur-PK and he-IL only', () => {
     expect(expected.get('ar-EG')?.every((s) => s.includes(FSI))).toBe(true);
     expect(expected.get('ur-PK')?.every((s) => s.includes(FSI))).toBe(true);
+    expect(expected.get('he-IL')?.every((s) => s.includes(FSI))).toBe(true);
     expect(expected.get('en-US')?.some((s) => s.includes(FSI))).toBe(false);
   });
 

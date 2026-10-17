@@ -57,7 +57,6 @@ const POWERS_OF_TEN: readonly bigint[] = Object.freeze(
 
 const SCALE_MESSAGE = `scale must be an integer from 0 to ${String(MAX_SCALE)}`;
 
-/** 10 to the power of a scale. A scale outside 0 to MAX_SCALE throws InvalidScaleError. */
 /**
  * True only for a safe integer from 0 to MAX_SCALE. Every scale is checked
  * with this before it indexes a table, so a value the table does not hold
@@ -69,6 +68,7 @@ export function isScaleNumber(scale: unknown): scale is number {
   );
 }
 
+/** 10 to the power of a scale. A scale outside 0 to MAX_SCALE throws InvalidScaleError. */
 export function powerOfTen(scale: number): bigint {
   const power = isScaleNumber(scale) ? POWERS_OF_TEN[scale] : undefined;
   if (power === undefined) throw new InvalidScaleError(SCALE_MESSAGE);
