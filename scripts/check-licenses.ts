@@ -3,13 +3,17 @@
 
 // Fails when any production or dev dependency of any workspace project is
 // under a license outside the allowlist, or when the dependency listing cannot
-// be trusted, then writes THIRD_PARTY_NOTICES.md. Run with
-// `pnpm licenses:check`; it makes no network calls.
+// be trusted. Also fails when a font, image or data file that does not come
+// from npm is missing from assets.licenses.json, or is listed under a licence
+// outside the asset policy, or when an entry in that register matches no
+// file. Then writes THIRD_PARTY_NOTICES.md. Run with `pnpm licenses:check`;
+// it makes no network calls.
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { AssetRegisterError, checkAssets, parseAssetRegister } from './asset-register.ts';
 import { LockfileError, parseLockfile } from './lockfile.ts';
 import { formatViolation } from './license-policy.ts';
 import {
@@ -24,6 +28,7 @@ import { licensesListArgs, PnpmCommandError, resolvePnpmCommand } from './pnpm-c
 
 const ROOT = join(import.meta.dirname, '..');
 const NOTICES = join(ROOT, 'THIRD_PARTY_NOTICES.md');
+const ASSET_REGISTER = join(ROOT, 'assets.licenses.json');
 
 function realpath(path: string): string | undefined {
   try {
@@ -94,7 +99,26 @@ function listLicenses(scope: 'prod' | 'dev'): string {
   });
 }
 
+// Tracked files plus new ones that are not ignored, so an asset fails before
+// it is committed too.
+function treeFiles(): string[] {
+  const out = execFileSync(
+    'git',
+    ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+    {
+      cwd: ROOT,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    },
+  );
+  return [...new Set(out.split('\0').filter((path) => path !== ''))].sort();
+}
+
 function run(): void {
+  const assets = checkAssets(
+    parseAssetRegister(readFileSync(ASSET_REGISTER, 'utf8')),
+    treeFiles().filter((path) => existsSync(join(ROOT, path))),
+  );
   const result = checkTree({
     prodListing: listLicenses('prod'),
     devListing: listLicenses('dev'),
@@ -104,20 +128,22 @@ function run(): void {
       readFileSync(join(import.meta.dirname, 'platform-licenses.json'), 'utf8'),
     ),
     inspector,
+    assets: assets.notices,
   });
   const lines = [
     ...result.problems.map((problem) => `listing: ${problem}`),
     ...result.violations.map(formatViolation),
+    ...assets.problems.map((problem) => `asset: ${problem}`),
   ];
   if (lines.length > 0 || result.notices === undefined) {
     fail(
-      `${lines.join('\n  ')}\nReplace the dependency, or get the license reviewed before it is added.`,
+      `${lines.join('\n  ')}\nReplace the dependency or asset, or get its license reviewed and registered before it is added.`,
     );
     return;
   }
   writeFileSync(NOTICES, result.notices);
   process.stdout.write(
-    `License check passed: ${String(result.checked)} package versions. Wrote THIRD_PARTY_NOTICES.md.\n`,
+    `License check passed: ${String(result.checked)} package versions, ${String(assets.notices.length)} asset entries. Wrote THIRD_PARTY_NOTICES.md.\n`,
   );
 }
 
@@ -133,6 +159,7 @@ try {
   if (
     error instanceof PnpmCommandError ||
     error instanceof LockfileError ||
+    error instanceof AssetRegisterError ||
     error instanceof ListingError
   ) {
     fail(error.message);
