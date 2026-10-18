@@ -18,13 +18,8 @@ import type { NetworksConfig } from './config.js';
 
 export const CHAIN_ADAPTER_INTERFACE_VERSION = 1 as const;
 
-export type RailId =
-  | 'stellar.wallet'
-  | 'stellar.sep31'
-  | 'stellar.moneygram'
-  | 'celo.wallet'
-  | 'celo.minipay'
-  | 'celo.mento_forward';
+/** USDC to the recipient's own wallet, or local currency through a SEP-31 anchor. */
+export type RailId = 'stellar.wallet' | 'stellar.sep31';
 
 declare const brand: unique symbol;
 type Brand<T, B extends string> = T & { readonly [brand]: B };
@@ -62,13 +57,13 @@ export interface MandateRef {
   readonly specVersion: 1;
 }
 
-/** Native gas amounts, for fee accounting and cost per payout only. */
+/** Native fee amounts, for fee accounting and cost per payout only. */
 export interface NativeAmount {
   readonly network: NetworkId;
-  readonly asset: 'XLM' | 'CELO';
-  /** Stroops at scale 7 or wei at scale 18. */
+  readonly asset: 'XLM';
+  /** Stroops, at scale 7. */
   readonly amount: bigint;
-  readonly scale: 7 | 18;
+  readonly scale: 7;
 }
 
 export type Finality = 'none' | 'included' | 'safe' | 'final';
@@ -176,11 +171,7 @@ export type SubmissionOp =
   | 'funding_sweep'
   | 'trustline'
   | 'ttl_extend'
-  | 'restore'
-  | 'forwarder_deploy'
-  | 'forwarder_arm'
-  | 'forwarder_forward'
-  | 'forwarder_unswapped';
+  | 'restore';
 
 /**
  * Lifecycle of one write ahead submission. built, broadcast and unknown are
@@ -202,7 +193,7 @@ export type SubmissionState =
   | 'failed'
   /** Can provably never land: its validity window passed and was observed. */
   | 'expired'
-  /** Superseded by a replacement that reused the nonce. */
+  /** Superseded by a fee bump or resubmission of the same envelope. */
   | 'replaced';
 
 /** Write ahead record of a chain submission, stored before broadcast. */
@@ -212,9 +203,9 @@ export interface SubmissionRecord {
   readonly txHash: string;
   readonly op: SubmissionOp;
   /**
-   * The mandate contract address as the chain writes it: a C strkey on
-   * Stellar, a checksummed 0x address on Celo. Null for steps that touch no
-   * mandate, such as a funding account.
+   * The mandate contract address as the chain writes it, a C strkey on
+   * Stellar. Null for steps that touch no mandate, such as a funding
+   * account.
    */
   readonly mandate: string | null;
   readonly payoutId: PayoutId | null;
@@ -222,14 +213,14 @@ export interface SubmissionRecord {
   /** The signing account, in the same chain encoding as `mandate`. */
   readonly signerAddress: string;
   readonly sequenceOrNonce: bigint;
-  /** Stellar envelope validity; null on Celo, where the nonce governs replacement. */
+  /** The envelope's validity limit, or null when it has none. */
   readonly maxTime: UnixSeconds | null;
   readonly state: SubmissionState;
   readonly landedAtHeight: bigint | null;
   readonly errorCode: ChainAdapterErrorCode | null;
   /** The mandate contract's error code when the mandate refused the call. */
   readonly specCode: number | null;
-  /** The submission this one replaced, for a fee bump that reused the nonce. */
+  /** The submission this one replaced, for a fee bump of the same envelope. */
   readonly replacesTxHash: string | null;
   readonly correlationId: string;
   readonly createdAt: UnixSeconds;
@@ -239,13 +230,13 @@ export type SubmissionPatch = Partial<
   Pick<SubmissionRecord, 'state' | 'landedAtHeight' | 'errorCode' | 'specCode'>
 >;
 
-/** A Stellar channel account or Celo executor account, leased to one job at a time. */
+/** A Stellar channel account, leased to one job at a time. */
 export interface ExecutorLease {
   readonly network: NetworkId;
   readonly address: ChainAddress;
   /** The key manager's ID for the account's key. */
   readonly keyId: string;
-  /** The next sequence or nonce to use, read from chain when the previous lease expired. */
+  /** The next sequence number to use, read from chain when the previous lease expired. */
   readonly sequenceOrNonce: bigint;
   /**
    * Fencing token, new on every lease. releaseExecutor refuses a stale one,
@@ -268,9 +259,9 @@ export interface LegDeliveryRecord {
   readonly legKey: LegKey;
   readonly network: NetworkId;
   readonly rail: RailId;
-  /** Anchor or partner ID, 'forwarder' or 'wallet'. */
+  /** Anchor or partner ID, or 'wallet'. */
   readonly provider: string;
-  /** Anchor transaction ID, forwarder address or order ID. */
+  /** Anchor transaction ID or order ID. */
   readonly providerRef: string | null;
   readonly destination: Destination;
   readonly quoteId: QuoteId | null;
@@ -578,31 +569,13 @@ export type SigningRequest =
       readonly expirationLedger: number;
       readonly summary: SigningSummary;
       readonly requestId: string;
-    }
-  | {
-      readonly kind: 'evm_transaction';
-      readonly network: NetworkId;
-      readonly chainId: number;
-      readonly tx: {
-        readonly to: string;
-        readonly data: string;
-        readonly value: 0n;
-        readonly gas: bigint;
-        readonly maxFeePerGas: bigint;
-        readonly maxPriorityFeePerGas: bigint;
-        readonly feeCurrency: string | null;
-      };
-      readonly signer: ChainAddress;
-      readonly validUntil: UnixSeconds;
-      readonly summary: SigningSummary;
-      readonly requestId: string;
     };
 
 export interface SignedSubmission {
   readonly scope: TenantScope;
   /** The adapter reloads the exact request it built and refuses a different payload. */
   readonly requestId: string;
-  /** Signed XDR, signed auth entry XDR, or raw EVM transaction hex. */
+  /** Signed transaction XDR or signed auth entry XDR. */
   readonly signed: string;
   readonly correlationId: string;
 }
@@ -740,7 +713,7 @@ export interface Quote {
   readonly network: NetworkId;
   readonly rail: RailId;
   /** par: same asset, no conversion. */
-  readonly source: 'sep38' | 'mento' | 'par';
+  readonly source: 'sep38' | 'par';
   readonly firm: boolean;
   /** What leaves the mandate. */
   readonly sell: TokenAmount;

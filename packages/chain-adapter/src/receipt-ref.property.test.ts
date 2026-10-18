@@ -18,7 +18,7 @@ const hex = (length: number) => fc.string({ unit: hexDigit, minLength: length, m
 const partsArb = fc.constantFrom(...NETWORK_IDS).chain((network) =>
   fc.record({
     network: fc.constant(network),
-    txHash: network.startsWith('stellar:') ? hex(64) : hex(64).map((h) => `0x${h}`),
+    txHash: hex(64),
     eventIndex: fc.oneof(
       fc.integer({ min: 0, max: 2 ** 32 - 1 }),
       fc.constantFrom(0, 1, 2 ** 32 - 1),

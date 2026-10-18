@@ -7,9 +7,11 @@
 // strings, bigints and core money types instead, and checked not to be any.
 
 import type { Chain, FiatCurrencyCode, Money, TokenAmount, TokenAsset } from '@ujira/core';
-import { expectTypeOf } from 'vitest';
+import { describe, expectTypeOf, it } from 'vitest';
 
 import type {
+  ChainNamespace,
+  RailId,
   AdapterCapabilities,
   AdapterPorts,
   AdapterStore,
@@ -86,10 +88,25 @@ expectTypeOf<
   { [K in keyof ExportedTypes]: 0 extends 1 & ExportedTypes[K] ? K : never }[keyof ExportedTypes]
 >().toBeNever();
 
-// The network and chain are closed unions of plain strings.
-expectTypeOf<NetworkId>().toEqualTypeOf<
-  'stellar:pubnet' | 'stellar:testnet' | 'eip155:42220' | 'eip155:11142220'
->();
+describe('closed unions', () => {
+  it("Chain is 'stellar' and TokenAsset is 'USDC'", () => {
+    expectTypeOf<Chain>().toEqualTypeOf<'stellar'>();
+    expectTypeOf<TokenAsset>().toEqualTypeOf<'USDC'>();
+  });
+
+  it('NetworkId, RailId, native asset, signing payload and quote source have only Stellar members', () => {
+    expectTypeOf<NetworkId>().toEqualTypeOf<'stellar:pubnet' | 'stellar:testnet'>();
+    expectTypeOf<RailId>().toEqualTypeOf<'stellar.wallet' | 'stellar.sep31'>();
+    expectTypeOf<NativeAmount['asset']>().toEqualTypeOf<'XLM'>();
+    expectTypeOf<NativeAmount['scale']>().toEqualTypeOf<7>();
+    expectTypeOf<SigningRequest['kind']>().toEqualTypeOf<
+      'stellar_transaction' | 'stellar_auth_entry'
+    >();
+    expectTypeOf<Quote['source']>().toEqualTypeOf<'sep38' | 'par'>();
+    expectTypeOf<ChainNamespace>().toEqualTypeOf<'stellar'>();
+  });
+});
+
 expectTypeOf<ChainAdapter['network']>().toEqualTypeOf<NetworkId>();
 expectTypeOf<ChainAdapter['chain']>().toEqualTypeOf<Chain>();
 expectTypeOf<ChainAdapter['interfaceVersion']>().toEqualTypeOf<1>();
@@ -124,11 +141,8 @@ expectTypeOf<
   Extract<SigningRequest, { kind: 'stellar_transaction' }>['xdr']
 >().toEqualTypeOf<string>();
 expectTypeOf<
-  Extract<SigningRequest, { kind: 'evm_transaction' }>['tx']['data']
+  Extract<SigningRequest, { kind: 'stellar_auth_entry' }>['entryXdr']
 >().toEqualTypeOf<string>();
-expectTypeOf<
-  Extract<SigningRequest, { kind: 'evm_transaction' }>['tx']['gas']
->().toEqualTypeOf<bigint>();
 
 // Methods return promises of the plain shapes above.
 expectTypeOf<ReturnType<ChainAdapter['pay']>>().toEqualTypeOf<Promise<PayStep>>();
@@ -141,10 +155,8 @@ expectTypeOf<Parameters<ChainAdapter['verifyReceipt']>[0]>().toEqualTypeOf<Recei
 
 // The config snapshot keeps fee limits as bigint.
 type StellarConfig = NonNullable<NetworksConfig['stellar:pubnet']>;
-type CeloConfig = NonNullable<NetworksConfig['eip155:42220']>;
 expectTypeOf<StellarConfig['feeSponsor']['maxFeePerTxStroops']>().toEqualTypeOf<bigint>();
-expectTypeOf<CeloConfig['executor']['maxFeePerGasCapWei']>().toEqualTypeOf<bigint>();
-expectTypeOf<NetworksConfig['eip155:1' & keyof NetworksConfig]>().toBeNever();
+expectTypeOf<keyof NetworksConfig>().toEqualTypeOf<NetworkId>();
 
 // Every store call that reads or writes a tenant's row takes the tenant.
 // The sweep and the executor lease are platform operations and do not.
@@ -191,7 +203,7 @@ expectTypeOf<
   Extract<MandateAction, { op: 'recovery_rotate_agent' }>['new']
 >().toEqualTypeOf<ChainAddress | null>();
 expectTypeOf<MandateAction['op']>().toExtend<SubmissionOp>();
-expectTypeOf<'fund' | 'ttl_extend' | 'restore' | 'forwarder_forward'>().toExtend<SubmissionOp>();
+expectTypeOf<'fund' | 'ttl_extend' | 'restore' | 'trustline'>().toExtend<SubmissionOp>();
 expectTypeOf<SubmissionState>().toEqualTypeOf<
   'built' | 'broadcast' | 'unknown' | 'landed' | 'failed' | 'expired' | 'replaced'
 >();

@@ -4,7 +4,6 @@
 import { z } from 'zod';
 
 import { InvalidInputError } from './errors.js';
-import { isEip55Address } from './eip55.js';
 
 // The networks section of the routing configuration. Only this package
 // reads it; the router validates the chain agnostic sections itself.
@@ -12,7 +11,6 @@ import { isEip55Address } from './eip55.js';
 // references rather than secrets.
 
 const STROOPS_MAX = 2n ** 63n - 1n;
-const WEI_MAX = 2n ** 256n - 1n;
 const SECONDS_PER_HOUR = 3600;
 
 // A reference into the secret manager. Provider URLs embed API keys, so the
@@ -36,7 +34,6 @@ function decimalAmount(max: bigint) {
     .refine((value) => value <= max, { message: 'out of range' });
 }
 const stroops = decimalAmount(STROOPS_MAX);
-const wei = decimalAmount(WEI_MAX);
 
 const bps = z.int().min(0).max(10_000);
 
@@ -86,22 +83,12 @@ const stellarAccount = z.string().refine((s) => isStrkey(s, STRKEY_ACCOUNT), {
 const stellarContract = z.string().refine((s) => isStrkey(s, STRKEY_CONTRACT), {
   message: 'not a Stellar contract',
 });
-// The same reasoning as for strkeys: an address with a wrong letter is
-// another account, so the EIP-55 checksum must hold. The zero address is
-// where tokens go to be burned and is never a factory or a token.
-const ZERO_ADDRESS = `0x${'0'.repeat(40)}`;
-const evmAddress = z
-  .string()
-  .refine((s) => s !== ZERO_ADDRESS && isEip55Address(s), { message: 'not a checksummed address' });
-
-// Duplicates are compared through `normalize`, so two spellings of one EVM
-// address count as one.
-function uniqueList<T extends z.ZodType<string>>(item: T, normalize = (v: string) => v) {
+function uniqueList<T extends z.ZodType<string>>(item: T) {
   return z
     .array(item)
     .min(1)
     .max(16)
-    .refine((list) => new Set(list.map(normalize)).size === list.length, {
+    .refine((list) => new Set(list).size === list.length, {
       message: 'duplicate entry',
     });
 }
@@ -207,43 +194,10 @@ const stellarNetwork = z.strictObject({
   signingWindowSeconds: z.int().min(30).max(SECONDS_PER_HOUR),
 });
 
-const evmNetwork = z.strictObject({
-  ...common,
-  feeCurrencyDirectory: evmAddress,
-  trustedFactories: z.strictObject({
-    '1': uniqueList(evmAddress, (v) => v.toLowerCase()),
-  }),
-  assets: z.strictObject({
-    USDC: z.strictObject({ token: evmAddress }),
-    USDm: z.strictObject({ token: evmAddress }),
-  }),
-  finality: z.strictObject({
-    depositAvailable: z.enum(['safe', 'finalized']),
-    receiptFinal: z.enum(['safe', 'finalized']),
-    // Failover sends the next attempt to another network, which is only safe
-    // once this one can never land. Anything short of finalized can reorg.
-    failoverProof: z.literal('finalized'),
-  }),
-  deposits: z.strictObject({
-    startBlock: z.int().min(0),
-    maxLogRange: z.int().min(1).max(10_000),
-  }),
-  executor: z.strictObject({
-    replaceAfterSeconds: z.int().min(5).max(600),
-    // Nodes refuse a replacement that bumps the fee by less than 10 percent.
-    bumpPercent: z.int().min(10).max(100),
-    maxFeePerGasCapWei: wei,
-  }),
-  preparedTx: z.strictObject({ maxFeePerGasCapWei: wei, gasMarginBps: bps }),
-  mento: z.strictObject({ slippageBps: z.int().min(0).max(1000) }),
-});
-
 /** zod schema for the networks section, for the routing document to compose. */
 export const networksConfigSchema = z.strictObject({
   'stellar:pubnet': stellarNetwork.optional(),
   'stellar:testnet': stellarNetwork.optional(),
-  'eip155:42220': evmNetwork.optional(),
-  'eip155:11142220': evmNetwork.optional(),
 });
 
 type DeepReadonly<T> = T extends bigint | string | number | boolean | null | undefined
@@ -254,7 +208,6 @@ type DeepReadonly<T> = T extends bigint | string | number | boolean | null | und
 
 export type NetworksConfig = DeepReadonly<z.output<typeof networksConfigSchema>>;
 export type StellarNetworkConfig = NonNullable<NetworksConfig['stellar:pubnet']>;
-export type EvmNetworkConfig = NonNullable<NetworksConfig['eip155:42220']>;
 
 const MAX_LISTED_ISSUES = 10;
 

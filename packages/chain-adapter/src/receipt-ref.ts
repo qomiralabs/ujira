@@ -2,8 +2,8 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 import { InvalidInputError } from './errors.js';
-import { isNetworkId, isStellarNetwork } from './networks.js';
-import type { NetworkId } from './networks.js';
+import { isNetworkId, namespaceOf } from './networks.js';
+import type { ChainNamespace, NetworkId } from './networks.js';
 import type { ReceiptRef } from './types.js';
 
 export interface ReceiptRefParts {
@@ -13,13 +13,20 @@ export interface ReceiptRefParts {
 }
 
 const PREFIX = 'ujira:tx:v1:';
-// The longest valid reference is the prefix, eip155:11142220, a 66
-// character hash and a ten digit index, joined by colons: 106 characters.
-// Anything much longer is refused before it is split.
+// The longest valid reference today is the prefix, stellar:testnet, a 64
+// character hash and a ten digit index, joined by colons: 103 characters.
+// The cap leaves room for a longer network or hash, and refuses anything
+// much longer before it is split.
 const MAX_LENGTH = 128;
 const U32_MAX = 4_294_967_295;
-const STELLAR_HASH = /^[0-9a-f]{64}$/;
-const EVM_HASH = /^0x[0-9a-f]{64}$/;
+
+/**
+ * The transaction hash format of each chain namespace. Stellar hashes are
+ * 64 lowercase hex characters. A chain added later brings its own entry.
+ */
+export const RECEIPT_HASH_FORMATS: Readonly<Record<ChainNamespace, RegExp>> = Object.freeze({
+  stellar: /^[0-9a-f]{64}$/,
+});
 const EVENT_INDEX = /^(?:0|[1-9][0-9]{0,9})$/;
 
 // Issues name the part that was wrong, never the text: a reference may
@@ -31,7 +38,7 @@ function invalid(path: string, code: string): InvalidInputError {
 
 function checkParts(network: unknown, txHash: unknown, eventIndex: unknown): ReceiptRefParts {
   if (!isNetworkId(network)) throw invalid('receiptRef.network', 'unknown');
-  const hashFormat = isStellarNetwork(network) ? STELLAR_HASH : EVM_HASH;
+  const hashFormat = RECEIPT_HASH_FORMATS[namespaceOf(network)];
   if (typeof txHash !== 'string' || !hashFormat.test(txHash)) {
     throw invalid('receiptRef.txHash', 'invalid_format');
   }

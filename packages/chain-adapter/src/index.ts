@@ -2,7 +2,9 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 export { networksConfigSchema, parseNetworksConfig } from './config.js';
-export type { EvmNetworkConfig, NetworksConfig, StellarNetworkConfig } from './config.js';
+export { CHAIN_NAMESPACES, CHAIN_SDK_PACKAGES } from './chain-modules.js';
+export type { ChainNamespace } from './chain-modules.js';
+export type { NetworksConfig, StellarNetworkConfig } from './config.js';
 export {
   CHAIN_ADAPTER_ERROR_CODES,
   CHAIN_ADAPTER_ERROR_MESSAGES,
@@ -44,9 +46,9 @@ export type {
   Landed,
   WaitFor,
 } from './errors.js';
-export { NETWORK_IDS, isNetworkId } from './networks.js';
-export type { EvmNetworkId, NetworkId, StellarNetworkId } from './networks.js';
-export { formatReceiptRef, parseReceiptRef } from './receipt-ref.js';
+export { NETWORK_IDS, chainOf, isNetworkId } from './networks.js';
+export type { NetworkId, StellarNetworkId } from './networks.js';
+export { RECEIPT_HASH_FORMATS, formatReceiptRef, parseReceiptRef } from './receipt-ref.js';
 export type { ReceiptRefParts } from './receipt-ref.js';
 export { createChainAdapterRegistry } from './registry.js';
 export type { ChainAdapterRegistryOptions } from './registry.js';
