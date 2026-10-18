@@ -191,10 +191,22 @@ const noNumberConversion = {
   },
 };
 
-// Chain names, the CAIP-2 IDs of the networks UJIRA runs on (and the
-// retired Alfajores testnet), and the same Celo chain IDs as numbers.
-const CHAIN_NAME = /^(?:stellar|celo|stellar:(?:pubnet|testnet)|eip155:(?:42220|44787|11142220))$/;
+// Chain names in any letter case, and any CAIP-2 network in the Stellar or
+// EVM namespace: comparing against another chain's ID is chain branching
+// too. The Celo chain IDs count as numbers, bigints and decimal strings.
+const CHAIN_NAME = /^(?:stellar|celo|stellar:[a-z0-9_]+|eip155:[0-9]+)$/i;
 const CHAIN_IDS = new Set(['42220', '44787', '11142220']);
+// A chain name, namespace or Celo chain ID as a whole token of a longer
+// string, for prefix and suffix tests such as startsWith('eip155:').
+const CHAIN_TOKEN = /(?:^|:)(?:stellar|celo|eip155|42220|44787|11142220)(?::|$)/i;
+const STRING_TESTS = new Set(['startsWith', 'endsWith', 'includes']);
+// A regular expression that names a chain or a Celo chain ID.
+const CHAIN_PATTERN = /stellar|celo|eip155|42220|44787|11142220/i;
+
+/** @param {string} text */
+function isChainName(text) {
+  return CHAIN_NAME.test(text) || CHAIN_IDS.has(text);
+}
 const EQUALITY_OPERATORS = new Set(['==', '===', '!=', '!==']);
 const MEMBERSHIP_METHODS = new Set(['includes', 'has', 'indexOf', 'lastIndexOf']);
 // Type only wrappers that leave the value as it was.
@@ -302,7 +314,7 @@ function staticString(node) {
 function isChainLiteral(context, node) {
   const value = resolve(context, node);
   const text = staticString(value);
-  if (text !== undefined) return CHAIN_NAME.test(text);
+  if (text !== undefined) return isChainName(text);
   if (value?.type !== 'Literal') return false;
   if (typeof value['bigint'] === 'string') return CHAIN_IDS.has(value['bigint']);
   return typeof value['value'] === 'number' && CHAIN_IDS.has(String(value['value']));
@@ -334,7 +346,8 @@ function holdsChainLiteral(context, node) {
       const key = child(property, 'key');
       if (field(property, 'computed') === true) return isChainLiteral(context, key);
       const name = key?.type === 'Identifier' ? field(key, 'name') : field(key, 'value');
-      return typeof name === 'string' && CHAIN_NAME.test(name);
+      // Numeric keys such as { 42220: x } are numbers in the tree.
+      return (typeof name === 'string' || typeof name === 'number') && isChainName(String(name));
     });
   }
   return false;
@@ -375,10 +388,13 @@ function isRequire(context, callee) {
  * against 'stellar' is how a second chain path starts; the adapter interface
  * is where that difference belongs.
  *
- * The rule reads syntax, not types. It sees literals however they are
- * wrapped and through const bindings in the same file, but not a constant
- * imported from another module, a value built by concatenation or by a
- * string method, or a lookup through a Map or a function.
+ * The rule reads syntax, not types. It sees literals in any letter case
+ * however they are wrapped, through const bindings in the same file,
+ * prefix and suffix tests, and regular expressions that name a chain. It
+ * does not see a constant imported from another module, a const object or
+ * enum member, a value built by concatenation or transformed by a string
+ * method, or a lookup through a Map or a function. Any `.celo` or
+ * `.stellar` property access is reported, whatever the object.
  * @type {import('eslint').Rule.RuleModule}
  */
 const noChainBranching = {
@@ -439,7 +455,16 @@ const noChainBranching = {
           if (node.arguments.some((arg) => isChainLiteral(context, arg))) report(node, 'compare');
           return;
         }
-        if (typeof method !== 'string' || !MEMBERSHIP_METHODS.has(method)) return;
+        if (typeof method !== 'string') return;
+        if (STRING_TESTS.has(method)) {
+          const [first] = node.arguments;
+          const text = staticString(resolve(context, first));
+          if (text !== undefined && CHAIN_TOKEN.test(text)) {
+            report(node, 'compare');
+            return;
+          }
+        }
+        if (!MEMBERSHIP_METHODS.has(method)) return;
         if (
           node.arguments.some((arg) => isChainLiteral(context, arg)) ||
           holdsChainLiteral(context, object)
@@ -454,8 +479,14 @@ const noChainBranching = {
           }
           return;
         }
+        // Any .celo or .stellar access counts, on any object: a property
+        // named after a chain is a lookup by chain.
         const name = field(node.property, 'name');
-        if (typeof name === 'string' && CHAIN_NAME.test(name)) report(node, 'compare');
+        if (typeof name === 'string' && isChainName(name)) report(node, 'compare');
+      },
+      Literal(node) {
+        const { regex } = /** @type {{ regex?: { pattern: string } }} */ (node);
+        if (regex !== undefined && CHAIN_PATTERN.test(regex.pattern)) report(node, 'compare');
       },
       BinaryExpression(node) {
         if (!EQUALITY_OPERATORS.has(node.operator)) return;
@@ -606,7 +637,10 @@ export default defineConfig(
   {
     // Only the chain adapter knows which chain it is on. Core, payouts, the
     // router and every app reach a chain through it.
-    files: ['packages/**/*.{ts,tsx,mts,cts}', 'apps/**/*.{ts,tsx,mts,cts}'],
+    files: [
+      'packages/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
+      'apps/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
+    ],
     ignores: ['packages/chain-adapter/**'],
     rules: {
       'ujira/no-chain-branching': 'error',

@@ -265,10 +265,11 @@ describe('chain adapter errors', () => {
     expect((err.cause as Error).name).toBe('RedactedCause');
     expect((err.cause as Error).message).toBe('Cause redacted: TypeError');
     expect((err.cause as Error & { cause?: unknown }).cause).toBeUndefined();
-    // A cause whose class name is not a plain identifier is not named at all.
-    class Weird extends Error {}
-    Object.defineProperty(Weird, 'name', { value: 'key=abc def' });
-    const odd = new RpcTimeoutError({ cause: new Weird('x') });
+    // A cause whose name is not a plain identifier is not named at all,
+    // since the name is caller text too.
+    const named = new Error('x');
+    named.name = 'key=abc def';
+    const odd = new RpcTimeoutError({ cause: named });
     expect((odd.cause as Error).message).toBe('Cause redacted: Error');
     expect(new RpcTimeoutError({ cause: 'text' }).cause).toBeInstanceOf(Error);
     expect(new RpcTimeoutError().cause).toBeUndefined();

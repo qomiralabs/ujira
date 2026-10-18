@@ -325,6 +325,23 @@ describe('parseNetworksConfig', () => {
       withChange('eip155:42220', 'explorer.tx', 'https://celoscan.io/tx/{hash}?token=APIKEY'),
     ],
     [
+      'an explorer with a password only',
+      withChange('stellar:pubnet', 'explorer.tx', 'https://:APIKEY@stellar.expert/tx/{hash}'),
+    ],
+    [
+      'an explorer with an empty query',
+      withChange('eip155:42220', 'explorer.tx', 'https://celoscan.io/tx/{hash}?'),
+    ],
+    [
+      'an explorer with an empty fragment',
+      withChange('eip155:42220', 'explorer.tx', 'https://celoscan.io/tx/{hash}#'),
+    ],
+    [
+      'an explorer with the hash in the host',
+      withChange('eip155:42220', 'explorer.tx', 'https://{hash}.celoscan.io/tx'),
+    ],
+    ['an explorer that is not a URL', withChange('eip155:42220', 'explorer.tx', 'https://[{hash}')],
+    [
       'an explorer with any query',
       withChange('eip155:42220', 'explorer.tx', 'https://celoscan.io/tx/{hash}?ref=ujira'),
     ],

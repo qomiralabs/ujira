@@ -291,6 +291,11 @@ export interface LegDeliveryRecord {
 export interface AdapterStore {
   /** Called before broadcast. Unique on network and transaction hash. */
   recordSubmission(s: SubmissionRecord): Promise<void>;
+  /**
+   * Network and hash are unique across every tenant, so the implementation
+   * must also match the scope, or one tenant could patch another's row by
+   * hash.
+   */
   updateSubmission(
     scope: TenantScope,
     network: NetworkId,
@@ -319,7 +324,11 @@ export interface AdapterStore {
   leaseExecutor(network: NetworkId, leaseSeconds: number): Promise<ExecutorLease>;
   /** Platform operation. Refuses a lease whose leaseId is no longer current. */
   releaseExecutor(lease: ExecutorLease, next: { readonly sequenceOrNonce: bigint }): Promise<void>;
-  /** Unique on leg key, provider and provider reference. */
+  /**
+   * Unique on leg key, provider and provider reference. Leg keys derive
+   * from the payout ID, which hashes the tenant in, and the implementation
+   * still matches the record's scope on every write.
+   */
   upsertDelivery(d: LegDeliveryRecord): Promise<void>;
   liveDelivery(scope: TenantScope, legKey: LegKey): Promise<LegDeliveryRecord | null>;
 }
@@ -347,8 +356,13 @@ export interface SponsorshipPolicy {
     readonly intent: SponsoredIntent;
     readonly maxFee: NativeAmount;
   }): Promise<void>;
-  settle(reservationId: string, actualFee: NativeAmount): Promise<void>;
-  release(reservationId: string): Promise<void>;
+  /** The counters are per principal rows, so the tenant comes with every call. */
+  settle(r: {
+    readonly scope: TenantScope;
+    readonly reservationId: string;
+    readonly actualFee: NativeAmount;
+  }): Promise<void>;
+  release(r: { readonly scope: TenantScope; readonly reservationId: string }): Promise<void>;
 }
 
 export interface AdapterAlerts {

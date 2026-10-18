@@ -356,7 +356,7 @@ describe('fiat and token formatting stay apart', () => {
     });
     expect(celo).toBe(`1.23${NBSP}USDC`);
     expect(stellar).toBe(celo);
-    expect(celo.toLowerCase()).not.toMatch(/celo|stellar/);
+    for (const chain of ['celo', 'stellar']) expect(celo.toLowerCase()).not.toContain(chain);
   });
 
   it('formatTokenAmount validates the locale and the rounding like formatMoney', () => {

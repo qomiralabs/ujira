@@ -4,7 +4,7 @@
 import { z } from 'zod';
 
 import { InvalidInputError } from './errors.js';
-import { isEip55Address } from './keccak.js';
+import { isEip55Address } from './eip55.js';
 
 // The networks section of the routing configuration. Only this package
 // reads it; the router validates the chain agnostic sections itself.
@@ -108,17 +108,28 @@ function uniqueList<T extends z.ZodType<string>>(item: T, normalize = (v: string
 
 // Explorer links are templates filled at read time, so stored references
 // never change when an explorer does.
+// These links go into public receipts, so a template may not carry
+// credentials: no userinfo, no query and no fragment, where explorer API
+// keys usually sit. The hash belongs in the path.
+function isExplorerTemplate(template: string): boolean {
+  if (!template.startsWith('https://') || template.split('{hash}').length !== 2) return false;
+  const filled = template.replace('{hash}', 'HASHSLOT');
+  if (!URL.canParse(filled)) return false;
+  const url = new URL(filled);
+  return (
+    url.username === '' &&
+    url.password === '' &&
+    !filled.includes('?') &&
+    !filled.includes('#') &&
+    url.pathname.includes('HASHSLOT')
+  );
+}
+
 const explorer = z.strictObject({
   tx: z
     .string()
     .max(256)
-    .refine(
-      (t) =>
-        t.startsWith('https://') &&
-        t.split('{hash}').length === 2 &&
-        URL.canParse(t.replace('{hash}', 'h')),
-      { message: 'https template with one {hash}' },
-    ),
+    .refine(isExplorerTemplate, { message: 'https template with one {hash} in the path' }),
 });
 
 const health = z
@@ -242,11 +253,45 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-// Paths are built from schema keys and indexes only. A key that does not
-// fit the safe issue shape is reported as its parent rather than echoed.
-const SAFE_SEGMENT = /^[A-Za-z0-9_:]{1,32}$/;
+// Every key the schema declares, at any depth. Issue paths name only these,
+// array indexes and positions, so no key taken from the input is ever
+// echoed, however harmless it looks.
+function declaredKeys(schema: z.ZodType, into: Set<string>): Set<string> {
+  if (schema instanceof z.ZodObject) {
+    for (const [key, child] of Object.entries(schema.shape)) {
+      into.add(key);
+      // zod types the shape loosely; every value in it is a schema.
+      declaredKeys(child as z.ZodType, into);
+    }
+  } else if (schema instanceof z.ZodOptional) {
+    declaredKeys(schema.unwrap() as z.ZodType, into);
+  } else if (schema instanceof z.ZodArray) {
+    declaredKeys(schema.element as z.ZodType, into);
+  } else if (schema instanceof z.ZodPipe) {
+    declaredKeys(schema.in as z.ZodType, into);
+  }
+  return into;
+}
 
+const DECLARED_KEYS: ReadonlySet<string> = declaredKeys(networksConfigSchema, new Set());
+const ARRAY_INDEX = /^(?:0|[1-9][0-9]{0,8})$/;
+const MAX_PATH_LENGTH = 96;
 const MAX_DEPTH = 16;
+
+/**
+ * Appends one segment, or leaves the path as it is when the segment would
+ * take it past the issue length. Paths are never cut mid segment.
+ */
+function extend(path: string, segment: string): string {
+  const longer = `${path}.${segment}`;
+  return longer.length <= MAX_PATH_LENGTH ? longer : path;
+}
+
+/** A declared key keeps its name; anything else is named by its position. */
+function segmentFor(key: string, position: number, inArray: boolean): string {
+  if (inArray ? ARRAY_INDEX.test(key) : DECLARED_KEYS.has(key)) return key;
+  return `key_${String(position)}`;
+}
 
 /**
  * The first place `value` stops being plain data, or undefined. zod reads
@@ -258,22 +303,16 @@ function notPlainData(value: unknown, path: string, depth: number): string | und
   if (typeof value !== 'object' || value === null) return undefined;
   if (depth > MAX_DEPTH) return `${path} (too_deep)`;
   const proto: unknown = Object.getPrototypeOf(value);
-  const plain = Array.isArray(value)
-    ? proto === Array.prototype
-    : proto === Object.prototype || proto === null;
+  const inArray = Array.isArray(value);
+  const plain = inArray ? proto === Array.prototype : proto === Object.prototype || proto === null;
   if (!plain) return `${path} (not_plain)`;
-  for (const key of Reflect.ownKeys(value)) {
-    if (Array.isArray(value) && key === 'length') continue;
+  const keys = Reflect.ownKeys(value).filter((key) => !(inArray && key === 'length'));
+  for (const [position, key] of keys.entries()) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (typeof key !== 'string' || descriptor === undefined || !('value' in descriptor)) {
       return `${path} (not_plain)`;
     }
-    // A key that does not look like a schema key is never echoed; the
-    // issue then points at its parent.
-    // Paths stop growing at the issue length limit rather than being cut
-    // mid segment.
-    const longer = `${path}.${key}`;
-    const next = SAFE_SEGMENT.test(key) && longer.length <= 96 ? longer : path;
+    const next = extend(path, segmentFor(key, position, inArray));
     const inner = notPlainData(descriptor.value, next, depth + 1);
     if (inner !== undefined) return inner;
   }
@@ -281,10 +320,18 @@ function notPlainData(value: unknown, path: string, depth: number): string | und
 }
 
 function issuePath(path: readonly PropertyKey[]): string {
-  // zod paths hold schema keys and indexes only; the filter is a backstop
-  // so nothing else could ever be echoed.
-  const parts = path.map(String).filter((segment) => SAFE_SEGMENT.test(segment));
-  return ['networks', ...parts].join('.').slice(0, 96);
+  // zod paths hold declared keys and array indexes only. Anything else is
+  // named by its position as a backstop, so nothing could ever be echoed.
+  return path.reduce<string>(
+    (built, segment, position) =>
+      extend(
+        built,
+        typeof segment === 'number'
+          ? String(segment)
+          : segmentFor(String(segment), position, false),
+      ),
+    'networks',
+  );
 }
 
 /**

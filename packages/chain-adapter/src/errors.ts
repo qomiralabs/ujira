@@ -48,6 +48,7 @@ export interface ChainAdapterErrorOptions {
   readonly landed?: Landed;
   readonly retryAfterMs?: number | null;
   readonly waitFor?: WaitFor;
+  /** Recorded by kind only; see RedactedCause. */
   readonly cause?: unknown;
 }
 
@@ -181,6 +182,28 @@ function badOption(options: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+const IDENTIFIER = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
+
+/**
+ * What an error keeps of its cause: only the cause's class name, under a
+ * fixed message, with no stack of its own text, no fields and no chain.
+ * Transport and config errors routinely quote URLs that carry API keys,
+ * and loggers, console and error trackers all print `cause`, so the
+ * original is never attached.
+ */
+class RedactedCause extends Error {
+  override readonly name = 'RedactedCause';
+}
+
+function redact(cause: unknown): Error {
+  const kind = cause instanceof Error && IDENTIFIER.test(cause.name) ? cause.name : 'Error';
+  const redacted = new RedactedCause(`Cause redacted: ${kind}`);
+  // The stack would only point at this file, and dropping it keeps the
+  // printed form to the fixed message.
+  redacted.stack = `RedactedCause: Cause redacted: ${kind}`;
+  return redacted;
+}
+
 /** Base of every adapter failure. Branch on `code`, never on the message. */
 export abstract class ChainAdapterError extends Error {
   readonly code: ChainAdapterErrorCode;
@@ -204,7 +227,7 @@ export abstract class ChainAdapterError extends Error {
       throw new InvalidInputError({ issues: [`errorOptions.${bad} (invalid)`] });
     }
     const read = options as ChainAdapterErrorOptions;
-    super(defaults.message, read.cause === undefined ? undefined : { cause: read.cause });
+    super(defaults.message, read.cause === undefined ? undefined : { cause: redact(read.cause) });
     this.code = code;
     this.network = read.network ?? null;
     this.retryable = read.retryable ?? fallback.retryable ?? defaults.retryable;
