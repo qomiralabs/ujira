@@ -102,6 +102,13 @@ jobs:
           scripts/check-workflow-pnpm.test.sh
           scripts/assert-pnpm.test.sh
 
+      # The template every pull request starts from must keep asking for the
+      # linked issue, tests, docs, the checklist and the required reviews.
+      - name: Check the pull request template
+        run: |
+          scripts/check-pr-template.sh
+          scripts/check-pr-template.test.sh
+
       # Installed by hand rather than with pnpm/action-setup, which checks
       # the download only against registry metadata and then self updates.
       # Runs before setup-node, whose pnpm cache already executes pnpm.

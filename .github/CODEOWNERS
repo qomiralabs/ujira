@@ -1,3 +1,30 @@
+# Code owners for this repository. Advisory only: on the current GitHub plan
+# branch protection cannot require code owner review, so these lines request
+# reviews but block nothing until it can (qomiralabs/ujira#229). When several
+# lines match a path, the last one wins.
+
+*  @Divine572
+
+/.github/                 @Divine572
+/.gitignore               @Divine572
+/.gitleaks.toml           @Divine572
+/.nvmrc                   @Divine572
+/.prettierignore          @Divine572
+/.prettierrc.json         @Divine572
+/LICENSE                  @Divine572
+/README.md                @Divine572
+/THIRD_PARTY_NOTICES.md   @Divine572
+/eslint.config.js         @Divine572
+/package.json             @Divine572
+/packages/                @Divine572
+/pnpm-lock.yaml           @Divine572
+/pnpm-workspace.yaml      @Divine572
+/scripts/                 @Divine572
+/tsconfig.base.json       @Divine572
+/tsconfig.json            @Divine572
+/turbo.json               @Divine572
+/vitest.config.ts         @Divine572
+
 # Every amount UJIRA moves passes through the money module, so changes there
 # need review from its owner.
 /packages/core/src/money/ @Divine572
