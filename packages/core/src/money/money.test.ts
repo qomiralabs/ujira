@@ -18,8 +18,8 @@
  * Types
  *   type FiatCurrencyCode =
  *     'USD' | 'NGN' | 'KES' | 'GHS' | 'ZAR' | 'PHP' | 'INR' | 'BRL' | 'COP' | 'MXN' | 'EUR' | 'GBP'
- *   type TokenAsset = 'USDC' | 'USDm'
- *   type Chain = 'celo' | 'stellar'
+ *   type TokenAsset = 'USDC'
+ *   type Chain = 'stellar'
  *   interface Money {
  *     readonly kind: 'fiat'; readonly amount: bigint;
  *     readonly currency: FiatCurrencyCode; readonly scale: number
@@ -30,8 +30,9 @@
  *   }
  *   Money is fiat only. Its scale is the currency's ISO minor unit, or a finer
  *   working scale up to MAX_SCALE built with moneyAt; never coarser. A
- *   TokenAmount is always at its token's decimals on its chain, so USDC on
- *   Celo (6) and USDC on Stellar (7) are different values by construction.
+ *   TokenAmount is always at its token's decimals on its chain (USDC on
+ *   Stellar is 7) and keeps its chain, so one asset on two chains would be
+ *   two different values by construction.
  *   `kind` is a runtime discriminant read first by every operation.
  *   interface FiatCurrency { readonly code: FiatCurrencyCode; readonly minorUnits: number }
  *   interface SettlementToken {
@@ -261,7 +262,7 @@ describe('money factory', () => {
     expect(money(MAX, 'USD').amount).toBe(MAX);
     expect(money(MIN, 'USD').amount).toBe(MIN);
     expect(moneyAt(MAX, 'USD', 18).amount).toBe(MAX);
-    expect(tokenAmount(MIN, 'USDm', 'celo').amount).toBe(MIN);
+    expect(tokenAmount(MIN, 'USDC', 'stellar').amount).toBe(MIN);
   });
 
   it('throws MoneyOverflowError one past either boundary', () => {
@@ -283,7 +284,7 @@ describe('money factory', () => {
     expect(money('-250', 'NGN').amount).toBe(-250n);
   });
 
-  it.each(['XXX', 'usd', 'Usd', '', 'USD ', 'USDC ', 'usdc', 'USDM', 'BTC', 'XLM', 'CELO'])(
+  it.each(['XXX', 'usd', 'Usd', '', 'USD ', 'USDC ', 'usdc', 'USDT', 'BTC', 'XLM', 'STELLAR'])(
     'throws UnknownCurrencyError for the currency %j',
     (code) => {
       expect(() => money(1n, loose(code))).toThrow(UnknownCurrencyError);
@@ -296,7 +297,7 @@ describe('money factory', () => {
   });
 
   it('refuses token assets as fiat currencies', () => {
-    for (const asset of ['USDC', 'USDm']) {
+    for (const asset of ['USDC', 'USDT']) {
       expect(() => money(1n, loose(asset))).toThrow(UnknownCurrencyError);
       expect(() => moneyAt(1n, loose(asset), 6)).toThrow(UnknownCurrencyError);
     }
@@ -421,24 +422,12 @@ describe('add', () => {
     expect(() => add(usd(1n), moneyAt(1n, 'USD', 6))).toThrow(ScaleMismatchError);
   });
 
-  it('add throws TokenMismatchError for USDC on Celo and on Stellar', () => {
-    expect(() => add(tokenAmount(1n, 'USDC', 'celo'), tokenAmount(1n, 'USDC', 'stellar'))).toThrow(
-      TokenMismatchError,
-    );
-  });
-
-  it('treats USDC and USDm as different tokens', () => {
-    expect(() => add(tokenAmount(1n, 'USDC', 'celo'), tokenAmount(1n, 'USDm', 'celo'))).toThrow(
-      TokenMismatchError,
-    );
-  });
-
   it('reports a currency mismatch before a scale mismatch', () => {
     expect(() => add(usd(1n), moneyAt(1n, 'NGN', 6))).toThrow(CurrencyMismatchError);
   });
 
   it('throws KindMismatchError for fiat and a token, in either order', () => {
-    const token = tokenAmount(1n, 'USDC', 'celo');
+    const token = tokenAmount(1n, 'USDC', 'stellar');
     expect(() => add(usd(1n), loose(token))).toThrow(KindMismatchError);
     expect(() => add(token, loose(usd(1n)))).toThrow(KindMismatchError);
   });
@@ -488,13 +477,10 @@ describe('subtract', () => {
     expect(subtract(usd(7n), usd(7n))).toEqual(usd(0n));
   });
 
-  it('throws CurrencyMismatchError, ScaleMismatchError, TokenMismatchError and KindMismatchError', () => {
+  it('throws CurrencyMismatchError, ScaleMismatchError and KindMismatchError', () => {
     expect(() => subtract(usd(1n), money(1n, 'KES'))).toThrow(CurrencyMismatchError);
     expect(() => subtract(usd(1n), moneyAt(1n, 'USD', 7))).toThrow(ScaleMismatchError);
-    expect(() =>
-      subtract(tokenAmount(1n, 'USDC', 'celo'), tokenAmount(1n, 'USDC', 'stellar')),
-    ).toThrow(TokenMismatchError);
-    expect(() => subtract(usd(1n), loose(tokenAmount(1n, 'USDC', 'celo')))).toThrow(
+    expect(() => subtract(usd(1n), loose(tokenAmount(1n, 'USDC', 'stellar')))).toThrow(
       KindMismatchError,
     );
   });
@@ -524,8 +510,8 @@ describe('subtract', () => {
 
 describe('multiply', () => {
   it('multiplies by a bigint factor and keeps currency and scale', () => {
-    expect(multiply(tokenAmount(25n, 'USDC', 'celo'), 4n)).toEqual(
-      tokenAmount(100n, 'USDC', 'celo'),
+    expect(multiply(tokenAmount(25n, 'USDC', 'stellar'), 4n)).toEqual(
+      tokenAmount(100n, 'USDC', 'stellar'),
     );
     expect(multiply(usd(25n), -4n)).toEqual(usd(-100n));
     expect(multiply(usd(25n), 0n)).toEqual(usd(0n));
@@ -571,7 +557,7 @@ describe('multiply', () => {
 
 describe('negate', () => {
   it('flips the sign and keeps currency and scale', () => {
-    expect(negate(tokenAmount(5n, 'USDm', 'celo'))).toEqual(tokenAmount(-5n, 'USDm', 'celo'));
+    expect(negate(tokenAmount(5n, 'USDC', 'stellar'))).toEqual(tokenAmount(-5n, 'USDC', 'stellar'));
     expect(negate(usd(-5n))).toEqual(usd(5n));
   });
 
@@ -615,19 +601,14 @@ describe('sum', () => {
   it('throws on a mismatch anywhere in the list', () => {
     expect(() => sum([usd(1n), usd(1n), money(1n, 'GHS')])).toThrow(CurrencyMismatchError);
     expect(() => sum([usd(1n), usd(1n), moneyAt(1n, 'USD', 6)])).toThrow(ScaleMismatchError);
-    expect(() =>
-      sum([
-        tokenAmount(1n, 'USDC', 'celo'),
-        tokenAmount(1n, 'USDC', 'celo'),
-        tokenAmount(1n, 'USDC', 'stellar'),
-      ]),
-    ).toThrow(TokenMismatchError);
-    expect(() => sum(loose([usd(1n), tokenAmount(1n, 'USDC', 'celo')]))).toThrow(KindMismatchError);
+    expect(() => sum(loose([usd(1n), tokenAmount(1n, 'USDC', 'stellar')]))).toThrow(
+      KindMismatchError,
+    );
   });
 
   it('sums token amounts into a token amount', () => {
-    const items = [tokenAmount(1n, 'USDm', 'celo'), tokenAmount(2n, 'USDm', 'celo')];
-    expect(sum(items)).toEqual(tokenAmount(3n, 'USDm', 'celo'));
+    const items = [tokenAmount(1n, 'USDC', 'stellar'), tokenAmount(2n, 'USDC', 'stellar')];
+    expect(sum(items)).toEqual(tokenAmount(3n, 'USDC', 'stellar'));
   });
 
   it('reaches the boundary and throws one past it', () => {
@@ -669,30 +650,22 @@ describe('compare and equals', () => {
     expect(equals(usd(MIN), usd(MIN))).toBe(true);
   });
 
-  it('throws on mixed currencies, scales, tokens and kinds instead of answering false', () => {
+  it('throws on mixed currencies, scales and kinds instead of answering false', () => {
     expect(() => compare(usd(1n), money(1n, 'EUR'))).toThrow(CurrencyMismatchError);
     expect(() => compare(usd(1n), moneyAt(10n, 'USD', 3))).toThrow(ScaleMismatchError);
-    expect(() =>
-      compare(tokenAmount(1n, 'USDC', 'celo'), tokenAmount(1n, 'USDC', 'stellar')),
-    ).toThrow(TokenMismatchError);
     expect(() => equals(usd(1n), money(1n, 'EUR'))).toThrow(CurrencyMismatchError);
-    expect(() =>
-      equals(tokenAmount(1n, 'USDC', 'celo'), tokenAmount(1n, 'USDC', 'stellar')),
-    ).toThrow(TokenMismatchError);
-    expect(() => equals(usd(1n), loose(tokenAmount(1n, 'USDC', 'celo')))).toThrow(
+    expect(() => equals(usd(1n), loose(tokenAmount(1n, 'USDC', 'stellar')))).toThrow(
       KindMismatchError,
     );
   });
 
-  it('never treats one unit on Celo as ten units on Stellar', () => {
-    expect(() =>
-      equals(tokenAmount(1n, 'USDC', 'celo'), tokenAmount(10n, 'USDC', 'stellar')),
-    ).toThrow(TokenMismatchError);
-  });
-
   it('compares token amounts of the same asset and chain', () => {
-    expect(compare(tokenAmount(1n, 'USDC', 'celo'), tokenAmount(2n, 'USDC', 'celo'))).toBe(-1);
-    expect(equals(tokenAmount(2n, 'USDC', 'celo'), tokenAmount(2n, 'USDC', 'celo'))).toBe(true);
+    expect(compare(tokenAmount(1n, 'USDC', 'stellar'), tokenAmount(2n, 'USDC', 'stellar'))).toBe(
+      -1,
+    );
+    expect(equals(tokenAmount(2n, 'USDC', 'stellar'), tokenAmount(2n, 'USDC', 'stellar'))).toBe(
+      true,
+    );
   });
 });
 

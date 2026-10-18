@@ -159,7 +159,7 @@ describe('rescale up and same scale', () => {
 
   it('refuses a token amount, whose scale never changes', () => {
     expectMoneyError(
-      () => rescale(loose(tokenAmount(1_234_567n, 'USDC', 'celo')), 7, 'trunc'),
+      () => rescale(loose(tokenAmount(1_234_567n, 'USDC', 'stellar')), 7, 'trunc'),
       KindMismatchError,
     );
   });
@@ -176,7 +176,7 @@ describe('toMinor', () => {
   it('requires a rounding mode and refuses tokens', () => {
     expectMoneyError(() => toMinor(usd(1n, 6), loose(undefined)), InvalidRoundingModeError);
     expectMoneyError(
-      () => toMinor(loose(tokenAmount(1n, 'USDC', 'celo')), 'trunc'),
+      () => toMinor(loose(tokenAmount(1n, 'USDC', 'stellar')), 'trunc'),
       KindMismatchError,
     );
   });

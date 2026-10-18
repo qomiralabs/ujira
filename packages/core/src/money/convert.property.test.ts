@@ -301,16 +301,15 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
     fc.assert(
       fc.property(
         fc.bigInt({ min: -(10n ** 20n), max: 10n ** 20n }),
-        tokenArb,
-        tokenArb,
+        fiatArb,
         // Small enough that every result fits, as the property is about
         // where the result lands, not about overflow.
         rateSpec(10n ** 6n, 6),
+        tokenArb,
         modeArb,
-        (amount, from, to, spec, mode) => {
-          const source = tokenAmount(amount, from.asset, from.chain);
-          const rate =
-            from.asset === to.asset ? unitRate(from.asset) : rateFrom(spec, from.asset, to.asset);
+        (amount, currency, spec, to, mode) => {
+          const source = moneyAt(amount, currency, 2);
+          const rate = rateFrom(spec, currency, to.asset);
           const r = convertToToken(source, rate, to, mode);
           expect(r.asset).toBe(to.asset);
           expect(r.chain).toBe(to.chain);

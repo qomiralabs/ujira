@@ -97,11 +97,7 @@ describe('format properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
     fc.assert(
       fc.property(
         i128,
-        fc.constantFrom<[TokenAsset, Chain, number]>(
-          ['USDC', 'celo', 6],
-          ['USDC', 'stellar', 7],
-          ['USDm', 'celo', 18],
-        ),
+        fc.constantFrom<[TokenAsset, Chain, number]>(['USDC', 'stellar', 7]),
         (amount, [asset, chain, scale]) => {
           const shown = roundDiv(amount, 10n ** BigInt(scale - 2), 'half-even');
           expect(formatTokenAmount(tokenAmount(amount, asset, chain), { locale: 'en-US' })).toBe(

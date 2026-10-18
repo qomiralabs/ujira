@@ -209,8 +209,8 @@ describe('direction lookup on engines without text info', () => {
 
 const RTL_LOCALES = ['ar-EG', 'he-IL', 'ur-PK', 'fa-IR'];
 const TOKENS: [string, (amount: bigint) => TokenAmount][] = [
-  ['USDC', (whole) => tokenAmount(whole * 1_234_567n, 'USDC', 'celo')],
-  ['USDm', (whole) => tokenAmount(whole * 1_234_567n * 10n ** 12n, 'USDm', 'celo')],
+  ['USDC', (whole) => tokenAmount(whole * 12_345_670n, 'USDC', 'stellar')],
+  ['USDC', (whole) => tokenAmount(whole * 12_345_670_000n, 'USDC', 'stellar')],
 ];
 
 describe('token codes in right to left locales', () => {
@@ -234,29 +234,28 @@ describe('token codes in right to left locales', () => {
     );
   }
 
-  it('isolates the code on either chain, since the chain is never shown', () => {
-    const celo = formatTokenAmount(tokenAmount(-1_234_567n, 'USDC', 'celo'), { locale: 'ar-EG' });
-    const stellar = formatTokenAmount(tokenAmount(-12_345_670n, 'USDC', 'stellar'), {
+  it('isolates the asset code and never shows the chain', () => {
+    const shown = formatTokenAmount(tokenAmount(-12_345_670n, 'USDC', 'stellar'), {
       locale: 'ar-EG',
     });
-    expect(stellar).toBe(celo);
-    expect(celo.endsWith(`${NBSP}${FSI}USDC${PDI}`)).toBe(true);
+    expect(shown.endsWith(`${NBSP}${FSI}USDC${PDI}`)).toBe(true);
+    expect(shown.toLowerCase()).not.toContain('stellar');
   });
 });
 
 describe('left to right token output is unchanged', () => {
   it('keeps the exact bytes', () => {
-    expect(formatTokenAmount(tokenAmount(-1_234_567n, 'USDC', 'celo'), { locale: 'en-US' })).toBe(
-      `${MINUS}1.23${NBSP}USDC`,
-    );
+    expect(
+      formatTokenAmount(tokenAmount(-12_345_670n, 'USDC', 'stellar'), { locale: 'en-US' }),
+    ).toBe(`${MINUS}1.23${NBSP}USDC`);
     expect(formatTokenAmount(tokenAmount(1_234_567n, 'USDC', 'stellar'), { locale: 'en-US' })).toBe(
       `0.12${NBSP}USDC`,
     );
     expect(
-      formatTokenAmount(tokenAmount(-1_234_567n * 10n ** 15n, 'USDm', 'celo'), { locale: 'de-DE' }),
-    ).toBe(`${MINUS}1.234,57${NBSP}USDm`);
+      formatTokenAmount(tokenAmount(-12_345_670_000n, 'USDC', 'stellar'), { locale: 'de-DE' }),
+    ).toBe(`${MINUS}1.234,57${NBSP}USDC`);
     expect(
-      formatTokenAmount(tokenAmount(1_234_567_890_000n, 'USDC', 'celo'), { locale: 'fr-FR' }),
+      formatTokenAmount(tokenAmount(12_345_678_900_000n, 'USDC', 'stellar'), { locale: 'fr-FR' }),
     ).toBe(`1${NBSP}234${NBSP}567,89${NBSP}USDC`);
   });
 
@@ -285,7 +284,7 @@ describe('left to right token output is unchanged', () => {
 describe('token direction uses the fiat lookup and its fallbacks', () => {
   const renderToken = (locale: string): string[] =>
     [1n, -1n].map((sign) =>
-      formatTokenAmount(tokenAmount(sign * 1_234_567n, 'USDC', 'celo'), { locale }),
+      formatTokenAmount(tokenAmount(sign * 12_345_670n, 'USDC', 'stellar'), { locale }),
     );
   const LOCALES = ['ar-EG', 'he-IL', 'en-US'];
   const expected = new Map(LOCALES.map((locale) => [locale, renderToken(locale)]));
@@ -305,7 +304,9 @@ describe('token direction uses the fiat lookup and its fallbacks', () => {
   it('agrees with fiat about which locales are right to left', () => {
     for (const locale of [...RTL_LOCALES, 'en-US', 'de-DE']) {
       const fiat = formatMoney(money(-150n, 'USD'), { locale, ...ambiguous }).includes(FSI);
-      const token = formatTokenAmount(tokenAmount(-1n, 'USDC', 'celo'), { locale }).includes(FSI);
+      const token = formatTokenAmount(tokenAmount(-1n, 'USDC', 'stellar'), { locale }).includes(
+        FSI,
+      );
       expect(token).toBe(fiat);
     }
   });
@@ -322,7 +323,7 @@ describe('token direction uses the fiat lookup and its fallbacks', () => {
 describe('currencyCode on token amounts', () => {
   it('is ignored, whatever its value', () => {
     for (const locale of ['en-US', 'ar-EG']) {
-      const token = tokenAmount(-1_234_567n, 'USDC', 'celo');
+      const token = tokenAmount(-12_345_670n, 'USDC', 'stellar');
       const plain = formatTokenAmount(token, { locale });
       for (const currencyCode of ['whenAmbiguous', 'never', 'bogus']) {
         const options = { locale, currencyCode } as unknown as { locale: string };

@@ -19,7 +19,8 @@ import { isPlainRecord, readOwnField } from './options.js';
 export const I128_MIN: bigint = -(2n ** 127n);
 export const I128_MAX: bigint = 2n ** 127n - 1n;
 
-// USDm on Celo uses 18 decimals, the widest token we settle.
+// The finest scale fiat may be held at, for rates, caps and conversions.
+// Settlement tokens are narrower: USDC on Stellar uses 7.
 export const MAX_SCALE = 18;
 
 /**
@@ -36,8 +37,9 @@ export interface Money {
 
 /**
  * A settlement token amount in raw on-chain units. The scale is always the
- * token's decimals on its chain, so USDC on Celo and USDC on Stellar are
- * different values by construction. Build it with tokenAmount.
+ * token's decimals on its chain, and the chain stays part of the value, so
+ * one asset on two chains would be two different values by construction.
+ * Build it with tokenAmount.
  */
 export interface TokenAmount {
   readonly kind: 'token';
@@ -205,7 +207,7 @@ export function moneyAt(amount: bigint | string, currency: FiatCurrencyCode, sca
 
 /**
  * A token amount in raw on-chain units, at the token's decimals on `chain`:
- * `tokenAmount('1234567', 'USDC', 'celo')` is 1.234567 USDC. An asset and
+ * `tokenAmount('1234567', 'USDC', 'stellar')` is 0.1234567 USDC. An asset and
  * chain pair outside the settlement table throws UnknownCurrencyError, and a
  * fourth argument throws InvalidScaleError. Validation order: amount, asset
  * and chain, range.
@@ -326,7 +328,11 @@ function assertSameUnit(a: Unit, b: Unit): void {
     return;
   }
   if (a.kind === 'token' && b.kind === 'token') {
-    if (a.asset !== b.asset || a.chain !== b.chain) {
+    // One asset on one chain today, so the types say these always match.
+    // Read as plain strings, the check still guards a second token or chain
+    // the moment the table gains one.
+    const [assetA, assetB, chainA, chainB]: string[] = [a.asset, b.asset, a.chain, b.chain];
+    if (assetA !== assetB || chainA !== chainB) {
       throw new TokenMismatchError(
         `cannot combine ${a.asset} on ${a.chain} with ${b.asset} on ${b.chain}`,
       );

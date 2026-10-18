@@ -127,7 +127,7 @@ export function decimalText(amount: bigint, scale: number): string {
 
 /**
  * Canonical plain decimal with exactly the value's scale in fraction digits:
- * "12.30" for 1230 USD cents, "1.234567" for 1234567 USDC units on Celo.
+ * "12.30" for 1230 USD cents, "0.1234567" for 1234567 USDC units on Stellar.
  * Never a negative zero, always ASCII, for data rather than display.
  */
 export function toDecimalString(m: Money | TokenAmount): string {

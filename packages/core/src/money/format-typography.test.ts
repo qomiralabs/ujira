@@ -39,11 +39,7 @@ const UNITS: [string, (whole: bigint, locale: string) => string][] = [
   ['KES', (w, locale) => formatMoney(moneyAt(w * 10n ** 6n, 'KES', 6), { locale })],
   [
     'USDC',
-    (w, locale) => formatTokenAmount(tokenAmount(w * 10n ** 6n, 'USDC', 'celo'), { locale }),
-  ],
-  [
-    'USDm',
-    (w, locale) => formatTokenAmount(tokenAmount(w * 10n ** 18n, 'USDm', 'celo'), { locale }),
+    (w, locale) => formatTokenAmount(tokenAmount(w * 10n ** 7n, 'USDC', 'stellar'), { locale }),
   ],
 ];
 
@@ -65,9 +61,9 @@ describe('formatMoney minus sign', () => {
 
   it('prints U+2212 for en-US', () => {
     expect(formatMoney(money(-150n, 'USD'), { locale: 'en-US' })).toBe(`${MINUS}$1.50`);
-    expect(formatTokenAmount(tokenAmount(-1_234_567n, 'USDC', 'celo'), { locale: 'en-US' })).toBe(
-      `${MINUS}1.23${NBSP}USDC`,
-    );
+    expect(
+      formatTokenAmount(tokenAmount(-12_345_670n, 'USDC', 'stellar'), { locale: 'en-US' }),
+    ).toBe(`${MINUS}1.23${NBSP}USDC`);
   });
 
   it('never prints any minus for a value that rounds to zero', () => {
@@ -84,7 +80,7 @@ describe('formatMoney spaces', () => {
       `1${NBSP}234${NBSP}567,89${NBSP}\u20ac`,
     );
     expect(
-      formatTokenAmount(tokenAmount(1_234_567_890_000n, 'USDC', 'celo'), { locale: 'fr-FR' }),
+      formatTokenAmount(tokenAmount(12_345_678_900_000n, 'USDC', 'stellar'), { locale: 'fr-FR' }),
     ).toBe(`1${NBSP}234${NBSP}567,89${NBSP}USDC`);
   });
 
@@ -115,12 +111,12 @@ describe('token amounts keep ASCII digits', () => {
     expect(new Intl.NumberFormat(locale).resolvedOptions().numberingSystem).not.toBe('latn');
   });
 
-  it.each(NON_LATN)('formats USDC and USDm with ASCII digits only in %s', (locale) => {
+  it.each(NON_LATN)('formats USDC with ASCII digits only in %s', (locale) => {
     const cases: TokenAmount[] = [
-      tokenAmount(1_234_567n, 'USDC', 'celo'),
+      tokenAmount(12_345_670n, 'USDC', 'stellar'),
       tokenAmount(12_345_678n, 'USDC', 'stellar'),
-      tokenAmount(-1_234_567n, 'USDC', 'celo'),
-      tokenAmount(1_234n * 10n ** 16n, 'USDm', 'celo'),
+      tokenAmount(-12_345_670n, 'USDC', 'stellar'),
+      tokenAmount(12_340_000_000n, 'USDC', 'stellar'),
     ];
     for (const token of cases) {
       const currency = token.asset;

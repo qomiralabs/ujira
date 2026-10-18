@@ -11,8 +11,8 @@
  *   is dropped, otherwise InvalidScaleError; there is no rounding mode on
  *   purpose, because limits and budgets must never round. A non USD value
  *   throws CurrencyMismatchError, a token argument KindMismatchError and an
- *   unknown pair UnknownCurrencyError. Every settlement token is in
- *   DOLLAR_PEGGED.
+ *   unknown pair UnknownCurrencyError. The only settlement token, USDC on
+ *   Stellar, is pegged to the dollar.
  * tokenToUsd(t: TokenAmount): Money
  *   Back to US dollars at par, at the token's scale (exact). Fiat throws
  *   KindMismatchError.
@@ -70,7 +70,6 @@ import * as root from '../index.js';
 import * as moneyIndex from './index.js';
 import {
   CurrencyMismatchError,
-  DOLLAR_PEGGED,
   InvalidAmountError,
   InvalidRoundingModeError,
   InvalidScaleError,
@@ -143,31 +142,23 @@ describe('exports', () => {
 });
 
 describe('usdToToken', () => {
-  it('scales logical dollars up exactly to each token', () => {
-    expect(usdToToken(money(1230n, 'USD'), 'USDC', 'celo')).toEqual(
-      tokenAmount(12_300_000n, 'USDC', 'celo'),
-    );
+  it('scales logical dollars up exactly to the token', () => {
     expect(usdToToken(money(1230n, 'USD'), 'USDC', 'stellar')).toEqual(
       tokenAmount(123_000_000n, 'USDC', 'stellar'),
     );
-    expect(usdToToken(money(1230n, 'USD'), 'USDm', 'celo')).toEqual(
-      tokenAmount(1230n * 10n ** 16n, 'USDm', 'celo'),
-    );
   });
 
-  it('keeps a limit at 10^-6 dollars exact on every chain', () => {
-    const limit = moneyAt(1_234_567n, 'USD', 6);
-    expect(usdToToken(limit, 'USDC', 'celo').amount).toBe(1_234_567n);
-    expect(usdToToken(limit, 'USDC', 'stellar').amount).toBe(12_345_670n);
-    expect(usdToToken(limit, 'USDm', 'celo').amount).toBe(1_234_567n * 10n ** 12n);
+  it('keeps a limit at 10^-6 and 10^-7 dollars exact', () => {
+    expect(usdToToken(moneyAt(1_234_567n, 'USD', 6), 'USDC', 'stellar').amount).toBe(12_345_670n);
+    expect(usdToToken(moneyAt(1_234_567n, 'USD', 7), 'USDC', 'stellar').amount).toBe(1_234_567n);
   });
 
   it('scales down only when no non-zero digit is dropped', () => {
-    expect(usdToToken(moneyAt(1_230_000_000_000n, 'USD', 12), 'USDC', 'celo').amount).toBe(
-      1_230_000n,
+    expect(usdToToken(moneyAt(1_230_000_000_000n, 'USD', 12), 'USDC', 'stellar').amount).toBe(
+      12_300_000n,
     );
     expectMoneyError(
-      () => usdToToken(moneyAt(1_230_000_000_001n, 'USD', 12), 'USDC', 'celo'),
+      () => usdToToken(moneyAt(1_230_000_000_001n, 'USD', 12), 'USDC', 'stellar'),
       InvalidScaleError,
     );
     expectMoneyError(
@@ -177,32 +168,32 @@ describe('usdToToken', () => {
   });
 
   it('bounds the result to i128', () => {
-    expectMoneyError(() => usdToToken(money(MAX, 'USD'), 'USDC', 'celo'), MoneyOverflowError);
+    expectMoneyError(() => usdToToken(money(MAX, 'USD'), 'USDC', 'stellar'), MoneyOverflowError);
   });
 
   it('refuses another currency, a token argument and an unknown pair', () => {
-    expectMoneyError(() => usdToToken(money(1n, 'EUR'), 'USDC', 'celo'), CurrencyMismatchError);
+    expectMoneyError(() => usdToToken(money(1n, 'EUR'), 'USDC', 'stellar'), CurrencyMismatchError);
     expectMoneyError(
-      () => usdToToken(loose(tokenAmount(1n, 'USDC', 'celo')), 'USDC', 'celo'),
+      () => usdToToken(loose(tokenAmount(1n, 'USDC', 'stellar')), 'USDC', 'stellar'),
       KindMismatchError,
     );
     expectMoneyError(
-      () => usdToToken(money(1n, 'USD'), 'USDm', loose('stellar')),
+      () => usdToToken(money(1n, 'USD'), loose('USDT'), 'stellar'),
       UnknownCurrencyError,
     );
   });
 
-  it('only exists for dollar pegged tokens, which is every settlement token today', () => {
-    for (const t of SETTLEMENT_TOKENS) expect(DOLLAR_PEGGED).toContain(t.asset);
+  it('exists for USDC on Stellar, the only settlement token', () => {
+    expect(SETTLEMENT_TOKENS.map((t) => `${t.asset}/${t.chain}`)).toEqual(['USDC/stellar']);
   });
 });
 
 describe('tokenToUsd', () => {
   it('returns dollars at the token scale, exactly', () => {
-    expect(tokenToUsd(tokenAmount(1_234_567n, 'USDC', 'celo'))).toEqual(
-      moneyAt(1_234_567n, 'USD', 6),
+    expect(tokenToUsd(tokenAmount(1_234_567n, 'USDC', 'stellar'))).toEqual(
+      moneyAt(1_234_567n, 'USD', 7),
     );
-    expect(tokenToUsd(tokenAmount(-5n, 'USDm', 'celo'))).toEqual(moneyAt(-5n, 'USD', 18));
+    expect(tokenToUsd(tokenAmount(-5n, 'USDC', 'stellar'))).toEqual(moneyAt(-5n, 'USD', 7));
   });
 
   it('round trips with usdToToken for every token', () => {
@@ -272,29 +263,24 @@ describe('parseRate', () => {
 
 describe('the worked example: a quoted rate in major units', () => {
   // 12.50 USDC at 1600.25 NGN per USDC is NGN 20,003.125, which rounds
-  // half-even to 2,000,312 minor units on every chain and token.
+  // half-even to 2,000,312 minor units, whatever scale the token is held at.
   const rate = rateOf('1600.25', 'USDC', 'NGN');
 
-  it.each([
-    ['USDC on Stellar (7)', tokenAmount(125_000_000n, 'USDC', 'stellar'), rate],
-    ['USDC on Celo (6)', tokenAmount(12_500_000n, 'USDC', 'celo'), rate],
-    [
-      'USDm on Celo (18)',
-      tokenAmount(125n * 10n ** 17n, 'USDm', 'celo'),
-      rateOf('1600.25', 'USDm', 'NGN'),
-    ],
-  ])('converts 12.50 %s to NGN 20,003.12', (_label, usdc, rate) => {
-    expect(convertMoney(usdc, rate, { currency: 'NGN' }, 'half-even')).toEqual(
-      money(2_000_312n, 'NGN'),
-    );
-    expect(convertMoney(usdc, rate, { currency: 'NGN', scale: 3 }, 'half-even')).toEqual(
-      moneyAt(20_003_125n, 'NGN', 3),
-    );
-  });
+  it.each([['USDC on Stellar (7)', tokenAmount(125_000_000n, 'USDC', 'stellar'), rate]])(
+    'converts 12.50 %s to NGN 20,003.12',
+    (_label, usdc, rate) => {
+      expect(convertMoney(usdc, rate, { currency: 'NGN' }, 'half-even')).toEqual(
+        money(2_000_312n, 'NGN'),
+      );
+      expect(convertMoney(usdc, rate, { currency: 'NGN', scale: 3 }, 'half-even')).toEqual(
+        moneyAt(20_003_125n, 'NGN', 3),
+      );
+    },
+  );
 
   it('turns a rate pre-scaled by 10^n into a result exactly 10^n too large', () => {
     // Documents the misuse: rates are never multiplied by a power of ten.
-    const usdc = tokenAmount(12_500_000n, 'USDC', 'celo');
+    const usdc = tokenAmount(125_000_000n, 'USDC', 'stellar');
     const right = convertMoney(usdc, rate, { currency: 'NGN', scale: 3 }, 'trunc');
     const prescaled = rateOf('16002500', 'USDC', 'NGN');
     const wrong = convertMoney(usdc, prescaled, { currency: 'NGN', scale: 3 }, 'trunc');
@@ -330,21 +316,15 @@ describe('convertMoney', () => {
   });
 
   it('applies a quoted rate whatever the source and target scales', () => {
-    // 1 of each token at 1600.25 NGN per token is 1600.25 NGN.
-    for (const [amount, asset, chain] of [
-      [1_000_000n, 'USDC', 'celo'],
-      [10_000_000n, 'USDC', 'stellar'],
-      [10n ** 18n, 'USDm', 'celo'],
-    ] as const) {
-      expect(
-        convertMoney(
-          tokenAmount(amount, asset, chain),
-          rateOf('1600.25', asset, 'NGN'),
-          { currency: 'NGN' },
-          'trunc',
-        ),
-      ).toEqual(money(160_025n, 'NGN'));
-    }
+    // 1 USDC at 1600.25 NGN per USDC is 1600.25 NGN, at any target scale.
+    const one = tokenAmount(10_000_000n, 'USDC', 'stellar');
+    const ngnPerUsdc = rateOf('1600.25', 'USDC', 'NGN');
+    expect(convertMoney(one, ngnPerUsdc, { currency: 'NGN' }, 'trunc')).toEqual(
+      money(160_025n, 'NGN'),
+    );
+    expect(convertMoney(one, ngnPerUsdc, { currency: 'NGN', scale: 18 }, 'trunc')).toEqual(
+      moneyAt(160_025n * 10n ** 16n, 'NGN', 18),
+    );
     // A rate of 1 between dollar units at different scales keeps the value.
     const usdPerUsd = rateOf('1', 'USD', 'USD');
     expect(
@@ -360,7 +340,7 @@ describe('convertMoney', () => {
     // half-up to cents gives 197562.
     expect(
       convertMoney(
-        tokenAmount(1_234_567n, 'USDC', 'celo'),
+        tokenAmount(12_345_670n, 'USDC', 'stellar'),
         rateOf('1600.25', 'USDC', 'NGN'),
         { currency: 'NGN' },
         'half-up',
@@ -387,12 +367,12 @@ describe('convertMoney', () => {
     );
     expect(
       convertMoney(
-        tokenAmount(MAX, 'USDm', 'celo'),
-        rateOf('1', 'USDm', 'USD'),
+        tokenAmount(MAX, 'USDC', 'stellar'),
+        rateOf('1', 'USDC', 'USD'),
         { currency: 'USD' },
         'trunc',
       ),
-    ).toEqual(money(MAX / 10n ** 16n, 'USD'));
+    ).toEqual(money(MAX / 10n ** 5n, 'USD'));
   });
 
   it('validates the source, then the rate, then the target, then the pair, then the rounding', () => {
@@ -483,10 +463,10 @@ describe('convertToToken', () => {
     const r = convertToToken(
       money(160_025n, 'NGN'),
       rate,
-      { asset: 'USDC', chain: 'celo' },
+      { asset: 'USDC', chain: 'stellar' },
       'trunc',
     );
-    expect(r).toEqual(tokenAmount(1_000_000n, 'USDC', 'celo'));
+    expect(r).toEqual(tokenAmount(10_000_000n, 'USDC', 'stellar'));
     // 0.01 NGN is 62.49... Stellar USDC units, so ceil gives 63.
     expect(
       convertToToken(money(1n, 'NGN'), rate, { asset: 'USDC', chain: 'stellar' }, 'ceil'),
@@ -496,29 +476,27 @@ describe('convertToToken', () => {
       convertToToken(
         money(160_025n, 'NGN'),
         rateOf('0.000624902', 'NGN', 'USDC'),
-        { asset: 'USDC', chain: 'celo' },
+        { asset: 'USDC', chain: 'stellar' },
         'trunc',
       ),
-    ).toEqual(tokenAmount(999_999n, 'USDC', 'celo'));
+    ).toEqual(tokenAmount(9_999_994n, 'USDC', 'stellar'));
   });
 
-  it('moves a token between chains only through an explicit rate', () => {
-    const celo = tokenAmount(1_234_567n, 'USDC', 'celo');
-    const toStellar = rateOf('1', 'USDC', 'USDC');
-    expect(convertToToken(celo, toStellar, { asset: 'USDC', chain: 'stellar' }, 'trunc')).toEqual(
-      tokenAmount(12_345_670n, 'USDC', 'stellar'),
-    );
+  it('keeps a token as it was at a rate of one to itself', () => {
+    const usdc = tokenAmount(12_345_670n, 'USDC', 'stellar');
+    const same = rateOf('1', 'USDC', 'USDC');
+    expect(convertToToken(usdc, same, { asset: 'USDC', chain: 'stellar' }, 'trunc')).toEqual(usdc);
   });
 
   it('rejects an unknown pair and a missing rounding mode', () => {
     const one = rateOf('1', 'USD', 'USDC');
     expectMoneyError(
       () =>
-        convertToToken(money(1n, 'USD'), one, loose({ asset: 'USDm', chain: 'stellar' }), 'trunc'),
+        convertToToken(money(1n, 'USD'), one, loose({ asset: 'USDT', chain: 'stellar' }), 'trunc'),
       UnknownCurrencyError,
     );
     expectMoneyError(
-      () => convertToToken(money(1n, 'USD'), one, { asset: 'USDC', chain: 'celo' }, loose('up')),
+      () => convertToToken(money(1n, 'USD'), one, { asset: 'USDC', chain: 'stellar' }, loose('up')),
       InvalidRoundingModeError,
     );
   });
@@ -527,14 +505,12 @@ describe('convertToToken', () => {
 describe('quoted rates against a bigint reference', () => {
   type Unit =
     | { kind: 'fiat'; scale: number }
-    | { kind: 'token'; asset: 'USDC' | 'USDm'; chain: 'celo' | 'stellar'; scale: number };
+    | { kind: 'token'; asset: 'USDC'; chain: 'stellar'; scale: number };
   const units: Unit[] = [
     { kind: 'fiat', scale: 2 },
     { kind: 'fiat', scale: 6 },
     { kind: 'fiat', scale: 18 },
-    { kind: 'token', asset: 'USDC', chain: 'celo', scale: 6 },
     { kind: 'token', asset: 'USDC', chain: 'stellar', scale: 7 },
-    { kind: 'token', asset: 'USDm', chain: 'celo', scale: 18 },
   ];
   const source = (unit: Unit, amount: bigint) =>
     unit.kind === 'fiat'
@@ -617,31 +593,14 @@ describe('rates bound to their base and quote', () => {
   });
 
   it('treats a token as its asset, never as the dollar it tracks', () => {
-    const usdc = tokenAmount(1_000_000n, 'USDC', 'celo');
+    const usdc = tokenAmount(10_000_000n, 'USDC', 'stellar');
     expectMoneyError(
       () => convertMoney(usdc, ngnPerUsd, { currency: 'NGN' }, 'trunc'),
       RateMismatchError,
     );
-    expectMoneyError(
-      () =>
-        convertMoney(
-          tokenAmount(10n ** 18n, 'USDm', 'celo'),
-          rateOf('1600.25', 'USDC', 'NGN'),
-          { currency: 'NGN' },
-          'trunc',
-        ),
-      RateMismatchError,
-    );
-    // One asset on two chains shares a rate.
-    const usdcRate = rateOf('1600.25', 'USDC', 'NGN');
-    expect(convertMoney(usdc, usdcRate, { currency: 'NGN' }, 'trunc')).toEqual(
-      convertMoney(
-        tokenAmount(10_000_000n, 'USDC', 'stellar'),
-        usdcRate,
-        { currency: 'NGN' },
-        'trunc',
-      ),
-    );
+    expect(
+      convertMoney(usdc, rateOf('1600.25', 'USDC', 'NGN'), { currency: 'NGN' }, 'trunc'),
+    ).toEqual(money(160_025n, 'NGN'));
   });
 
   it('checks the token target against the quote', () => {
@@ -649,9 +608,9 @@ describe('rates bound to their base and quote', () => {
     expectMoneyError(
       () =>
         convertToToken(
-          money(160_025n, 'NGN'),
-          usdcPerNgn,
-          { asset: 'USDm', chain: 'celo' },
+          money(160_025n, 'USD'),
+          ngnPerUsd,
+          { asset: 'USDC', chain: 'stellar' },
           'trunc',
         ),
       RateMismatchError,
@@ -661,13 +620,14 @@ describe('rates bound to their base and quote', () => {
         convertToToken(
           money(160_025n, 'KES'),
           usdcPerNgn,
-          { asset: 'USDC', chain: 'celo' },
+          { asset: 'USDC', chain: 'stellar' },
           'trunc',
         ),
       RateMismatchError,
     );
     expectMoneyError(
-      () => convertToToken(money(1n, 'NGN'), ngnPerUsd, { asset: 'USDC', chain: 'celo' }, 'trunc'),
+      () =>
+        convertToToken(money(1n, 'NGN'), ngnPerUsd, { asset: 'USDC', chain: 'stellar' }, 'trunc'),
       RateMismatchError,
     );
   });
@@ -708,8 +668,8 @@ describe('rates bound to their base and quote', () => {
   });
 
   it('parses the pair after the text and refuses an unknown unit', () => {
-    expect(rateOf('2', 'USDm', 'KES')).toEqual({
-      base: 'USDm',
+    expect(rateOf('2', 'USDC', 'KES')).toEqual({
+      base: 'USDC',
       quote: 'KES',
       numerator: 2n,
       denominator: 1n,
@@ -796,7 +756,7 @@ describe('only issued rates convert', () => {
         convertToToken(
           money(100n, 'NGN'),
           loose({ ...forged, base: 'NGN', quote: 'USDC' }),
-          { asset: 'USDC', chain: 'celo' },
+          { asset: 'USDC', chain: 'stellar' },
           'trunc',
         ),
       RateMismatchError,

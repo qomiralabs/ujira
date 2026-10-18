@@ -82,7 +82,7 @@ export class KindMismatchError extends MoneyError {
   readonly code = 'KIND_MISMATCH';
 }
 
-/** Two token amounts differ in asset or chain, for example USDC on Celo and on Stellar. */
+/** Two token amounts differ in asset or chain. Kept so a second token or chain cannot mix silently. */
 export class TokenMismatchError extends MoneyError {
   override readonly name = 'TokenMismatchError';
   readonly code = 'TOKEN_MISMATCH';

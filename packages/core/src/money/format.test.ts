@@ -59,10 +59,10 @@ function group(digits: string): string {
 }
 
 describe('formatMoney acceptance', () => {
-  it('1234567 USDC at Celo scale 6 formats as 1.23 in en-US', () => {
-    expect(formatTokenAmount(tokenAmount(1_234_567n, 'USDC', 'celo'), { locale: 'en-US' })).toBe(
-      `1.23${NBSP}USDC`,
-    );
+  it('12345670 USDC units at Stellar scale 7 format as 1.23 in en-US', () => {
+    expect(
+      formatTokenAmount(tokenAmount(12_345_670n, 'USDC', 'stellar'), { locale: 'en-US' }),
+    ).toBe(`1.23${NBSP}USDC`);
   });
 
   it('9007199254740993.01 USD formats without precision loss', () => {
@@ -121,9 +121,9 @@ describe('display scale', () => {
   it('rounds half-even by default', () => {
     expect(formatMoney(moneyAt(1005n, 'USD', 3), { locale: 'en-US' })).toBe('$1.00');
     expect(formatMoney(moneyAt(1015n, 'USD', 3), { locale: 'en-US' })).toBe('$1.02');
-    expect(formatTokenAmount(tokenAmount(1_225_000n, 'USDC', 'celo'), { locale: 'en-US' })).toBe(
-      `1.22${NBSP}USDC`,
-    );
+    expect(
+      formatTokenAmount(tokenAmount(12_250_000n, 'USDC', 'stellar'), { locale: 'en-US' }),
+    ).toBe(`1.22${NBSP}USDC`);
   });
 
   it('applies an explicit rounding mode', () => {
@@ -134,27 +134,27 @@ describe('display scale', () => {
       '$1.01',
     );
     expect(
-      formatTokenAmount(tokenAmount(1_234_567n, 'USDC', 'celo'), {
+      formatTokenAmount(tokenAmount(12_345_670n, 'USDC', 'stellar'), {
         locale: 'en-US',
         rounding: 'ceil',
       }),
     ).toBe(`1.24${NBSP}USDC`);
   });
 
-  it('formats Stellar USDC at scale 7 and USDm at scale 18', () => {
+  it('formats Stellar USDC at scale 7, large amounts included', () => {
     expect(
       formatTokenAmount(tokenAmount(12_345_678n, 'USDC', 'stellar'), { locale: 'en-US' }),
     ).toBe(`1.23${NBSP}USDC`);
-    const usdm = tokenAmount(1_234_005n * 10n ** 15n, 'USDm', 'celo');
-    expect(formatTokenAmount(usdm, { locale: 'en-US' })).toBe(`1,234.00${NBSP}USDm`);
-    expect(formatTokenAmount(usdm, { locale: 'en-US', rounding: 'half-up' })).toBe(
-      `1,234.01${NBSP}USDm`,
+    const large = tokenAmount(12_340_050_000n, 'USDC', 'stellar');
+    expect(formatTokenAmount(large, { locale: 'en-US' })).toBe(`1,234.00${NBSP}USDC`);
+    expect(formatTokenAmount(large, { locale: 'en-US', rounding: 'half-up' })).toBe(
+      `1,234.01${NBSP}USDC`,
     );
   });
 
   it('groups token amounts the locale way', () => {
     expect(
-      formatTokenAmount(tokenAmount(1_234_567_890_000n, 'USDC', 'celo'), { locale: 'pt-BR' }),
+      formatTokenAmount(tokenAmount(12_345_678_900_000n, 'USDC', 'stellar'), { locale: 'pt-BR' }),
     ).toBe(`1.234.567,89${NBSP}USDC`);
   });
 });
@@ -167,7 +167,7 @@ describe('signs and extremes', () => {
   it('never prints a negative zero', () => {
     expect(formatMoney(moneyAt(-4n, 'USD', 3), { locale: 'en-US' })).toBe('$0.00');
     expect(formatMoney(moneyAt(-5n, 'USD', 3), { locale: 'en-US' })).toBe('$0.00');
-    expect(formatTokenAmount(tokenAmount(-1n, 'USDC', 'celo'), { locale: 'en-US' })).toBe(
+    expect(formatTokenAmount(tokenAmount(-1n, 'USDC', 'stellar'), { locale: 'en-US' })).toBe(
       `0.00${NBSP}USDC`,
     );
     expect(formatMoney(moneyAt(-5n, 'USD', 3), { locale: 'en-US', rounding: 'half-up' })).toBe(
@@ -333,11 +333,11 @@ describe('formatMoney rejects bad input', () => {
 describe('fiat and token formatting stay apart', () => {
   it('formatMoney refuses a token amount before reading the options', () => {
     expectMoneyError(
-      () => formatMoney(loose(tokenAmount(1_234_567n, 'USDC', 'celo')), { locale: 'en-US' }),
+      () => formatMoney(loose(tokenAmount(12_345_670n, 'USDC', 'stellar')), { locale: 'en-US' }),
       KindMismatchError,
     );
     expectMoneyError(
-      () => formatMoney(loose(tokenAmount(1n, 'USDC', 'celo')), loose(null)),
+      () => formatMoney(loose(tokenAmount(1n, 'USDC', 'stellar')), loose(null)),
       KindMismatchError,
     );
   });
@@ -350,17 +350,15 @@ describe('fiat and token formatting stay apart', () => {
   });
 
   it('formatTokenAmount never shows the chain, only the asset code', () => {
-    const celo = formatTokenAmount(tokenAmount(1_234_567n, 'USDC', 'celo'), { locale: 'en-US' });
-    const stellar = formatTokenAmount(tokenAmount(12_345_670n, 'USDC', 'stellar'), {
+    const shown = formatTokenAmount(tokenAmount(12_345_670n, 'USDC', 'stellar'), {
       locale: 'en-US',
     });
-    expect(celo).toBe(`1.23${NBSP}USDC`);
-    expect(stellar).toBe(celo);
-    for (const chain of ['celo', 'stellar']) expect(celo.toLowerCase()).not.toContain(chain);
+    expect(shown).toBe(`1.23${NBSP}USDC`);
+    expect(shown.toLowerCase()).not.toContain('stellar');
   });
 
   it('formatTokenAmount validates the locale and the rounding like formatMoney', () => {
-    const t = tokenAmount(1n, 'USDm', 'celo');
+    const t = tokenAmount(1n, 'USDC', 'stellar');
     for (const options of [undefined, null, {}, { locale: '!!' }, { locale: 'x'.repeat(65) }]) {
       expectMoneyError(() => formatTokenAmount(t, loose(options)), InvalidLocaleError);
     }
@@ -403,7 +401,7 @@ describe('currency code for ambiguous dollar signs', () => {
     // Tokens format with formatTokenAmount, which never takes the option.
     expect(
       formatTokenAmount(
-        tokenAmount(1_234_567n, 'USDC', 'celo'),
+        tokenAmount(12_345_670n, 'USDC', 'stellar'),
         loose({ locale: 'en-US', ...ambiguous }),
       ),
     ).toBe(`1.23${NBSP}USDC`);
@@ -413,9 +411,9 @@ describe('currency code for ambiguous dollar signs', () => {
         formatMoney(m, { locale: 'en-US' }),
       );
     }
-    const usdm = tokenAmount(1_234n * 10n ** 18n, 'USDm', 'celo');
-    expect(formatTokenAmount(usdm, loose({ locale: 'en-US', ...ambiguous }))).toBe(
-      formatTokenAmount(usdm, { locale: 'en-US' }),
+    const large = tokenAmount(12_340_000_000n, 'USDC', 'stellar');
+    expect(formatTokenAmount(large, loose({ locale: 'en-US', ...ambiguous }))).toBe(
+      formatTokenAmount(large, { locale: 'en-US' }),
     );
   });
 

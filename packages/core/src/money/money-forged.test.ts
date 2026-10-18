@@ -35,7 +35,6 @@ import {
   KindMismatchError,
   MoneyOverflowError,
   ScaleMismatchError,
-  TokenMismatchError,
   UnknownCurrencyError,
   add,
   compare,
@@ -565,12 +564,6 @@ describe('error messages from hostile operands (LOW 3)', () => {
     expectSafeMessage(
       expectMoneyError(() => add(usd(1n), moneyAt(1n, 'USD', 7)), ScaleMismatchError),
     );
-    expectSafeMessage(
-      expectMoneyError(
-        () => add(tokenAmount(1n, 'USDC', 'celo'), tokenAmount(1n, 'USDC', 'stellar')),
-        TokenMismatchError,
-      ),
-    );
   });
 
   it('keeps factory messages free of the rejected input', () => {
@@ -664,25 +657,25 @@ function sequencedToken(fields: {
 }
 
 describe('forged token operands', () => {
-  const celo = (amount: bigint): TokenAmount => tokenAmount(amount, 'USDC', 'celo');
+  const usdc = (amount: bigint): TokenAmount => tokenAmount(amount, 'USDC', 'stellar');
   const forgeToken = (value: unknown): TokenAmount => value as TokenAmount;
 
   it('rejects a token row whose scale disagrees with the token table', () => {
-    for (const scale of [6.5, 7, 18, 2, '6', null]) {
-      const row = forgeToken({ kind: 'token', amount: 1n, asset: 'USDC', chain: 'celo', scale });
-      expectMoneyError(() => add(row, celo(1n)), InvalidScaleError);
+    for (const scale of [6.5, 6, 18, 2, '7', null]) {
+      const row = forgeToken({ kind: 'token', amount: 1n, asset: 'USDC', chain: 'stellar', scale });
+      expectMoneyError(() => add(row, usdc(1n)), InvalidScaleError);
     }
   });
 
   it('rejects an unknown asset, chain or pair', () => {
     for (const [asset, chain] of [
-      ['USDm', 'stellar'],
+      ['USDT', 'stellar'],
       ['USDC', 'ethereum'],
-      ['usdc', 'celo'],
-      [null, 'celo'],
+      ['usdc', 'stellar'],
+      [null, 'stellar'],
       ['USDC', undefined],
     ] as const) {
-      const row = forgeToken({ kind: 'token', amount: 1n, asset, chain, scale: 6 });
+      const row = forgeToken({ kind: 'token', amount: 1n, asset, chain, scale: 7 });
       expectMoneyError(() => negate(row), UnknownCurrencyError);
     }
   });
@@ -704,7 +697,7 @@ describe('forged token operands', () => {
       UnknownCurrencyError,
     );
     expectMoneyError(
-      () => add(forgeToken({ kind: 'token', amount: 1n, currency: 'USD', scale: 2 }), celo(1n)),
+      () => add(forgeToken({ kind: 'token', amount: 1n, currency: 'USD', scale: 2 }), usdc(1n)),
       UnknownCurrencyError,
     );
   });
@@ -713,11 +706,11 @@ describe('forged token operands', () => {
     const flip = sequencedToken({
       amount: [100n],
       asset: ['USDC'],
-      chain: ['celo', 'stellar'],
-      scale: [6, 7],
+      chain: ['stellar', 'ethereum'],
+      scale: [7, 6],
     });
     const err = thrown(() => {
-      expect(add(flip.value, celo(1n))).toEqual(celo(101n));
+      expect(add(flip.value, usdc(1n))).toEqual(usdc(101n));
     });
     if (err !== undefined) expect(err).toBeInstanceOf(MoneyError);
     for (const n of Object.values(flip.reads)) expect(n).toBeLessThanOrEqual(1);
@@ -736,7 +729,7 @@ describe('forged token operands', () => {
       (a) => isNegative(a),
     ];
     for (const op of ops) {
-      const fields = { amount: [3n], asset: ['USDm'], chain: ['celo'], scale: [18] };
+      const fields = { amount: [3n], asset: ['USDC'], chain: ['stellar'], scale: [7] };
       const a = sequencedToken(fields);
       const b = sequencedToken(fields);
       op(a.value, b.value);
@@ -747,7 +740,13 @@ describe('forged token operands', () => {
   });
 
   it('never combines a forged token with fiat', () => {
-    const row = forgeToken({ kind: 'token', amount: 1n, asset: 'USDC', chain: 'celo', scale: 6 });
+    const row = forgeToken({
+      kind: 'token',
+      amount: 1n,
+      asset: 'USDC',
+      chain: 'stellar',
+      scale: 7,
+    });
     expectMoneyError(() => add(usd(1n), row as unknown as Money), KindMismatchError);
   });
 });
