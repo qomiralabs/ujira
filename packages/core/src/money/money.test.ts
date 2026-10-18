@@ -53,6 +53,8 @@
  *   KindMismatchError      code 'KIND_MISMATCH'      fiat money combined with a token amount, or
  *                                                    passed where only one kind is accepted
  *   TokenMismatchError     code 'TOKEN_MISMATCH'     token amounts of different assets or chains
+ *   RateMismatchError      code 'RATE_MISMATCH'      a conversion source or target that is not
+ *                                                    the rate's base or quote
  *
  * Factory
  *   money(amount: bigint | string, currency: FiatCurrencyCode): Money
@@ -114,6 +116,7 @@ import {
   MAX_SCALE,
   MoneyError,
   MoneyOverflowError,
+  RateMismatchError,
   ScaleMismatchError,
   TokenMismatchError,
   UnknownCurrencyError,
@@ -166,6 +169,7 @@ describe('errors', () => {
     [InvalidScaleError, 'InvalidScaleError', 'INVALID_SCALE'],
     [KindMismatchError, 'KindMismatchError', 'KIND_MISMATCH'],
     [TokenMismatchError, 'TokenMismatchError', 'TOKEN_MISMATCH'],
+    [RateMismatchError, 'RateMismatchError', 'RATE_MISMATCH'],
   ];
 
   it.each(cases)('%o has a stable code and extends MoneyError', (Ctor, name, code) => {

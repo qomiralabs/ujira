@@ -21,6 +21,7 @@ import {
   formatTokenAmount,
   money,
   moneyAt,
+  parseRate,
   rescale,
   sum,
   toMinor,
@@ -76,9 +77,18 @@ describe('the compiler and the runtime keep the kinds apart', () => {
   });
 
   it('lets a priced conversion take either kind as its source', () => {
-    const one = { numerator: 1n, denominator: 1n };
-    const fromToken: Money = convertMoney(celo, one, { currency: 'USD', scale: 6 }, 'trunc');
-    const fromFiat: Money = convertMoney(usd, one, { currency: 'USD' }, 'trunc');
+    const fromToken: Money = convertMoney(
+      celo,
+      parseRate('1', { base: 'USDC', quote: 'USD' }),
+      { currency: 'USD', scale: 6 },
+      'trunc',
+    );
+    const fromFiat: Money = convertMoney(
+      usd,
+      parseRate('1', { base: 'USD', quote: 'USD' }),
+      { currency: 'USD' },
+      'trunc',
+    );
     expect(fromToken).toEqual(moneyAt(1_230_000n, 'USD', 6));
     expect(fromFiat).toEqual(usd);
   });

@@ -2,8 +2,15 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 export { MAX_ALLOCATION_LEGS, allocate } from './allocate.js';
-export { convertMoney, convertToToken, parseRate, tokenToUsd, usdToToken } from './convert.js';
-export type { Rate } from './convert.js';
+export {
+  convertMoney,
+  convertToToken,
+  invertRate,
+  parseRate,
+  tokenToUsd,
+  usdToToken,
+} from './convert.js';
+export type { Rate, RateUnit } from './convert.js';
 export {
   CurrencyMismatchError,
   InvalidAllocationError,
@@ -15,6 +22,7 @@ export {
   KindMismatchError,
   MoneyError,
   MoneyOverflowError,
+  RateMismatchError,
   ScaleMismatchError,
   TokenMismatchError,
   UnknownCurrencyError,
