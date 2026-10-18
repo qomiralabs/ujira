@@ -6,7 +6,10 @@ UJIRA uses the open source packages listed below under the licenses shown.
 
 ## Production dependencies
 
-None.
+| Package | Version | License | Repository |
+| --- | --- | --- | --- |
+| @noble/hashes | 2.4.0 | MIT | https://github.com/paulmillr/noble-hashes |
+| zod | 4.6.5 | MIT | https://github.com/colinhacks/zod |
 
 ## Production platform specific packages
 
@@ -407,7 +410,6 @@ Used to build and test UJIRA. They are not shipped.
 | yargs-parser | 21.1.1 | ISC | https://github.com/yargs/yargs-parser |
 | yocto-queue | 0.1.0 | MIT | https://github.com/sindresorhus/yocto-queue |
 | zip-stream | 6.0.1 | MIT | https://github.com/archiverjs/node-zip-stream |
-| zod | 4.6.5 | MIT | https://github.com/colinhacks/zod |
 | zod | 4.6.7 | MIT | https://github.com/colinhacks/zod |
 
 ## Development platform specific packages

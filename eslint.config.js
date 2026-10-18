@@ -7,6 +7,7 @@ import globals from 'globals';
 import ts from 'typescript';
 import tseslint from 'typescript-eslint';
 
+import { isChainModule } from './packages/chain-adapter/src/chain-modules.ts';
 import { lintProjects } from './scripts/workspace.ts';
 
 // The year on the copyright line is the year the file was created, so any
@@ -190,6 +191,421 @@ const noNumberConversion = {
   },
 };
 
+// Chain names in any letter case, the bare Stellar and EVM namespaces, and
+// any CAIP-2 network in them: comparing against another chain's ID is
+// chain branching too.
+const CHAIN_NAME = /^(?:stellar|celo|eip155|stellar:[a-z0-9_]+|eip155:[0-9]+)$/i;
+// The Celo mainnet and current testnet chain IDs. As bare numbers they look
+// like any amount, port or zip code, so they count only when compared with
+// something chain-like (see isChainLike). The retired Alfajores ID counts
+// only inside its CAIP-2 form.
+const CHAIN_IDS = new Set(['42220', '11142220']);
+// A chain name or namespace as a whole token of a longer string, or a
+// chain ID after a colon, for tests such as startsWith('eip155:').
+const CHAIN_TOKEN = /(?:^|:)(?:stellar|celo|eip155)(?::|$)|:(?:42220|11142220)(?::|$)/i;
+const STRING_TESTS = new Set(['startsWith', 'endsWith', 'includes', 'match', 'search']);
+// A chain name as a whole word in a regular expression's source, so
+// /Marcelo/, /interstellar/ and /cancelOrder/i are not chain code. Word
+// boundary escapes are blanked first so /\bcelo\b/ still counts.
+const CHAIN_PATTERN =
+  /(?:^|[^a-z0-9])(?:stellar|celo|eip155)(?![a-z0-9])|:(?:42220|11142220)(?![0-9])/i;
+// Names that mark a value as a chain or network, for chain ID comparisons.
+const CHAIN_LIKE_NAME = /chain|network|caip/i;
+
+/** @param {string} text */
+function isChainName(text) {
+  return CHAIN_NAME.test(text);
+}
+
+/** @param {string} source */
+function isChainPattern(source) {
+  return CHAIN_PATTERN.test(source.replaceAll('\\b', ' '));
+}
+
+const EQUALITY_OPERATORS = new Set(['==', '===', '!=', '!==']);
+const MEMBERSHIP_METHODS = new Set(['includes', 'has', 'indexOf', 'lastIndexOf']);
+// Type only wrappers that leave the value as it was.
+const WRAPPERS = new Set([
+  'TSAsExpression',
+  'TSSatisfiesExpression',
+  'TSTypeAssertion',
+  'TSNonNullExpression',
+]);
+// Enough for any honest chain of const aliases, and a bound on hostile ones.
+const MAX_ALIAS_DEPTH = 8;
+
+/** @typedef {{ type: string } & Record<string, unknown>} AstNode */
+
+/** @param {unknown} value @returns {value is AstNode} */
+function isNode(value) {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (/** @type {{ type?: unknown }} */ (value).type) === 'string'
+  );
+}
+
+/** @param {unknown} node @param {string} key @returns {AstNode | undefined} */
+function child(node, key) {
+  const value = isNode(node) ? node[key] : undefined;
+  return isNode(value) ? value : undefined;
+}
+
+/** @param {unknown} node @param {string} key @returns {AstNode[]} */
+function children(node, key) {
+  const value = isNode(node) ? node[key] : undefined;
+  return Array.isArray(value) ? value.filter(isNode) : [];
+}
+
+/** @param {unknown} node @param {string} key @returns {unknown} */
+function field(node, key) {
+  return isNode(node) ? node[key] : undefined;
+}
+
+/** @param {unknown} node @returns {AstNode | undefined} */
+function unwrap(node) {
+  let current = isNode(node) ? node : undefined;
+  while (current !== undefined && WRAPPERS.has(current.type)) {
+    current = child(current, 'expression');
+  }
+  return current;
+}
+
+/**
+ * Follows type wrappers and const bindings in this file to the expression
+ * that gives the value, so `const CELO = 'celo'` compares like 'celo' does.
+ * @param {import('eslint').Rule.RuleContext} context
+ * @param {unknown} node
+ * @returns {AstNode | undefined}
+ */
+function resolve(context, node) {
+  let current = unwrap(node);
+  for (let depth = 0; depth < MAX_ALIAS_DEPTH && current?.type === 'Identifier'; depth += 1) {
+    const name = field(current, 'name');
+    let scope = /** @type {import('eslint').Scope.Scope | null} */ (
+      context.sourceCode.getScope(
+        /** @type {import('eslint').Rule.Node} */ (/** @type {unknown} */ (current)),
+      )
+    );
+    let variable;
+    while (scope !== null && variable === undefined) {
+      variable = typeof name === 'string' ? scope.set.get(name) : undefined;
+      scope = scope.upper;
+    }
+    const [definition] = variable?.defs ?? [];
+    if (
+      definition === undefined ||
+      variable?.defs.length !== 1 ||
+      definition.type !== 'Variable' ||
+      field(definition.parent, 'kind') !== 'const'
+    ) {
+      return current;
+    }
+    const init = unwrap(field(definition.node, 'init'));
+    if (init === undefined) return current;
+    current = init;
+  }
+  return current;
+}
+
+/** @param {AstNode | undefined} node @returns {string | undefined} */
+function staticString(node) {
+  if (node?.type === 'Literal' && typeof node['value'] === 'string') return node['value'];
+  if (node?.type === 'TemplateLiteral' && children(node, 'expressions').length === 0) {
+    // The quasi's value is a plain { raw, cooked } record, not a node.
+    const quasi = /** @type {{ value?: { cooked?: unknown } } | undefined} */ (
+      children(node, 'quasis')[0]
+    );
+    const cooked = quasi?.value?.cooked;
+    return typeof cooked === 'string' ? cooked : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * @param {import('eslint').Rule.RuleContext} context
+ * @param {unknown} node
+ */
+function isChainLiteral(context, node, idsCount = false) {
+  const value = resolve(context, node);
+  const text = staticString(value);
+  if (text !== undefined) return isChainName(text) || (idsCount && CHAIN_IDS.has(text));
+  if (!idsCount || value?.type !== 'Literal') return false;
+  if (typeof value['bigint'] === 'string') return CHAIN_IDS.has(value['bigint']);
+  return typeof value['value'] === 'number' && CHAIN_IDS.has(String(value['value']));
+}
+
+/**
+ * Whether an expression reads as a chain or network: a name containing
+ * chain, network or caip, a part of a CAIP-2 string split on ':', or one
+ * of those passed through String, Number or BigInt.
+ * @param {unknown} node
+ * @returns {boolean}
+ */
+function isChainLike(node) {
+  const value = unwrap(node);
+  if (value?.type === 'Identifier') return CHAIN_LIKE_NAME.test(String(field(value, 'name')));
+  if (value?.type === 'MemberExpression') {
+    if (field(value, 'computed') !== true) {
+      return CHAIN_LIKE_NAME.test(String(field(child(value, 'property'), 'name')));
+    }
+    const object = unwrap(child(value, 'object'));
+    const callee = unwrap(child(object, 'callee'));
+    return (
+      object?.type === 'CallExpression' &&
+      field(child(callee, 'property'), 'name') === 'split' &&
+      staticString(children(object, 'arguments')[0]) === ':'
+    );
+  }
+  if (value?.type === 'CallExpression') {
+    const name = field(child(value, 'callee'), 'name');
+    return (
+      (name === 'String' || name === 'Number' || name === 'BigInt') &&
+      isChainLike(children(value, 'arguments')[0])
+    );
+  }
+  return false;
+}
+
+/**
+ * Whether an array, a Set or Map built from one, or an object literal holds
+ * a chain or network literal as an element or key.
+ * @param {import('eslint').Rule.RuleContext} context
+ * @param {unknown} node
+ * @returns {boolean}
+ */
+function holdsChainLiteral(context, node, idsCount = false) {
+  const value = resolve(context, node);
+  if (value?.type === 'ArrayExpression') {
+    return children(value, 'elements').some(
+      (element) =>
+        isChainLiteral(context, element, idsCount) || holdsChainLiteral(context, element, idsCount),
+    );
+  }
+  if (value?.type === 'NewExpression') {
+    const callee = field(child(value, 'callee'), 'name');
+    return (
+      (callee === 'Set' || callee === 'Map') &&
+      holdsChainLiteral(context, children(value, 'arguments')[0], idsCount)
+    );
+  }
+  if (value?.type === 'ObjectExpression') {
+    return children(value, 'properties').some((property) => {
+      const key = child(property, 'key');
+      if (field(property, 'computed') === true) return isChainLiteral(context, key, idsCount);
+      const name = key?.type === 'Identifier' ? field(key, 'name') : field(key, 'value');
+      // Numeric keys such as { 42220: x } are numbers in the tree.
+      if (typeof name !== 'string' && typeof name !== 'number') return false;
+      return isChainName(String(name)) || (idsCount && CHAIN_IDS.has(String(name)));
+    });
+  }
+  return false;
+}
+
+/**
+ * require in every spelling that loads a module by name: the global, an
+ * alias of it, module.require, and the function createRequire returns.
+ * @param {import('eslint').Rule.RuleContext} context
+ * @param {unknown} callee
+ */
+function isRequire(context, callee) {
+  const direct = unwrap(callee);
+  if (direct?.type === 'Identifier' && field(direct, 'name') === 'require') return true;
+  if (
+    direct?.type === 'MemberExpression' &&
+    field(child(direct, 'object'), 'name') === 'module' &&
+    field(child(direct, 'property'), 'name') === 'require'
+  ) {
+    return true;
+  }
+  const value = resolve(context, callee);
+  if (value?.type === 'Identifier') return field(value, 'name') === 'require';
+  if (value?.type === 'CallExpression') {
+    const inner = unwrap(child(value, 'callee'));
+    const name =
+      inner?.type === 'MemberExpression'
+        ? field(child(inner, 'property'), 'name')
+        : field(inner, 'name');
+    return name === 'createRequire';
+  }
+  return false;
+}
+
+/**
+ * Keeps chain knowledge inside the chain adapter: no chain SDK or ABI import
+ * and no branch on a chain or network value anywhere else. A comparison
+ * against 'stellar' is how a second chain path starts; the adapter interface
+ * is where that difference belongs.
+ *
+ * The rule reads syntax, not types. It sees literals in any letter case
+ * however they are wrapped, through const bindings in the same file,
+ * prefix and suffix tests, and regular expressions that name a chain. It
+ * does not see a constant imported from another module, a const object or
+ * enum member, a value built by concatenation or transformed by a string
+ * method, or a lookup through a Map or a function. Any `.celo` or
+ * `.stellar` property access is reported, whatever the object.
+ *
+ * Network specific display, such as a network's name or icon, comes from
+ * the adapter's capabilities, which callers render without branching. That
+ * is the reviewed way to show per chain UI, so a lookup table keyed by
+ * chain in app code is never needed.
+ *
+ * Options, both on by default: `regex` reports regular expressions that
+ * name a chain, and `memberNames` reports `.celo` and `.stellar` reads.
+ * Test files, matched by name (*.test.*, *.spec.*, *.test-d.ts), turn both
+ * off, because tests assert on displayed text and on fixtures. Imports,
+ * comparisons, membership calls and computed lookups are reported there as
+ * everywhere else.
+ * @type {import('eslint').Rule.RuleModule}
+ */
+const noChainBranching = {
+  meta: {
+    type: 'problem',
+    docs: { description: 'Keep chain SDKs and chain comparisons inside the chain adapter' },
+    schema: [
+      {
+        type: 'object',
+        properties: { regex: { type: 'boolean' }, memberNames: { type: 'boolean' } },
+        additionalProperties: false,
+      },
+    ],
+    messages: {
+      sdk: 'Chain SDKs and ABIs load only in packages/chain-adapter. Call the adapter instead.',
+      compare:
+        'Branching on a chain or network belongs in packages/chain-adapter. Ask the adapter or the router config instead.',
+    },
+  },
+  create(context) {
+    /** @type {unknown} */
+    const rawOptions = context.options[0];
+    const options = /** @type {{ regex?: boolean, memberNames?: boolean } | undefined} */ (
+      rawOptions
+    );
+    const checkRegex = options?.regex !== false;
+    const checkMemberNames = options?.memberNames !== false;
+    /** @param {unknown} node @param {'sdk' | 'compare'} messageId */
+    const report = (node, messageId) => {
+      context.report({ node: /** @type {import('eslint').Rule.Node} */ (node), messageId });
+    };
+    /** new RegExp('celo') and RegExp('celo') name a chain as a regex does. */
+    const checkRegExpCall = (/** @type {unknown} */ node) => {
+      if (!checkRegex || field(child(node, 'callee'), 'name') !== 'RegExp') return;
+      const source = staticString(resolve(context, children(node, 'arguments')[0]));
+      if (source !== undefined && isChainPattern(source)) report(node, 'compare');
+    };
+    /** @param {unknown} source @param {unknown} node */
+    const checkModule = (source, node) => {
+      const name = staticString(resolve(context, source));
+      if (name !== undefined && isChainModule(name)) report(node, 'sdk');
+    };
+    // ESLint's own node types stop at ESTree, so the TypeScript only forms
+    // are read through the generic accessors above.
+    return {
+      ImportDeclaration(node) {
+        checkModule(node.source, node);
+      },
+      ExportNamedDeclaration(node) {
+        checkModule(node.source, node);
+      },
+      ExportAllDeclaration(node) {
+        checkModule(node.source, node);
+      },
+      ImportExpression(node) {
+        checkModule(node.source, node);
+      },
+      /** @param {unknown} node */
+      TSImportType(node) {
+        checkModule(child(node, 'source') ?? child(child(node, 'argument'), 'literal'), node);
+      },
+      /** @param {unknown} node */
+      TSExternalModuleReference(node) {
+        checkModule(child(node, 'expression'), node);
+      },
+      CallExpression(node) {
+        checkRegExpCall(node);
+        const { callee } = node;
+        if (isRequire(context, callee)) {
+          checkModule(node.arguments[0], node);
+          return;
+        }
+        const target = unwrap(callee);
+        if (target?.type !== 'MemberExpression' || field(target, 'computed') === true) return;
+        const method = field(child(target, 'property'), 'name');
+        const object = child(target, 'object');
+        if (method === 'is' && field(object, 'name') === 'Object') {
+          const [a, b] = node.arguments;
+          if (
+            isChainLiteral(context, a, isChainLike(b)) ||
+            isChainLiteral(context, b, isChainLike(a))
+          ) {
+            report(node, 'compare');
+          }
+          return;
+        }
+        if (typeof method !== 'string') return;
+        if (STRING_TESTS.has(method)) {
+          const [first] = node.arguments;
+          const text = staticString(resolve(context, first));
+          if (text !== undefined && CHAIN_TOKEN.test(text)) {
+            report(node, 'compare');
+            return;
+          }
+        }
+        if (!MEMBERSHIP_METHODS.has(method)) return;
+        // Chain IDs count when the list or the value tested reads as a chain.
+        const idsCount = isChainLike(object) || node.arguments.some((arg) => isChainLike(arg));
+        if (
+          node.arguments.some((arg) => isChainLiteral(context, arg, idsCount)) ||
+          holdsChainLiteral(context, object, idsCount)
+        ) {
+          report(node, 'compare');
+        }
+      },
+      /** @param {unknown} node */
+      NewExpression(node) {
+        checkRegExpCall(node);
+      },
+      MemberExpression(node) {
+        if (node.computed) {
+          if (
+            isChainLiteral(context, node.property, isChainLike(node.object)) ||
+            holdsChainLiteral(context, node.object, isChainLike(node.property))
+          ) {
+            report(node, 'compare');
+          }
+          return;
+        }
+        // Any .celo or .stellar access counts, on any object: a property
+        // named after a chain is a lookup by chain.
+        const name = field(node.property, 'name');
+        if (checkMemberNames && typeof name === 'string' && isChainName(name)) {
+          report(node, 'compare');
+        }
+      },
+      Literal(node) {
+        const { regex } = /** @type {{ regex?: { pattern: string } }} */ (node);
+        if (checkRegex && regex !== undefined && isChainPattern(regex.pattern)) {
+          report(node, 'compare');
+        }
+      },
+      BinaryExpression(node) {
+        if (!EQUALITY_OPERATORS.has(node.operator)) return;
+        if (
+          isChainLiteral(context, node.left, isChainLike(node.right)) ||
+          isChainLiteral(context, node.right, isChainLike(node.left))
+        ) {
+          report(node, 'compare');
+        }
+      },
+      SwitchCase(node) {
+        const statement = /** @type {{ parent?: unknown }} */ (node).parent;
+        const idsCount = isChainLike(child(statement, 'discriminant'));
+        if (isChainLiteral(context, node.test, idsCount)) report(node, 'compare');
+      },
+    };
+  },
+};
+
 export default defineConfig(
   {
     // Output folders only where the tools write them, at the root and at each
@@ -237,6 +653,7 @@ export default defineConfig(
           'license-header': licenseHeader,
           'no-number-arithmetic': noNumberArithmetic,
           'no-number-conversion': noNumberConversion,
+          'no-chain-branching': noChainBranching,
         },
       },
     },
@@ -320,6 +737,34 @@ export default defineConfig(
         { object: 'globalThis', property: 'process', message: CREATE_REQUIRE_MESSAGE },
         { object: 'global', property: 'process', message: CREATE_REQUIRE_MESSAGE },
       ],
+    },
+  },
+  {
+    // Only the chain adapter knows which chain it is on. Core, payouts, the
+    // router and every app reach a chain through it.
+    files: [
+      'packages/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
+      'apps/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
+    ],
+    ignores: ['packages/chain-adapter/**'],
+    rules: {
+      'ujira/no-chain-branching': 'error',
+    },
+  },
+  {
+    // Tests assert on displayed text and fixtures, so they may use a regex
+    // or a property read that names a chain. Everything else still counts.
+    // Matched by file name only: production code in a folder called spec
+    // or __tests__ keeps every check.
+    files: [
+      'packages/**/*.{test,spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
+      'packages/**/*.test-d.ts',
+      'apps/**/*.{test,spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
+      'apps/**/*.test-d.ts',
+    ],
+    ignores: ['packages/chain-adapter/**'],
+    rules: {
+      'ujira/no-chain-branching': ['error', { regex: false, memberNames: false }],
     },
   },
   {
