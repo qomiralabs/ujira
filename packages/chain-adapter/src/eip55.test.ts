@@ -2,17 +2,19 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 /*
- * Contract for the internal Keccak-256 (keccak.ts), the original Keccak
- * padding that Ethereum uses, not NIST SHA3-256. keccak256(bytes) returns
- * 32 bytes. isEip55Address(text) is true only for 0x plus 40 hex
- * characters whose letter case matches the EIP-55 checksum of the address.
+ * Contract for EIP-55 address checks (eip55.ts). isEip55Address(text) is
+ * true only for 0x plus 40 hex characters whose letter case matches the
+ * EIP-55 checksum of the address. The hash comes from @noble/hashes; the
+ * published Keccak-256 digests below pin that it is the original Keccak
+ * padding Ethereum uses, not NIST SHA3-256.
  */
 
 import { createHash } from 'node:crypto';
 
+import { keccak_256 as keccak256 } from '@noble/hashes/sha3.js';
 import { describe, expect, it } from 'vitest';
 
-import { isEip55Address, keccak256 } from './keccak.js';
+import { isEip55Address } from './eip55.js';
 
 const hex = (bytes: Uint8Array): string => Buffer.from(bytes).toString('hex');
 const text = (s: string): Uint8Array => new TextEncoder().encode(s);

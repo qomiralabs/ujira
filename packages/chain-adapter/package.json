@@ -20,6 +20,7 @@
     "test": "vitest run --coverage"
   },
   "dependencies": {
+    "@noble/hashes": "2.4.0",
     "@ujira/core": "workspace:*",
     "zod": "4.6.5"
   },

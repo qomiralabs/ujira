@@ -43,6 +43,8 @@
  * Signer errors arrive with the signer port and are not part of this set.
  */
 
+import { format, inspect } from 'node:util';
+
 import { describe, expect, it } from 'vitest';
 
 import * as index from './index.js';
@@ -223,11 +225,53 @@ describe('chain adapter errors', () => {
     expect(unknown.retryable).toBe(true);
   });
 
-  it('keeps the cause without putting it in the JSON', () => {
-    const cause = new Error('socket hang up at https://rpc.example/secret-key');
-    const err = new ChainUnavailableError({ cause, network: 'eip155:42220' });
-    expect(err.cause).toBe(cause);
-    expect(JSON.stringify(err.toJSON())).not.toContain('secret-key');
+  it('never carries a cause that could print a secret', () => {
+    // Transport and config errors routinely quote URLs with keys in them.
+    const MARKER = 'SUPERSECRETKEY123';
+    const inner = new Error(`fetch failed for https://celo.example/v3/${MARKER}`, {
+      cause: new Error(`retry of ${MARKER}`),
+    });
+    Object.assign(inner, { url: `https://celo.example/v3/${MARKER}`, config: { key: MARKER } });
+    for (const err of [
+      new ChainUnavailableError({ cause: inner, network: 'eip155:42220' }),
+      new RpcTimeoutError({ cause: inner }),
+      new InvalidInputError({ cause: inner }),
+      new MandateRuleError(43, 'INSUFFICIENT_FUNDS', { cause: inner }),
+      new RpcTimeoutError({ cause: MARKER }),
+      new RpcTimeoutError({ cause: { message: MARKER } }),
+    ]) {
+      const printed = [
+        format('%o', err),
+        format('%s', err),
+        format(err),
+        inspect(err, { depth: Infinity, showHidden: true }),
+        JSON.stringify(err),
+        JSON.stringify(err.toJSON()),
+        String(err),
+        String(err.stack),
+      ];
+      // Walk the whole chain the way an error tracker does.
+      for (let link: unknown = err; link !== undefined && link !== null;) {
+        printed.push(inspect(link, { depth: Infinity, showHidden: true }));
+        link = (link as { cause?: unknown }).cause;
+      }
+      for (const text of printed) expect(text).not.toContain(MARKER);
+    }
+  });
+
+  it('keeps only the kind of the cause, under a fixed message', () => {
+    const err = new ChainUnavailableError({ cause: new TypeError('fetch failed: key=abc') });
+    expect(err.cause).toBeInstanceOf(Error);
+    expect((err.cause as Error).name).toBe('RedactedCause');
+    expect((err.cause as Error).message).toBe('Cause redacted: TypeError');
+    expect((err.cause as Error & { cause?: unknown }).cause).toBeUndefined();
+    // A cause whose class name is not a plain identifier is not named at all.
+    class Weird extends Error {}
+    Object.defineProperty(Weird, 'name', { value: 'key=abc def' });
+    const odd = new RpcTimeoutError({ cause: new Weird('x') });
+    expect((odd.cause as Error).message).toBe('Cause redacted: Error');
+    expect(new RpcTimeoutError({ cause: 'text' }).cause).toBeInstanceOf(Error);
+    expect(new RpcTimeoutError().cause).toBeUndefined();
   });
 
   it('refuses a retryAfterMs that is not a whole non negative number', () => {

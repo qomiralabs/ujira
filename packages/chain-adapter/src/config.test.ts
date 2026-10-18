@@ -309,6 +309,34 @@ describe('parseNetworksConfig', () => {
       withChange('stellar:pubnet', 'explorer.tx', 'https://stellar.expert/tx/'),
     ],
     [
+      'an explorer with userinfo',
+      withChange('stellar:pubnet', 'explorer.tx', 'https://user:APIKEY@stellar.expert/tx/{hash}'),
+    ],
+    [
+      'an explorer with a username only',
+      withChange('stellar:pubnet', 'explorer.tx', 'https://APIKEY@stellar.expert/tx/{hash}'),
+    ],
+    [
+      'an explorer with an api key',
+      withChange('eip155:42220', 'explorer.tx', 'https://celoscan.io/tx/{hash}?apikey=APIKEY'),
+    ],
+    [
+      'an explorer with a token',
+      withChange('eip155:42220', 'explorer.tx', 'https://celoscan.io/tx/{hash}?token=APIKEY'),
+    ],
+    [
+      'an explorer with any query',
+      withChange('eip155:42220', 'explorer.tx', 'https://celoscan.io/tx/{hash}?ref=ujira'),
+    ],
+    [
+      'an explorer with the hash in the query',
+      withChange('eip155:42220', 'explorer.tx', 'https://celoscan.io/tx?hash={hash}'),
+    ],
+    [
+      'an explorer with a fragment',
+      withChange('eip155:42220', 'explorer.tx', 'https://celoscan.io/tx/{hash}#key=APIKEY'),
+    ],
+    [
       'an explorer over http',
       withChange('eip155:42220', 'explorer.tx', 'http://celoscan.io/tx/{hash}'),
     ],
@@ -345,7 +373,8 @@ describe('parseNetworksConfig', () => {
   it('reports a non plain node by its path, and never an unsafe key', () => {
     const deep = thrown(() => parseNetworksConfig({ 'eip155:42220': deeplyNested(20) }));
     expect((deep as InvalidInputError).issues[0]).toMatch(
-      /^networks\.eip155:42220(\.inner)+ \(too_deep\)$/,
+      // inner is not a schema key, so each level is named by position.
+      /^networks\.eip155:42220(\.key_0)+ \(too_deep\)$/,
     );
     const getter = thrown(() =>
       parseNetworksConfig({
@@ -358,7 +387,59 @@ describe('parseNetworksConfig', () => {
         },
       }),
     );
-    expect((getter as InvalidInputError).issues).toEqual(['networks.stellar:pubnet (not_plain)']);
+    expect((getter as InvalidInputError).issues).toEqual([
+      'networks.stellar:pubnet.key_0 (not_plain)',
+    ]);
+    // A key that looks like a safe segment is still never echoed unless the
+    // schema declares it.
+    // Built at run time so no token shaped literal sits in the source: the
+    // alphabet a to z plus 012345, 32 characters that pass the safe segment
+    // pattern.
+    const token = String.fromCharCode(...Array.from({ length: 26 }, (_, i) => 97 + i)) + '012345';
+    const echoed = thrown(() =>
+      parseNetworksConfig({
+        'stellar:pubnet': {
+          enabled: true,
+          [token]: {
+            get x() {
+              return 1;
+            },
+          },
+        },
+      }),
+    );
+    const issues = (echoed as InvalidInputError).issues;
+    expect(issues).toEqual(['networks.stellar:pubnet.key_1 (not_plain)']);
+    expect(issues.join(' ')).not.toContain(token);
+    // Declared keys keep their names.
+    const declared = thrown(() =>
+      parseNetworksConfig({
+        'eip155:42220': {
+          ...celo(),
+          mento: {
+            get slippageBps() {
+              return 50;
+            },
+          },
+        },
+      }),
+    );
+    expect((declared as InvalidInputError).issues).toEqual([
+      'networks.eip155:42220.mento (not_plain)',
+    ]);
+  });
+
+  it('keeps issue paths whole and within the issue length', () => {
+    for (const levels of [2, 10, 16]) {
+      const err = thrown(() =>
+        parseNetworksConfig({ 'eip155:42220': { ...celo(), mento: deeplyNested(levels) } }),
+      ) as InvalidInputError;
+      for (const issue of err.issues) {
+        const [path = ''] = issue.split(' ');
+        expect(path.length).toBeLessThanOrEqual(96);
+        for (const segment of path.split('.')) expect(segment).toMatch(/^[A-Za-z0-9_:]+$/);
+      }
+    }
   });
 
   it('caps the message when many fields fail', () => {

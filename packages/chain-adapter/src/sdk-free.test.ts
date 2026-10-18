@@ -36,12 +36,14 @@ describe('the scaffold is SDK free', () => {
     // The same pattern the lint rule bans outside this package.
     expect(names.filter((name) => CHAIN_SDK_MODULE.test(name))).toEqual([]);
     expect(names).toContain('zod');
+    expect(names).toContain('@noble/hashes');
   });
 
-  it('imports nothing but core, zod, node and its own modules', () => {
+  it('imports nothing but core, zod, the hash library, node and its own modules', () => {
     const files = sourceFiles(path.join(PACKAGE_DIR, 'src'));
     expect(files.length).toBeGreaterThan(5);
-    const allowed = /^(\.\/|@ujira\/core$|zod$|node:|vitest$|fast-check$|eslint$)/;
+    const allowed =
+      /^(\.\/|@ujira\/core$|zod$|@noble\/hashes\/sha3\.js$|node:|vitest$|fast-check$|eslint$)/;
     const bad: string[] = [];
     for (const file of files) {
       const text = readFileSync(file, 'utf8');

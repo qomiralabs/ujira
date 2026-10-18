@@ -211,6 +211,28 @@ const WRAPPED_AND_INDIRECT: [string, string][] = [
   ],
   ['a computed key', "const m: Record<string, number> = {};\nexport const v = m['celo'];\n"],
   ['a member key', 'declare const m: { celo: number };\nexport const v = m.celo;\n'],
+  ['a capitalised chain', "export const f = (chain: string) => chain === 'Stellar';\n"],
+  ['an uppercase chain', "export const f = (chain: string) => 'CELO' !== chain;\n"],
+  ['an uppercase member key', 'declare const m: { Celo: number };\nexport const v = m.Celo;\n'],
+  ['another EVM network', "export const f = (n: string) => n === 'eip155:1';\n"],
+  ['another Stellar network', "export const f = (n: string) => n === 'stellar:futurenet';\n"],
+  ['a chain ID as a string', "export const f = (id: number) => String(id) === '42220';\n"],
+  ['a testnet ID as a string', "export const f = (id: string) => '11142220' == id;\n"],
+  ['a split CAIP-2 reference', "export const f = (n: string) => n.split(':')[1] === '44787';\n"],
+  [
+    'a lookup table with numeric keys',
+    "const T = { 42220: 'x' };\nexport const f = (chainId: 42220) => T[chainId];\n",
+  ],
+  [
+    'a lookup table with a string chain ID key',
+    "export const f = (id: '11142220') => ({ '11142220': 1 })[id];\n",
+  ],
+  ['startsWith a namespace', "export const f = (n: string) => n.startsWith('eip155:');\n"],
+  ['startsWith a chain', "export const f = (c: string) => c.startsWith('stellar');\n"],
+  ['endsWith a chain ID', "export const f = (n: string) => n.endsWith(':42220');\n"],
+  ['a regex test', 'export const f = (c: string) => /^stellar/.test(c);\n'],
+  ['a regex match', 'export const f = (n: string) => n.match(/eip155:/) !== null;\n'],
+  ['a case insensitive regex', 'export const f = (c: string) => /CELO/i.exec(c) !== null;\n'],
   [
     'optional chaining',
     'declare const m: { stellar?: number } | undefined;\nexport const v = m?.stellar;\n',
@@ -251,6 +273,16 @@ describe('the chain branching rule', () => {
     },
   );
 
+  it.each(['packages/payouts/src/x.js', 'packages/payouts/src/x.mjs', 'apps/web/src/x.cjs'])(
+    'applies to JavaScript files too: %s',
+    async (file) => {
+      const config = (await eslint.calculateConfigForFile(path.join(REPO_ROOT, file))) as {
+        rules?: Record<string, unknown>;
+      };
+      expect(config.rules?.[RULE]).toEqual([2]);
+    },
+  );
+
   it.each([
     ['a chain as data', "export const chain = 'stellar';\n"],
     [
@@ -259,8 +291,13 @@ describe('the chain branching rule', () => {
     ],
     [
       'unrelated lookups',
-      "declare const m: { celsius: number; ['eip155:1']: number };\nexport const v = m.celsius + m['eip155:1'];\n",
+      "declare const m: { celsius: number; ['eip155x']: number };\nexport const v = m.celsius + m['eip155x'];\n",
     ],
+    [
+      'unrelated string methods',
+      "export const f = (s: string) => s.startsWith('stellarx') || s.endsWith('.json') || /^cel/.test(s);\n",
+    ],
+    ['unrelated numbers', "export const f = (n: string) => n === '4222' || ({ 1: 2 })[1];\n"],
     [
       'unrelated membership',
       "export const f = (s: string) => ['stellarx'].includes(s) || Object.is(s, 'x');\n",
@@ -271,7 +308,7 @@ describe('the chain branching rule', () => {
       'a let binding',
       "let X = 'celo';\nX = String(Date.now());\nexport const f = (s: string) => s === X;\n",
     ],
-    ['other literals', "export const f = (s: string) => s === 'stellarx' || s === 'eip155:1';\n"],
+    ['other literals', "export const f = (s: string) => s === 'stellarx' || s === 'eip155';\n"],
     ['a lookalike package', "import { z } from 'zod';\nexport const s: unknown = z;\n"],
     ['a package named like viem', "export const f = () => import('viem-lite');\n"],
   ])('ignores %s outside the adapter', async (_label, code) => {

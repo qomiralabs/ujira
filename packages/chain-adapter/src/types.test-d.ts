@@ -20,6 +20,13 @@ import type {
   RoleName,
   SubmissionOp,
   SubmissionState,
+  SponsorshipPolicy,
+  LimitsInput,
+  AllowEntryInput,
+  AttestationInput,
+  SubmissionPatch,
+  UnixSeconds,
+  Bytes32,
   BatchStep,
   ChainAdapter,
   ChainAdapterErrorJson,
@@ -148,6 +155,16 @@ expectTypeOf<Parameters<AdapterStore['updateSubmission']>[0]>().toEqualTypeOf<Te
 expectTypeOf<Parameters<AdapterStore['liveSubmission']>[0]['scope']>().toEqualTypeOf<TenantScope>();
 expectTypeOf<Parameters<AdapterStore['upsertDelivery']>[0]['scope']>().toEqualTypeOf<TenantScope>();
 expectTypeOf<Parameters<AdapterStore['liveDelivery']>[0]>().toEqualTypeOf<TenantScope>();
+// Sponsorship counters are per principal rows, so every policy call takes the tenant.
+expectTypeOf<Parameters<SponsorshipPolicy['reserve']>[0]['scope']>().toEqualTypeOf<TenantScope>();
+expectTypeOf<Parameters<SponsorshipPolicy['settle']>[0]['scope']>().toEqualTypeOf<TenantScope>();
+expectTypeOf<Parameters<SponsorshipPolicy['release']>[0]['scope']>().toEqualTypeOf<TenantScope>();
+expectTypeOf<
+  Parameters<SponsorshipPolicy['settle']>[0]['actualFee']
+>().toEqualTypeOf<NativeAmount>();
+expectTypeOf<
+  Parameters<SponsorshipPolicy['release']>[0]['reservationId']
+>().toEqualTypeOf<string>();
 
 // Every call that can reach the network takes CallOptions, so the
 // correlation ID always travels.
@@ -186,3 +203,30 @@ expectTypeOf<LegDeliveryRecord['destination']>().toEqualTypeOf<{
 expectTypeOf<MandateConfigInput['recipientMode']>().toEqualTypeOf<
   'allowlist' | 'attested' | 'both'
 >();
+
+// The mandate structs, mirrored with core types.
+expectTypeOf<LimitsInput>().toEqualTypeOf<{
+  readonly totalBudget: TokenAmount;
+  readonly perPaymentCap: TokenAmount;
+  readonly perRecipientDailyCap: TokenAmount;
+  readonly approvalThreshold: TokenAmount;
+  readonly payoutTtlSeconds: number;
+  readonly expiresAt: UnixSeconds;
+}>();
+expectTypeOf<AllowEntryInput>().toEqualTypeOf<{
+  readonly recipientRef: Bytes32;
+  readonly destination: { readonly address: ChainAddress; readonly tag: bigint | null };
+}>();
+expectTypeOf<AttestationInput>().toEqualTypeOf<{
+  readonly legIndex: number;
+  readonly validUntil: UnixSeconds;
+  readonly signature: Uint8Array;
+}>();
+// A patch can only move the state and record the outcome, never rewrite
+// who, what or where.
+expectTypeOf<keyof SubmissionPatch>().toEqualTypeOf<
+  'state' | 'landedAtHeight' | 'errorCode' | 'specCode'
+>();
+expectTypeOf<SubmissionPatch['state']>().toEqualTypeOf<SubmissionState | undefined>();
+expectTypeOf<SubmissionPatch['landedAtHeight']>().toEqualTypeOf<bigint | null | undefined>();
+expectTypeOf<SubmissionPatch>().toExtend<Partial<SubmissionRecord>>();
