@@ -105,9 +105,26 @@ A dependency version must be at least 14 days old before pnpm installs or locks 
 
 `minimumReleaseAgeExclude` lists exact `name@version` entries only. The entries under the 2026-10-17 baseline comment are the versions that were already locked when the setting was introduced; `minimumReleaseAgeExcludePrune` drops each one when its version leaves the lockfile. Add a new entry only for an urgent security patch that cannot wait 14 days, with a comment above it giving the advisory and the reason. Never exclude a package name or a scope.
 
+## Secret scanning
+
+The `Secrets` job in `.github/workflows/ci.yml` runs `scripts/secret-scan.sh` with gitleaks 8.30.1 (MIT licensed), downloaded from its GitHub release and checked against a pinned SHA-256. It checks out the full history and scans every commit reachable from the checked out commit, not only the change, so a key that was committed and later deleted still fails. The scan refuses a shallow clone, and fails unless gitleaks reports scanning as many commits as `git log --no-merges HEAD` lists with file changes (merge commits have no diff of their own). Findings are redacted in the log.
+
+`.gitleaks.toml` extends the default gitleaks rules. Inline `gitleaks:allow` comments are ignored and any `.gitleaksignore` fails the scan, so the config is the only allowlist. Each allowlist entry must cover a single synthetic test fixture and say why it is safe; path wide and rule wide exclusions are not allowed. `scripts/secret-scan.test.sh` plants generated fake keys in throwaway repositories, including one deleted in a later commit, and checks that every one fails the scan.
+
+Both run locally once gitleaks is installed (`brew install gitleaks`):
+
+```sh
+scripts/secret-scan.sh
+scripts/secret-scan.test.sh
+```
+
+Keep `.env` files untracked; only `.env.example` belongs in git.
+
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every pull request and on pushes to `development`, `staging` and `main`. A single `Verify` job lints the workflow files with actionlint, installs with `pnpm install --frozen-lockfile --ignore-scripts`, runs `pnpm licenses:check` and fails if `THIRD_PARTY_NOTICES.md` then differs from the committed file, then runs `pnpm metadata:check`, `pnpm invisible:check`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm build`, `pnpm audit --prod` and finally `pnpm test`. Tests run last because test files are member code, and the test step runs on a read-only bind mount of the checkout, `node_modules` included, which stops ordinary writes from a test to an installed tool or a source file. Coverage, the JUnit report and the Vitest cache are written outside the checkout. A step after the tests fails if `git status` reports anything or any file in the checkout has a change time (ctime) after the start of the test step. Known gap, tracked separately: a test that uses `sudo` to remount the checkout, or writes to the pnpm store outside it, is not stopped by this step. After typecheck and after build it fails if `git status --porcelain --untracked-files=all` reports anything, since those steps may only write ignored output such as `dist/`. The build runs because it compiles with each member's `tsconfig.build.json`, which typecheck does not use. The coverage report is uploaded as the `coverage` artifact even when tests fail (Vitest writes it on failure because `coverage.reportOnFailure` is set), so a failing test or a missed threshold can be inspected (both reports are written under the runner's temp folder); a missing report is only an error when every earlier step passed. Any failing step fails the run, and a newer push to the same ref cancels the run in progress.
+
+A separate `Secrets` job scans the full history for secrets, as described above.
 
 Node.js comes from `.nvmrc` and pnpm from the verified download described above, and the pnpm store is cached on the hash of `pnpm-lock.yaml`. Every third-party action is pinned to a full commit SHA with its release tag in a trailing comment, and the workflow token is read only. To bump an action, resolve the new tag to its commit SHA (`gh api repos/<owner>/<repo>/git/ref/tags/<tag>`, dereferencing annotated tags) and update both the SHA and the comment.
 
