@@ -241,9 +241,11 @@ const KNOWN_CAUSE_NAMES: ReadonlySet<string> = new Set([
 // The name is read once: it may be a getter, and a getter must not get a
 // second chance to answer differently or to run again.
 function causeName(cause: unknown): string {
-  if (!(cause instanceof Error)) return 'Error';
   let name: unknown;
   try {
+    // instanceof runs getPrototypeOf, which a Proxy can make throw, so it
+    // sits inside the try with the name read.
+    if (!(cause instanceof Error)) return 'Error';
     name = cause.name;
   } catch {
     return 'Error';

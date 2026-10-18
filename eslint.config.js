@@ -452,9 +452,10 @@ function isRequire(context, callee) {
  *
  * Options, both on by default: `regex` reports regular expressions that
  * name a chain, and `memberNames` reports `.celo` and `.stellar` reads.
- * Test files turn both off, because tests assert on displayed text and on
- * fixtures; imports, comparisons, membership calls and computed lookups
- * are reported there as everywhere else.
+ * Test files, matched by name (*.test.*, *.spec.*, *.test-d.ts), turn both
+ * off, because tests assert on displayed text and on fixtures. Imports,
+ * comparisons, membership calls and computed lookups are reported there as
+ * everywhere else.
  * @type {import('eslint').Rule.RuleModule}
  */
 const noChainBranching = {
@@ -753,15 +754,13 @@ export default defineConfig(
   {
     // Tests assert on displayed text and fixtures, so they may use a regex
     // or a property read that names a chain. Everything else still counts.
+    // Matched by file name only: production code in a folder called spec
+    // or __tests__ keeps every check.
     files: [
-      'packages/**/*.test.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
+      'packages/**/*.{test,spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
       'packages/**/*.test-d.ts',
-      'packages/**/spec/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
-      'packages/**/__tests__/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
-      'apps/**/*.test.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
+      'apps/**/*.{test,spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
       'apps/**/*.test-d.ts',
-      'apps/**/spec/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
-      'apps/**/__tests__/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
     ],
     ignores: ['packages/chain-adapter/**'],
     rules: {
