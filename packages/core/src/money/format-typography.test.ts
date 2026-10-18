@@ -109,6 +109,7 @@ describe('token amounts keep ASCII digits', () => {
   // Locales whose default numbering system is not latn. The first case
   // checks that assumption, so an ICU change cannot make the test vacuous.
   const NON_LATN = ['ar-EG', 'fa-IR', 'bn-BD', 'mr-IN', 'my-MM', 'ne-NP'];
+  const RIGHT_TO_LEFT = new Set(['ar-EG', 'fa-IR']);
 
   it.each(NON_LATN)('%s does not default to latn digits', (locale) => {
     expect(new Intl.NumberFormat(locale).resolvedOptions().numberingSystem).not.toBe('latn');
@@ -127,7 +128,9 @@ describe('token amounts keep ASCII digits', () => {
       // Strip ASCII digits; nothing else in the output may be a digit.
       expect(s.replace(/[0-9]/g, '')).not.toMatch(/\p{Nd}/u);
       expect(s).toMatch(/[0-9]/);
-      expect(s.endsWith(`${NBSP}${currency}`)).toBe(true);
+      // ar-EG and fa-IR write right to left, so their code is isolated.
+      const code = RIGHT_TO_LEFT.has(locale) ? `\u2068${currency}\u2069` : currency;
+      expect(s.endsWith(`${NBSP}${code}`)).toBe(true);
     }
   });
 });
