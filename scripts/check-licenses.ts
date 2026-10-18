@@ -6,14 +6,22 @@
 // be trusted. Also fails when a font, image or data file that does not come
 // from npm is missing from assets.licenses.json, or is listed under a licence
 // outside the asset policy, or when an entry in that register matches no
-// file. Then writes THIRD_PARTY_NOTICES.md. Run with `pnpm licenses:check`;
+// file. Map data counts as an asset by content too, so TopoJSON or GeoJSON
+// saved as a plain .json file anywhere in the tree must be registered. Then
+// writes THIRD_PARTY_NOTICES.md. Run with `pnpm licenses:check`;
 // it makes no network calls.
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { AssetRegisterError, checkAssets, parseAssetRegister } from './asset-register.ts';
+import {
+  AssetRegisterError,
+  checkAssets,
+  cleanGitEnv,
+  isGeometryJson,
+  parseAssetRegister,
+} from './asset-register.ts';
 import { LockfileError, parseLockfile } from './lockfile.ts';
 import { formatViolation } from './license-policy.ts';
 import {
@@ -107,6 +115,7 @@ function treeFiles(): string[] {
     ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
     {
       cwd: ROOT,
+      env: cleanGitEnv(process.env),
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
     },
@@ -118,6 +127,7 @@ function run(): void {
   const assets = checkAssets(
     parseAssetRegister(readFileSync(ASSET_REGISTER, 'utf8')),
     treeFiles().filter((path) => existsSync(join(ROOT, path))),
+    { isMapData: (path) => isGeometryJson(readFileSync(join(ROOT, path), 'utf8')) },
   );
   const result = checkTree({
     prodListing: listLicenses('prod'),

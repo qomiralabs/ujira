@@ -150,6 +150,14 @@ export function parseAssetRegister(text: string): AssetEntry[] {
     if (!isValidDate(entry.added)) {
       throw new AssetRegisterError(`${where}: "added" must be a date as YYYY-MM-DD`);
     }
+    // One entry must not license a whole tree: the first segment is a real
+    // directory or file name, so "**", "**/*" and "*/assets/**" are refused.
+    const first = entry.path.split('/')[0] ?? '';
+    if (first === '' || /[*?]/.test(first)) {
+      throw new AssetRegisterError(
+        `${where}: path "${entry.path}" must start with a directory name, not a wildcard`,
+      );
+    }
     if (paths.has(entry.path)) {
       throw new AssetRegisterError(`${where}: path "${entry.path}" is listed twice`);
     }
@@ -165,12 +173,51 @@ export function isAssetPath(path: string): boolean {
   return ASSET_FILE.test(path) || FOLDER_PATTERNS.some((pattern) => pattern.test(path));
 }
 
+const GEOMETRY_TYPES: readonly string[] = [
+  'Topology',
+  'FeatureCollection',
+  'Feature',
+  'GeometryCollection',
+];
+
+// TopoJSON and GeoJSON saved with a plain .json name: a top level object
+// whose "type" is a topology or a GeoJSON collection or feature.
+export function isGeometryJson(text: string): boolean {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return false;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return false;
+  const type = (parsed as Record<string, unknown>)['type'];
+  return typeof type === 'string' && GEOMETRY_TYPES.includes(type);
+}
+
+// The variables git reads that could point it at another repository, index
+// or config, so a listing always describes this checkout.
+export function cleanGitEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('GIT_')));
+}
+
 export interface AssetResult {
   problems: string[];
   notices: AssetNotice[];
 }
 
-export function checkAssets(entries: readonly AssetEntry[], files: readonly string[]): AssetResult {
+export interface AssetOptions {
+  // True for a .json file whose content is map geometry.
+  isMapData?: (path: string) => boolean;
+}
+
+export function checkAssets(
+  entries: readonly AssetEntry[],
+  files: readonly string[],
+  options: AssetOptions = {},
+): AssetResult {
+  const isMapData = options.isMapData ?? ((): boolean => false);
+  const isAsset = (file: string): boolean =>
+    isAssetPath(file) || (/\.json$/i.test(file) && isMapData(file));
   const problems: string[] = [];
   const matchers = entries.map((entry) => ({ entry, pattern: globToRegExp(entry.path) }));
   const counts = new Map<AssetEntry, number>(entries.map((entry) => [entry, 0]));
@@ -179,7 +226,7 @@ export function checkAssets(entries: readonly AssetEntry[], files: readonly stri
     const matched = matchers.filter(({ pattern }) => pattern.test(file)).map(({ entry }) => entry);
     for (const entry of matched) counts.set(entry, (counts.get(entry) ?? 0) + 1);
     if (matched.length === 0) {
-      if (isAssetPath(file)) problems.push(`${file}: not in assets.licenses.json`);
+      if (isAsset(file)) problems.push(`${file}: not in assets.licenses.json`);
       continue;
     }
     if (matched.length > 1) {
@@ -190,6 +237,10 @@ export function checkAssets(entries: readonly AssetEntry[], files: readonly stri
     }
     const entry = matched[0];
     if (entry === undefined) continue;
+    if (!isAsset(file)) {
+      problems.push(`${file}: not an asset file, but matched by ${entry.path}`);
+      continue;
+    }
     const isFont = FONT_FILE.test(file);
     if (isFont && entry.kind !== 'font') {
       problems.push(`${file}: a font file must be under a font entry, not ${entry.kind}`);

@@ -22,7 +22,9 @@ import {
 import {
   AssetRegisterError,
   checkAssets,
+  cleanGitEnv,
   globToRegExp,
+  isGeometryJson,
   OWN_LICENSE,
   parseAssetRegister,
   type AssetEntry,
@@ -503,6 +505,67 @@ describe('asset register', () => {
     ],
   ])('rejects %s', (_name, entry, message) => {
     expect(() => parseAssetRegister(register([entry]))).toThrow(new AssetRegisterError(message));
+  });
+
+  it.each(['**', '**/*', '*/**', '*.svg', '*/assets/*.svg', '?/a.svg', '**/brand/*.svg'])(
+    'rejects the path "%s", which is not anchored to a directory',
+    (path) => {
+      expect(() => parseAssetRegister(register([asset({ path })]))).toThrow(
+        new AssetRegisterError(
+          `assets[0]: path "${path}" must start with a directory name, not a wildcard`,
+        ),
+      );
+    },
+  );
+
+  it.each(['packages/ui/assets/**', 'packages/*/fonts/*.woff2', 'scripts/fixtures/clean.*'])(
+    'accepts the anchored path "%s"',
+    (path) => {
+      expect(parseAssetRegister(register([asset({ path })]))[0]?.path).toBe(path);
+    },
+  );
+
+  it('refuses an entry whose matches include a file that is not an asset', () => {
+    const entries = [asset({ path: 'packages/ui/**', kind: 'image', license: OWN_LICENSE })];
+    const files = ['packages/ui/assets/a.svg', 'packages/ui/src/index.ts'];
+    expect(checkAssets(entries, files).problems).toEqual([
+      'packages/ui/src/index.ts: not an asset file, but matched by packages/ui/**',
+    ]);
+  });
+
+  it('requires map data saved as .json anywhere in the tree to be registered', () => {
+    const files = ['packages/core/src/world.json', 'packages/core/src/config.json'];
+    const isMapData = (path: string): boolean => path.endsWith('world.json');
+    expect(checkAssets([], files, { isMapData }).problems).toEqual([
+      'packages/core/src/world.json: not in assets.licenses.json',
+    ]);
+    const entries = [asset({ path: 'packages/core/src/world.json', kind: 'data', license: 'ISC' })];
+    expect(checkAssets(entries, files, { isMapData }).problems).toEqual([]);
+  });
+
+  it.each([
+    ['a TopoJSON topology', '{"type": "Topology", "objects": {}, "arcs": []}', true],
+    ['a GeoJSON feature collection', '{"type":"FeatureCollection","features":[]}', true],
+    ['a GeoJSON feature', '{"type": "Feature", "geometry": null, "properties": {}}', true],
+    ['a GeoJSON geometry collection', '{"type": "GeometryCollection", "geometries": []}', true],
+    ['an ordinary config', '{"type": "module", "name": "x"}', false],
+    ['an array', '[{"type": "Topology"}]', false],
+    ['invalid JSON', '{"type": "Topology"', false],
+  ])('detects %s as map data: %s', (_name, text, expected) => {
+    expect(isGeometryJson(text)).toBe(expected);
+  });
+
+  it('strips every GIT_ variable from the environment git runs in', () => {
+    const env = cleanGitEnv({
+      PATH: '/usr/bin',
+      HOME: '/home/u',
+      GIT_DIR: '/elsewhere/.git',
+      GIT_WORK_TREE: '/elsewhere',
+      GIT_INDEX_FILE: '/tmp/index',
+      GIT_CONFIG_PARAMETERS: "'core.quotepath=true'",
+      GIT_CEILING_DIRECTORIES: '/',
+    });
+    expect(env).toEqual({ PATH: '/usr/bin', HOME: '/home/u' });
   });
 
   it('rejects two entries with the same path', () => {
