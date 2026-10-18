@@ -492,7 +492,7 @@ export class InternalError extends ChainAdapterError {
   }
 }
 
-// The mandate errors a job can wait out. Any other spec error is final;
+// The mandate errors a job can wait out. Any other mandate error is final;
 // TRANSFER_FAILED goes down the leg fallback path instead of a retry.
 const MANDATE_RULE_WAITS: ReadonlyMap<string, WaitFor> = new Map([
   ['INSUFFICIENT_FUNDS', 'funding'],
@@ -502,7 +502,7 @@ const MANDATE_RULE_WAITS: ReadonlyMap<string, WaitFor> = new Map([
 
 const SPEC_NAME = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$/;
 
-/** A mandate contract refusal, carrying the code and name from the spec error table. */
+/** A mandate contract refusal, carrying the contract's own error code and name. */
 export class MandateRuleError extends ChainAdapterError {
   override readonly name = 'MandateRuleError';
   readonly specCode: number;

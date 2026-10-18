@@ -23,8 +23,8 @@
  * strings included, and any option that could not be stored on a job,
  * throws InvalidInputError.
  *
- * Defaults follow the retry table of the design: transport and rail outages
- * are retryable; everything else is final with landed 'no'. Two codes
+ * Defaults: transport and rail outages, and an expired quote, are
+ * retryable; everything else is final with landed 'no'. Two codes
  * default to landed 'unknown': SUBMISSION_UNKNOWN, and RPC_TIMEOUT, because
  * a timeout on a send may have landed. A read that sent nothing passes
  * landed 'no'. RPC_LAGGING and RPC_RATE_LIMITED mean nothing was accepted.
@@ -33,10 +33,10 @@
  * "path (code)", where path is letters, digits, '_', '.' and ':' and code
  * is lower snake case. They say what was wrong without saying what it was.
  *
- * MandateRuleError(specCode, specName, options?) carries the mandate spec
+ * MandateRuleError(specCode, specName, options?) carries the mandate contract's
  * error. INSUFFICIENT_FUNDS waits for funding, DAILY_CAP_EXCEEDED for the
  * next UTC day and MANDATE_PAUSED for a resume, all retryable; every other
- * spec error is final. specCode must be a non negative safe integer and
+ * mandate error is final. specCode must be a non negative safe integer and
  * specName a non empty upper snake case name, else InvalidInputError.
  *
  * toJSON() returns the serializable ChainAdapterErrorJson stored on jobs.

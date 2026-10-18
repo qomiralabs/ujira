@@ -227,7 +227,7 @@ export interface SubmissionRecord {
   readonly state: SubmissionState;
   readonly landedAtHeight: bigint | null;
   readonly errorCode: ChainAdapterErrorCode | null;
-  /** The mandate spec error code when the mandate refused the call. */
+  /** The mandate contract's error code when the mandate refused the call. */
   readonly specCode: number | null;
   /** The submission this one replaced, for a fee bump that reused the nonce. */
   readonly replacesTxHash: string | null;
@@ -436,7 +436,7 @@ export interface ChainHealth {
 }
 
 // ---------------------------------------------------------------------------
-// Mandate structs, mirroring the contract spec with core types
+// Mandate structs, mirroring the mandate contract's types with core types
 
 export interface LimitsInput {
   readonly totalBudget: TokenAmount;
@@ -631,7 +631,7 @@ export interface MandateState {
 
 export interface MandateSnapshot {
   readonly mandate: MandateRef;
-  /** Created by a factory the config trusts for this spec version. */
+  /** Created by a factory the config trusts for this mandate version. */
   readonly trustedFactory: boolean;
   /** The on chain tenant reference matches the request scope. */
   readonly tenantRefMatches: boolean;
