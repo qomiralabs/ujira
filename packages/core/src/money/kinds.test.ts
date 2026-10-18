@@ -21,6 +21,7 @@ import {
   formatTokenAmount,
   money,
   moneyAt,
+  parseRate,
   rescale,
   sum,
   toMinor,
@@ -78,13 +79,13 @@ describe('the compiler and the runtime keep the kinds apart', () => {
   it('lets a priced conversion take either kind as its source', () => {
     const fromToken: Money = convertMoney(
       celo,
-      { base: 'USDC', quote: 'USD', numerator: 1n, denominator: 1n },
+      parseRate('1', { base: 'USDC', quote: 'USD' }),
       { currency: 'USD', scale: 6 },
       'trunc',
     );
     const fromFiat: Money = convertMoney(
       usd,
-      { base: 'USD', quote: 'USD', numerator: 1n, denominator: 1n },
+      parseRate('1', { base: 'USD', quote: 'USD' }),
       { currency: 'USD' },
       'trunc',
     );

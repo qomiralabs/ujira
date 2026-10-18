@@ -12,6 +12,7 @@ import {
   SETTLEMENT_TOKENS,
   convertMoney,
   convertToToken,
+  invertRate,
   moneyAt,
   parseRate,
   rescale,
@@ -19,7 +20,7 @@ import {
   tokenToUsd,
   usdToToken,
 } from './index.js';
-import type { FiatCurrencyCode, RoundingMode } from './index.js';
+import type { FiatCurrencyCode, Rate, RateUnit, RoundingMode } from './index.js';
 
 const MAX = 2n ** 127n - 1n;
 const MIN = -(2n ** 127n);
@@ -44,6 +45,33 @@ const scaleArb = fc.integer({ min: 2, max: 18 });
 const modeArb = fc.constantFrom(...MODES);
 
 const inRange = (x: bigint): boolean => x >= MIN && x <= MAX;
+
+/** A decimal as a quote prints it: `digits` with `places` after the point. */
+function decimal(digits: bigint, places: number): string {
+  const text = digits.toString().padStart(places + 1, '0');
+  return places === 0 ? text : `${text.slice(0, -places)}.${text.slice(-places)}`;
+}
+
+// Only rates issued by parseRate or invertRate convert, so a random rate is
+// a random quoted decimal, read one way or the other.
+const rateSpecArb = fc.record({
+  digits: fc.bigInt({ min: 1n, max: 10n ** 9n }),
+  places: fc.integer({ min: 0, max: 9 }),
+  inverted: fc.boolean(),
+});
+
+function rateFrom(
+  spec: { digits: bigint; places: number; inverted: boolean },
+  base: RateUnit,
+  quote: RateUnit,
+): Rate {
+  const text = decimal(spec.digits, spec.places);
+  return spec.inverted
+    ? invertRate(parseRate(text, { base: quote, quote: base }))
+    : parseRate(text, { base, quote });
+}
+
+const unitRate = (unit: RateUnit): Rate => parseRate('1', { base: unit, quote: unit });
 
 /** Independent rounding reference: n / d (d > 0) to an integer with a mode. */
 function roundReference(n: bigint, d: bigint, mode: RoundingMode): bigint {
@@ -110,7 +138,7 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
         modeArb,
         (amount, currency, from, to, mode) => {
           const m = moneyAt(amount, currency, from);
-          const one = { base: currency, quote: currency, numerator: 1n, denominator: 1n };
+          const one = unitRate(currency);
           const viaRescale = outcome(() => rescale(m, to, mode));
           const viaRate = outcome(() => convertMoney(m, one, { currency, scale: to }, mode));
           expect(viaRate.ok).toBe(viaRescale.ok);
@@ -127,12 +155,11 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
         fc.bigInt({ min: -(10n ** 20n), max: 10n ** 20n }),
         fc.integer({ min: 2, max: 10 }),
         fc.integer({ min: 0, max: 8 }),
-        fc.bigInt({ min: 1n, max: 10n ** 9n }),
-        fc.bigInt({ min: 1n, max: 10n ** 9n }),
+        rateSpecArb,
         scaleArb,
         modeArb,
-        (amount, low, extra, numerator, denominator, to, mode) => {
-          const rate = { base: 'USD', quote: 'NGN', numerator, denominator } as const;
+        (amount, low, extra, spec, to, mode) => {
+          const rate = rateFrom(spec, 'USD', 'NGN');
           const coarse = moneyAt(amount, 'USD', low);
           const fine = moneyAt(amount * 10n ** BigInt(extra), 'USD', low + extra);
           // Both refuse or both give the same value; large rates can overflow.
@@ -150,17 +177,16 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
     fc.assert(
       fc.property(
         fc.bigInt({ min: -(10n ** 15n), max: 10n ** 15n }),
-        fc.bigInt({ min: 1n, max: 10n ** 9n }),
-        fc.bigInt({ min: 1n, max: 10n ** 9n }),
+        rateSpecArb,
         scaleArb,
         modeArb,
-        (micros, numerator, denominator, to, mode) => {
+        (micros, spec, to, mode) => {
           // micros is the value in millionths of a dollar, exact on every token.
           const results = SETTLEMENT_TOKENS.map((t) =>
             outcome(() =>
               convertMoney(
                 tokenAmount(micros * 10n ** BigInt(t.tokenScale - 6), t.asset, t.chain),
-                { base: t.asset, quote: 'NGN', numerator, denominator },
+                rateFrom(spec, t.asset, 'NGN'),
                 { currency: 'NGN', scale: to },
                 mode,
               ),
@@ -182,26 +208,18 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
         i128,
         fiatArb,
         scaleArb,
-        fc.bigInt({ min: 1n, max: 10n ** 12n }),
-        fc.bigInt({ min: 1n, max: 10n ** 12n }),
+        rateSpecArb,
         modeArb,
-        (amount, currency, scale, numerator, denominator, mode) => {
+        (amount, currency, scale, spec, mode) => {
           const m = moneyAt(amount, currency, scale);
-          const one = convertMoney(
-            m,
-            { base: currency, quote: currency, numerator: 1n, denominator: 1n },
-            { currency, scale },
-            mode,
-          );
+          const one = convertMoney(m, unitRate(currency), { currency, scale }, mode);
           expect(one).toEqual(m);
-          const r = outcome(() =>
-            convertMoney(
-              m,
-              { base: currency, quote: currency, numerator, denominator },
-              { currency, scale },
-              'floor',
-            ),
-          );
+          // A unit only converts to itself at 1, so the priced leg goes to
+          // another currency with the same minor unit.
+          const other = currency === 'NGN' ? 'KES' : 'NGN';
+          const rate = rateFrom(spec, currency, other);
+          const { numerator, denominator } = rate;
+          const r = outcome(() => convertMoney(m, rate, { currency: other, scale }, 'floor'));
           // Only the result is bounded, never the product on the way.
           if (!inRange(roundReference(amount * numerator, denominator, 'floor'))) {
             expect(r.ok).toBe(false);
@@ -224,10 +242,7 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
     // Rates as a quote prints them, from tiny to large.
     const rateText = fc
       .tuple(fc.bigInt({ min: 1n, max: 10n ** 12n }), fc.integer({ min: 0, max: 12 }))
-      .map(([digits, places]) => {
-        const text = digits.toString().padStart(places + 1, '0');
-        return places === 0 ? text : `${text.slice(0, -places)}.${text.slice(-places)}`;
-      });
+      .map(([digits, places]) => decimal(digits, places));
     const unitArb = fc.oneof(
       fc.integer({ min: 2, max: 18 }).map((scale) => ({ kind: 'fiat' as const, scale })),
       tokenArb.map((t) => ({
@@ -244,7 +259,11 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
         unitArb,
         unitArb,
         modeArb,
-        (amount, text, from, to, mode) => {
+        (amount, quoted, from, to, mode) => {
+          const base = from.kind === 'fiat' ? 'USD' : from.asset;
+          const quote = to.kind === 'fiat' ? 'EUR' : to.asset;
+          // A token to itself only moves at 1.
+          const text = base === quote ? '1' : quoted;
           // The reference reads the rate straight from its text.
           const [whole = '', fraction = ''] = text.split('.');
           const n = BigInt(whole + fraction);
@@ -258,10 +277,7 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
             from.kind === 'fiat'
               ? moneyAt(amount, 'USD', from.scale)
               : tokenAmount(amount, from.asset, from.chain);
-          const rate = parseRate(text, {
-            base: from.kind === 'fiat' ? 'USD' : from.asset,
-            quote: to.kind === 'fiat' ? 'EUR' : to.asset,
-          });
+          const rate = parseRate(text, { base, quote });
           const r = outcome(() =>
             to.kind === 'fiat'
               ? convertMoney(src, rate, { currency: 'EUR', scale: to.scale }, mode)
@@ -285,12 +301,12 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
         fc.bigInt({ min: -(10n ** 20n), max: 10n ** 20n }),
         tokenArb,
         tokenArb,
-        fc.bigInt({ min: 1n, max: 10n ** 6n }),
-        fc.bigInt({ min: 1n, max: 10n ** 6n }),
+        rateSpecArb,
         modeArb,
-        (amount, from, to, numerator, denominator, mode) => {
+        (amount, from, to, spec, mode) => {
           const source = tokenAmount(amount, from.asset, from.chain);
-          const rate = { base: from.asset, quote: to.asset, numerator, denominator };
+          const rate =
+            from.asset === to.asset ? unitRate(from.asset) : rateFrom(spec, from.asset, to.asset);
           const r = convertToToken(source, rate, to, mode);
           expect(r.asset).toBe(to.asset);
           expect(r.chain).toBe(to.chain);

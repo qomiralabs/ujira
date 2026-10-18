@@ -26,6 +26,7 @@ import {
   moneyAt,
   multiply,
   negate,
+  parseRate,
   subtract,
   sum,
   tokenAmount,
@@ -296,7 +297,7 @@ describe('every scale is validated before any lookup', () => {
       () =>
         convertMoney(
           money(1n, 'USD'),
-          { base: 'USD', quote: 'USD', numerator: 1n, denominator: 1n },
+          parseRate('1', { base: 'USD', quote: 'USD' }),
           loose({ currency: 'USD', scale }),
           'trunc',
         ),

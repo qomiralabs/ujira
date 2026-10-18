@@ -39,6 +39,13 @@
  *   The same rate read the other way: base and quote swap, and so do the
  *   numerator and denominator. Validated like any rate; the result is frozen.
  *   Inversion is never implicit: a conversion never flips a rate to fit.
+ * A rate whose base equals its quote has one honest value: exactly 1
+ *   (numerator equal to denominator). Any other value throws
+ *   RateMismatchError from parseRate, invertRate and every conversion.
+ * Only rates returned by parseRate or invertRate convert. A Rate is plain
+ *   data, so a spread such as { ...rate, quote: 'KES' } or a hand-built
+ *   object would otherwise price another corridor; anything else throws
+ *   RateMismatchError, after the shape, parts and pair are checked.
  * convertMoney(from: Money | TokenAmount, rate: Rate,
  *              to: { currency: FiatCurrencyCode; scale?: number },
  *              rounding: RoundingMode): Money
@@ -114,9 +121,9 @@ function rateOf(text: string, base: RateUnit, quote: RateUnit): Rate {
   return parseRate(text, { base, quote });
 }
 
-function exact(base: RateUnit, quote: RateUnit, numerator: bigint, denominator: bigint): Rate {
-  return { base, quote, numerator, denominator };
-}
+// 1 USDC per 1600.25 NGN, that is 100 / 160025: a denominator no decimal
+// text gives directly, so it comes from inverting the quoted rate.
+const usdcPerNgn = (): Rate => invertRate(rateOf('1600.25', 'USDC', 'NGN'));
 
 describe('exports', () => {
   it('exposes every conversion from the money index and the package root', () => {
@@ -289,9 +296,15 @@ describe('the worked example: a quoted rate in major units', () => {
     // Documents the misuse: rates are never multiplied by a power of ten.
     const usdc = tokenAmount(12_500_000n, 'USDC', 'celo');
     const right = convertMoney(usdc, rate, { currency: 'NGN', scale: 3 }, 'trunc');
-    const prescaled = { ...rate, numerator: rate.numerator * 10n ** 4n };
+    const prescaled = rateOf('16002500', 'USDC', 'NGN');
     const wrong = convertMoney(usdc, prescaled, { currency: 'NGN', scale: 3 }, 'trunc');
     expect(wrong.amount).toBe(right.amount * 10n ** 4n);
+    // Scaling a parsed rate by hand is refused outright.
+    const scaled = { ...rate, numerator: rate.numerator * 10n ** 4n };
+    expectMoneyError(
+      () => convertMoney(usdc, scaled, { currency: 'NGN', scale: 3 }, 'trunc'),
+      RateMismatchError,
+    );
   });
 });
 
@@ -357,16 +370,18 @@ describe('convertMoney', () => {
 
   it('bounds only the result to i128', () => {
     // The largest rate part, 36 digits, times an amount near the bound.
-    const big = exact('USD', 'USD', 10n ** 36n - 1n, 1n);
+    const big = rateOf('9'.repeat(36), 'USD', 'NGN');
     expectMoneyError(
-      () => convertMoney(money(1000n, 'USD'), big, { currency: 'USD' }, 'trunc'),
+      () => convertMoney(money(1000n, 'USD'), big, { currency: 'NGN' }, 'trunc'),
       MoneyOverflowError,
     );
-    expect(convertMoney(money(1n, 'USD'), big, { currency: 'USD' }, 'trunc').amount).toBe(
+    expect(convertMoney(money(1n, 'USD'), big, { currency: 'NGN' }, 'trunc').amount).toBe(
       10n ** 36n - 1n,
     );
-    // The product passes i128 on the way, but the result fits.
-    const wide = exact('USD', 'USD', 10n ** 20n, 10n ** 20n);
+    // The product passes i128 on the way, but the result fits. One written
+    // with twenty decimal places is exactly 1, so it may join a unit to itself.
+    const wide = rateOf(`1.${'0'.repeat(20)}`, 'USD', 'USD');
+    expect(wide.numerator).toBe(10n ** 20n);
     expect(convertMoney(money(10n ** 20n, 'USD'), wide, { currency: 'USD' }, 'trunc')).toEqual(
       money(10n ** 20n, 'USD'),
     );
@@ -463,7 +478,8 @@ describe('convertMoney', () => {
 describe('convertToToken', () => {
   it('converts fiat to a token at its decimals with the required mode', () => {
     // 1 USDC per 1600.25 NGN is 100 / 160025 USDC per NGN.
-    const rate = exact('NGN', 'USDC', 100n, 160_025n);
+    const rate = usdcPerNgn();
+    expect(rate).toEqual({ base: 'NGN', quote: 'USDC', numerator: 100n, denominator: 160_025n });
     const r = convertToToken(
       money(160_025n, 'NGN'),
       rate,
@@ -495,7 +511,7 @@ describe('convertToToken', () => {
   });
 
   it('rejects an unknown pair and a missing rounding mode', () => {
-    const one = exact('USD', 'USDC', 1n, 1n);
+    const one = rateOf('1', 'USD', 'USDC');
     expectMoneyError(
       () =>
         convertToToken(money(1n, 'USD'), one, loose({ asset: 'USDm', chain: 'stellar' }), 'trunc'),
@@ -533,8 +549,15 @@ describe('quoted rates against a bigint reference', () => {
   for (const text of ['1600.25', '0.000624902', '1', '3.5']) {
     for (const from of units) {
       for (const to of units) {
-        const rate = rateOf(text, unitOf(from), to.kind === 'fiat' ? 'NGN' : to.asset);
+        const base = unitOf(from);
+        const quote = to.kind === 'fiat' ? 'NGN' : to.asset;
         it(`converts at ${text} from ${from.kind} scale ${String(from.scale)} to ${to.kind} scale ${String(to.scale)}`, () => {
+          // A token to itself, on another chain, only ever moves at 1.
+          if (base === quote && text !== '1') {
+            expectMoneyError(() => rateOf(text, base, quote), RateMismatchError);
+            return;
+          }
+          const rate = rateOf(text, base, quote);
           const amount = 123_456_789n;
           const want = reference(amount, rate.numerator, rate.denominator, from.scale, to.scale);
           const got =
@@ -622,7 +645,7 @@ describe('rates bound to their base and quote', () => {
   });
 
   it('checks the token target against the quote', () => {
-    const usdcPerNgn = exact('NGN', 'USDC', 100n, 160_025n);
+    const usdcPerNgn = invertRate(rateOf('1600.25', 'USDC', 'NGN'));
     expectMoneyError(
       () =>
         convertToToken(
@@ -685,7 +708,12 @@ describe('rates bound to their base and quote', () => {
   });
 
   it('parses the pair after the text and refuses an unknown unit', () => {
-    expect(rateOf('2', 'USDm', 'KES')).toEqual(exact('USDm', 'KES', 2n, 1n));
+    expect(rateOf('2', 'USDm', 'KES')).toEqual({
+      base: 'USDm',
+      quote: 'KES',
+      numerator: 2n,
+      denominator: 1n,
+    });
     for (const pair of [
       { base: 'XXX', quote: 'NGN' },
       { base: 'USD', quote: 'usd' },
@@ -712,5 +740,88 @@ describe('rates bound to their base and quote', () => {
         UnknownCurrencyError,
       );
     }
+  });
+});
+
+describe('a unit to itself only at exactly 1', () => {
+  it('refuses USD to USD at 2 everywhere a rate enters', () => {
+    expectMoneyError(() => rateOf('2', 'USD', 'USD'), RateMismatchError);
+    expectMoneyError(() => rateOf('0.5', 'USDC', 'USDC'), RateMismatchError);
+    // invertRate checks the rate it is given before anything else.
+    expectMoneyError(
+      () => invertRate(loose({ base: 'USD', quote: 'USD', numerator: 2n, denominator: 1n })),
+      RateMismatchError,
+    );
+    expectMoneyError(
+      () =>
+        convertMoney(
+          money(100n, 'USD'),
+          loose({ base: 'USD', quote: 'USD', numerator: 2n, denominator: 1n }),
+          { currency: 'USD' },
+          'trunc',
+        ),
+      RateMismatchError,
+    );
+  });
+
+  it('accepts 1 however it is written', () => {
+    for (const text of ['1', '1.0', '1.000000']) {
+      const rate = rateOf(text, 'USD', 'USD');
+      expect(rate.numerator).toBe(rate.denominator);
+      expect(convertMoney(money(150n, 'USD'), rate, { currency: 'USD' }, 'trunc')).toEqual(
+        money(150n, 'USD'),
+      );
+    }
+    expect(invertRate(rateOf('1', 'USDC', 'USDC'))).toEqual(rateOf('1', 'USDC', 'USDC'));
+  });
+});
+
+describe('only issued rates convert', () => {
+  const ngnPerUsd = rateOf('1600.25', 'USD', 'NGN');
+
+  it.each([
+    ['a spread with another quote', { ...ngnPerUsd, quote: 'KES' }],
+    ['a plain copy of a parsed rate', { ...ngnPerUsd }],
+    ['a hand-built rate', { base: 'USD', quote: 'NGN', numerator: 160_025n, denominator: 100n }],
+    ['a structured clone', structuredClone(ngnPerUsd)],
+  ])('refuses %s', (_label, forged) => {
+    const usd = money(100n, 'USD');
+    expectMoneyError(
+      () => convertMoney(usd, loose(forged), { currency: forged.quote as never }, 'trunc'),
+      RateMismatchError,
+    );
+    expectMoneyError(() => invertRate(loose(forged)), RateMismatchError);
+    expectMoneyError(
+      () =>
+        convertToToken(
+          money(100n, 'NGN'),
+          loose({ ...forged, base: 'NGN', quote: 'USDC' }),
+          { asset: 'USDC', chain: 'celo' },
+          'trunc',
+        ),
+      RateMismatchError,
+    );
+  });
+
+  it('accepts what parseRate and invertRate return, and nothing mutates them', () => {
+    const inverted = invertRate(ngnPerUsd);
+    expect(convertMoney(money(160_025n, 'NGN'), inverted, { currency: 'USD' }, 'trunc')).toEqual(
+      money(100n, 'USD'),
+    );
+    expect(Object.isFrozen(ngnPerUsd)).toBe(true);
+    expect(Object.isFrozen(inverted)).toBe(true);
+  });
+
+  it('checks the shape and parts before the brand', () => {
+    expectMoneyError(
+      () =>
+        convertMoney(
+          money(1n, 'USD'),
+          loose({ ...ngnPerUsd, numerator: 0n }),
+          { currency: 'NGN' },
+          'trunc',
+        ),
+      InvalidAmountError,
+    );
   });
 });
