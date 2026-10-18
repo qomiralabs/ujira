@@ -336,12 +336,26 @@ describe('the chain branching rule', () => {
     ).toBe(1);
   });
 
+  // Only test file names are relaxed. Production code that happens to live
+  // in a spec or __tests__ folder keeps every check.
+  it.each([
+    'packages/payouts/src/spec/routing.ts',
+    'packages/payouts/spec/a.ts',
+    'apps/web/src/__tests__/helpers.ts',
+    'packages/ui/src/testing/a.tsx',
+  ])('keeps every check for %s', async (file) => {
+    const config = (await eslint.calculateConfigForFile(path.join(REPO_ROOT, file))) as {
+      rules?: Record<string, unknown>;
+    };
+    expect(config.rules?.[RULE]).toEqual([2]);
+  });
+
   it.each([
     'packages/payouts/src/a.test.ts',
     'packages/payouts/src/a.test-d.ts',
     'packages/ui/src/a.test.tsx',
-    'packages/payouts/spec/a.ts',
-    'apps/web/src/__tests__/a.ts',
+    'packages/payouts/src/a.spec.ts',
+    'apps/web/src/__tests__/a.test.ts',
   ])('uses the relaxed options for %s', async (file) => {
     const config = (await eslint.calculateConfigForFile(path.join(REPO_ROOT, file))) as {
       rules?: Record<string, unknown>;

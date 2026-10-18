@@ -290,6 +290,16 @@ describe('chain adapter errors', () => {
     });
     const viaGetter = new RpcTimeoutError({ cause: getterCause });
     expect(reads).toBeLessThanOrEqual(1);
+    // A Proxy whose prototype lookup throws cannot even be checked as an
+    // Error, so it is recorded as one without being read.
+    const hostile = new Proxy(new Error('x'), {
+      getPrototypeOf() {
+        throw new Error(MARKER);
+      },
+    });
+    const viaProxy = new RpcTimeoutError({ cause: hostile });
+    expect((viaProxy.cause as Error).message).toBe('Cause redacted: Error');
+    expect(inspect(viaProxy, { depth: Infinity, showHidden: true })).not.toContain(MARKER);
     const throwing = new Error('x');
     Object.defineProperty(throwing, 'name', {
       get() {
