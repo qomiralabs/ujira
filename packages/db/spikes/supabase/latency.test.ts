@@ -1,0 +1,101 @@
+// Copyright (c) 2026 Qomira Labs. All rights reserved.
+// Proprietary and confidential. Unauthorized copying is prohibited.
+
+// Spike: what does setting tenant context add to a repository transaction
+// through the transaction pooler? Times a tenant transaction (begin, the
+// context statement, one read, commit) against the same transaction
+// without the context statement, from wherever this runs.
+// Set SPIKE_RESULTS_FILE to keep the numbers. Runs only when the pooler
+// URLs are in the environment.
+
+import { writeFileSync } from 'node:fs';
+
+import type pg from 'pg';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import {
+  TENANT_A,
+  bootstrap,
+  cleanup,
+  close,
+  connectAs,
+  runPrefix,
+  spikeEnv,
+  tenantDdl,
+} from './harness.js';
+import type { Spike } from './harness.js';
+
+const env = spikeEnv();
+const RUNS = 200;
+
+function percentile(sorted: readonly number[], p: number): number {
+  const index = Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1);
+  return sorted[Math.max(0, index)] ?? Number.NaN;
+}
+
+function summary(samples: number[]): { p50: number; p95: number; mean: number } {
+  const sorted = [...samples].sort((a, b) => a - b);
+  const mean = samples.reduce((acc, x) => acc + x, 0) / samples.length;
+  return { p50: percentile(sorted, 50), p95: percentile(sorted, 95), mean };
+}
+
+describe.skipIf(env === null)('tenant context round trip', { timeout: 300_000 }, () => {
+  let spike: Spike;
+  let app: pg.Client;
+
+  beforeAll(async () => {
+    if (env === null) return;
+    spike = await bootstrap(env, runPrefix('l'));
+    const migrator = await connectAs(env, 'session', spike.logins.migrator);
+    await migrator.query(tenantDdl(spike.names));
+    await migrator.end();
+    app = await connectAs(env, 'transaction', spike.logins.app);
+  }, 180_000);
+
+  afterAll(async () => {
+    if (env === null) return;
+    await close(app);
+    // A failed setup leaves nothing to tear down.
+    if ((spike as Spike | undefined) === undefined) return;
+    await cleanup(spike.admin, spike.names);
+    await spike.admin.end();
+  }, 120_000);
+
+  it('measures p50 and p95 with and without the context statement', async () => {
+    const time = async (withContext: boolean): Promise<number> => {
+      const started = performance.now();
+      await app.query('begin');
+      if (withContext) {
+        await app.query(
+          "select set_config('ujira.principal_id', $1, true), set_config('ujira.project_id', $2, true)",
+          [TENANT_A.principalId, TENANT_A.projectId],
+        );
+      }
+      // The same read either way, so the difference is the context statement.
+      await app.query('select 1');
+      await app.query('commit');
+      return performance.now() - started;
+    };
+    // Warm the connection and plans before measuring.
+    for (let i = 0; i < 20; i += 1) {
+      await time(true);
+      await time(false);
+    }
+    const plain: number[] = [];
+    const tenant: number[] = [];
+    for (let i = 0; i < RUNS; i += 1) {
+      plain.push(await time(false));
+      tenant.push(await time(true));
+    }
+    const result = {
+      runs: RUNS,
+      plainTransactionMs: summary(plain),
+      tenantTransactionMs: summary(tenant),
+      addedP50Ms: summary(tenant).p50 - summary(plain).p50,
+      addedP95Ms: summary(tenant).p95 - summary(plain).p95,
+    };
+    const file = process.env['SPIKE_RESULTS_FILE'];
+    if (file) writeFileSync(file, `${JSON.stringify(result, null, 2)}\n`);
+    expect(result.tenantTransactionMs.p50).toBeGreaterThan(0);
+  });
+});
