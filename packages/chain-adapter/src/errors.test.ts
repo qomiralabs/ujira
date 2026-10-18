@@ -271,6 +271,27 @@ describe('chain adapter errors', () => {
     named.name = 'key=abc def';
     const odd = new RpcTimeoutError({ cause: named });
     expect((odd.cause as Error).message).toBe('Cause redacted: Error');
+    // Only expected class names are kept. A name shaped like an identifier
+    // can still be a secret.
+    const MARKER = 'SUPERSECRETKEY123';
+    const planted = new Error('x');
+    planted.name = MARKER;
+    const hidden = new RpcTimeoutError({ cause: planted });
+    expect((hidden.cause as Error).message).toBe('Cause redacted: Error');
+    expect(inspect(hidden, { depth: Infinity, showHidden: true })).not.toContain(MARKER);
+    for (const name of [
+      'RangeError',
+      'AbortError',
+      'TimeoutError',
+      'FetchError',
+      'RpcTimeoutError',
+    ]) {
+      const known = new Error('x');
+      known.name = name;
+      expect((new ChainUnavailableError({ cause: known }).cause as Error).message).toBe(
+        `Cause redacted: ${name}`,
+      );
+    }
     expect(new RpcTimeoutError({ cause: 'text' }).cause).toBeInstanceOf(Error);
     expect(new RpcTimeoutError().cause).toBeUndefined();
   });

@@ -185,7 +185,6 @@ const WRAPPED_AND_INDIRECT: [string, string][] = [
   ],
   ['a numeric chain ID', 'export const f = (id: number) => id === 42220;\n'],
   ['a bigint chain ID', 'export const f = (id: bigint) => id === 42220n;\n'],
-  ['the Alfajores chain ID', 'export const f = (id: number) => 44787 === id;\n'],
   ['the Celo Sepolia chain ID', 'export const f = (id: number) => id !== 11142220;\n'],
   ['the Alfajores network ID', "export const f = (n: string) => n === 'eip155:44787';\n"],
   ['a const chain ID', 'const CELO_ID = 42220;\nexport const f = (id: number) => id == CELO_ID;\n'],
@@ -218,7 +217,7 @@ const WRAPPED_AND_INDIRECT: [string, string][] = [
   ['another Stellar network', "export const f = (n: string) => n === 'stellar:futurenet';\n"],
   ['a chain ID as a string', "export const f = (id: number) => String(id) === '42220';\n"],
   ['a testnet ID as a string', "export const f = (id: string) => '11142220' == id;\n"],
-  ['a split CAIP-2 reference', "export const f = (n: string) => n.split(':')[1] === '44787';\n"],
+  ['a split CAIP-2 reference', "export const f = (n: string) => n.split(':')[1] === '42220';\n"],
   [
     'a lookup table with numeric keys',
     "const T = { 42220: 'x' };\nexport const f = (chainId: 42220) => T[chainId];\n",
@@ -273,6 +272,55 @@ describe('the chain branching rule', () => {
     },
   );
 
+  // Tests assert on displayed text and fixtures, so regexes and property
+  // reads that name a chain are allowed there. Imports and comparisons are
+  // not.
+  it('relaxes only regexes and property reads in test files', async () => {
+    const TEST_FILE = path.join(REPO_ROOT, 'packages/core/src/index.test.ts');
+    expect(await ruleHits('export const f = (s: string) => /stellar/i.test(s);\n', TEST_FILE)).toBe(
+      0,
+    );
+    expect(
+      await ruleHits(
+        'declare const theme: { stellar: string };\nexport const v = theme.stellar;\n',
+        TEST_FILE,
+      ),
+    ).toBe(0);
+    expect(await ruleHits("export const f = (c: string) => c === 'stellar';\n", TEST_FILE)).toBe(1);
+    expect(
+      await ruleHits("export const f = (c: string[]) => c.includes('celo');\n", TEST_FILE),
+    ).toBe(1);
+    expect(
+      await ruleHits(
+        "const m: Record<string, number> = {};\nexport const v = m['celo'];\n",
+        TEST_FILE,
+      ),
+    ).toBe(1);
+    expect(
+      await ruleHits(
+        "import { celo } from 'viem/chains';\nexport const c: unknown = celo;\n",
+        TEST_FILE,
+      ),
+    ).toBe(1);
+    // The same regex and property read still count in source.
+    expect(
+      await ruleHits('export const f = (s: string) => /stellar/i.test(s);\n', PAYOUTS_FILE),
+    ).toBe(1);
+  });
+
+  it.each([
+    'packages/payouts/src/a.test.ts',
+    'packages/payouts/src/a.test-d.ts',
+    'packages/ui/src/a.test.tsx',
+    'packages/payouts/spec/a.ts',
+    'apps/web/src/__tests__/a.ts',
+  ])('uses the relaxed options for %s', async (file) => {
+    const config = (await eslint.calculateConfigForFile(path.join(REPO_ROOT, file))) as {
+      rules?: Record<string, unknown>;
+    };
+    expect(config.rules?.[RULE]).toEqual([2, { regex: false, memberNames: false }]);
+  });
+
   it.each(['packages/payouts/src/x.js', 'packages/payouts/src/x.mjs', 'apps/web/src/x.cjs'])(
     'applies to JavaScript files too: %s',
     async (file) => {
@@ -303,6 +351,11 @@ describe('the chain branching rule', () => {
       "export const f = (s: string) => ['stellarx'].includes(s) || Object.is(s, 'x');\n",
     ],
     ['a chain ID in arithmetic', 'export const f = (id: number) => id + 42220;\n'],
+    // Alfajores is retired, so its bare number is just a number.
+    [
+      'the retired Alfajores ID alone',
+      "export const f = (id: number, z: string) => id === 44787 || z === '44787';\n",
+    ],
     [
       // A let can be reassigned, so only const bindings are followed.
       'a let binding',
