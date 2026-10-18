@@ -126,7 +126,7 @@ describe('build validates what it mints', () => {
   });
 
   it('refuses token assets, which are not fiat', () => {
-    expectMoneyError(() => build(1n, loose('USDm'), 18), UnknownCurrencyError);
+    expectMoneyError(() => build(1n, loose('USDC'), 7), UnknownCurrencyError);
   });
 
   it('is not exported from the money index or the package root', () => {
@@ -281,15 +281,15 @@ describe('token and kind helpers', () => {
   it('buildToken validates the pair and the amount and takes the scale from the table', () => {
     expect(buildToken(5n, 'USDC', 'stellar')).toEqual(tokenAmount(5n, 'USDC', 'stellar'));
     expect(buildToken(5n, 'USDC', 'stellar').scale).toBe(7);
-    expectMoneyError(() => buildToken(5n, 'USDm', loose('stellar')), UnknownCurrencyError);
-    expectMoneyError(() => buildToken(loose(5), 'USDC', 'celo'), InvalidAmountError);
-    expectMoneyError(() => buildToken(MAX + 1n, 'USDC', 'celo'), MoneyOverflowError);
+    expectMoneyError(() => buildToken(5n, loose('USDT'), 'stellar'), UnknownCurrencyError);
+    expectMoneyError(() => buildToken(loose(5), 'USDC', 'stellar'), InvalidAmountError);
+    expectMoneyError(() => buildToken(MAX + 1n, 'USDC', 'stellar'), MoneyOverflowError);
   });
 
   it('withAmount keeps the unit of fiat and token values', () => {
     expect(withAmount(moneyAt(1n, 'NGN', 6), 9n)).toEqual(moneyAt(9n, 'NGN', 6));
-    expect(withAmount(tokenAmount(1n, 'USDm', 'celo'), 9n)).toEqual(
-      tokenAmount(9n, 'USDm', 'celo'),
+    expect(withAmount(tokenAmount(1n, 'USDC', 'stellar'), 9n)).toEqual(
+      tokenAmount(9n, 'USDC', 'stellar'),
     );
   });
 
@@ -303,10 +303,13 @@ describe('token and kind helpers', () => {
   });
 
   it('snapshotFiat and snapshotToken refuse the other kind', () => {
-    expectMoneyError(() => snapshotFiat(loose(tokenAmount(1n, 'USDC', 'celo'))), KindMismatchError);
+    expectMoneyError(
+      () => snapshotFiat(loose(tokenAmount(1n, 'USDC', 'stellar'))),
+      KindMismatchError,
+    );
     expectMoneyError(() => snapshotToken(loose(money(1n, 'USD'))), KindMismatchError);
     const fiat: Money = snapshotFiat(money(1n, 'USD'));
-    const token: TokenAmount = snapshotToken(tokenAmount(1n, 'USDC', 'celo'));
+    const token: TokenAmount = snapshotToken(tokenAmount(1n, 'USDC', 'stellar'));
     expect(fiat.kind).toBe('fiat');
     expect(token.kind).toBe('token');
   });

@@ -243,33 +243,30 @@ describe('parseMoney accepts the strict grammar', () => {
     expectMoney(parseMoney('20000', 'NGN', { scale: 6 }), 20_000_000_000n, 'NGN', 6);
   });
 
-  it('parses token amounts at the token decimals on each chain', () => {
-    expectToken(
-      parseTokenAmount('1.234567', 'USDC', 'celo'),
-      1_234_567n,
-      tokenAmount(1_234_567n, 'USDC', 'celo'),
-    );
+  it('parses token amounts at the token decimals', () => {
     expectToken(
       parseTokenAmount('1.2345678', 'USDC', 'stellar'),
       12_345_678n,
       tokenAmount(12_345_678n, 'USDC', 'stellar'),
     );
     expectToken(
-      parseTokenAmount('5', 'USDm', 'celo'),
-      5n * 10n ** 18n,
-      tokenAmount(5n * 10n ** 18n, 'USDm', 'celo'),
+      parseTokenAmount('5', 'USDC', 'stellar'),
+      5n * 10n ** 7n,
+      tokenAmount(5n * 10n ** 7n, 'USDC', 'stellar'),
     );
   });
 
   it('refuses token assets as fiat and unknown token pairs', () => {
     expectMoneyError(() => parseMoney('1', loose('USDC')), UnknownCurrencyError);
-    expectMoneyError(() => parseTokenAmount('1', 'USDm', loose('stellar')), UnknownCurrencyError);
-    expectMoneyError(() => parseTokenAmount('1', loose('USD'), 'celo'), UnknownCurrencyError);
+    expectMoneyError(() => parseTokenAmount('1', loose('USDT'), 'stellar'), UnknownCurrencyError);
+    expectMoneyError(() => parseTokenAmount('1', loose('USD'), 'stellar'), UnknownCurrencyError);
   });
 
   it('rounds token excess digits only with a mode', () => {
-    expectMoneyError(() => parseTokenAmount('0.0000005', 'USDC', 'celo'), InvalidAmountError);
-    expect(parseTokenAmount('0.0000005', 'USDC', 'celo', { rounding: 'half-up' }).amount).toBe(1n);
+    expectMoneyError(() => parseTokenAmount('0.00000005', 'USDC', 'stellar'), InvalidAmountError);
+    expect(parseTokenAmount('0.00000005', 'USDC', 'stellar', { rounding: 'half-up' }).amount).toBe(
+      1n,
+    );
     expect(parseTokenAmount('0.0000005', 'USDC', 'stellar').amount).toBe(5n);
   });
 
@@ -420,19 +417,16 @@ describe('parseMoney precision', () => {
   it('rejects excess fraction digits even when they are zeros', () => {
     expectMoneyError(() => parseMoney('1.000', 'USD'), InvalidAmountError);
     expectMoneyError(() => parseMoney('1.0000000', 'KES', { scale: 6 }), InvalidAmountError);
-    expectMoneyError(() => parseTokenAmount('0.0000001', 'USDC', 'celo'), InvalidAmountError);
-    expectMoneyError(
-      () => parseTokenAmount('0.0000000000000000001', 'USDm', 'celo'),
-      InvalidAmountError,
-    );
+    expectMoneyError(() => parseTokenAmount('0.00000010', 'USDC', 'stellar'), InvalidAmountError);
+    expectMoneyError(() => parseTokenAmount('1.00000000', 'USDC', 'stellar'), InvalidAmountError);
   });
 
   it('pads a short fraction', () => {
     expectMoney(parseMoney('1.2', 'USD', { scale: 6 }), 1_200_000n, 'USD', 6);
     expectToken(
-      parseTokenAmount('1.2', 'USDC', 'celo'),
-      1_200_000n,
-      tokenAmount(1_200_000n, 'USDC', 'celo'),
+      parseTokenAmount('1.2', 'USDC', 'stellar'),
+      12_000_000n,
+      tokenAmount(12_000_000n, 'USDC', 'stellar'),
     );
   });
 
@@ -550,7 +544,7 @@ describe('parseMoney validation order', () => {
   });
 
   it('rejects unknown and wrongly cased currencies', () => {
-    for (const currency of ['usd', 'BTC', 'USDM', 'USDC', 'USDm', '__proto__', '']) {
+    for (const currency of ['usd', 'BTC', 'USDT', 'USDC', 'usdc', '__proto__', '']) {
       expectMoneyError(() => parseMoney('1', loose(currency)), UnknownCurrencyError);
     }
   });
@@ -584,13 +578,16 @@ describe('toDecimalString', () => {
   });
 
   it('prints a token amount at its token decimals', () => {
-    expect(toDecimalString(tokenAmount(1_234_567n, 'USDC', 'celo'))).toBe('1.234567');
+    expect(toDecimalString(tokenAmount(12_345_670n, 'USDC', 'stellar'))).toBe('1.2345670');
     expect(toDecimalString(tokenAmount(1_234_567n, 'USDC', 'stellar'))).toBe('0.1234567');
-    expect(toDecimalString(tokenAmount(-5n, 'USDm', 'celo'))).toBe('-0.000000000000000005');
+    expect(toDecimalString(tokenAmount(-5n, 'USDC', 'stellar'))).toBe('-0.0000005');
   });
 
   it('round trips token text through parseTokenAmount', () => {
-    for (const t of [tokenAmount(1n, 'USDC', 'celo'), tokenAmount(-123_456_789n, 'USDm', 'celo')]) {
+    for (const t of [
+      tokenAmount(1n, 'USDC', 'stellar'),
+      tokenAmount(-123_456_789n, 'USDC', 'stellar'),
+    ]) {
       expect(parseTokenAmount(toDecimalString(t), t.asset, t.chain)).toEqual(t);
     }
   });
@@ -599,7 +596,7 @@ describe('toDecimalString', () => {
     expectMoneyError(
       () =>
         toDecimalString(
-          loose({ kind: 'token', amount: 1n, asset: 'USDC', chain: 'celo', scale: 7 }),
+          loose({ kind: 'token', amount: 1n, asset: 'USDC', chain: 'stellar', scale: 6 }),
         ),
       InvalidScaleError,
     );

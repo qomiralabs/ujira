@@ -33,7 +33,11 @@ export function createChainAdapterRegistry(
         issues: ['adapter.interfaceVersion (unsupported)'],
       });
     }
-    if (adapter.chain !== chainOf(adapter.network)) {
+    // One chain today, so the types say this always matches. Read as a plain
+    // string, the check still catches an adapter wired to the wrong network
+    // once a second chain exists.
+    const chain: string = adapter.chain;
+    if (chain !== chainOf(adapter.network)) {
       throw new InvalidInputError({
         network: adapter.network,
         issues: ['adapter.chain (mismatch)'],

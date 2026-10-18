@@ -328,9 +328,8 @@ describe('allocate concrete splits', () => {
 
   it('keeps the asset and chain of every token leg', () => {
     const totals: TokenAmount[] = [
-      tokenAmount(10n ** 18n + 1n, 'USDC', 'celo'),
       tokenAmount(10n ** 18n + 1n, 'USDC', 'stellar'),
-      tokenAmount(10n ** 18n + 1n, 'USDm', 'celo'),
+      tokenAmount(7n, 'USDC', 'stellar'),
     ];
     for (const total of totals) {
       const legs = allocate(total, [5n, 3n, 2n]);
@@ -343,7 +342,13 @@ describe('allocate concrete splits', () => {
   });
 
   it('refuses a token total that disagrees with the token table', () => {
-    const forged = loose({ kind: 'token', amount: 100n, asset: 'USDC', chain: 'celo', scale: 7 });
+    const forged = loose({
+      kind: 'token',
+      amount: 100n,
+      asset: 'USDC',
+      chain: 'stellar',
+      scale: 6,
+    });
     expect(() => allocate(forged, [1n, 1n])).toThrow(InvalidScaleError);
   });
 });

@@ -6,7 +6,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  DOLLAR_PEGGED,
   FIAT_CURRENCIES,
   MoneyError,
   SETTLEMENT_TOKENS,
@@ -68,36 +67,16 @@ describe('fiat currency table', () => {
 
   it('does not list settlement tokens as fiat', () => {
     expect(() => fiatCurrency('USDC')).toThrow(UnknownCurrencyError);
-    expect(() => fiatCurrency('USDm')).toThrow(UnknownCurrencyError);
+    expect(() => fiatCurrency('usdc')).toThrow(UnknownCurrencyError);
   });
 });
 
 describe('settlement token table', () => {
-  it('USDC is 6 on Celo and 7 on Stellar, USDm is 18, display scale is 2', () => {
-    expect(settlementToken('USDC', 'celo')).toEqual({
-      asset: 'USDC',
-      chain: 'celo',
-      tokenScale: 6,
-      displayScale: 2,
-    });
-    expect(settlementToken('USDC', 'stellar')).toEqual({
-      asset: 'USDC',
-      chain: 'stellar',
-      tokenScale: 7,
-      displayScale: 2,
-    });
-    expect(settlementToken('USDm', 'celo')).toEqual({
-      asset: 'USDm',
-      chain: 'celo',
-      tokenScale: 18,
-      displayScale: 2,
-    });
-  });
-
-  it('lists exactly the three launch pairs', () => {
-    expect(SETTLEMENT_TOKENS).toHaveLength(3);
-    const pairs = SETTLEMENT_TOKENS.map((t) => `${t.asset}/${t.chain}`).sort();
-    expect(pairs).toEqual(['USDC/celo', 'USDC/stellar', 'USDm/celo']);
+  it('the only settlement token is USDC on Stellar at scale 7', () => {
+    expect(SETTLEMENT_TOKENS).toEqual([
+      { asset: 'USDC', chain: 'stellar', tokenScale: 7, displayScale: 2 },
+    ]);
+    expect(settlementToken('USDC', 'stellar')).toBe(SETTLEMENT_TOKENS[0]);
   });
 
   it('keeps the token scale separate from the display scale', () => {
@@ -121,15 +100,6 @@ describe('settlement token table', () => {
       expect(amount.chain).toBe(t.chain);
     }
   });
-
-  it('lists every settlement asset as dollar pegged', () => {
-    // usdToToken and tokenToUsd convert at par. A token that is not worth a
-    // dollar must not be added here without a priced path.
-    expect(Object.isFrozen(DOLLAR_PEGGED)).toBe(true);
-    expect([...new Set(SETTLEMENT_TOKENS.map((t) => t.asset))].sort()).toEqual(
-      [...DOLLAR_PEGGED].sort(),
-    );
-  });
 });
 
 describe('kind predicates', () => {
@@ -142,7 +112,7 @@ describe('kind predicates', () => {
       expect(isTokenAsset(t.asset)).toBe(true);
       expect(isFiatCurrencyCode(t.asset)).toBe(false);
     }
-    for (const value of ['usd', 'usdc', 'USDM', '', '__proto__', 'constructor', null, 1]) {
+    for (const value of ['usd', 'usdc', 'USDT', '', '__proto__', 'constructor', null, 1]) {
       expect(isFiatCurrencyCode(value)).toBe(false);
       expect(isTokenAsset(value)).toBe(false);
     }
@@ -163,16 +133,16 @@ describe('unknown currencies', () => {
   );
 
   it.each([
-    ['USDm', 'stellar'],
+    ['USDT', 'stellar'],
     ['USDC', 'ethereum'],
-    ['USDC', 'Celo'],
-    ['usdc', 'celo'],
-    ['USDM', 'celo'],
+    ['USDC', 'Stellar'],
+    ['usdc', 'stellar'],
+    ['USDC', 'stellar:pubnet'],
     ['USDC', ''],
-    ['', 'celo'],
+    ['', 'stellar'],
     ['XLM', 'stellar'],
-    ['CELO', 'celo'],
-    ['constructor', 'celo'],
+    ['USDC', 'constructor'],
+    ['constructor', 'stellar'],
     ['__proto__', 'stellar'],
   ])('settlementToken throws UnknownCurrencyError for %s on %s', (asset, chain) => {
     expect(() => settlementToken(asset, chain)).toThrow(UnknownCurrencyError);
@@ -180,7 +150,7 @@ describe('unknown currencies', () => {
 
   it('throws an error that carries the shared code', () => {
     try {
-      settlementToken('USDm', 'stellar');
+      settlementToken('USDT', 'stellar');
       expect.unreachable('settlementToken should have thrown');
     } catch (err) {
       expect(err).toBeInstanceOf(MoneyError);

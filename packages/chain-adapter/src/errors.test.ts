@@ -228,12 +228,12 @@ describe('chain adapter errors', () => {
   it('never carries a cause that could print a secret', () => {
     // Transport and config errors routinely quote URLs with keys in them.
     const MARKER = 'SUPERSECRETKEY123';
-    const inner = new Error(`fetch failed for https://celo.example/v3/${MARKER}`, {
+    const inner = new Error(`fetch failed for https://rpc.example/v3/${MARKER}`, {
       cause: new Error(`retry of ${MARKER}`),
     });
-    Object.assign(inner, { url: `https://celo.example/v3/${MARKER}`, config: { key: MARKER } });
+    Object.assign(inner, { url: `https://rpc.example/v3/${MARKER}`, config: { key: MARKER } });
     for (const err of [
-      new ChainUnavailableError({ cause: inner, network: 'eip155:42220' }),
+      new ChainUnavailableError({ cause: inner, network: 'stellar:testnet' }),
       new RpcTimeoutError({ cause: inner }),
       new InvalidInputError({ cause: inner }),
       new MandateRuleError(43, 'INSUFFICIENT_FUNDS', { cause: inner }),
@@ -349,7 +349,7 @@ describe('chain adapter errors', () => {
 
   it('refuses options that could not be stored on a job', () => {
     const bad: object[] = [
-      { network: 'eip155:1' },
+      { network: 'stellar:futurenet' },
       { landed: 'maybe' },
       { waitFor: 'tomorrow' },
       { retryable: 'yes' },

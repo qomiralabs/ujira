@@ -29,7 +29,6 @@ export {
 } from './errors.js';
 export type { MoneyErrorCode } from './errors.js';
 export {
-  DOLLAR_PEGGED,
   FIAT_CURRENCIES,
   SETTLEMENT_TOKENS,
   TOKEN_DISPLAY_SCALE,

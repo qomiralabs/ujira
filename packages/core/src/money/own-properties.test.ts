@@ -130,17 +130,17 @@ describe('Money operands under a polluted Object.prototype', () => {
 describe('token operands under a polluted Object.prototype', () => {
   it('rejects a token whose asset and chain come only from the prototype', () => {
     objectProto['asset'] = 'USDC';
-    objectProto['chain'] = 'celo';
-    objectProto['scale'] = 6;
+    objectProto['chain'] = 'stellar';
+    objectProto['scale'] = 7;
     const forged = loose({ kind: 'token', amount: 1n });
     expectError(() => negate(forged), UnknownCurrencyError);
-    expectError(() => add(forged, loose(tokenAmount(1n, 'USDC', 'celo'))), UnknownCurrencyError);
+    expectError(() => add(forged, loose(tokenAmount(1n, 'USDC', 'stellar'))), UnknownCurrencyError);
   });
 
   it('rejects a token whose kind comes only from the prototype', () => {
     objectProto['kind'] = 'token';
     expectError(
-      () => negate(loose({ amount: 1n, asset: 'USDC', chain: 'celo', scale: 6 })),
+      () => negate(loose({ amount: 1n, asset: 'USDC', chain: 'stellar', scale: 7 })),
       InvalidAmountError,
     );
   });

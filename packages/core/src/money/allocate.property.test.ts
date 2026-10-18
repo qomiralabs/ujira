@@ -283,7 +283,7 @@ describe('allocate properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
         wideTotal,
         fc.array(wideWeight, { minLength: 1, maxLength: MAX_LEGS }),
         (amount, weights) => {
-          const total = tokenAmount(amount, 'USDC', 'celo');
+          const total = tokenAmount(amount, 'USDC', 'stellar');
           const overflows = sumOf(weights) > MAX || weights.slice(1).some((x) => amount * x > MAX);
           const err = thrown(() => {
             const legs = allocate(total, weights);

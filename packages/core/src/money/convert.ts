@@ -62,8 +62,9 @@ export interface Rate {
  * the token's decimals: scaling up is exact, and scaling down is allowed only
  * when no non-zero digit is dropped. Limits and budgets must never round, so
  * there is deliberately no rounding mode here; a value that would lose
- * digits throws InvalidScaleError. Every settlement token is dollar pegged
- * today (see DOLLAR_PEGGED).
+ * digits throws InvalidScaleError. The only settlement token, USDC, is
+ * pegged to the dollar; a token that is not would need a priced conversion
+ * instead.
  */
 export function usdToToken(usd: Money, asset: TokenAsset, chain: Chain): TokenAmount {
   const value = snapshotFiat(usd);

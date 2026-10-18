@@ -6,9 +6,12 @@ import { UnknownCurrencyError } from './errors.js';
 export type FiatCurrencyCode =
   'USD' | 'NGN' | 'KES' | 'GHS' | 'ZAR' | 'PHP' | 'INR' | 'BRL' | 'COP' | 'MXN' | 'EUR' | 'GBP';
 
-export type TokenAsset = 'USDC' | 'USDm';
+// One settlement token on one chain today. Both stay named types, and a
+// token amount keeps its chain, so adding a chain later is a change to the
+// table below rather than to every caller.
+export type TokenAsset = 'USDC';
 
-export type Chain = 'celo' | 'stellar';
+export type Chain = 'stellar';
 
 export interface FiatCurrency {
   readonly code: FiatCurrencyCode;
@@ -49,12 +52,11 @@ export const TOKEN_DISPLAY_SCALE = 2;
 const token = (asset: TokenAsset, chain: Chain, tokenScale: number): SettlementToken =>
   Object.freeze({ asset, chain, tokenScale, displayScale: TOKEN_DISPLAY_SCALE });
 
-// The same asset can carry different decimals per chain (Stellar assets are
-// always 7), so the key is the asset and chain pair, never the asset alone.
+// Keyed by the asset and chain pair, never the asset alone, because one
+// asset can carry different decimals on different chains. Stellar assets
+// always use 7.
 export const SETTLEMENT_TOKENS: readonly SettlementToken[] = Object.freeze([
-  token('USDC', 'celo', 6),
   token('USDC', 'stellar', 7),
-  token('USDm', 'celo', 18),
 ]);
 
 // Sets rather than object maps, so names like "constructor" or "__proto__"
@@ -69,13 +71,6 @@ export function isFiatCurrencyCode(value: unknown): value is FiatCurrencyCode {
 export function isTokenAsset(value: unknown): value is TokenAsset {
   return TOKEN_ASSETS.has(value);
 }
-
-/**
- * Tokens worth one US dollar each. usdToToken and tokenToUsd convert at par
- * only for these. Every settlement token is dollar pegged today; a test keeps
- * the two lists in step, so adding another token forces a decision here.
- */
-export const DOLLAR_PEGGED: readonly TokenAsset[] = Object.freeze(['USDC', 'USDm']);
 
 export function fiatCurrency(code: string): FiatCurrency {
   const found = FIAT_CURRENCIES.find((c) => c.code === code);

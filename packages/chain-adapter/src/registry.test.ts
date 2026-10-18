@@ -38,7 +38,7 @@ function fakeAdapter(network: NetworkId, overrides: Partial<ChainAdapter> = {}):
   return {
     interfaceVersion: CHAIN_ADAPTER_INTERFACE_VERSION,
     network,
-    chain: network.startsWith('stellar:') ? 'stellar' : 'celo',
+    chain: 'stellar',
     capabilities: unsupported,
     health: unsupported,
     parseAddress: unsupported,
@@ -78,33 +78,39 @@ function thrown(run: () => unknown): unknown {
 describe('createChainAdapterRegistry', () => {
   const pubnet = fakeAdapter('stellar:pubnet');
   const testnet = fakeAdapter('stellar:testnet');
-  const celo = fakeAdapter('eip155:42220');
 
   it('returns the adapter for an enabled network', () => {
     const registry = createChainAdapterRegistry({
-      adapters: [celo, pubnet],
-      config: () => configWith({ 'stellar:pubnet': true, 'eip155:42220': true }),
+      adapters: [testnet, pubnet],
+      config: () => configWith({ 'stellar:pubnet': true, 'stellar:testnet': true }),
     });
     expect(registry.get('stellar:pubnet')).toBe(pubnet);
-    expect(registry.get('eip155:42220')).toBe(celo);
+    expect(registry.get('stellar:testnet')).toBe(testnet);
   });
 
   it('lists enabled adapters in network order, frozen', () => {
     const registry = createChainAdapterRegistry({
-      adapters: [celo, testnet, pubnet],
-      config: () =>
-        configWith({ 'stellar:pubnet': true, 'stellar:testnet': false, 'eip155:42220': true }),
+      adapters: [testnet, pubnet],
+      config: () => configWith({ 'stellar:pubnet': true, 'stellar:testnet': true }),
     });
     const list = registry.list();
-    expect(list).toEqual([pubnet, celo]);
+    expect(list).toEqual([pubnet, testnet]);
     expect(Object.isFrozen(list)).toBe(true);
+    const some = createChainAdapterRegistry({
+      adapters: [testnet, pubnet],
+      config: () => configWith({ 'stellar:pubnet': false, 'stellar:testnet': true }),
+    });
+    expect(some.list()).toEqual([testnet]);
   });
 
   it.each([
     ['disabled', configWith({ 'stellar:pubnet': false })],
-    ['missing from config', configWith({ 'eip155:42220': true })],
+    ['missing from config', configWith({ 'stellar:testnet': true })],
   ])('refuses a network that is %s', (_label, config) => {
-    const registry = createChainAdapterRegistry({ adapters: [pubnet, celo], config: () => config });
+    const registry = createChainAdapterRegistry({
+      adapters: [pubnet, testnet],
+      config: () => config,
+    });
     const err = thrown(() => registry.get('stellar:pubnet'));
     expect(err).toBeInstanceOf(UnsupportedError);
     expect((err as UnsupportedError).network).toBe('stellar:pubnet');
@@ -113,10 +119,12 @@ describe('createChainAdapterRegistry', () => {
   it('refuses an enabled network with no adapter, and an unknown network', () => {
     const registry = createChainAdapterRegistry({
       adapters: [pubnet],
-      config: () => configWith({ 'stellar:pubnet': true, 'eip155:42220': true }),
+      config: () => configWith({ 'stellar:pubnet': true, 'stellar:testnet': true }),
     });
-    expect(thrown(() => registry.get('eip155:42220'))).toBeInstanceOf(UnsupportedError);
-    expect(thrown(() => registry.get('eip155:1' as NetworkId))).toBeInstanceOf(UnsupportedError);
+    expect(thrown(() => registry.get('stellar:testnet'))).toBeInstanceOf(UnsupportedError);
+    expect(thrown(() => registry.get('stellar:futurenet' as NetworkId))).toBeInstanceOf(
+      UnsupportedError,
+    );
     expect(registry.list()).toEqual([pubnet]);
   });
 
@@ -134,13 +142,14 @@ describe('createChainAdapterRegistry', () => {
 
   it.each([
     ['two adapters on one network', [pubnet, fakeAdapter('stellar:pubnet')]],
-    ['an unknown network', [fakeAdapter('eip155:1' as NetworkId)]],
+    ['an unknown network', [fakeAdapter('stellar:futurenet' as NetworkId)]],
     [
       'another interface version',
       [fakeAdapter('stellar:pubnet', { interfaceVersion: 2 as never })],
     ],
-    ['a chain that does not match', [fakeAdapter('stellar:pubnet', { chain: 'celo' })]],
-    ['a Celo network claiming Stellar', [fakeAdapter('eip155:42220', { chain: 'stellar' })]],
+    // Only one chain exists, so a mismatch is forged; the check still guards
+    // an adapter wired to the wrong network once a second chain is added.
+    ['a chain that does not match', [fakeAdapter('stellar:pubnet', { chain: 'other' as never })]],
   ])('refuses %s', (_label, adapters) => {
     const err = thrown(() =>
       createChainAdapterRegistry({ adapters, config: () => configWith({}) }),
