@@ -54,11 +54,13 @@ function decimal(digits: bigint, places: number): string {
 
 // Only rates issued by parseRate or invertRate convert, so a random rate is
 // a random quoted decimal, read one way or the other.
-const rateSpecArb = fc.record({
-  digits: fc.bigInt({ min: 1n, max: 10n ** 9n }),
-  places: fc.integer({ min: 0, max: 9 }),
-  inverted: fc.boolean(),
-});
+const rateSpec = (maxDigits: bigint, maxPlaces: number) =>
+  fc.record({
+    digits: fc.bigInt({ min: 1n, max: maxDigits }),
+    places: fc.integer({ min: 0, max: maxPlaces }),
+    inverted: fc.boolean(),
+  });
+const rateSpecArb = rateSpec(10n ** 9n, 9);
 
 function rateFrom(
   spec: { digits: bigint; places: number; inverted: boolean },
@@ -301,7 +303,9 @@ describe('conversion properties', { timeout: PROPERTY_TIMEOUT_MS }, () => {
         fc.bigInt({ min: -(10n ** 20n), max: 10n ** 20n }),
         tokenArb,
         tokenArb,
-        rateSpecArb,
+        // Small enough that every result fits, as the property is about
+        // where the result lands, not about overflow.
+        rateSpec(10n ** 6n, 6),
         modeArb,
         (amount, from, to, spec, mode) => {
           const source = tokenAmount(amount, from.asset, from.chain);

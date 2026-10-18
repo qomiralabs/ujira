@@ -45,6 +45,10 @@ export type RateUnit = FiatCurrencyCode | TokenAsset;
  *
  * The pair travels with the numbers so a rate quoted for one corridor can
  * never price another, and so reading it upside down takes invertRate.
+ *
+ * Build one with parseRate or invertRate; conversions refuse any other
+ * object, a spread or copy of a real rate included. A rate from a unit to
+ * itself must be exactly 1.
  */
 export interface Rate {
   readonly base: RateUnit;
@@ -138,7 +142,28 @@ export function parseRate(text: string, pair: { base: RateUnit; quote: RateUnit 
   // One zero per fraction digit gives the denominator as text.
   const denominator = BigInt(`1${fraction.replace(/[0-9]/g, '0')}`);
   const { base, quote } = readPair(pair);
-  return Object.freeze({ base, quote, numerator, denominator });
+  checkSameUnit(base, quote, numerator, denominator);
+  return issue({ base, quote, numerator, denominator });
+}
+
+// Rates handed out by parseRate and invertRate. A Rate is plain data, so
+// without this a spread such as { ...rate, quote: 'KES' } or a hand-built
+// object would price a corridor nobody quoted. Frozen rates in a WeakSet
+// cannot be edited after the fact, and the set never keeps one alive.
+const ISSUED = new WeakSet<object>();
+
+function issue(rate: Rate): Rate {
+  const frozen = Object.freeze(rate);
+  ISSUED.add(frozen);
+  return frozen;
+}
+
+// A unit priced in itself has one honest value. Anything else would move
+// money between the same unit at a ratio, a token across chains included.
+function checkSameUnit(base: RateUnit, quote: RateUnit, numerator: bigint, denominator: bigint) {
+  if (base === quote && numerator !== denominator) {
+    throw new RateMismatchError('a rate from a unit to itself must be exactly 1');
+  }
 }
 
 function readRatePart(rate: object, key: 'numerator' | 'denominator'): bigint {
@@ -156,6 +181,11 @@ function readRate(rate: unknown): Rate {
   const numerator = readRatePart(rate, 'numerator');
   const denominator = readRatePart(rate, 'denominator');
   const { base, quote } = readPair(rate);
+  // Issued rates passed the same unit check when they were made, and are
+  // frozen, so the brand covers it here.
+  if (!ISSUED.has(rate)) {
+    throw new RateMismatchError('only rates from parseRate or invertRate convert');
+  }
   return { base, quote, numerator, denominator };
 }
 
@@ -166,7 +196,7 @@ function readRate(rate: unknown): Rate {
  */
 export function invertRate(rate: Rate): Rate {
   const r = readRate(rate);
-  return Object.freeze({
+  return issue({
     base: r.quote,
     quote: r.base,
     numerator: r.denominator,
@@ -218,8 +248,9 @@ function priced(
  * unit, and is rounded once with the required `rounding`. The source unit
  * must be the rate's base and the target currency its quote, else
  * RateMismatchError. Validation order: source, rate, target currency and
- * scale, the pair, rounding. The product and the result are both bounded to
- * i128.
+ * scale, the pair, rounding. Only the result is bounded to i128: the
+ * product on the way is a bigint, which cannot overflow, and the rate parts
+ * are capped at 36 digits so it stays small.
  */
 export function convertMoney(
   from: Money | TokenAmount,
@@ -244,8 +275,9 @@ export function convertMoney(
  * result is at the token's decimals, rounded once with the required
  * `rounding`. The source unit must be the rate's base and the target asset
  * its quote, else RateMismatchError. Validation order: source, rate, target
- * asset and chain, the pair, rounding. The product and the result are both
- * bounded to i128.
+ * asset and chain, the pair, rounding. Only the result is bounded to i128:
+ * the product on the way is a bigint, which cannot overflow, and the rate
+ * parts are capped at 36 digits so it stays small.
  */
 export function convertToToken(
   from: Money | TokenAmount,
