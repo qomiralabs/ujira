@@ -279,8 +279,23 @@ describe('chain adapter errors', () => {
     const hidden = new RpcTimeoutError({ cause: planted });
     expect((hidden.cause as Error).message).toBe('Cause redacted: Error');
     expect(inspect(hidden, { depth: Infinity, showHidden: true })).not.toContain(MARKER);
+    // A getter that returns the secret is read at most once and not kept.
+    let reads = 0;
+    const getterCause = new Error('x');
+    Object.defineProperty(getterCause, 'name', {
+      get() {
+        reads += 1;
+        return MARKER;
+      },
+    });
+    const viaGetter = new RpcTimeoutError({ cause: getterCause });
+    expect(reads).toBeLessThanOrEqual(1);
+    expect((viaGetter.cause as Error).message).toBe('Cause redacted: Error');
+    expect(inspect(viaGetter, { depth: Infinity, showHidden: true })).not.toContain(MARKER);
     for (const name of [
       'RangeError',
+      'SyntaxError',
+      'AggregateError',
       'AbortError',
       'TimeoutError',
       'FetchError',

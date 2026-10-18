@@ -325,6 +325,34 @@ describe('parseNetworksConfig', () => {
       withChange('eip155:42220', 'explorer.tx', 'https://celoscan.io/tx/{hash}?token=APIKEY'),
     ],
     [
+      'an explorer with a long key shaped path segment',
+      withChange(
+        'eip155:42220',
+        'explorer.tx',
+        'https://celoscan.io/AbC123xyz789QWE456rty0/tx/{hash}',
+      ),
+    ],
+    [
+      'an explorer with key= in the path',
+      withChange('eip155:42220', 'explorer.tx', 'https://celoscan.io/apikey=abc/tx/{hash}'),
+    ],
+    [
+      'an explorer with an encoded query in the path',
+      withChange('eip155:42220', 'explorer.tx', 'https://celoscan.io/tx%3Fapikey%3Dabc/{hash}'),
+    ],
+    [
+      'an explorer that writes the placeholder literally',
+      withChange('eip155:42220', 'explorer.tx', 'https://{hash}.evil.io/HASHSLOT'),
+    ],
+    [
+      'an explorer with the placeholder word in the path',
+      withChange('eip155:42220', 'explorer.tx', 'https://celoscan.io/hashslot/tx/{hash}'),
+    ],
+    [
+      'an explorer with another placeholder',
+      withChange('eip155:42220', 'explorer.tx', 'https://celoscan.io/{network}/tx/{hash}'),
+    ],
+    [
       'an explorer with a password only',
       withChange('stellar:pubnet', 'explorer.tx', 'https://:APIKEY@stellar.expert/tx/{hash}'),
     ],
@@ -371,6 +399,18 @@ describe('parseNetworksConfig', () => {
     ['null', null],
   ])('refuses %s', (_label, input) => {
     expect(thrown(() => parseNetworksConfig(input))).toBeInstanceOf(InvalidInputError);
+  });
+
+  it('accepts ordinary explorer templates', () => {
+    for (const tx of [
+      'https://stellar.expert/explorer/public/tx/{hash}',
+      'https://celoscan.io/tx/{hash}',
+      'https://celo-sepolia.blockscout.com/tx/{hash}',
+      'https://explorer.example/v2/tx/{hash}/details',
+    ]) {
+      const doc = withChange('eip155:42220', 'explorer.tx', tx);
+      expect(parseNetworksConfig(doc)['eip155:42220']?.explorer.tx).toBe(tx);
+    }
   });
 
   it('names the failing paths without repeating any value', () => {

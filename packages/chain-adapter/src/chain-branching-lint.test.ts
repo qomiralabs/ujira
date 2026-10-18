@@ -183,11 +183,25 @@ const WRAPPED_AND_INDIRECT: [string, string][] = [
     'a const in a switch case',
     "const S = 'stellar';\nexport const f = (c: string): number => {\n  switch (c) {\n    case S:\n      return 1;\n    default:\n      return 0;\n  }\n};\n",
   ],
-  ['a numeric chain ID', 'export const f = (id: number) => id === 42220;\n'],
-  ['a bigint chain ID', 'export const f = (id: bigint) => id === 42220n;\n'],
-  ['the Celo Sepolia chain ID', 'export const f = (id: number) => id !== 11142220;\n'],
+  ['a numeric chain ID', 'export const f = (chainId: number) => chainId === 42220;\n'],
+  ['a bigint chain ID', 'export const f = (net: { chainId: bigint }) => net.chainId === 42220n;\n'],
+  [
+    'the Celo Sepolia chain ID',
+    'export const f = (networkId: number) => networkId !== 11142220;\n',
+  ],
   ['the Alfajores network ID', "export const f = (n: string) => n === 'eip155:44787';\n"],
-  ['a const chain ID', 'const CELO_ID = 42220;\nexport const f = (id: number) => id == CELO_ID;\n'],
+  [
+    'a const chain ID',
+    'const CELO_ID = 42220;\nexport const f = (chainId: number) => chainId == CELO_ID;\n',
+  ],
+  [
+    'a chain ID in a switch',
+    'export const f = (chainId: number): number => {\n  switch (chainId) {\n    case 42220:\n      return 1;\n    default:\n      return 0;\n  }\n};\n',
+  ],
+  [
+    'a chain ID in a list',
+    'export const f = (chainId: number) => [42220, 11142220].includes(chainId);\n',
+  ],
   ['includes on an array', "export const f = (chain: string) => ['celo'].includes(chain);\n"],
   [
     'includes on a const array',
@@ -215,8 +229,11 @@ const WRAPPED_AND_INDIRECT: [string, string][] = [
   ['an uppercase member key', 'declare const m: { Celo: number };\nexport const v = m.Celo;\n'],
   ['another EVM network', "export const f = (n: string) => n === 'eip155:1';\n"],
   ['another Stellar network', "export const f = (n: string) => n === 'stellar:futurenet';\n"],
-  ['a chain ID as a string', "export const f = (id: number) => String(id) === '42220';\n"],
-  ['a testnet ID as a string', "export const f = (id: string) => '11142220' == id;\n"],
+  [
+    'a chain ID as a string',
+    "export const f = (chainId: number) => String(chainId) === '42220';\n",
+  ],
+  ['a testnet ID as a string', "export const f = (chain: string) => '11142220' == chain;\n"],
   ['a split CAIP-2 reference', "export const f = (n: string) => n.split(':')[1] === '42220';\n"],
   [
     'a lookup table with numeric keys',
@@ -224,8 +241,19 @@ const WRAPPED_AND_INDIRECT: [string, string][] = [
   ],
   [
     'a lookup table with a string chain ID key',
-    "export const f = (id: '11142220') => ({ '11142220': 1 })[id];\n",
+    "export const f = (chainId: '11142220') => ({ '11142220': 1 })[chainId];\n",
   ],
+  [
+    'a split namespace',
+    "export const f = (network: string) => {\n  const [ns] = network.split(':');\n  return ns === 'eip155';\n};\n",
+  ],
+  ['a bare Stellar namespace', "export const f = (ns: string) => 'stellar' === ns;\n"],
+  ['a word bounded regex', 'export const f = (c: string) => /\\bcelo\\b/.test(c);\n'],
+  ['a regex with a chain ID', 'export const f = (n: string) => /eip155:42220/.test(n);\n'],
+  ['match with a chain string', "export const f = (n: string) => n.match('celo') !== null;\n"],
+  ['search with a namespace', "export const f = (n: string) => n.search('eip155:') >= 0;\n"],
+  ['new RegExp', "export const f = (n: string) => new RegExp('stellar').test(n);\n"],
+  ['RegExp called', "export const f = (n: string) => RegExp('^celo$', 'i').test(n);\n"],
   ['startsWith a namespace', "export const f = (n: string) => n.startsWith('eip155:');\n"],
   ['startsWith a chain', "export const f = (c: string) => c.startsWith('stellar');\n"],
   ['endsWith a chain ID', "export const f = (n: string) => n.endsWith(':42220');\n"],
@@ -361,7 +389,23 @@ describe('the chain branching rule', () => {
       'a let binding',
       "let X = 'celo';\nX = String(Date.now());\nexport const f = (s: string) => s === X;\n",
     ],
-    ['other literals', "export const f = (s: string) => s === 'stellarx' || s === 'eip155';\n"],
+    ['other literals', "export const f = (s: string) => s === 'stellarx' || s === 'eip1559';\n"],
+    [
+      'chain IDs that are only numbers',
+      "export const f = (cents: number, port: number, zip: string) => cents === 42220 || port === 11142220 || zip.startsWith('42220') || zip === '42220';\n",
+    ],
+    [
+      'a chain ID shaped amount in a list or table',
+      'export const f = (amount: number) => [42220].includes(amount) || ({ 42220: 1 })[amount];\n',
+    ],
+    [
+      'words that contain a chain name',
+      'export const f = (s: string) => /Marcelo/.test(s) || /interstellar/.test(s) || /cancelOrder/i.test(s) || /parcelorder/i.test(s);\n',
+    ],
+    [
+      'regex numbers that are not chain IDs',
+      'export const f = (s: string) => /^42220$/.test(s) || /\\d{5}/.test(s);\n',
+    ],
     ['a lookalike package', "import { z } from 'zod';\nexport const s: unknown = z;\n"],
     ['a package named like viem', "export const f = () => import('viem-lite');\n"],
   ])('ignores %s outside the adapter', async (_label, code) => {
