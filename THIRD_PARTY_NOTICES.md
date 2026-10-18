@@ -8,6 +8,7 @@ UJIRA uses the open source packages listed below under the licenses shown.
 
 | Package | Version | License | Repository |
 | --- | --- | --- | --- |
+| @noble/hashes | 2.4.0 | MIT | https://github.com/paulmillr/noble-hashes |
 | zod | 4.6.5 | MIT | https://github.com/colinhacks/zod |
 
 ## Production platform specific packages
