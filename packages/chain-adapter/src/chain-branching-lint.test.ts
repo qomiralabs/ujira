@@ -382,7 +382,7 @@ describe('the chain branching rule', () => {
     // Alfajores is retired, so its bare number is just a number.
     [
       'the retired Alfajores ID alone',
-      "export const f = (id: number, z: string) => id === 44787 || z === '44787';\n",
+      "export const f = (chainId: number, chain: string) => chainId === 44787 || chain === '44787';\n",
     ],
     [
       // A let can be reassigned, so only const bindings are followed.

@@ -182,8 +182,6 @@ function badOption(options: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
-const IDENTIFIER = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
-
 /**
  * What an error keeps of its cause: only the cause's class name, under a
  * fixed message, with no stack of its own text, no fields and no chain.
@@ -195,8 +193,66 @@ class RedactedCause extends Error {
   override readonly name = 'RedactedCause';
 }
 
+// The class names below, kept in step by a test.
+const ADAPTER_ERROR_NAMES = [
+  'InvalidInputError',
+  'UnsupportedError',
+  'TenantMismatchError',
+  'MandateUntrustedError',
+  'MandateRuleError',
+  'ChainUnavailableError',
+  'RpcTimeoutError',
+  'RpcLaggingError',
+  'RpcRateLimitedError',
+  'SubmissionRejectedError',
+  'SubmissionUnknownError',
+  'SignedPayloadMismatchError',
+  'SigningRequestExpiredError',
+  'SponsorDeniedError',
+  'SponsorUnfundedError',
+  'ExecutorUnfundedError',
+  'DestinationInvalidError',
+  'QuoteExpiredError',
+  'QuoteUnavailableError',
+  'LiquidityUnavailableError',
+  'RailUnavailableError',
+  'RailRejectedError',
+  'RailTimeoutError',
+  'RailActionRequiredError',
+  'CrossChainLiveError',
+  'ReorgedError',
+  'InternalError',
+];
+
+// Class names worth keeping: the runtime's own and this module's. Any
+// other name is caller text and could itself be a secret.
+const KNOWN_CAUSE_NAMES: ReadonlySet<string> = new Set([
+  'Error',
+  'TypeError',
+  'RangeError',
+  'SyntaxError',
+  'AggregateError',
+  'AbortError',
+  'TimeoutError',
+  'FetchError',
+  ...ADAPTER_ERROR_NAMES,
+]);
+
+// The name is read once: it may be a getter, and a getter must not get a
+// second chance to answer differently or to run again.
+function causeName(cause: unknown): string {
+  if (!(cause instanceof Error)) return 'Error';
+  let name: unknown;
+  try {
+    name = cause.name;
+  } catch {
+    return 'Error';
+  }
+  return typeof name === 'string' && KNOWN_CAUSE_NAMES.has(name) ? name : 'Error';
+}
+
 function redact(cause: unknown): Error {
-  const kind = cause instanceof Error && IDENTIFIER.test(cause.name) ? cause.name : 'Error';
+  const kind = causeName(cause);
   const redacted = new RedactedCause(`Cause redacted: ${kind}`);
   // The stack would only point at this file, and dropping it keeps the
   // printed form to the fixed message.

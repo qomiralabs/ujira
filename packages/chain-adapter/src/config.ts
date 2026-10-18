@@ -110,18 +110,31 @@ function uniqueList<T extends z.ZodType<string>>(item: T, normalize = (v: string
 // never change when an explorer does.
 // These links go into public receipts, so a template may not carry
 // credentials: no userinfo, no query and no fragment, where explorer API
-// keys usually sit. The hash belongs in the path.
+// keys usually sit, and no path segment that looks like one (key=value, or
+// a long run of letters and digits). The hash belongs in the path, and the
+// template may hold no other placeholder. A short key in the path cannot
+// be told from an ordinary segment and is not detected.
+const HASH_TOKEN = '{hash}';
+const KEY_LIKE_SEGMENT = /=|%3d|%3f|%26/i;
+const LONG_TOKEN = /^(?=[^/]*[0-9])(?=[^/]*[A-Za-z])[A-Za-z0-9_-]{20,}$/;
+
 function isExplorerTemplate(template: string): boolean {
-  if (!template.startsWith('https://') || template.split('{hash}').length !== 2) return false;
-  const filled = template.replace('{hash}', 'HASHSLOT');
+  if (!template.startsWith('https://') || template.split(HASH_TOKEN).length !== 2) return false;
+  const rest = template.replace(HASH_TOKEN, '');
+  if (/[{}]/.test(rest) || /hashslot/i.test(rest) || rest.includes('?') || rest.includes('#')) {
+    return false;
+  }
+  // The template may not contain the stand in itself, so the only HASHSLOT
+  // in the filled URL is the hash, and it must be a whole path segment.
+  const filled = template.replace(HASH_TOKEN, 'HASHSLOT');
   if (!URL.canParse(filled)) return false;
   const url = new URL(filled);
+  const segments = url.pathname.split('/');
   return (
     url.username === '' &&
     url.password === '' &&
-    !filled.includes('?') &&
-    !filled.includes('#') &&
-    url.pathname.includes('HASHSLOT')
+    segments.includes('HASHSLOT') &&
+    !segments.some((segment) => KEY_LIKE_SEGMENT.test(segment) || LONG_TOKEN.test(segment))
   );
 }
 

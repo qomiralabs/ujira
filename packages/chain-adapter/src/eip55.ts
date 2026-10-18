@@ -7,8 +7,9 @@ const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
 /**
  * Whether `text` is an address whose letter case matches its EIP-55
- * checksum. All lowercase or all uppercase carries no checksum and is
- * refused, because the point is to catch a mistyped address.
+ * checksum, applied exactly. An all lowercase or all uppercase address is
+ * refused unless it happens to be its own checksum, which is rare; the
+ * point is to catch a mistyped address.
  */
 export function isEip55Address(text: string): boolean {
   if (typeof text !== 'string' || !ADDRESS.test(text)) return false;

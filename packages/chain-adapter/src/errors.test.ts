@@ -290,6 +290,26 @@ describe('chain adapter errors', () => {
     });
     const viaGetter = new RpcTimeoutError({ cause: getterCause });
     expect(reads).toBeLessThanOrEqual(1);
+    const throwing = new Error('x');
+    Object.defineProperty(throwing, 'name', {
+      get() {
+        throw new Error(MARKER);
+      },
+    });
+    expect((new RpcTimeoutError({ cause: throwing }).cause as Error).message).toBe(
+      'Cause redacted: Error',
+    );
+    // Every adapter error class is an expected name, so wrapping one keeps it.
+    for (const [, Ctor] of TABLE) {
+      const inner = new Ctor();
+      expect((new InternalError({ cause: inner }).cause as Error).message).toBe(
+        `Cause redacted: ${inner.name}`,
+      );
+    }
+    const rule = new MandateRuleError(43, 'INSUFFICIENT_FUNDS');
+    expect((new InternalError({ cause: rule }).cause as Error).message).toBe(
+      'Cause redacted: MandateRuleError',
+    );
     expect((viaGetter.cause as Error).message).toBe('Cause redacted: Error');
     expect(inspect(viaGetter, { depth: Infinity, showHidden: true })).not.toContain(MARKER);
     for (const name of [
