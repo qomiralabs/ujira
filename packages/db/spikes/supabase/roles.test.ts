@@ -224,6 +224,46 @@ describe.skipIf(env === null)('Supabase roles and policies', { timeout: 60_000 }
     expect(r.rows.every((row) => !row.usage)).toBe(true);
   });
 
+  it('the Supabase API roles hold no table, column or function privilege and no default ACL there', async () => {
+    const api = ['anon', 'authenticated', 'service_role'];
+    const tables = await spike.admin.query<{ role: string; table: string; privilege: string }>(
+      `select r as role, c.relname as table, p as privilege
+         from unnest($1::text[]) as r,
+              pg_class c join pg_namespace n on n.oid = c.relnamespace,
+              unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) as p
+        where n.nspname = $2 and c.relkind in ('r', 'p', 'v', 'm', 'S')
+          and has_table_privilege(r, c.oid, p)`,
+      [api, s],
+    );
+    expect(tables.rows).toEqual([]);
+    const columns = await spike.admin.query<{ n: number }>(
+      `select count(*)::int as n
+         from unnest($1::text[]) as r, information_schema.column_privileges cp
+        where cp.table_schema = $2 and cp.grantee = r`,
+      [api, s],
+    );
+    expect(columns.rows[0]?.n).toBe(0);
+    const functions = await spike.admin.query<{ role: string; fn: string }>(
+      `select r as role, p.oid::regprocedure::text as fn
+         from unnest($1::text[]) as r, pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = $2 and has_function_privilege(r, p.oid, 'EXECUTE')`,
+      [api, s],
+    );
+    expect(functions.rows).toEqual([]);
+    // Default ACLs that would grant future objects in this schema, or in
+    // every schema, to an API role.
+    const defaults = await spike.admin.query<{ owner: string; schema: string | null; acl: string }>(
+      `select pg_get_userbyid(d.defaclrole) as owner, n.nspname as schema, a::text as acl
+         from pg_default_acl d left join pg_namespace n on n.oid = d.defaclnamespace,
+              unnest(d.defaclacl) as a
+        where (d.defaclnamespace = 0 or n.nspname = $1::text)
+          and pg_get_userbyid(d.defaclrole) in ($2::text, $3::text)
+          and (a::text like 'anon=%' or a::text like 'authenticated=%' or a::text like 'service_role=%')`,
+      [s, spike.names.owner, spike.names.worker],
+    );
+    expect(defaults.rows).toEqual([]);
+  });
+
   describe('worker checks', () => {
     it('LISTEN and NOTIFY work through the session pooler', async () => {
       let delivered = '';

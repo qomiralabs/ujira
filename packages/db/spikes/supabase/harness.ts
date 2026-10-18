@@ -22,13 +22,39 @@ export interface SpikeEnv {
   readonly projectRef: string;
 }
 
-/** The pooler URLs from the environment, or null when the spike cannot run. */
+const SPIKE_VARIABLES = [
+  'SUPABASE_SESSION_POOLER_URL',
+  'SUPABASE_TRANSACTION_POOLER_URL',
+  'SUPABASE_PROJECT_REF',
+] as const;
+
+/**
+ * The pooler URLs from the environment, or null when the spike is not
+ * configured, in which case its tests skip. A partial configuration is a
+ * mistake, not a reason to skip, so it throws. With SUPABASE_SPIKE_REQUIRED
+ * set, a missing configuration throws too, so an evidence run can never
+ * end green by skipping.
+ */
 export function spikeEnv(): SpikeEnv | null {
-  const session = process.env['SUPABASE_SESSION_POOLER_URL'];
-  const transaction = process.env['SUPABASE_TRANSACTION_POOLER_URL'];
-  const projectRef = process.env['SUPABASE_PROJECT_REF'];
-  if (!session || !transaction || !projectRef) return null;
+  const values = SPIKE_VARIABLES.map((name) => process.env[name] ?? '');
+  const set = values.filter((value) => value !== '').length;
+  if (set > 0 && set < values.length) {
+    const missing = SPIKE_VARIABLES.filter((_, i) => values[i] === '');
+    throw new Error(`Supabase spike environment is incomplete; missing ${missing.join(', ')}`);
+  }
+  if (set === 0) {
+    if (process.env['SUPABASE_SPIKE_REQUIRED'] === '1') {
+      throw new Error('SUPABASE_SPIKE_REQUIRED is set but the Supabase spike environment is not');
+    }
+    return null;
+  }
+  const [session = '', transaction = '', projectRef = ''] = values;
   return { session, transaction, projectRef };
+}
+
+/** Whether the opt in probes should run as well: SUPABASE_SPIKE_PROBES=1. */
+export function probesEnabled(): boolean {
+  return process.env['SUPABASE_SPIKE_PROBES'] === '1';
 }
 
 // Supabase signs the pooler certificate with its own root, which is not in
@@ -40,8 +66,33 @@ const CA = readFileSync(path.join(import.meta.dirname, 'supabase-root-2021-ca.cr
 export type PoolerMode = 'session' | 'transaction';
 
 /** A pooler URL for `role`, or the admin URL when no role is given. */
+/**
+ * Parses a pooler URL without ever echoing it. The URL parser puts the
+ * whole input, password included, on its error, so that error is replaced.
+ * TLS settings in the URL are refused: pg lets any ssl parameter there
+ * replace the pinned CA, and sslmode=no-verify or disable would turn
+ * verification or TLS off.
+ */
+export function parsePoolerUrl(text: string): URL {
+  let url: URL | undefined;
+  try {
+    url = new URL(text);
+  } catch {
+    url = undefined;
+  }
+  if (url === undefined) throw new Error('a pooler URL could not be parsed');
+  if (url.protocol !== 'postgres:' && url.protocol !== 'postgresql:') {
+    throw new Error('a pooler URL must use the postgres scheme');
+  }
+  const tls = [...url.searchParams.keys()].filter((key) => key.toLowerCase().startsWith('ssl'));
+  if (tls.length > 0) {
+    throw new Error(`a pooler URL may not set ${tls.join(', ')}; TLS uses the pinned CA`);
+  }
+  return url;
+}
+
 export function poolerUrl(env: SpikeEnv, mode: PoolerMode, login?: Login): string {
-  const url = new URL(mode === 'session' ? env.session : env.transaction);
+  const url = parsePoolerUrl(mode === 'session' ? env.session : env.transaction);
   if (login !== undefined) {
     // Supavisor routes on the user name: role, a dot, then the project ref.
     url.username = `${login.role}.${env.projectRef}`;
@@ -50,13 +101,25 @@ export function poolerUrl(env: SpikeEnv, mode: PoolerMode, login?: Login): strin
   return url.toString();
 }
 
+// One object, so the check below can tell it is this exact config in use.
+const TLS: { readonly ca: string; readonly rejectUnauthorized: true } = Object.freeze({
+  ca: CA,
+  rejectUnauthorized: true,
+});
+
 export async function connect(url: string): Promise<pg.Client> {
+  parsePoolerUrl(url);
   const client = new pg.Client({
     connectionString: url,
-    ssl: { ca: CA, rejectUnauthorized: true },
+    ssl: TLS,
     connectionTimeoutMillis: 15_000,
     statement_timeout: 15_000,
   });
+  // pg merges URL parameters over the options; make sure nothing replaced
+  // the pinned TLS settings before any byte goes out.
+  const params = (client as unknown as { connectionParameters: { ssl: unknown } })
+    .connectionParameters;
+  if (params.ssl !== TLS) throw new Error('the pinned TLS settings were replaced');
   // pg sometimes repeats the connection string in its message, so the
   // original error is not passed on, only its cleaned text.
   let failure: string | undefined;
@@ -291,6 +354,9 @@ export function tenantDdl(n: Names): string {
   const s = n.tenantSchema;
   return `
     set role ${n.owner};
+    -- Postgres makes every new function executable by PUBLIC, the Supabase
+    -- API roles included. The owner's functions are granted one by one.
+    alter default privileges for role ${n.owner} revoke execute on functions from public;
     create function ${s}.current_principal_id() returns uuid language plpgsql stable as $$
     declare v text := current_setting('ujira.principal_id', true);
     begin

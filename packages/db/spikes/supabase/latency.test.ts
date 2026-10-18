@@ -39,7 +39,7 @@ function summary(samples: number[]): { p50: number; p95: number; mean: number } 
   return { p50: percentile(sorted, 50), p95: percentile(sorted, 95), mean };
 }
 
-describe.skipIf(env === null)('tenant context round trip', { timeout: 300_000 }, () => {
+describe.skipIf(env === null)('tenant context round trip', { timeout: 900_000 }, () => {
   let spike: Spike;
   let app: pg.Client;
 
@@ -87,8 +87,36 @@ describe.skipIf(env === null)('tenant context round trip', { timeout: 300_000 },
       plain.push(await time(false));
       tenant.push(await time(true));
     }
+    // One bare round trip, to compare the added cost against.
+    const roundTrip: number[] = [];
+    for (let i = 0; i < 100; i += 1) {
+      const started = performance.now();
+      await app.query('select 1');
+      roundTrip.push(performance.now() - started);
+    }
+    // The server's own cost of the two set_config calls, timed inside one
+    // block so no network is involved.
+    let serverUs = Number.NaN;
+    const onNotice = (msg: { message?: string | undefined }) => {
+      const match = /^context_pair_us=([0-9.]+)$/.exec(msg.message ?? '');
+      if (match) serverUs = Number(match[1]);
+    };
+    app.on('notice', onNotice);
+    await app.query(`do $$
+      declare t0 timestamptz := clock_timestamp();
+      begin
+        for i in 1..10000 loop
+          perform set_config('ujira.principal_id', '${TENANT_A.principalId}', true),
+                  set_config('ujira.project_id', '${TENANT_A.projectId}', true);
+        end loop;
+        raise notice 'context_pair_us=%',
+          round((extract(epoch from clock_timestamp() - t0) * 1e6 / 10000)::numeric, 2);
+      end $$`);
+    app.off('notice', onNotice);
     const result = {
       runs: RUNS,
+      roundTripMs: summary(roundTrip),
+      serverMicrosecondsPerContextPair: serverUs,
       plainTransactionMs: summary(plain),
       tenantTransactionMs: summary(tenant),
       addedP50Ms: summary(tenant).p50 - summary(plain).p50,
@@ -97,5 +125,6 @@ describe.skipIf(env === null)('tenant context round trip', { timeout: 300_000 },
     const file = process.env['SPIKE_RESULTS_FILE'];
     if (file) writeFileSync(file, `${JSON.stringify(result, null, 2)}\n`);
     expect(result.tenantTransactionMs.p50).toBeGreaterThan(0);
+    expect(serverUs).toBeGreaterThan(0);
   });
 });

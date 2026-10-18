@@ -59,6 +59,8 @@ describe.skipIf(env === null)(
     afterAll(async () => {
       if (env === null) return;
       await close(app, other);
+      // A failed setup leaves nothing to tear down.
+      if ((spike as Spike | undefined) === undefined) return;
       await cleanup(spike.admin, spike.names);
       await spike.admin.end();
     }, 120_000);
@@ -122,16 +124,36 @@ describe.skipIf(env === null)(
     });
 
     it('shows why session level SET is banned: it reaches another client on the same backend', async () => {
-      const pids = async (client: pg.Client) =>
-        (await client.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]?.pid;
-      await app.query(`set ujira.principal_id = '${TENANT_A.principalId}'`);
+      // A SET and the pid read travel in one simple query, so they run on one
+      // backend. The other client then reads its pid and the setting in one
+      // statement, until it lands on that same backend.
+      const setAndPid = await app.query<{ pid: number }>(
+        `set ujira.principal_id = '${TENANT_A.principalId}'; select pg_backend_pid() as pid`,
+      );
+      const results = setAndPid as unknown as { rows: { pid: number }[] }[];
+      const leakedPid = results[1]?.rows[0]?.pid;
+      expect(leakedPid).toBeTypeOf('number');
+      let seen: { pid: number; principal: string | null } | undefined;
       try {
-        const same = (await pids(app)) === (await pids(other));
-        const leaked = (await contextNow(other)).principal === TENANT_A.principalId;
-        // Whenever the two clients share a backend, the setting leaks.
-        expect(leaked).toBe(same);
+        for (let round = 0; round < 50 && seen?.pid !== leakedPid; round += 1) {
+          const r = await other.query<{ pid: number; principal: string | null }>(
+            "select pg_backend_pid() as pid, current_setting('ujira.principal_id', true) as principal",
+          );
+          seen = r.rows[0];
+        }
+        expect(seen?.pid).toBe(leakedPid);
+        // Another client, never told the tenant, reads it from the backend.
+        expect(seen?.principal).toBe(TENANT_A.principalId);
       } finally {
-        await app.query('reset ujira.principal_id');
+        // Reset on the backend that got the SET, so nothing later in this file
+        // starts with it.
+        for (let round = 0; round < 50; round += 1) {
+          const r = await app.query<{ pid: number }>(
+            'reset ujira.principal_id; select pg_backend_pid() as pid',
+          );
+          const after = r as unknown as { rows: { pid: number }[] }[];
+          if (after[1]?.rows[0]?.pid === leakedPid) break;
+        }
       }
     });
 
@@ -143,9 +165,23 @@ describe.skipIf(env === null)(
           delivered = true;
         });
         await listener.query('listen s49_spike_wake');
+        // Positive control: a session pooled listener on the same channel
+        // must get the notification, so the negative result is not just a
+        // slow pooler.
+        const control = { seen: false };
+        spike.admin.on('notification', () => {
+          control.seen = true;
+        });
+        await spike.admin.query('listen s49_spike_wake');
         await spike.admin.query("select pg_notify('s49_spike_wake', 'x')");
+        const started = Date.now();
+        while (!control.seen && Date.now() - started < 10_000) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        expect(control.seen).toBe(true);
         await new Promise((resolve) => setTimeout(resolve, 3_000));
         expect(delivered).toBe(false);
+        await spike.admin.query('unlisten s49_spike_wake');
       } finally {
         await listener.end();
       }
