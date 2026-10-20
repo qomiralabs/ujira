@@ -117,6 +117,16 @@ describe('overview stats', () => {
     for (const series of [...stats.volumeByCorridor, ...stats.volumeByStatus]) {
       expect(series.points).toHaveLength(stats.buckets.length);
     }
+    // A window wider than the axis beneath it: the end still lines up, so
+    // only the covering rule can refuse this one.
+    const uncovered = clone(stats);
+    uncovered.previous = null;
+    uncovered.current.from = new Date(
+      Date.parse(uncovered.buckets[0]?.from ?? '') - 86_400_000,
+    ).toISOString();
+    expect(uncovered.buckets[uncovered.buckets.length - 1]?.to).toBe(uncovered.current.to);
+    expect(OverviewStats.safeParse(uncovered).success).toBe(false);
+
     const short = clone(stats);
     const first = short.volumeByCorridor[0];
     if (first === undefined) throw new Error('fixture missing');
@@ -192,6 +202,86 @@ describe('overview stats', () => {
     // cross: in Lagos a local midnight edge is 23:00 the day before in UTC.
     expect(FIXTURE_TIME_ZONE).not.toBe('UTC');
     expect(stats.buckets[0]?.from.endsWith('23:00:00.000Z')).toBe(true);
+  });
+
+  it('refuses a missing median when payouts completed, so null means one thing', () => {
+    const s = clone(stats);
+    expect(s.current.kpis.completedCount).toBeGreaterThan(0);
+    s.current.kpis.medianSecondsToPaid = null;
+    expect(OverviewStats.safeParse(s).success).toBe(false);
+    // Both directions, so null carries exactly one meaning: nothing was paid.
+    const empty = clone(stats);
+    empty.current.kpis = {
+      paid: [],
+      completedCount: 0,
+      medianSecondsToPaid: null,
+      blockedCount: 0,
+    };
+    expect(OverviewStats.safeParse(empty).success).toBe(true);
+  });
+
+  it('holds the corridor breakdown to the same money rules as the KPIs', () => {
+    const base = clone(stats);
+    const corridor = base.corridors[0];
+    if (corridor === undefined) throw new Error('fixture missing');
+    const at = (c: typeof base.corridors) => {
+      const s = clone(base);
+      s.corridors = c;
+      return OverviewStats.safeParse(s).success;
+    };
+    // Two entries of one currency, so no total can be read off it.
+    expect(at([{ ...corridor, paid: [money('100') as never, money('200') as never] }])).toBe(false);
+    // Currencies sorted, so two responses list the same money in one order.
+    expect(
+      at([{ ...corridor, paid: [money('100', 'USD') as never, money('200', 'COP') as never] }]),
+    ).toBe(false);
+    expect(
+      at([{ ...corridor, paid: [money('200', 'COP') as never, money('100', 'USD') as never] }]),
+    ).toBe(true);
+    // A count with no amount, and an amount with no count.
+    expect(at([{ ...corridor, paid: [], count: 5 }])).toBe(false);
+    expect(at([{ ...corridor, paid: [money('0') as never], count: 5 }])).toBe(false);
+    expect(at([{ ...corridor, paid: [money('100') as never], count: 0 }])).toBe(false);
+    // Nothing paid in a corridor is zero in both.
+    expect(at([{ ...corridor, paid: [], count: 0 }])).toBe(true);
+  });
+
+  it('keeps the time axis over the window it sits beside', () => {
+    const shifted = clone(stats);
+    // Every bucket moved far later, leaving the order and per-bucket rules
+    // intact: a chart sharing no dates with the numbers above it.
+    shifted.buckets = shifted.buckets.map((b) => ({
+      from: new Date(Date.parse(b.from) + 400 * 86_400_000).toISOString(),
+      to: new Date(Date.parse(b.to) + 400 * 86_400_000).toISOString(),
+    }));
+    expect(OverviewStats.safeParse(shifted).success).toBe(false);
+
+    const earlier = clone(stats);
+    earlier.buckets = earlier.buckets.map((b) => ({
+      from: new Date(Date.parse(b.from) - 400 * 86_400_000).toISOString(),
+      to: new Date(Date.parse(b.to) - 400 * 86_400_000).toISOString(),
+    }));
+    expect(OverviewStats.safeParse(earlier).success).toBe(false);
+
+    // The axis ends where the current window ends and starts no later than
+    // it begins, which the fixture already does.
+    const last = stats.buckets[stats.buckets.length - 1];
+    expect(last?.to).toBe(stats.current.to);
+    expect(Date.parse(stats.buckets[0]?.from ?? '')).toBeLessThanOrEqual(
+      Date.parse(stats.current.from),
+    );
+    const short = clone(stats);
+    // An axis that stops before the current window closes.
+    short.buckets = short.buckets.slice(0, -1);
+    short.volumeByCorridor = short.volumeByCorridor.map((x) => ({
+      ...x,
+      points: x.points.slice(0, -1),
+    }));
+    short.volumeByStatus = short.volumeByStatus.map((x) => ({
+      ...x,
+      points: x.points.slice(0, -1),
+    }));
+    expect(OverviewStats.safeParse(short).success).toBe(false);
   });
 
   it('is scoped to one principal and project', () => {

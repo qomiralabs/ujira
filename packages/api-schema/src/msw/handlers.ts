@@ -312,6 +312,13 @@ export function createHandlers(options: MockOptions): HttpHandler[] {
     route('getOverviewStats', ({ scope, query, requestId }) => {
       // Seeded from the project, so one project always answers the same
       // numbers and two projects never answer the same ones.
+      //
+      // The period is honoured; from and to are read and validated but not
+      // applied, so a custom range gets the fixture's own window back. That
+      // is sound because the response states the window it used, and a
+      // client reading those fields sees what it got rather than assuming
+      // what it asked for. Serving an arbitrary range would mean generating
+      // data for it, which belongs with the endpoint.
       let seed = 7;
       for (let i = 0; i < scope.projectId.length; i += 1) {
         seed = (seed * 31 + scope.projectId.charCodeAt(i)) >>> 0;

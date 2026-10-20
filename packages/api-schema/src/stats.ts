@@ -30,6 +30,44 @@ export const OTHER_SERIES_KEY = 'other';
 /** At most four named series plus `other`. */
 export const MAX_STATS_SERIES = 5;
 
+/**
+ * Rules every list of per-currency totals in a stats response obeys, written
+ * here once because three shapes carry such a list and a rule kept in one of
+ * them is a rule the other two quietly lack.
+ */
+function checkMoneyList(amounts: readonly Money[], ctx: z.RefinementCtx, path: string): void {
+  const currencies = amounts.map((m) => m.currency);
+  if (new Set(currencies).size !== currencies.length) {
+    ctx.addIssue({ code: 'custom', path: [path], message: 'one entry per currency' });
+  }
+  if ([...currencies].sort().join() !== currencies.join()) {
+    ctx.addIssue({ code: 'custom', path: [path], message: 'currencies must be sorted' });
+  }
+}
+
+/**
+ * A count and the money behind it agree: nothing counted means nothing paid,
+ * and an amount means at least one payout produced it.
+ */
+function checkCountAgainstAmounts(
+  count: number,
+  amounts: readonly Money[],
+  ctx: z.RefinementCtx,
+  path: string,
+): void {
+  const total = amounts.reduce<bigint>((acc, m) => acc + (minorUnitsOf(m.amount) ?? 0n), 0n);
+  if (count > 0 && total === 0n) {
+    ctx.addIssue({ code: 'custom', path: [path], message: 'a counted total has an amount' });
+  }
+  if (count === 0 && total > 0n) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [path],
+      message: 'an amount came from at least one payout',
+    });
+  }
+}
+
 export const StatsWindow = z
   .strictObject({ from: Timestamp, to: Timestamp })
   .refine((w) => Date.parse(w.from) < Date.parse(w.to), {
@@ -42,30 +80,23 @@ export const OverviewKpis = z
     /** One entry per currency, never converted into a single total. */
     paid: z.array(Money).max(24),
     completedCount: z.number().int().min(0),
-    /** Null when nothing was paid in the window, never zero, which would read as instant. */
+    /**
+     * Null exactly when nothing was paid in the window, never zero, which
+     * would read as instant, and never absent for a window that did pay.
+     */
     medianSecondsToPaid: z.number().int().min(0).nullable(),
     blockedCount: z.number().int().min(0),
   })
   .superRefine((value, ctx) => {
-    const currencies = value.paid.map((m) => m.currency);
-    if (new Set(currencies).size !== currencies.length) {
-      ctx.addIssue({ code: 'custom', path: ['paid'], message: 'one entry per currency' });
-    }
-    if ([...currencies].sort().join() !== currencies.join()) {
-      ctx.addIssue({ code: 'custom', path: ['paid'], message: 'currencies must be sorted' });
-    }
-    if (value.paid.length === 0 && value.completedCount > 0) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['paid'],
-        message: 'a completed payout contributes an amount',
-      });
-    }
-    if (value.completedCount === 0 && value.medianSecondsToPaid !== null) {
+    checkMoneyList(value.paid, ctx, 'paid');
+    checkCountAgainstAmounts(value.completedCount, value.paid, ctx, 'paid');
+    // Both directions, so the absence carries one meaning only: nothing was
+    // paid. A completed payout always has a duration, so a median exists.
+    if ((value.medianSecondsToPaid === null) !== (value.completedCount === 0)) {
       ctx.addIssue({
         code: 'custom',
         path: ['medianSecondsToPaid'],
-        message: 'no median without a completed payout',
+        message: 'a median is present exactly when a payout completed',
       });
     }
   });
@@ -153,12 +184,17 @@ export type MandateRunway = z.infer<typeof MandateRunway>;
 
 const seriesList = z.array(StatsSeries).max(MAX_STATS_SERIES);
 
-export const CorridorBreakdown = z.strictObject({
-  country: CountryCode,
-  label: z.string().min(1).max(120),
-  paid: z.array(Money).max(24),
-  count: z.number().int().min(0),
-});
+export const CorridorBreakdown = z
+  .strictObject({
+    country: CountryCode,
+    label: z.string().min(1).max(120),
+    paid: z.array(Money).max(24),
+    count: z.number().int().min(0),
+  })
+  .superRefine((value, ctx) => {
+    checkMoneyList(value.paid, ctx, 'paid');
+    checkCountAgainstAmounts(value.count, value.paid, ctx, 'paid');
+  });
 
 const windowWithKpis = StatsWindow.safeExtend({ kpis: OverviewKpis });
 
@@ -194,6 +230,29 @@ export const OverviewStats = z
       }
       last = Date.parse(bucket.to);
     });
+
+    // The axis is the shared one, so it has to cover the window the headline
+    // numbers describe: it ends where that window ends and starts no later
+    // than it begins. Without this a chart can share no dates with the
+    // numbers above it and still pass every other rule.
+    const firstBucket = value.buckets[0];
+    const lastBucket = value.buckets[value.buckets.length - 1];
+    if (firstBucket !== undefined && lastBucket !== undefined) {
+      if (lastBucket.to !== value.current.to) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['buckets'],
+          message: 'the axis ends where the current window ends',
+        });
+      }
+      if (Date.parse(firstBucket.from) > Date.parse(value.current.from)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['buckets'],
+          message: 'the axis covers the current window',
+        });
+      }
+    }
 
     for (const field of ['volumeByCorridor', 'volumeByStatus'] as const) {
       const series = value[field];
