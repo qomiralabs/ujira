@@ -9,7 +9,7 @@ import {
   formatViolation,
   normalizeRepository,
   parseSpdx,
-  DEV_DATA_PACKAGES,
+  PACKAGE_LICENSE_EXCEPTIONS,
   PROD_FONT_PACKAGES,
   renderNotices,
   sanitizeUrl,
@@ -32,6 +32,32 @@ describe('check-licenses', () => {
 
   it('rejects GPL-3.0 in dev', () => {
     expect(evaluateLicense('GPL-3.0-only', 'dev').ok).toBe(false);
+  });
+
+  describe('the caniuse-lite exception', () => {
+    it('allows CC-BY-4.0 for caniuse-lite only', () => {
+      expect(evaluateLicense('CC-BY-4.0', 'prod', 'caniuse-lite')).toEqual({ ok: true });
+    });
+
+    it('rejects CC-BY-4.0 for any other production package', () => {
+      expect(findViolations([pkg('CC-BY-4.0', 'some-data-set')]).map(formatViolation)).toEqual([
+        'some-data-set@1.0.0 (prod): license "CC-BY-4.0": "CC-BY-4.0" not allowed in prod dependencies',
+      ]);
+      expect(evaluateLicense('CC-BY-4.0', 'prod', 'caniuse-lite-ish').ok).toBe(false);
+      expect(evaluateLicense('CC-BY-4.0', 'dev', 'other-tool').ok).toBe(false);
+    });
+
+    it('grants the named package nothing beyond its listed license', () => {
+      expect(evaluateLicense('GPL-3.0', 'prod', 'caniuse-lite').ok).toBe(false);
+      expect(evaluateLicense('CC-BY-4.0 AND GPL-3.0', 'prod', 'caniuse-lite').ok).toBe(false);
+      expect(evaluateLicense('CC-BY-NC-4.0', 'prod', 'caniuse-lite').ok).toBe(false);
+    });
+
+    it('keeps the exception list short, so each entry stays reviewed', () => {
+      expect([...PACKAGE_LICENSE_EXCEPTIONS].map(([name, ids]) => [name, [...ids]])).toEqual([
+        ['caniuse-lite', ['CC-BY-4.0']],
+      ]);
+    });
   });
 
   it('accepts MPL-2.0 in dev', () => {
@@ -126,19 +152,6 @@ describe('check-licenses', () => {
 
   it('starts with an empty production font allowlist', () => {
     expect([...PROD_FONT_PACKAGES]).toEqual([]);
-  });
-
-  it('accepts CC-BY-4.0 only on the reviewed dev data packages', () => {
-    expect([...DEV_DATA_PACKAGES]).toEqual(['caniuse-lite']);
-    expect(findViolations([pkg('CC-BY-4.0', 'caniuse-lite', 'dev')])).toEqual([]);
-    expect(evaluateLicense('CC-BY-4.0 AND GPL-3.0', 'dev', 'caniuse-lite').ok).toBe(false);
-  });
-
-  it('rejects CC-BY-4.0 on any other dev package and on every production package', () => {
-    expect(findViolations([pkg('CC-BY-4.0', 'icon-kit', 'dev')]).map(formatViolation)).toEqual([
-      'icon-kit@1.0.0 (dev): license "CC-BY-4.0": "CC-BY-4.0" not allowed in dev dependencies (data licenses are allowed in development only for packages in DEV_DATA_PACKAGES)',
-    ]);
-    expect(evaluateLicense('CC-BY-4.0', 'prod', 'caniuse-lite').ok).toBe(false);
   });
 
   it('accepts OFL-1.1 on any dev package', () => {

@@ -30,6 +30,24 @@ export const FONT_LICENSES: ReadonlySet<string> = new Set(['OFL-1.1']);
 // needs a license review: confirm it ships font files only, not code.
 export const PROD_FONT_PACKAGES: ReadonlySet<string> = new Set<string>([]);
 
+// Licenses allowed for one named package and nothing else. Every entry is a
+// standing decision by the maintainer, recorded here with its reason and
+// date. Keep this list short, and never widen an entry to a pattern: the
+// point is that the exception cannot spread to the next package that happens
+// to carry the same license.
+export const PACKAGE_LICENSE_EXCEPTIONS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  [
+    // caniuse-lite is browser support data that browserslist reads at build
+    // time. It is not code, and none of it reaches a browser. CC-BY-4.0
+    // permits commercial use and asks only for attribution, which
+    // THIRD_PARTY_NOTICES.md already gives. It arrives as a transitive
+    // dependency of Next.js and cannot be removed without removing Next.js.
+    // Reviewed and approved 2026-10-20. Any other CC-BY-4.0 package still fails.
+    'caniuse-lite',
+    new Set(['CC-BY-4.0']),
+  ],
+]);
+
 // Dev dependencies never ship, so font licenses are not restricted there.
 export const DEV_ALLOWED: ReadonlySet<string> = new Set([
   ...PROD_ALLOWED,
@@ -39,28 +57,16 @@ export const DEV_ALLOWED: ReadonlySet<string> = new Set([
 
 const PROD_FONT_ALLOWED: ReadonlySet<string> = new Set([...PROD_ALLOWED, ...FONT_LICENSES]);
 
-// Licenses for data files rather than code, accepted only in development and
-// only for the packages listed below.
-export const DATA_LICENSES: ReadonlySet<string> = new Set(['CC-BY-4.0']);
-
-// Dev packages allowed to use a data license. Adding a package here needs a
-// license review: confirm it ships data only and is never bundled into a
-// product. caniuse-lite is the browser support table that browserslist reads
-// at build time; it comes in through Babel under the Storybook React docgen
-// and its attribution is carried in THIRD_PARTY_NOTICES.md.
-export const DEV_DATA_PACKAGES: ReadonlySet<string> = new Set(['caniuse-lite']);
-
-const DEV_DATA_ALLOWED: ReadonlySet<string> = new Set([...DEV_ALLOWED, ...DATA_LICENSES]);
-
 export function allowlistFor(scope: Scope, packageName?: string): ReadonlySet<string> {
-  if (scope === 'dev') {
-    return packageName !== undefined && DEV_DATA_PACKAGES.has(packageName)
-      ? DEV_DATA_ALLOWED
-      : DEV_ALLOWED;
-  }
-  return packageName !== undefined && PROD_FONT_PACKAGES.has(packageName)
-    ? PROD_FONT_ALLOWED
-    : PROD_ALLOWED;
+  const base =
+    scope === 'dev'
+      ? DEV_ALLOWED
+      : packageName !== undefined && PROD_FONT_PACKAGES.has(packageName)
+        ? PROD_FONT_ALLOWED
+        : PROD_ALLOWED;
+  const exception =
+    packageName === undefined ? undefined : PACKAGE_LICENSE_EXCEPTIONS.get(packageName);
+  return exception === undefined ? base : new Set([...base, ...exception]);
 }
 
 // SPDX expression evaluation. Precedence follows the SPDX spec: WITH binds
@@ -179,9 +185,8 @@ const MISSING = new Set([
 
 export type Decision = { ok: true } | { ok: false; reason: string };
 
-// `packageName` matters only for font licenses in production and data
-// licenses in development; without it either is treated as coming from an
-// unlisted package.
+// `packageName` matters only for font licenses in production; without it a
+// font license is treated as coming from a non font package.
 export function evaluateLicense(license: string, scope: Scope, packageName?: string): Decision {
   const value = license.trim();
   if (MISSING.has(value.toLowerCase()) || /^see license in /i.test(value)) {
@@ -199,12 +204,9 @@ export function evaluateLicense(license: string, scope: Scope, packageName?: str
   const fontHint = blocked.some((id) => FONT_LICENSES.has(id))
     ? ' (font licenses are allowed in production only for packages in PROD_FONT_PACKAGES)'
     : '';
-  const dataHint = blocked.some((id) => DATA_LICENSES.has(id))
-    ? ' (data licenses are allowed in development only for packages in DEV_DATA_PACKAGES)'
-    : '';
   return {
     ok: false,
-    reason: `${blocked.map((id) => `"${id}"`).join(', ')} not allowed in ${scope} dependencies${fontHint}${dataHint}`,
+    reason: `${blocked.map((id) => `"${id}"`).join(', ')} not allowed in ${scope} dependencies${fontHint}`,
   };
 }
 
