@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { hexToRgb } from './colour.ts';
 
 export const OUTPUT_FILES = [
+  'styles/fonts.css',
   'styles/tokens.css',
   'styles/theme.css',
   'src/tokens/tokens.generated.ts',
@@ -126,6 +127,19 @@ const fontSchema = z.strictObject({
   fallback: z.array(z.string().regex(/^[\w-]+$/)).min(1),
 });
 
+// A second face for characters the main one does not draw. The file sits in
+// the package next to the stylesheet, so only a plain file name is accepted,
+// and each code point is written in full: a range would hand the face
+// characters the main face already draws.
+const signsSchema = z.strictObject({
+  face: fontSchema.shape.face,
+  file: z.string().regex(/^[a-z0-9][a-z0-9.-]*\.woff2$/),
+  weight: z.string().regex(/^[1-9]00( [1-9]00)?$/),
+  unicodeRange: z.array(z.string().regex(/^U\+[0-9A-F]{4,6}$/)).min(1),
+});
+
+const monoFontSchema = fontSchema.extend({ signs: signsSchema });
+
 const typeStepSchema = z.strictObject({
   family: z.enum(['display', 'sans', 'mono']),
   size: z.number().int().positive(),
@@ -167,7 +181,7 @@ const systemSchema = z.strictObject({
     'ease-settle': z.string().regex(/^cubic-bezier\([\d., -]+\)$/),
     arrive: z.string().regex(/^\d+ms$/),
   }),
-  font: z.strictObject({ display: fontSchema, sans: fontSchema, mono: fontSchema }),
+  font: z.strictObject({ display: fontSchema, sans: fontSchema, mono: monoFontSchema }),
   type: z.record(tokenName, typeStepSchema),
   viz: z.strictObject({ light: vizModeSchema, dark: vizModeSchema }),
 });
@@ -367,8 +381,45 @@ export function cssString(value: string): string {
   return `'${escaped}'`;
 }
 
-function fontStack(font: SystemTokens['font']['display']): string {
-  return [`var(${font.variable}, ${cssString(font.face)})`, ...font.fallback].join(', ');
+type FontRole = SystemTokens['font'][keyof SystemTokens['font']];
+
+// A second face goes straight after the brand face and before the generic
+// fallbacks, so a character only it draws never reaches a system font.
+function fontStack(font: FontRole): string {
+  const signs = 'signs' in font ? [cssString(font.signs.face)] : [];
+  return [`var(${font.variable}, ${cssString(font.face)})`, ...signs, ...font.fallback].join(', ');
+}
+
+/**
+ * The @font-face for the second mono face. It is self hosted in this package
+ * rather than loaded per app, because it carries four characters the brand
+ * mono face does not draw and nothing else: the unicode-range keeps every
+ * other character on the brand face and stops the file being fetched until
+ * one of the four appears.
+ */
+export function renderFontsCss(tokens: ResolvedTokens): string {
+  const notice =
+    'Generated from the font tokens in tokens/system.json.\n' +
+    'Do not edit by hand. Run `pnpm --filter @ujira/ui tokens` to regenerate.';
+  const { signs } = tokens.system.font.mono;
+  const declarations = [
+    `font-family: ${cssString(signs.face)};`,
+    `src: url(${cssString(`../fonts/${signs.file}`)}) format('woff2');`,
+    `font-weight: ${signs.weight};`,
+    'font-style: normal;',
+    // The amount stays readable while the sign is fetched.
+    'font-display: swap;',
+    `unicode-range: ${signs.unicodeRange.join(', ')};`,
+  ];
+  return [
+    CSS_LICENSE_HEADER,
+    `/*\n * ${notice.replace(/\n/g, '\n * ')}\n *\n * ${[
+      'The brand mono face has no naira, cedi, peso or rupee sign. This second',
+      'mono face carries those four code points only, and sits after the brand',
+      'face in the mono stack, so amounts keep one character width.',
+    ].join('\n * ')}\n */`,
+    `@font-face {\n${declarations.map((line) => `  ${line}`).join('\n')}\n}`,
+  ].join('\n\n');
 }
 
 function block(
@@ -405,6 +456,9 @@ export function renderTokensCss(tokens: ResolvedTokens): string {
   return [
     CSS_LICENSE_HEADER,
     `/*\n * ${NOTICE.replace(/\n/g, '\n * ')}\n *\n * Light is the default. Dark follows the system setting unless a\n * data-theme attribute picks a mode, so a manual toggle always wins.\n */`,
+    // The mono stack names the second mono face, so its @font-face comes with
+    // the stack rather than waiting for each app to remember it.
+    "@import './fonts.css';",
     block(':root', root),
     block("[data-density='compact']", [['row-height', system.density['row-compact']]]),
     block(":root,\n[data-theme='light']", light, ['color-scheme: light;']),
@@ -677,6 +731,7 @@ export async function generateOutputs(root: string): Promise<Record<OutputFile, 
     parseSystemTokens(sources.systemJson),
   );
   const raw: Record<OutputFile, string> = {
+    'styles/fonts.css': renderFontsCss(tokens),
     'styles/tokens.css': renderTokensCss(tokens),
     'styles/theme.css': renderThemeCss(tokens),
     'src/tokens/tokens.generated.ts': renderTokensTs(tokens),

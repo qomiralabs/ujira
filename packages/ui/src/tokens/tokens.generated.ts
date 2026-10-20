@@ -167,8 +167,14 @@ export const fonts = {
     face: 'JetBrains Mono',
     variable: '--ujira-font-jetbrains-mono',
     fallback: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+    signs: {
+      face: 'Noto Sans Mono',
+      file: 'noto-sans-mono-currency-signs.woff2',
+      weight: '100 900',
+      unicodeRange: ['U+20A6', 'U+20B1', 'U+20B5', 'U+20B9'],
+    },
     stack:
-      "var(--ujira-font-jetbrains-mono, 'JetBrains Mono'), ui-monospace, SFMono-Regular, Menlo, monospace",
+      "var(--ujira-font-jetbrains-mono, 'JetBrains Mono'), 'Noto Sans Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
   },
 } as const;
 

@@ -62,6 +62,12 @@
     "mono": {
       "face": "JetBrains Mono",
       "variable": "--ujira-font-jetbrains-mono",
+      "signs": {
+        "face": "Noto Sans Mono",
+        "file": "noto-sans-mono-currency-signs.woff2",
+        "weight": "100 900",
+        "unicodeRange": ["U+20A6", "U+20B1", "U+20B5", "U+20B9"]
+      },
       "fallback": ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"]
     }
   },

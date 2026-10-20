@@ -11,8 +11,10 @@ The UJIRA design system, shared by the dashboard and the website. This first sli
 | `tokens/system.json`                 | Design system tokens on top of the brand: density, radius, focus, shadow, motion, fonts, type scale and data visualisation colours |
 | `tokens/generate.ts`                 | Turns the three sources into the generated files below                                                                             |
 | `tokens/build.ts`                    | Writes the generated files                                                                                                         |
-| `styles/tokens.css`                  | Generated. CSS custom properties, light and dark                                                                                   |
+| `styles/tokens.css`                  | Generated. CSS custom properties, light and dark, imports `fonts.css`                                                              |
 | `styles/theme.css`                   | Generated. Tailwind CSS v4 `@theme` block, imports `tokens.css`                                                                    |
+| `styles/fonts.css`                   | Generated. The `@font-face` for the second mono face                                                                               |
+| `fonts/`                             | The self hosted subset of that face and its licence                                                                                |
 | `src/tokens/tokens.generated.ts`     | Generated. Typed constants with the same values                                                                                    |
 | `src/icons/brand-icons.generated.ts` | Generated. The nine icon names and their shapes, read from the sprite                                                              |
 | `src/icons/brand-icon.tsx`           | `<BrandIcon name="payout" />`                                                                                                      |
@@ -92,7 +94,7 @@ import { BrandIcon } from '@ujira/ui';
 
 ## Fonts
 
-Fonts are self-hosted with `next/font` in each app; nothing is loaded from a font CDN. All three faces are under the SIL Open Font License 1.1.
+Fonts are self-hosted; no page loads a font from a font CDN at runtime. The three faces below are set up with `next/font` in each app. The second mono face, further down, ships inside this package. All four are under the SIL Open Font License 1.1.
 
 | Role                                   | Face           | Weights       | CSS variable the app sets     |
 | -------------------------------------- | -------------- | ------------- | ----------------------------- |
@@ -103,6 +105,41 @@ Fonts are self-hosted with `next/font` in each app; nothing is loaded from a fon
 In each app, load the faces with `next/font/google` (it downloads at build time and serves the files from the app), pass `variable` with the names above and `subsets: ['latin', 'latin-ext']` so Hausa, Yoruba and Igbo diacritics render, and put the three `variable` class names on `<html>`. The token stacks (`--ujira-font-display`, `--ujira-font-sans`, `--ujira-font-mono`) fall back to system faces until then.
 
 Rules the components will enforce: Nunito never below 20px and never in the product interface; every amount in JetBrains Mono with `tabular-nums`; body line height 1.6 or more wherever diacritics appear; the `label` step is set in capitals.
+
+### The second mono face: the naira, cedi, peso and rupee signs
+
+JetBrains Mono draws no naira, cedi, peso or rupee sign, so an amount in one of those currencies would fall through to whatever monospaced face the device happens to have, at whatever width it happens to use. Noto Sans Mono carries those four and only those four:
+
+| Sign | Currencies      | Code point |
+| ---- | --------------- | ---------- |
+| ₦    | Nigerian naira  | U+20A6     |
+| ₱    | Philippine peso | U+20B1     |
+| ₵    | Ghanaian cedi   | U+20B5     |
+| ₹    | Indian rupee    | U+20B9     |
+
+Unlike the three faces above, this one needs nothing from the app. The subset lives in `fonts/`, `styles/fonts.css` declares it with a `unicode-range` holding exactly those four code points, and `styles/tokens.css` imports that stylesheet, so importing `@ujira/ui/styles/theme.css` (or `tokens.css`) is all it takes. The face sits after JetBrains Mono and before the generic fallbacks in `--ujira-font-mono`. Do not add Noto Sans Mono to an app's `next/font` call: that fetches a whole family from a font service at build time, and the point of the subset is that nothing is fetched at all.
+
+Both faces advance 0.6 em per character, so a column of amounts keeps one width whichever face draws the sign. `font-display: swap` keeps the amount readable while the 2 KB file arrives.
+
+The subset and its `unicode-range` come from the `font.mono.signs` tokens in `tokens/system.json`; run `pnpm --filter @ujira/ui tokens` after changing them. `src/fonts/fonts.test.ts` fails if the range stops being those four code points, if the file grows past 10 KB, if the subset draws anything else, if a sign loses the mono advance, or if the licence text goes missing.
+
+#### Rebuilding the subset
+
+The committed file is Noto Sans Mono 2.014, `NotoSansMono[wdth,wght].ttf` from `google/fonts` at commit `097bc1b8c04c3224087c2ae95f7a923859b778cf` (git blob `07ecc66508b893f34f09d20951039ac9c136f3b5`), with the width axis pinned at its default and the weight axis kept, so one file covers every weight. `fonts/OFL.txt` is that directory's licence file, copied byte for byte.
+
+With fontTools 4.60.1 and Brotli 1.1.0:
+
+```sh
+python -m fontTools.varLib.instancer -o pinned.ttf "NotoSansMono[wdth,wght].ttf" wdth=100
+SOURCE_DATE_EPOCH=1774573941 python -m fontTools.subset pinned.ttf \
+  --output-file=fonts/noto-sans-mono-currency-signs.woff2 \
+  --flavor=woff2 \
+  --unicodes=U+20A6,U+20B1,U+20B5,U+20B9 \
+  --layout-features= \
+  --name-IDs=0,1,2,3,4,5,6,13,14
+```
+
+`SOURCE_DATE_EPOCH` is the upstream commit date; it fixes the timestamps the font records, so the build repeats byte for byte. The result is 2,264 bytes, SHA-256 `0f30474e0565b456f7ed08867bf2d6a2d7a025c8910654d08e1d6d006944358c`. The name records keep the copyright and the licence, so the file says what it is on its own.
 
 ## Brand material
 
