@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: Apache-2.0
-# Copyright 2026 Qomira Labs
+# Copyright (c) 2026 Qomira Labs. All rights reserved.
+# Proprietary and confidential. Unauthorized copying is prohibited.
 #
 # Shared file: the same copy lives in ujira, ujira-contracts, ujira-docs and
 # ujira-mcp (qomiralabs/ujira#303). Change all four together.
