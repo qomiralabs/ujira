@@ -45,7 +45,7 @@ export function TopBar({ project, onProjectChange }: TopBarProps) {
         className="flex h-10 min-w-0 flex-1 items-center gap-3 rounded-control border border-rule bg-surface px-3 text-body-s text-text-secondary transition-colors duration-150 ease-out hover:text-text sm:max-w-sm"
       >
         <Icon source={{ lucide: Search }} size={18} className="shrink-0" />
-        <span className="flex-1 truncate text-left">Go to a page</span>
+        <span className="flex-1 truncate text-left">Find a page</span>
         <kbd className="hidden rounded-control border border-rule px-1.5 font-mono text-label text-text-secondary sm:inline">
           {apple ? '⌘ K' : 'Ctrl K'}
         </kbd>

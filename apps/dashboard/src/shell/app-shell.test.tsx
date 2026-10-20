@@ -47,7 +47,7 @@ describe('AppShell', () => {
     if (!trigger) throw new Error('no project switcher');
     fireEvent.keyDown(trigger, { key: 'Enter' });
     await act(async () => {
-      fireEvent.click(screen.getByRole('menuitemradio', { name: 'Community grants' }));
+      fireEvent.click(screen.getByRole('menuitemradio', { name: /Community grants/ }));
       await new Promise((resolve) => setTimeout(resolve, 100));
     });
     expect(updates.at(-1)?.queryString).toBe('?project=grants');

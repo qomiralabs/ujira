@@ -30,11 +30,24 @@ describe('CommandPalette', () => {
     render(<Harness />);
     expect(screen.queryByRole('dialog')).toBeNull();
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
-    expect(screen.getByRole('dialog', { name: 'Go to a page' })).toBeTruthy();
-    expect(screen.getAllByRole('option')).toHaveLength(10);
-    fireEvent.click(screen.getByRole('option', { name: 'Funding' }));
+    expect(screen.getByRole('dialog', { name: 'Find a page' })).toBeTruthy();
+    const options = screen.getAllByRole('option');
+    expect(options).toHaveLength(10);
+    // Every choice says what the page is for, never a bare list of names.
+    expect(options[0]?.textContent).toBe(
+      'OverviewWhat this project has paid, what is waiting, and how long the money will last.',
+    );
+    fireEvent.click(screen.getByRole('option', { name: /^Funding/ }));
     expect(push).toHaveBeenCalledWith('/funding?project=grants');
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('finds a page by what it does, not only by its name', () => {
+    render(<Harness />);
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'money' } });
+    const names = screen.getAllByRole('option').map((o) => o.textContent);
+    expect(names.some((name) => name.startsWith('Funding'))).toBe(true);
   });
 
   it('closes when the shortcut is pressed again', () => {
@@ -44,10 +57,10 @@ describe('CommandPalette', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('says what search will cover when nothing matches', () => {
+  it('says plainly when nothing matches', () => {
     render(<Harness />);
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'zzz' } });
-    expect(screen.getByText(/No page matches that/)).toBeTruthy();
+    expect(screen.getByText('No page matches that. Try another word.')).toBeTruthy();
   });
 });

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import { activeItem, hrefFor, NAV_ITEMS } from './nav';
 import { PLACEHOLDERS } from './placeholders';
+import { PROJECTS } from './projects';
 
 describe('navigation', () => {
   it('lists the ten sections in order, in sentence case', () => {
@@ -73,6 +74,29 @@ describe('navigation', () => {
     expect(Object.keys(PLACEHOLDERS).sort()).toEqual(
       ['overview', ...NAV_ITEMS.filter((i) => i.segment !== '').map((i) => i.segment)].sort(),
     );
+  });
+
+  it('gives every page one plain line saying what it is', () => {
+    for (const item of NAV_ITEMS) {
+      expect(item.summary.length, item.label).toBeGreaterThan(10);
+      expect(item.summary.endsWith('.'), item.label).toBe(true);
+    }
+  });
+
+  it('leaves projects to their own names, which the principal chose', () => {
+    for (const project of PROJECTS) {
+      expect(Object.keys(project).sort(), project.name).toEqual(['id', 'name']);
+    }
+  });
+
+  it('keeps every line a person reads free of words only this team uses', () => {
+    const jargon =
+      /\b(utilis\w+|leverage\w*|onboard\w*|provision\w*|enumerate|idempoten\w+|tenant|principal'?s?|payload|endpoint|invoke\w*|orchestrat\w*|SLA|KYC|median|rail)\b/i;
+    const lines = [
+      ...NAV_ITEMS.map((item) => item.summary),
+      ...Object.values(PLACEHOLDERS).flatMap((p) => [p.title, p.body]),
+    ];
+    for (const line of lines) expect(line, line).not.toMatch(jargon);
   });
 
   it('says people and recipients, never users or workers, and paid, never transferred', () => {

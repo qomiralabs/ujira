@@ -25,8 +25,9 @@ export function isPaletteShortcut(event: KeyboardEvent): boolean {
 }
 
 /**
- * Jump to any page from the keyboard. Searching payouts, recipients and
- * receipts joins this list when those screens exist.
+ * Finds a page by name or by what it does. It searches pages and nothing
+ * else today, and says so, so nobody types a recipient's name expecting a
+ * result. Payouts, recipients and receipts join it with the search endpoint.
  */
 export function CommandPalette({ project, open, onOpenChange }: CommandPaletteProps) {
   const router = useRouter();
@@ -51,19 +52,18 @@ export function CommandPalette({ project, open, onOpenChange }: CommandPalettePr
           aria-describedby={undefined}
           className="fixed top-[12vh] left-1/2 z-50 w-[min(36rem,calc(100vw-2rem))] -translate-x-1/2 overflow-hidden rounded-overlay border border-rule bg-surface text-text shadow-overlay"
         >
-          <Dialog.Title className="sr-only">Go to a page</Dialog.Title>
-          <Command label="Go to a page" loop>
+          <Dialog.Title className="sr-only">Find a page</Dialog.Title>
+          <Command label="Find a page" loop>
             <div className="flex items-center gap-3 border-b border-rule px-4 has-focus-visible:outline-2 has-focus-visible:-outline-offset-2 has-focus-visible:outline-focus">
               <Icon source={{ lucide: Search }} size={18} className="text-text-secondary" />
               <Command.Input
-                placeholder="Go to a page"
+                placeholder="Search pages"
                 className="h-12 flex-1 bg-transparent text-body text-text placeholder:text-text-subtle focus-visible:shadow-none focus-visible:outline-none"
               />
             </div>
             <Command.List className="max-h-80 overflow-y-auto p-2">
               <Command.Empty className="px-3 py-6 text-body-s text-text-secondary">
-                No page matches that. Search for payouts, recipients and receipts arrives with the
-                payouts list.
+                No page matches that. Try another word.
               </Command.Empty>
               <Command.Group
                 heading="Pages"
@@ -72,15 +72,25 @@ export function CommandPalette({ project, open, onOpenChange }: CommandPalettePr
                 {NAV_ITEMS.map((item) => (
                   <Command.Item
                     key={item.segment}
-                    value={item.label}
+                    // Typing matches the name or what the page does, so
+                    // "money" finds Funding.
+                    value={`${item.label} ${item.summary}`}
                     onSelect={() => {
                       onOpenChange(false);
                       router.push(withProject(hrefFor(item), { project }));
                     }}
-                    className="flex h-10 cursor-default items-center gap-3 rounded-control px-3 text-body-s text-text select-none data-[selected=true]:bg-bg"
+                    className="flex cursor-default items-start gap-3 rounded-control px-3 py-2 select-none data-[selected=true]:bg-bg"
                   >
-                    <Icon source={item.icon} size={18} className="text-text-secondary" />
-                    {item.label}
+                    <Icon
+                      source={item.icon}
+                      size={18}
+                      className="mt-0.5 shrink-0 text-text-secondary"
+                    />
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="text-body-s font-medium text-text">{item.label}</span>
+                      {/* Every choice says what it is, never a bare name. */}
+                      <span className="text-body-s text-text-secondary">{item.summary}</span>
+                    </span>
                   </Command.Item>
                 ))}
               </Command.Group>

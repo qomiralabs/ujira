@@ -18,8 +18,8 @@ export default function NotFound() {
         </Link>
       }
     >
-      The link may be old or mistyped. Every page is in the navigation, or press Ctrl K (⌘ K on a
-      Mac) to jump to one.
+      The link may be old or mistyped. Use the menu to find the page you want, or press Ctrl K (⌘ K
+      on a Mac) to search for it.
     </EmptyState>
   );
 }

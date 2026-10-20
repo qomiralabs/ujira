@@ -19,10 +19,10 @@ describe('Rail', () => {
 
   it('collapses to icons and expands again, remembering the choice', () => {
     render(<Rail project="labelling" onProjectChange={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse navigation' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Hide the menu labels' }));
     expect(document.documentElement.dataset['rail']).toBe('collapsed');
     expect(screen.getByRole('link', { name: 'Payouts' }).getAttribute('title')).toBe('Payouts');
-    fireEvent.click(screen.getByRole('button', { name: 'Expand navigation' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show the menu labels' }));
     expect(document.documentElement.dataset['rail']).toBeUndefined();
   });
 });

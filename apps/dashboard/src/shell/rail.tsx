@@ -48,13 +48,13 @@ export function Rail({ project, onProjectChange }: RailProps) {
         onClick={() => {
           setRail(collapsed ? 'expanded' : 'collapsed');
         }}
-        aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
-        title={collapsed ? 'Expand navigation' : undefined}
+        aria-label={collapsed ? 'Show the menu labels' : 'Hide the menu labels'}
+        title={collapsed ? 'Show the menu labels' : undefined}
         className="flex h-10 items-center gap-3 rounded-control px-3 text-body-s text-text-secondary transition-colors duration-150 ease-out hover:bg-surface/60 hover:text-text rail-collapsed:justify-center rail-collapsed:px-0"
       >
         <Icon source={{ lucide: collapsed ? PanelLeftOpen : PanelLeftClose }} />
         <span className="rail-collapsed:sr-only" aria-hidden="true">
-          Collapse
+          Hide labels
         </span>
       </button>
     </aside>

@@ -56,14 +56,14 @@ for (const scheme of SCHEMES) {
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto('/');
       await settle(page);
-      await page.getByRole('button', { name: 'Collapse navigation' }).click();
+      await page.getByRole('button', { name: 'Hide the menu labels' }).click();
       expect(await violations(page)).toEqual([]);
-      await page.getByRole('button', { name: /Switch project/ }).click();
+      await page.getByRole('button', { name: /Choose a different project/ }).click();
       await expect(page.getByRole('menu')).toBeVisible();
       expect(await violations(page)).toEqual([]);
       await page.keyboard.press('Escape');
       await page.keyboard.press('ControlOrMeta+k');
-      await expect(page.getByRole('dialog', { name: 'Go to a page' })).toBeVisible();
+      await expect(page.getByRole('dialog', { name: 'Find a page' })).toBeVisible();
       expect(await violations(page)).toEqual([]);
     });
 
