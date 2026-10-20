@@ -178,6 +178,15 @@ describe('edge fixtures', () => {
     expect(set.recipientReceipts.some((r) => r.revision === 1 && r.supersedes === null)).toBe(true);
   });
 
+  it('matches every edge name with the synthetic name pattern', () => {
+    // Without this the pattern could name a script it never matches, because
+    // a look-alike letter from another alphabet reads the same.
+    for (const [kind, name] of Object.entries(EDGE_NAMES)) {
+      expect(SYNTHETIC.recipientName.test(name), kind).toBe(true);
+    }
+    expect(SYNTHETIC.recipientName.test('Jane Smith')).toBe(false);
+  });
+
   it('fixture data looks synthetic: no realistic addresses or hashes', () => {
     for (const m of set.mandates) {
       for (const role of m.instances.flatMap((i) => i.roles)) {
@@ -205,6 +214,7 @@ describe('edge fixtures', () => {
       }
     }
     for (const p of set.payouts) {
+      check('payout.recipientName', p.recipient.displayName, SYNTHETIC.recipientName);
       check('payout.taskId', p.taskId, SYNTHETIC.taskId);
       for (const leg of p.legs) {
         check('leg.txHash', leg.txHash, SYNTHETIC.hash);

@@ -41,7 +41,7 @@ import type {
   PayoutStatus,
   RecipientMode,
 } from '../enums.js';
-import { RELEASED_STATES } from '../funding.js';
+import { RESERVES_BALANCE } from '../funding.js';
 import type { Deposit, FundingOverview } from '../funding.js';
 import { DEFAULT_LOW_BALANCE } from '../low-balance.js';
 import type { LowBalance, LowBalanceTrigger } from '../low-balance.js';
@@ -145,7 +145,12 @@ export const SYNTHETIC = Object.freeze({
   // Sixteen leading zeros, which no real transaction hash will have.
   hash: /^0{16}[0-9a-f]{48}$/,
   receiptNumber: /^R-[0-9A-Z]{12}$/,
-  recipientName: /^(Fixture Recipient |مستلم|نמען|Fixture مستلم)/u,
+  // The right-to-left alternatives are written as escapes, so each script
+  // is visible in review: Arabic meem seen teh lam meem, and Hebrew nun
+  // mem ayin final nun. A look-alike letter from the wrong alphabet reads
+  // the same on screen and matches nothing, which a test below catches.
+  recipientName:
+    /^(Fixture Recipient |\u0645\u0633\u062A\u0644\u0645|\u05E0\u05DE\u05E2\u05DF|Fixture \u0645\u0633\u062A\u0644\u0645)/u,
   principalName: /^(Fixture Labs Test Principal|Second Fixture Principal)$/,
   mandateName: /^Fixture Mandate [0-9]{2}$/,
   taskId: /^fixture-task-[0-9a-f]{8}$/,
@@ -817,7 +822,7 @@ class Builder {
         const runway = BigInt(m.lowBalance.runwayDays ?? 0) * dailySpend;
         // An instance past its expiry or revoked can pay nothing more, so its
         // reservations no longer hold the balance back.
-        const released = RELEASED_STATES.has(i.status);
+        const released = !RESERVES_BALANCE[i.status];
         // Payouts waiting for approval. Kept non-zero almost everywhere, so
         // the balance never reads as if pending did not exist.
         let pending = this.edge && lowCase === 'both' ? 0n : rng.bigBetween(1n, 5_000n) * unit;

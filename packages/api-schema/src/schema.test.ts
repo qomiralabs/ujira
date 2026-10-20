@@ -7,6 +7,14 @@ import { describe, expect, it } from 'vitest';
 import { generateFixtures, toPayoutListItem } from './fixtures/index.js';
 import {
   ApprovalItem,
+  MANDATE_INSTANCE_STATUSES,
+  PACKAGE_NAME,
+  PAYOUT_STATUSES,
+  TERMINAL_PAYOUT_STATUSES,
+  TIMELINE_STEPS,
+  TimelineStep,
+  RESERVES_BALANCE,
+  availableBalance,
   CountryPolicy,
   Deposit,
   FundingOverview,
@@ -201,6 +209,35 @@ describe('schema rules', () => {
     // balance only if pending is ignored, as the earlier rule did.
     instance.budget = { ...instance.budget, remaining: t('700') };
     expect(MandateDetail.safeParse(m).success).toBe(false);
+  });
+
+  // An exported constant that nothing reads is not tested, however obvious
+  // it looks, so each of these has a reader here.
+  it('pins the terminal payout statuses and the timeline steps', () => {
+    expect([...TERMINAL_PAYOUT_STATUSES].sort()).toEqual(
+      ['blocked', 'cancelled', 'failed', 'paid', 'rejected'].sort(),
+    );
+    for (const status of TERMINAL_PAYOUT_STATUSES) expect(PAYOUT_STATUSES).toContain(status);
+    // A status is terminal or still in progress, never both and never neither.
+    const working = PAYOUT_STATUSES.filter((s) => !TERMINAL_PAYOUT_STATUSES.has(s));
+    expect(working.length + TERMINAL_PAYOUT_STATUSES.size).toBe(PAYOUT_STATUSES.length);
+    expect(working).toContain('partly_paid');
+    expect(working).toContain('needs_attention');
+    // The step enum and the ordered tuple of the timeline stay one list.
+    expect(TimelineStep.options).toEqual([...TIMELINE_STEPS]);
+    expect(PACKAGE_NAME).toBe('@ujira/api-schema');
+  });
+
+  it('answers every instance status when deciding whether reservations hold', () => {
+    expect(Object.keys(RESERVES_BALANCE).sort()).toEqual([...MANDATE_INSTANCE_STATUSES].sort());
+    // Only a revoked or expired instance releases; everything else reserves,
+    // so a balance is never reported as more available than it is.
+    const releasing = MANDATE_INSTANCE_STATUSES.filter((s) => !RESERVES_BALANCE[s]);
+    expect([...releasing].sort()).toEqual(['expired', 'revoked']);
+    for (const status of MANDATE_INSTANCE_STATUSES) {
+      const free = availableBalance(1000n, 400n, 200n, status);
+      expect(free).toBe(RESERVES_BALANCE[status] ? 400n : 1000n);
+    }
   });
 
   it('derives the available balance from the instance state', () => {

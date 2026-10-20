@@ -7,8 +7,11 @@ import type { FiatCurrencyCode, TokenAsset } from '@ujira/core';
 import type { NetworkId as AdapterNetworkId, RailId as AdapterRailId } from '@ujira/chain-adapter';
 import { describe, expectTypeOf, it } from 'vitest';
 
+import { availableBalance } from './index.js';
+import type { RESERVES_BALANCE } from './index.js';
 import type {
   AllowedBy,
+  MandateInstanceStatus,
   Money,
   NetworkId,
   PayoutDetail,
@@ -54,6 +57,15 @@ describe('exported types', () => {
   it('route responses are typed from the route table', () => {
     expectTypeOf<RouteResponse<'getPayout'>>().toEqualTypeOf<PayoutDetail>();
     expectTypeOf<RouteResponse<'listPayouts'>['nextCursor']>().toEqualTypeOf<string | null>();
+  });
+
+  it('the available balance is computed per instance status, not per string', () => {
+    // A misspelled status must not compile, so the parameter is the enum.
+    expectTypeOf(availableBalance).parameter(3).toEqualTypeOf<MandateInstanceStatus>();
+    expectTypeOf(availableBalance).parameter(3).not.toEqualTypeOf<string>();
+    // Every status is answered, so adding one is a compile error here.
+    expectTypeOf<keyof typeof RESERVES_BALANCE>().toEqualTypeOf<MandateInstanceStatus>();
+    expectTypeOf(availableBalance).returns.toEqualTypeOf<bigint>();
   });
 
   it('a recipient local leg has no token or hash field', () => {

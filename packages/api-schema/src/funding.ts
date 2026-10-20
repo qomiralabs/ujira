@@ -14,6 +14,7 @@ import {
 } from './common.js';
 import { Cursor, LimitParam, Page } from './envelope.js';
 import { DepositStatus, MandateInstanceStatus } from './enums.js';
+import type { MandateInstanceStatus as MandateInstanceStatusValue } from './enums.js';
 import { LowBalanceState } from './low-balance.js';
 import { TokenAmount, TokenAssetCode } from './money.js';
 
@@ -31,10 +32,26 @@ export const FundingBalance = z.strictObject({
   committed: TokenAmount,
 });
 
-// Once an instance is revoked or has expired it can pay nothing more, so its
-// reservations stop holding the balance back even though they are still on
-// record. Every other state, paused included, still reserves.
-export const RELEASED_STATES: ReadonlySet<string> = new Set(['revoked', 'expired']);
+/**
+ * Whether an instance in this state still has its balance held back by the
+ * payouts reserved against it. A revoked or expired instance can pay nothing
+ * more, so its reservations stay on record without holding anything; every
+ * other state, paused included, still reserves.
+ *
+ * Every status is written out rather than matched against a list, so adding
+ * one will not compile until someone decides which way it goes. Reserving is
+ * the answer that cannot overstate what is available, so a state that never
+ * reaches this point still says true.
+ */
+export const RESERVES_BALANCE: Readonly<Record<MandateInstanceStatusValue, boolean>> =
+  Object.freeze({
+    deploying: true,
+    active: true,
+    paused: true,
+    revoked: false,
+    expired: false,
+    deploy_failed: true,
+  });
 
 /**
  * The available balance as the mandate reports it: what is left after the
@@ -45,9 +62,9 @@ export function availableBalance(
   total: bigint,
   pending: bigint,
   committed: bigint,
-  status: string,
+  status: MandateInstanceStatusValue,
 ): bigint {
-  if (RELEASED_STATES.has(status)) return total;
+  if (!RESERVES_BALANCE[status]) return total;
   const free = total - pending - committed;
   return free > 0n ? free : 0n;
 }
