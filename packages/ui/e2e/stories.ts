@@ -9,6 +9,13 @@ import type { Theme } from '../.storybook/modes.ts';
 
 const INDEX = join(import.meta.dirname, '..', 'storybook-static', 'index.json');
 
+/**
+ * Whether screenshots can be compared on this machine. Font rendering differs
+ * between operating systems, so one committed set only works if it is always
+ * taken and checked on the same one.
+ */
+export const SNAPSHOTS = process.platform === 'linux';
+
 const indexSchema = z.object({
   v: z.number(),
   entries: z.record(

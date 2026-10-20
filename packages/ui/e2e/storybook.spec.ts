@@ -4,13 +4,9 @@
 import { AxeBuilder } from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { THEMES, VIEWPORTS } from '../.storybook/modes.ts';
-import { loadStories, openStory } from './stories.ts';
+import { loadStories, openStory, SNAPSHOTS } from './stories.ts';
 
 const WCAG_AA = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
-
-// Font rendering differs between operating systems, so snapshots are only
-// compared on Linux, inside the same Playwright container CI uses.
-const SNAPSHOTS = process.platform === 'linux';
 
 // An open select is modal: it hides the rest of the page from assistive
 // technology and keeps focus inside its list. axe still reports the hidden
@@ -74,7 +70,16 @@ for (const theme of THEMES) {
         // a story is the pattern the first screen copies.
         await expectNoSidewaysScroll(page, story.id);
 
-        if (!SNAPSHOTS) return;
+        if (!SNAPSHOTS) {
+          // Not a bare return: without this the run reports 130 passing
+          // story tests having compared no image at all, and a green local
+          // run reads as the full gate.
+          test.info().annotations.push({
+            type: 'snapshot skipped',
+            description: `screenshots are compared on Linux only, this run is ${process.platform}`,
+          });
+          return;
+        }
         if (!RESPONSIVE.has(story.id)) {
           await expect(page).toHaveScreenshot(`${story.id}--${theme}.png`);
           return;

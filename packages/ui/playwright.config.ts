@@ -12,6 +12,7 @@ const inCi = process.env['CI'] !== undefined;
 
 export default defineConfig({
   testDir: 'e2e',
+  globalSetup: './e2e/global-setup.ts',
   // One file per snapshot name, with no platform suffix: snapshots are only
   // taken on Linux, inside the pinned Playwright container.
   snapshotPathTemplate: '{testDir}/__snapshots__/{arg}{ext}',
