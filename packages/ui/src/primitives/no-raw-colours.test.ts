@@ -26,7 +26,9 @@ const themeColours = new Set(
 
 // Suffixes of colour prefixes that are not colours.
 const NOT_COLOURS = new Set([...Object.keys(typeScale), 'transparent', 'left', 'center', 'right']);
-const NOT_COLOUR_PREFIX = /^(?:offset|none|hidden|solid)/;
+const NOT_COLOUR_PREFIX = /^(?:offset|none|hidden|solid|dashed|dotted)/;
+// A per edge width such as border-y-0 or border-r-2: a width, not a colour.
+const EDGE_WIDTH = /^[xytrbl]-\d+(?:\.\d+)?$/;
 const COLOUR_UTILITY = /(?<![\w-])(?:bg|text|border|outline|ring|fill|stroke)-([a-z][a-z0-9-]*)/g;
 
 /**
@@ -36,7 +38,9 @@ const COLOUR_UTILITY = /(?<![\w-])(?:bg|text|border|outline|ring|fill|stroke)-([
 function unknownColours(text: string): string[] {
   return [...text.replace(/\[[^\]]*\]/g, '').matchAll(COLOUR_UTILITY)]
     .map((match) => match[1] ?? '')
-    .filter((name) => !NOT_COLOURS.has(name) && !NOT_COLOUR_PREFIX.test(name))
+    .filter(
+      (name) => !NOT_COLOURS.has(name) && !NOT_COLOUR_PREFIX.test(name) && !EDGE_WIDTH.test(name),
+    )
     .filter((name) => !themeColours.has(name));
 }
 
@@ -52,6 +56,8 @@ describe('no raw colours', () => {
     expect(rawColours('bg-[#F4A300] text-[rgb(0_0_0)] fill-[oklch(0.7_0.1_80)]')).toHaveLength(3);
     expect(unknownColours('bg-red-500 text-body-s text-text')).toEqual(['red-500']);
     expect(unknownColours('transition-[color,border-color]')).toEqual([]);
+    expect(unknownColours('border-y-0 border-r-0 border-2 border-dashed')).toEqual([]);
+    expect(unknownColours('border-y-0 border-fuchsia-500')).toEqual(['fuchsia-500']);
     expect(foreignVariables('bg-(--tw-foo) bg-(--ujira-saffron-lift)')).toEqual(['--tw-foo']);
   });
 

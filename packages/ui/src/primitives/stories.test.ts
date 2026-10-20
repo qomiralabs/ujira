@@ -11,14 +11,18 @@ import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { THEMES } from '../../.storybook/modes.ts';
 import preview from '../../.storybook/preview.tsx';
+import * as alertDialog from '../../stories/alert-dialog.stories.tsx';
 import * as button from '../../stories/button.stories.tsx';
 import * as checkbox from '../../stories/checkbox.stories.tsx';
+import * as dialog from '../../stories/dialog.stories.tsx';
+import * as dropdownMenu from '../../stories/dropdown-menu.stories.tsx';
 import * as field from '../../stories/field.stories.tsx';
 import * as input from '../../stories/input.stories.tsx';
 import * as label from '../../stories/label.stories.tsx';
 import * as radioGroup from '../../stories/radio-group.stories.tsx';
 import * as select from '../../stories/select.stories.tsx';
 import * as separator from '../../stories/separator.stories.tsx';
+import * as sheet from '../../stories/sheet.stories.tsx';
 import * as skeleton from '../../stories/skeleton.stories.tsx';
 import * as switchStories from '../../stories/switch.stories.tsx';
 import * as textarea from '../../stories/textarea.stories.tsx';
@@ -32,15 +36,23 @@ type StoryModule = Record<string, unknown> & { default: Record<string, unknown> 
 // controls a form can reject; loading only to the button.
 const CONTROL = ['Default', 'Hover', 'Focus', 'Disabled', 'Invalid'];
 
+// An overlay that can carry a money action has a Pending story: the state
+// where it must refuse to close.
+const OVERLAY = ['Default', 'Focus', 'Pending'];
+
 const CATALOGUE: Record<string, { module: StoryModule; required: string[] }> = {
+  'alert-dialog': { module: alertDialog, required: OVERLAY },
   button: { module: button, required: ['Default', 'Hover', 'Focus', 'Disabled', 'Loading'] },
   checkbox: { module: checkbox, required: CONTROL },
+  dialog: { module: dialog, required: OVERLAY },
+  'dropdown-menu': { module: dropdownMenu, required: ['Default', 'Focus'] },
   field: { module: field, required: ['Default', 'Focus', 'Disabled', 'Invalid'] },
   input: { module: input, required: CONTROL },
   label: { module: label, required: ['Default', 'Disabled'] },
   'radio-group': { module: radioGroup, required: CONTROL },
   select: { module: select, required: [...CONTROL, 'Open'] },
   separator: { module: separator, required: ['Default'] },
+  sheet: { module: sheet, required: OVERLAY },
   skeleton: { module: skeleton, required: ['Default'] },
   switch: { module: switchStories, required: CONTROL },
   textarea: { module: textarea, required: CONTROL },
@@ -48,7 +60,13 @@ const CATALOGUE: Record<string, { module: StoryModule; required: string[] }> = {
 };
 
 // Every component file in this folder, not the shared helpers.
-const HELPERS = new Set(['control-styles.ts', 'focus-ring.ts', 'index.ts']);
+const HELPERS = new Set([
+  'control-styles.ts',
+  'focus-ring.ts',
+  'index.ts',
+  'overlay-styles.ts',
+  'use-pending-lock.ts',
+]);
 const primitives = readdirSync(import.meta.dirname)
   .filter((file) => /\.tsx?$/.test(file) && !file.includes('.test.') && !HELPERS.has(file))
   .map((file) => file.replace(/\.tsx?$/, ''))
@@ -98,15 +116,19 @@ describe('stories', () => {
   });
 
   // Rendering every story here keeps the stories honest between browser runs.
-  // Open overlays are left to the browser tests: jsdom has no layout to
-  // position them in.
   for (const [name, { module }] of Object.entries(CATALOGUE)) {
     const composed = composeStories(module as Parameters<typeof composeStories>[0]);
     for (const [story, Story] of Object.entries(composed)) {
-      if (story === 'Open') continue;
+      // The select's open list and the tooltip's open bubble are positioned
+      // by Radix, which needs layout jsdom does not have. The browser tests
+      // cover both.
+      if (story === 'Open' && (name === 'select' || name === 'tooltip')) continue;
       it(`${name} ${story} renders`, () => {
-        const { container } = render(createElement(Story as () => React.ReactNode));
-        expect(container.firstElementChild).not.toBeNull();
+        // Checked on the whole document, not the container: an overlay
+        // renders into a portal on document.body. A data-slot proves a
+        // primitive rendered rather than only the story's own wrapper.
+        const { baseElement } = render(createElement(Story as () => React.ReactNode));
+        expect(baseElement.querySelector('[data-slot]')).not.toBeNull();
       });
     }
   }
