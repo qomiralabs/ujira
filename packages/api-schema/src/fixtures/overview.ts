@@ -28,6 +28,46 @@ const DAY_MS = 86_400_000;
 /** Fixed so a fixture never moves with the clock. */
 const BASE_TIME = Date.parse('2026-09-15T00:00:00.000Z');
 
+/**
+ * How far the zone is from UTC at an instant, derived from the zone rather
+ * than written down, so the fixture cannot disagree with the real database.
+ */
+function zoneOffsetMs(instant: number, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(new Date(instant));
+  const read = (type: string): number => Number(parts.find((p) => p.type === type)?.value ?? '0');
+  const asIfUtc = Date.UTC(
+    read('year'),
+    read('month') - 1,
+    read('day'),
+    read('hour'),
+    read('minute'),
+    read('second'),
+  );
+  return asIfUtc - instant;
+}
+
+/**
+ * The instant of the local midnight at or before `instant` in `timeZone`. A
+ * real boundary falls at local midnight, not at UTC midnight, so the axis
+ * has to start there or the screen learns the wrong edge. Lagos has no
+ * daylight saving, so one offset holds across an axis; a zone that changes
+ * offset mid-axis would need this per bucket.
+ */
+function localMidnightAtOrBefore(instant: number, timeZone: string): number {
+  const offset = zoneOffsetMs(instant, timeZone);
+  const local = instant + offset;
+  return local - (((local % DAY_MS) + DAY_MS) % DAY_MS) - offset;
+}
+
 const iso = (ms: number): string => new Date(ms).toISOString();
 
 /**
@@ -108,7 +148,9 @@ export function overviewFixture(options: OverviewFixtureOptions): OverviewStats 
   const network: NetworkId = 'stellar:testnet';
 
   const span = BUCKET_DAYS[period] * DAY_MS;
-  const currentTo = BASE_TIME;
+  // Aligned to local midnight in the reporting zone, which is where the
+  // endpoint will put it.
+  const currentTo = localMidnightAtOrBefore(BASE_TIME, FIXTURE_TIME_ZONE);
   const currentFrom = currentTo - span;
   const axisFrom = currentTo - bucketCount * span;
   const buckets = Array.from({ length: bucketCount }, (_, i) => ({

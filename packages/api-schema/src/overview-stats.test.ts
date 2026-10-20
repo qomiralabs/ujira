@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { parseQuery } from './contract.js';
-import { overviewFixture } from './fixtures/index.js';
+import { FIXTURE_TIME_ZONE, overviewFixture, overviewFixtures } from './fixtures/index.js';
 import {
   MAX_STATS_RANGE_DAYS,
   OTHER_SERIES_KEY,
@@ -163,6 +163,35 @@ describe('overview stats', () => {
     const counted = clone(empty);
     counted.current.kpis.completedCount = 2;
     expect(OverviewStats.safeParse(counted).success).toBe(false);
+  });
+
+  // The schema cannot check this, because it does not know the zone's rules,
+  // so without this reader a fixture can declare one zone and draw another's
+  // boundaries. That is what it was doing: edges at UTC midnight, an hour
+  // off local midnight in the zone it named.
+  it('puts every window boundary at local midnight in the zone it declares', () => {
+    const local = new Intl.DateTimeFormat('en-GB', {
+      timeZone: FIXTURE_TIME_ZONE,
+      hourCycle: 'h23',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    for (const [name, fixture] of Object.entries(overviewFixtures())) {
+      expect(fixture.timeZone, name).toBe(FIXTURE_TIME_ZONE);
+      const edges = [
+        fixture.current.from,
+        fixture.current.to,
+        ...(fixture.previous === null ? [] : [fixture.previous.from, fixture.previous.to]),
+        ...fixture.buckets.flatMap((b) => [b.from, b.to]),
+      ];
+      for (const edge of edges) {
+        expect(local.format(new Date(edge)), `${name} ${edge}`).toBe('00:00');
+      }
+    }
+    // And the zone is not UTC, so a boundary-crossing test has something to
+    // cross: in Lagos a local midnight edge is 23:00 the day before in UTC.
+    expect(FIXTURE_TIME_ZONE).not.toBe('UTC');
+    expect(stats.buckets[0]?.from.endsWith('23:00:00.000Z')).toBe(true);
   });
 
   it('is scoped to one principal and project', () => {
