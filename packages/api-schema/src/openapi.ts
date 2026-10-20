@@ -24,6 +24,14 @@ import {
   RecipientReceipt,
 } from './receipts.js';
 import { ApprovalPage, MandatePage, PayoutPage, ROUTES, ROUTE_IDS, ReceiptPage } from './routes.js';
+import {
+  CorridorBreakdown,
+  MandateRunway,
+  OverviewKpis,
+  OverviewStats,
+  StatsSeries,
+  StatsWindow,
+} from './stats.js';
 
 const COMPONENTS: readonly (readonly [string, z.ZodType])[] = [
   ['Money', Money],
@@ -52,6 +60,12 @@ const COMPONENTS: readonly (readonly [string, z.ZodType])[] = [
   ['FundingOverview', FundingOverview],
   ['ApprovalItem', ApprovalItem],
   ['ApprovalPage', ApprovalPage],
+  ['StatsWindow', StatsWindow],
+  ['OverviewKpis', OverviewKpis],
+  ['StatsSeries', StatsSeries],
+  ['MandateRunway', MandateRunway],
+  ['CorridorBreakdown', CorridorBreakdown],
+  ['OverviewStats', OverviewStats],
 ];
 
 const REF = '#/components/schemas/';

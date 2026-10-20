@@ -21,6 +21,8 @@ export type {
   LowBalanceCase,
 } from './generate.js';
 export { checkFixtures } from './check.js';
+export { FIXTURE_TIME_ZONE, overviewFixture, overviewFixtures } from './overview.js';
+export type { OverviewFixtureOptions } from './overview.js';
 export type { FixtureFailure } from './check.js';
 export { Rng } from './rng.js';
 

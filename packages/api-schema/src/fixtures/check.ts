@@ -6,6 +6,8 @@ import { Deposit, FundingOverview } from '../funding.js';
 import { MandateDetail, MandateListItem } from '../mandates.js';
 import { PayoutDetail, PayoutListItem } from '../payouts.js';
 import { PrincipalReceipt, ReceiptListItem, RecipientReceipt } from '../receipts.js';
+import { OverviewStats } from '../stats.js';
+import { overviewFixtures } from './overview.js';
 import type { FixtureSet } from './generate.js';
 import { toMandateListItem, toPayoutListItem, toReceiptListItem } from './generate.js';
 
@@ -54,5 +56,6 @@ export function checkFixtures(set: FixtureSet): FixtureFailure[] {
   run('FundingOverview', FundingOverview, set.funding);
   run('Deposit', Deposit, set.deposits);
   run('ApprovalItem', ApprovalItem, set.approvals);
+  run('OverviewStats', OverviewStats, Object.values(overviewFixtures(set.seed)));
   return failures;
 }

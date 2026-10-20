@@ -17,6 +17,7 @@ import type { ProblemCode } from '../envelope.js';
 import { toMandateListItem, toPayoutListItem, toReceiptListItem } from '../fixtures/generate.js';
 import type { FixtureSet } from '../fixtures/generate.js';
 import { ROUTES } from '../routes.js';
+import { overviewFixture } from '../fixtures/overview.js';
 import type { RouteId, RouteQuery } from '../routes.js';
 
 export interface MockOptions {
@@ -305,6 +306,22 @@ export function createHandlers(options: MockOptions): HttpHandler[] {
           accounts: overview?.accounts ?? [],
           deposits: result,
         },
+        requestId,
+      );
+    }),
+    route('getOverviewStats', ({ scope, query, requestId }) => {
+      // Seeded from the project, so one project always answers the same
+      // numbers and two projects never answer the same ones.
+      let seed = 7;
+      for (let i = 0; i < scope.projectId.length; i += 1) {
+        seed = (seed * 31 + scope.projectId.charCodeAt(i)) >>> 0;
+      }
+      const stats = overviewFixture({
+        seed,
+        ...(query.period === undefined ? {} : { period: query.period }),
+      });
+      return ok(
+        { ...stats, principalId: scope.principalId, projectId: scope.projectId },
         requestId,
       );
     }),
