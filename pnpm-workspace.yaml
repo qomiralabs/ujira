@@ -13,9 +13,12 @@ ignoredOptionalDependencies:
 # Install scripts stay off unless reviewed. These come in through the Docker
 # client used by testcontainers and work without their scripts: cpu-features
 # is an optional native speedup for ssh2, and the protobufjs script only
-# prints a version check.
+# prints a version check. The msw script copies its browser worker into an
+# app's public folder; an app that serves mocks in the browser generates that
+# file itself with `msw init`.
 allowBuilds:
   cpu-features: false
+  msw: false
   protobufjs: false
   ssh2: false
 
