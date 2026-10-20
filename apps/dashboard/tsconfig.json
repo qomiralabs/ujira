@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["node", "next"],
+    "plugins": [{ "name": "next" }]
+  },
+  "include": ["src", "e2e", "next.config.ts", "playwright.config.ts"]
+}

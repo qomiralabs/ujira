@@ -12,7 +12,14 @@
 // it makes no network calls.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -55,7 +62,39 @@ function readManifest(dir: string): Manifest | undefined {
     : undefined;
 }
 
-const inspector: ManifestInspector = { realpath, manifest: readManifest };
+// Any file at the root of a package whose name says it carries licence
+// terms. Every match is read, not the first: a package that ships both a
+// LICENSE and a COPYING must not have its licence decided by which name a
+// list happens to mention first.
+const LICENSE_FILE = /^(?:LICEN[CS]E|COPYING|NOTICE)(?:[-_.].*)?$/i;
+
+// Read only when a package's metadata licence is not one the policy
+// recognises, so a clean tree never touches these files.
+function readLicenseTexts(dir: string): readonly string[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((entry) => LICENSE_FILE.test(entry))
+    .sort()
+    .flatMap((entry) => {
+      const file = join(dir, entry);
+      try {
+        return statSync(file).isFile() ? [readFileSync(file, 'utf8')] : [];
+      } catch {
+        return [];
+      }
+    });
+}
+
+const inspector: ManifestInspector = {
+  realpath,
+  manifest: readManifest,
+  licenseTexts: readLicenseTexts,
+};
 
 // Workspace folders from the `<dir>/*` globs in pnpm-workspace.yaml, plus the root.
 function workspaceProjects(): WorkspaceProject[] {

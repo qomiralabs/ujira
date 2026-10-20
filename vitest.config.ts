@@ -30,6 +30,13 @@ export default defineConfig({
         // `@vitest-environment jsdom` comment. The token generator has its
         // own tests next to it.
         '@ujira/ui': { include: ['src/**/*.test.{ts,tsx}', 'tokens/**/*.test.ts'] },
+        // Component tests run in jsdom. The browser flows, visual snapshots
+        // and accessibility checks are Playwright specs under e2e/.
+        '@ujira/dashboard': {
+          include: ['src/**/*.test.{ts,tsx}'],
+          environment: 'jsdom',
+          setupFiles: ['./src/test-setup.ts'],
+        },
         // The spike tests start a Postgres container and real worker pools.
         // The Supabase spike runs against the staging project only when its
         // pooler URLs are in the environment, and skips everywhere else.
@@ -55,6 +62,7 @@ export default defineConfig({
         'apps/*/src/**/*.{ts,tsx,mts,cts}',
         // Root scripts that the gate depends on.
         'scripts/check-workspace-scripts.ts',
+        'scripts/bundle-budget.ts',
         'scripts/gate.ts',
         'scripts/workspace.ts',
         // Pure helpers of the root scripts. The entry points only do I/O and
@@ -67,7 +75,14 @@ export default defineConfig({
         'scripts/pnpm-command.ts',
         'scripts/strict-json.ts',
       ],
-      exclude: ['**/*.test.ts', '**/*.test-d.ts', '**/*.d.ts'],
+      exclude: [
+        '**/*.test.ts',
+        '**/*.test.tsx',
+        '**/*.test-d.ts',
+        '**/*.d.ts',
+        // Built only to prove the bundle budget fails; see the dashboard README.
+        '**/*.fixture.tsx',
+      ],
       reporter: ['text', 'json-summary', 'lcov'],
       thresholds: {
         lines: 85,
