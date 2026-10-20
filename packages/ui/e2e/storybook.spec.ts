@@ -36,15 +36,14 @@ const RESPONSIVE = new Set([
 // The width the single width stories are taken at.
 const BASE = VIEWPORTS.tablet.width;
 
-async function expectNoSidewaysScroll(page: Page, id: string): Promise<void> {
+async function expectNoSidewaysScroll(page: Page, id: string, width: number): Promise<void> {
   const overflow = await page.evaluate(() => {
     const root = document.documentElement;
     return { scrollWidth: root.scrollWidth, clientWidth: root.clientWidth };
   });
-  expect(
-    overflow.scrollWidth,
-    `${id} scrolls sideways at ${String(overflow.clientWidth)}px`,
-  ).toBeLessThanOrEqual(overflow.clientWidth);
+  expect(overflow.scrollWidth, `${id} scrolls sideways at ${String(width)}px`).toBeLessThanOrEqual(
+    overflow.clientWidth,
+  );
 }
 
 for (const theme of THEMES) {
@@ -65,29 +64,33 @@ for (const theme of THEMES) {
             targets: nodes.map((node) => node.target.join(' ')),
           })),
         ).toEqual([]);
-        // Nothing may push the page wider than the window. A hero amount at
-        // 40px with a real corridor value does exactly that on a phone, and
-        // a story is the pattern the first screen copies.
-        await expectNoSidewaysScroll(page, story.id);
-
         if (!SNAPSHOTS) {
           // Not a bare return: without this the run reports 130 passing
           // story tests having compared no image at all, and a green local
-          // run reads as the full gate.
+          // run reads as the full gate. Only the image comparison needs a
+          // committed baseline, so everything else below still runs and the
+          // annotation names exactly what did not.
           test.info().annotations.push({
             type: 'snapshot skipped',
-            description: `screenshots are compared on Linux only, this run is ${process.platform}`,
+            description: `screenshots are compared on Linux only, this run is ${process.platform}. Every other assertion in this test ran.`,
           });
-          return;
         }
+
+        // Nothing may push the page wider than the window, at any width the
+        // story is checked at. A hero amount at 40px with a real corridor
+        // value does exactly that on a phone, and a story is the pattern the
+        // first screen copies. This needs no baseline, so it runs everywhere.
         if (!RESPONSIVE.has(story.id)) {
-          await expect(page).toHaveScreenshot(`${story.id}--${theme}.png`);
+          await expectNoSidewaysScroll(page, story.id, BASE);
+          if (SNAPSHOTS) await expect(page).toHaveScreenshot(`${story.id}--${theme}.png`);
           return;
         }
         for (const { width, height } of Object.values(VIEWPORTS)) {
           await page.setViewportSize({ width, height });
-          await expectNoSidewaysScroll(page, story.id);
-          await expect(page).toHaveScreenshot(`${story.id}--${theme}--${String(width)}.png`);
+          await expectNoSidewaysScroll(page, story.id, width);
+          if (SNAPSHOTS) {
+            await expect(page).toHaveScreenshot(`${story.id}--${theme}--${String(width)}.png`);
+          }
         }
         await page.setViewportSize({ width: BASE, height: VIEWPORTS.tablet.height });
       });

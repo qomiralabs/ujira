@@ -11,8 +11,10 @@ import { SNAPSHOTS } from './stories.ts';
 export default function globalSetup(): void {
   if (SNAPSHOTS) return;
   process.stdout.write(
-    `\nScreenshots are compared on Linux only, and this run is ${process.platform}. ` +
-      'axe and the focus ring still ran; no story screenshot was compared. ' +
-      'See the README for the one command that checks them.\n\n',
+    `\nScreenshots are compared on Linux only, and this run is ${process.platform}, ` +
+      'so no story screenshot was compared. Everything else ran: axe in both ' +
+      'modes, the keyboard focus ring, and the sideways scroll check at every ' +
+      'width each story is taken at. See the README for the one command that ' +
+      'checks the screenshots.\n\n',
   );
 }

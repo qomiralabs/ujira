@@ -93,6 +93,11 @@ snapshotted once at 768. The stories whose layout does change, listed in `RESPON
 `e2e/storybook.spec.ts`, are snapshotted at all three widths. Add a story to that list when its
 layout reflows, rather than tripling every image.
 
+Off Linux the screenshot comparison is the only thing that does not run: axe, the focus ring and
+the sideways scroll check at every width still do. The run says so before it starts and each story
+carries a `snapshot skipped` annotation, so a green local run cannot be mistaken for the full
+visual gate.
+
 Screenshots are compared only on Linux, so that one set of files works for everyone. Take and
 check them in the same image CI uses:
 
