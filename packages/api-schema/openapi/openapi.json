@@ -22,7 +22,8 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 1024,
-              "pattern": "^[A-Za-z0-9_-]+$"
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "description": "An opaque cursor. Pass back the nextCursor from the previous page, unchanged. The server signs every cursor and binds it to the query that produced it, so a cursor cannot be forged and one reused with different filters is refused with INVALID_CURSOR. Do not build, parse or alter a cursor."
             }
           },
           {
@@ -154,7 +155,8 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 1024,
-              "pattern": "^[A-Za-z0-9_-]+$"
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "description": "An opaque cursor. Pass back the nextCursor from the previous page, unchanged. The server signs every cursor and binds it to the query that produced it, so a cursor cannot be forged and one reused with different filters is refused with INVALID_CURSOR. Do not build, parse or alter a cursor."
             }
           },
           {
@@ -364,7 +366,8 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 1024,
-              "pattern": "^[A-Za-z0-9_-]+$"
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "description": "An opaque cursor. Pass back the nextCursor from the previous page, unchanged. The server signs every cursor and binds it to the query that produced it, so a cursor cannot be forged and one reused with different filters is refused with INVALID_CURSOR. Do not build, parse or alter a cursor."
             }
           },
           {
@@ -500,7 +503,8 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 1024,
-              "pattern": "^[A-Za-z0-9_-]+$"
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "description": "An opaque cursor. Pass back the nextCursor from the previous page, unchanged. The server signs every cursor and binds it to the query that produced it, so a cursor cannot be forged and one reused with different filters is refused with INVALID_CURSOR. Do not build, parse or alter a cursor."
             }
           }
         ],
@@ -563,7 +567,8 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 1024,
-              "pattern": "^[A-Za-z0-9_-]+$"
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "description": "An opaque cursor. Pass back the nextCursor from the previous page, unchanged. The server signs every cursor and binds it to the query that produced it, so a cursor cannot be forged and one reused with different filters is refused with INVALID_CURSOR. Do not build, parse or alter a cursor."
             }
           },
           {
@@ -1088,10 +1093,12 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 1024,
-                "pattern": "^[A-Za-z0-9_-]+$"
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "description": "An opaque cursor. Pass back the nextCursor from the previous page, unchanged. The server signs every cursor and binds it to the query that produced it, so a cursor cannot be forged and one reused with different filters is refused with INVALID_CURSOR. Do not build, parse or alter a cursor."
               },
               { "type": "null" }
-            ]
+            ],
+            "description": "An opaque cursor. Pass back the nextCursor from the previous page, unchanged. The server signs every cursor and binds it to the query that produced it, so a cursor cannot be forged and one reused with different filters is refused with INVALID_CURSOR. Do not build, parse or alter a cursor. Null on the last page."
           }
         },
         "required": ["items", "nextCursor"],
@@ -1659,10 +1666,12 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 1024,
-                "pattern": "^[A-Za-z0-9_-]+$"
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "description": "An opaque cursor. Pass back the nextCursor from the previous page, unchanged. The server signs every cursor and binds it to the query that produced it, so a cursor cannot be forged and one reused with different filters is refused with INVALID_CURSOR. Do not build, parse or alter a cursor."
               },
               { "type": "null" }
-            ]
+            ],
+            "description": "An opaque cursor. Pass back the nextCursor from the previous page, unchanged. The server signs every cursor and binds it to the query that produced it, so a cursor cannot be forged and one reused with different filters is refused with INVALID_CURSOR. Do not build, parse or alter a cursor. Null on the last page."
           }
         },
         "required": ["items", "nextCursor"],
@@ -2146,10 +2155,12 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 1024,
-                "pattern": "^[A-Za-z0-9_-]+$"
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "description": "An opaque cursor. Pass back the nextCursor from the previous page, unchanged. The server signs every cursor and binds it to the query that produced it, so a cursor cannot be forged and one reused with different filters is refused with INVALID_CURSOR. Do not build, parse or alter a cursor."
               },
               { "type": "null" }
-            ]
+            ],
+            "description": "An opaque cursor. Pass back the nextCursor from the previous page, unchanged. The server signs every cursor and binds it to the query that produced it, so a cursor cannot be forged and one reused with different filters is refused with INVALID_CURSOR. Do not build, parse or alter a cursor. Null on the last page."
           }
         },
         "required": ["items", "nextCursor"],
@@ -2300,10 +2311,12 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 1024,
-                    "pattern": "^[A-Za-z0-9_-]+$"
+                    "pattern": "^[A-Za-z0-9_-]+$",
+                    "description": "An opaque cursor. Pass back the nextCursor from the previous page, unchanged. The server signs every cursor and binds it to the query that produced it, so a cursor cannot be forged and one reused with different filters is refused with INVALID_CURSOR. Do not build, parse or alter a cursor."
                   },
                   { "type": "null" }
-                ]
+                ],
+                "description": "An opaque cursor. Pass back the nextCursor from the previous page, unchanged. The server signs every cursor and binds it to the query that produced it, so a cursor cannot be forged and one reused with different filters is refused with INVALID_CURSOR. Do not build, parse or alter a cursor. Null on the last page."
               }
             },
             "required": ["items", "nextCursor"],
@@ -2430,10 +2443,12 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 1024,
-                "pattern": "^[A-Za-z0-9_-]+$"
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "description": "An opaque cursor. Pass back the nextCursor from the previous page, unchanged. The server signs every cursor and binds it to the query that produced it, so a cursor cannot be forged and one reused with different filters is refused with INVALID_CURSOR. Do not build, parse or alter a cursor."
               },
               { "type": "null" }
-            ]
+            ],
+            "description": "An opaque cursor. Pass back the nextCursor from the previous page, unchanged. The server signs every cursor and binds it to the query that produced it, so a cursor cannot be forged and one reused with different filters is refused with INVALID_CURSOR. Do not build, parse or alter a cursor. Null on the last page."
           }
         },
         "required": ["items", "nextCursor"],

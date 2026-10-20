@@ -10,15 +10,30 @@ export const PAGE_LIMIT_DEFAULT = 50;
 /**
  * The opaque keyset cursor. The server signs it and binds it to the query,
  * so a client can only hand back what it was given.
+ *
+ * The description travels into the generated document, because anyone
+ * implementing this API in another language reads that rather than this file.
  */
+const CURSOR_DESCRIPTION =
+  'An opaque cursor. Pass back the nextCursor from the previous page, unchanged. ' +
+  'The server signs every cursor and binds it to the query that produced it, so a ' +
+  'cursor cannot be forged and one reused with different filters is refused with ' +
+  'INVALID_CURSOR. Do not build, parse or alter a cursor.';
+
 export const Cursor = z
   .string()
   .min(1)
   .max(1024)
-  .regex(/^[A-Za-z0-9_-]+$/, 'an opaque base64url cursor');
+  .regex(/^[A-Za-z0-9_-]+$/, 'an opaque base64url cursor')
+  .describe(CURSOR_DESCRIPTION);
 
 export function Page<T extends z.ZodType>(item: T) {
-  return z.strictObject({ items: z.array(item), nextCursor: Cursor.nullable() });
+  return z.strictObject({
+    items: z.array(item),
+    // Described on the field as well as the cursor, because a nullable field
+    // carries the inner description inside its anyOf, where it is easy to miss.
+    nextCursor: Cursor.nullable().describe(`${CURSOR_DESCRIPTION} Null on the last page.`),
+  });
 }
 
 // Query values arrive as text. Each parser below keeps the exact text rules

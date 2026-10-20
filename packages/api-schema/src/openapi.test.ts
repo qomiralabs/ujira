@@ -78,6 +78,40 @@ describe('OpenAPI document', () => {
     expect(text).not.toContain('"$schema"');
   });
 
+  // Someone implementing this API in another language reads the document,
+  // not our source, so an obligation that lives only in a comment is
+  // invisible to them.
+  it('states in the document that the server signs cursors', () => {
+    const doc = buildOpenApiDocument() as {
+      paths: Record<
+        string,
+        Record<string, { parameters: { name: string; schema: { description?: string } }[] }>
+      >;
+      components: {
+        schemas: Record<string, { properties?: Record<string, { description?: string }> }>;
+      };
+    };
+    const states = (text: string | undefined): boolean =>
+      text !== undefined && /signs?/i.test(text) && /(forg|another query|reused)/i.test(text);
+
+    // Every cursor a client sends back.
+    const cursorParams = Object.values(doc.paths)
+      .flatMap((methods) => Object.values(methods))
+      .flatMap((operation) => operation.parameters)
+      .filter((p) => /cursor/i.test(p.name));
+    expect(cursorParams.length).toBeGreaterThan(0);
+    for (const p of cursorParams) expect(states(p.schema.description), p.name).toBe(true);
+
+    // And every cursor the server hands out.
+    const pages = Object.entries(doc.components.schemas).filter(
+      ([, schema]) => schema.properties?.['nextCursor'] !== undefined,
+    );
+    expect(pages.length).toBeGreaterThan(0);
+    for (const [name, schema] of pages) {
+      expect(states(schema.properties?.['nextCursor']?.description), name).toBe(true);
+    }
+  });
+
   it('describes query parameters as the text clients send', () => {
     const doc = buildOpenApiDocument() as {
       paths: Record<
