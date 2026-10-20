@@ -284,6 +284,14 @@ jobs:
         with:
           persist-credentials: false
 
+      # Probe only, never merged: stages a file whose name holds an em dash,
+      # written from its bytes, so the check must fail on the name.
+      - name: Plant a dash in a file name (probe)
+        run: |
+          name="probe$(printf '\xe2\x80\x94')name.md"
+          printf 'clean content\n' >"$name"
+          git add -- "$name"
+
       - name: Test the dash check
         run: scripts/test-check-dashes.sh
 
