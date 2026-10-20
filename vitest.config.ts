@@ -48,6 +48,7 @@ export default defineConfig({
         'apps/*/src/**/*.{ts,tsx,mts,cts}',
         // Root scripts that the gate depends on.
         'scripts/check-workspace-scripts.ts',
+        'scripts/bundle-budget.ts',
         'scripts/gate.ts',
         'scripts/workspace.ts',
         // Pure helpers of the root scripts. The entry points only do I/O and
