@@ -282,12 +282,15 @@ export const PayoutTimeline = z
     });
   });
 
-export const ApprovalCount = z
-  .strictObject({
-    given: z.number().int().min(0).max(10),
-    required: z.number().int().min(0).max(10),
-  })
-  .refine((value) => value.given <= value.required, 'more approvals than required');
+/**
+ * given may exceed required: the principal can lower the requirement after
+ * approvals were already given, and the mandate keeps those approvals. Both
+ * counts are bounded because approving stops once the requirement is met.
+ */
+export const ApprovalCount = z.strictObject({
+  given: z.number().int().min(0).max(10),
+  required: z.number().int().min(0).max(10),
+});
 
 export const PayoutReceiptLink = z.strictObject({
   id: Uuid,

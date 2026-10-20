@@ -195,11 +195,27 @@ export const RecipientReceiptLeg = z.discriminatedUnion('method', [
 ]);
 
 /** The recipient's copy, served by receipt link or embed session only. */
-export const RecipientReceipt = z.strictObject({
-  view: z.literal('recipient'),
-  ...receiptFields,
-  legs: z.array(RecipientReceiptLeg).min(1).max(4),
-});
+export const RecipientReceipt = z
+  .strictObject({
+    view: z.literal('recipient'),
+    ...receiptFields,
+    /**
+     * The receipt a correction replaced, by number rather than id, so a
+     * recipient can match it to the copy they already hold without ever
+     * being handed an internal identifier.
+     */
+    supersedes: ReceiptNumber.nullable(),
+    legs: z.array(RecipientReceiptLeg).min(1).max(4),
+  })
+  .superRefine((value, ctx) => {
+    if ((value.revision === 1) !== (value.supersedes === null)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['supersedes'],
+        message: 'a revision after the first supersedes one',
+      });
+    }
+  });
 export type RecipientReceipt = z.infer<typeof RecipientReceipt>;
 
 export const ReceiptView = z.discriminatedUnion('view', [PrincipalReceipt, RecipientReceipt]);

@@ -64,22 +64,27 @@ export const MandateLimits = z
 
 /**
  * One instance's budget in its token. used is spent and never goes down;
- * committed is reserved by payouts on their way; the three always add up
- * to the total.
+ * pending is reserved by payouts waiting for approval and committed by
+ * approved ones not yet executed; remaining is what a new payout may still
+ * use. The four always add up to the total, which is what keeps a payout
+ * from being requested beyond the budget.
  */
 export const InstanceBudget = z
   .strictObject({
     total: TokenAmount,
     used: TokenAmount,
+    pending: TokenAmount,
     committed: TokenAmount,
     remaining: TokenAmount,
   })
   .superRefine((value, ctx) => {
-    if (!tokenSumEquals([value.used, value.committed, value.remaining], value.total)) {
+    if (
+      !tokenSumEquals([value.used, value.pending, value.committed, value.remaining], value.total)
+    ) {
       ctx.addIssue({
         code: 'custom',
         path: ['total'],
-        message: 'used, committed and remaining must add up to total',
+        message: 'used, pending, committed and remaining must add up to total',
       });
     }
   });

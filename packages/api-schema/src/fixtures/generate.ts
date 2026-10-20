@@ -41,6 +41,7 @@ import type {
   PayoutStatus,
   RecipientMode,
 } from '../enums.js';
+import { RELEASED_STATES } from '../funding.js';
 import type { Deposit, FundingOverview } from '../funding.js';
 import { DEFAULT_LOW_BALANCE } from '../low-balance.js';
 import type { LowBalance, LowBalanceTrigger } from '../low-balance.js';
@@ -133,13 +134,34 @@ export const EDGE_NAMES = Object.freeze({
 
 const iso = (ms: number): string => new Date(ms).toISOString();
 
+/**
+ * Every synthetic value is built here and nowhere else, and SYNTHETIC holds
+ * the pattern each one must match. A test walks the whole fixture set against
+ * these, so a fixture added later cannot drift into looking like a real
+ * person, account, key or hash.
+ */
+export const SYNTHETIC = Object.freeze({
+  address: /^[GC]FIXTURE[A-Z]*[0-9]{6}$/,
+  // Sixteen leading zeros, which no real transaction hash will have.
+  hash: /^0{16}[0-9a-f]{48}$/,
+  receiptNumber: /^R-[0-9A-Z]{12}$/,
+  recipientName: /^(Fixture Recipient |مستلم|نמען|Fixture مستلم)/u,
+  principalName: /^(Fixture Labs Test Principal|Second Fixture Principal)$/,
+  mandateName: /^Fixture Mandate [0-9]{2}$/,
+  taskId: /^fixture-task-[0-9a-f]{8}$/,
+  anchorName: /^Fixture Anchor [A-Z]{2}$/,
+  anchorTransactionId: /^fixture-anchor-tx-[0-9a-f]{12}$/,
+  maskedDestination: /^(\*{4}[0-9]{4}|G\.\.\.[0-9A-F]{4})$/,
+  // example.test is reserved for tests, so no fixture link can resolve.
+  url: /^https:\/\/[a-z.]+\.example\.test\//,
+});
+
 function fakeAddress(prefix: 'G' | 'C', label: string, n: number): string {
   const body = `FIXTURE${label}`.toUpperCase().replace(/[^A-Z]/g, 'X');
   const tail = String(n).padStart(6, '0');
   return `${prefix}${body.padEnd(55 - tail.length, 'X')}${tail}`;
 }
 
-// Hashes start with sixteen zeros, which no real transaction will.
 const fakeHash = (rng: Rng): string => `0000000000000000${rng.hex(48)}`;
 
 const receiptNumber = (rng: Rng): string => {
@@ -148,6 +170,9 @@ const receiptNumber = (rng: Rng): string => {
   for (let i = 0; i < 12; i += 1) out += alphabet[rng.below(alphabet.length)] ?? '0';
   return out;
 };
+
+const verifyUrl = (number: string): string => `https://receipts.example.test/${number}`;
+const explorerUrl = (hash: string): string => `https://explorer.example.test/tx/${hash}`;
 
 const wire = (value: CoreMoney): Money => toWireMoney(value);
 
@@ -202,6 +227,8 @@ interface Forced {
   readonly method?: PayoutMethod;
   readonly currency?: FiatCurrencyCode;
   readonly allowedBy?: AllowedBy;
+  /** The principal lowered the requirement after approvals were given. */
+  readonly loweredApprovals?: boolean;
 }
 
 class Builder {
@@ -309,6 +336,9 @@ class Builder {
       extreme === 'max' ? I128_MAX : usdToToken(totalUsd, TOKEN.asset, TOKEN.chain).amount;
     const used = extreme === 'none' ? rng.bigBetween(0n, budgetTotal / 2n) : 0n;
     const committed = extreme === 'none' ? rng.bigBetween(0n, (budgetTotal - used) / 3n) : 0n;
+    // Payouts waiting for approval reserve budget without having spent it.
+    const budgetPending =
+      extreme === 'none' ? rng.bigBetween(0n, (budgetTotal - used - committed) / 3n) : 0n;
     const instanceStatus = instanceStatusFor(status, rng);
     const deployed = instanceStatus !== 'deploying' && instanceStatus !== 'deploy_failed';
     const instanceId = rng.uuid();
@@ -359,8 +389,9 @@ class Builder {
           budget: {
             total: token(budgetTotal, tenant.network),
             used: token(used, tenant.network),
+            pending: token(budgetPending, tenant.network),
             committed: token(committed, tenant.network),
-            remaining: token(budgetTotal - used - committed, tenant.network),
+            remaining: token(budgetTotal - used - budgetPending - committed, tenant.network),
           },
           specVersion: 1,
           fundingAddress: deployed ? this.address('C', 'MANDATE') : null,
@@ -498,12 +529,16 @@ class Builder {
       ? (forced.allowedBy ?? allowedByFor(mandate.recipientMode, needsApproval))
       : null;
     const approvedViaApprovers = allowedBy?.endsWith('_approved') ?? false;
-    const approvals =
+    let approvals =
       status === 'pending_approval'
         ? { given: rng.below(approvalsRequired), required: approvalsRequired }
         : approvedViaApprovers
           ? { given: approvalsRequired, required: approvalsRequired }
           : { given: 0, required: needsApproval && status === 'rejected' ? approvalsRequired : 0 };
+
+    if (forced.loweredApprovals === true && allowedBy !== null) {
+      approvals = { given: 2, required: 1 };
+    }
 
     const tApproved = allowed ? created + 2 * 60_000 + rng.below(HOUR) : null;
     const executed = ['settling', 'delivering', 'partly_paid', 'paid', 'needs_attention'].includes(
@@ -677,12 +712,14 @@ class Builder {
     const ref = `ujira:tx:v1:${tenant.network}:${first?.txHash ?? fakeHash(rng)}:${String(rng.below(4))}`;
     this.payouts.push({ ...detail, receipt: { id, receiptNumber: number, receiptRef: ref } });
     const issuedAt = iso(delivered + 60_000);
-    const verifyUrl = `https://receipts.example/${number}`;
+    const link = verifyUrl(number);
     const documentSha256 = rng.hex(64);
     const payerDisplayName = tenant.receiptSettings.showPayerName ? tenant.principalName : null;
     // A take refund happens only after a refunded leg; kept to the edge set.
     const refunded = this.edge && rng.chance(3) ? BigInt(charges.take.amount) / 2n : 0n;
     const revision = refunded > 0n ? 2 : 1;
+    const supersededId = rng.uuid();
+    const supersededNumber = receiptNumber(rng);
     this.receipts.push({
       view: 'principal',
       principalId: tenant.principalId,
@@ -690,13 +727,13 @@ class Builder {
       receiptNumber: number,
       revision,
       issuedAt,
-      verifyUrl,
+      verifyUrl: link,
       payerDisplayName,
       status: 'paid',
       deliveredAt: iso(delivered),
       documentSha256,
       id,
-      supersedesReceiptId: revision === 1 ? null : rng.uuid(),
+      supersedesReceiptId: revision === 1 ? null : supersededId,
       receiptRef: ref,
       payoutId: detail.id,
       taskId: detail.taskId,
@@ -732,8 +769,9 @@ class Builder {
       view: 'recipient',
       receiptNumber: number,
       revision,
+      supersedes: revision === 1 ? null : supersededNumber,
       issuedAt,
-      verifyUrl,
+      verifyUrl: link,
       payerDisplayName,
       status: 'paid',
       deliveredAt: iso(delivered),
@@ -746,7 +784,7 @@ class Builder {
             received: leg.amount,
             maskedDestination: leg.maskedDestination,
             txHash: hash,
-            explorerUrl: `https://explorer.example/tx/${hash}`,
+            explorerUrl: explorerUrl(hash),
           };
         }
         const currency = leg.received.currency;
@@ -777,6 +815,12 @@ class Builder {
         let committed = rng.bigBetween(0n, 20_000n) * unit;
         const fixed = m.lowBalance.fixed === null ? null : BigInt(m.lowBalance.fixed.amount);
         const runway = BigInt(m.lowBalance.runwayDays ?? 0) * dailySpend;
+        // An instance past its expiry or revoked can pay nothing more, so its
+        // reservations no longer hold the balance back.
+        const released = RELEASED_STATES.has(i.status);
+        // Payouts waiting for approval. Kept non-zero almost everywhere, so
+        // the balance never reads as if pending did not exist.
+        let pending = this.edge && lowCase === 'both' ? 0n : rng.bigBetween(1n, 5_000n) * unit;
         let available: bigint;
         switch (lowCase) {
           case 'both':
@@ -791,15 +835,31 @@ class Builder {
             available = (fixed ?? 0n) / 2n;
             break;
           case 'fallback':
-            // Under seven days of history the runway rule compares the free
-            // balance with what is already committed.
+            // With fewer than seven days of spend to average, the runway rule
+            // compares the free balance with what is pending and committed.
             committed = committed + 1_000n * unit;
-            available = committed / 2n;
+            available = (committed + pending) / 2n;
             break;
           default:
             available = runway * 2n + (fixed ?? 0n) * 2n + unit;
         }
-        const runwayLimit = lowCase === 'fallback' ? committed : runway;
+        // A released instance shows its whole balance as available while the
+        // reservations stay on record; an active one holds them back. One
+        // account in the edge set owes more than it holds, which clamps the
+        // free amount at zero.
+        const underfunded = this.edge && lowCase === 'none' && i.status === 'active';
+        let total: bigint;
+        if (released) {
+          total = available;
+          if (committed === 0n) committed = unit;
+        } else if (underfunded) {
+          available = 0n;
+          pending = rng.bigBetween(1n, 500n) * unit;
+          total = pending + committed > unit ? pending + committed - unit : 0n;
+        } else {
+          total = available + pending + committed;
+        }
+        const runwayLimit = lowCase === 'fallback' ? committed + pending : runway;
         const firedBy: LowBalanceTrigger[] = [];
         if (m.lowBalance.runwayDays !== null && available < runwayLimit) {
           firedBy.push(lowCase === 'fallback' ? 'runway_fallback' : 'runway');
@@ -816,8 +876,9 @@ class Builder {
             asset: i.asset,
             fundingAddress: i.fundingAddress,
             balance: {
-              total: token(available + committed, i.network),
+              total: token(total, i.network),
               available: token(available, i.network),
+              pending: token(pending, i.network),
               committed: token(committed, i.network),
             },
             lowBalance: {
@@ -925,6 +986,7 @@ export function generateFixtures(options: FixtureOptions): FixtureSet {
     for (const currency of ['USD', 'COP', 'MXN'] as const)
       forcedList.push({ status: 'paid', forced: { currency } });
     for (const allowedBy of ALLOWED_BY) forcedList.push({ status: 'paid', forced: { allowedBy } });
+    forcedList.push({ status: 'paid', forced: { loweredApprovals: true } });
     forcedList.push(
       { status: 'pending_approval', forced: {} },
       { status: 'pending_approval', forced: {} },

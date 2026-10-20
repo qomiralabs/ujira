@@ -6,6 +6,7 @@ import type { FixtureSet } from './generate.js';
 
 export {
   EDGE_NAMES,
+  SYNTHETIC,
   generateFixtures,
   toMandateListItem,
   toPayoutListItem,

@@ -15,24 +15,42 @@ import {
 import { Cursor, LimitParam, Page } from './envelope.js';
 import { DepositStatus, MandateInstanceStatus } from './enums.js';
 import { LowBalanceState } from './low-balance.js';
-import { TokenAmount, TokenAssetCode, tokenSumEquals } from './money.js';
+import { TokenAmount, TokenAssetCode } from './money.js';
 
-/** total is everything the instance holds; available is free to commit. */
-export const FundingBalance = z
-  .strictObject({
-    total: TokenAmount,
-    available: TokenAmount,
-    committed: TokenAmount,
-  })
-  .superRefine((value, ctx) => {
-    if (!tokenSumEquals([value.available, value.committed], value.total)) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['total'],
-        message: 'available and committed must add up to total',
-      });
-    }
-  });
+/**
+ * total is everything the instance holds. pending is held back for payouts
+ * waiting for approval, committed for approved ones not yet executed, and
+ * available is what a new payout can still draw on. available is derived
+ * from the other three and the instance state, so the rule lives on the
+ * account below, which knows that state.
+ */
+export const FundingBalance = z.strictObject({
+  total: TokenAmount,
+  available: TokenAmount,
+  pending: TokenAmount,
+  committed: TokenAmount,
+});
+
+// Once an instance is revoked or has expired it can pay nothing more, so its
+// reservations stop holding the balance back even though they are still on
+// record. Every other state, paused included, still reserves.
+export const RELEASED_STATES: ReadonlySet<string> = new Set(['revoked', 'expired']);
+
+/**
+ * The available balance as the mandate reports it: what is left after the
+ * reservations, never below zero, because an underfunded instance can owe
+ * more than it holds.
+ */
+export function availableBalance(
+  total: bigint,
+  pending: bigint,
+  committed: bigint,
+  status: string,
+): bigint {
+  if (RELEASED_STATES.has(status)) return total;
+  const free = total - pending - committed;
+  return free > 0n ? free : 0n;
+}
 
 export const FundingAccount = z
   .strictObject({
@@ -53,6 +71,19 @@ export const FundingAccount = z
         code: 'custom',
         path: ['balance'],
         message: 'balance is on the account network',
+      });
+    }
+    const expected = availableBalance(
+      BigInt(value.balance.total.amount),
+      BigInt(value.balance.pending.amount),
+      BigInt(value.balance.committed.amount),
+      value.status,
+    );
+    if (BigInt(value.balance.available.amount) !== expected) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['balance', 'available'],
+        message: 'available does not match the reservations and the instance state',
       });
     }
   });

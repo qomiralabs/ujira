@@ -162,6 +162,80 @@ describe('schema rules', () => {
     ).toBe(false);
   });
 
+  it('allows more approvals than required, which lowering the requirement reaches', () => {
+    const p = first(set.payouts, (x) => x.status === 'paid');
+    expect(PayoutDetail.safeParse({ ...p, approvals: { given: 2, required: 1 } }).success).toBe(
+      true,
+    );
+    expect(PayoutDetail.safeParse({ ...p, approvals: { given: 10, required: 0 } }).success).toBe(
+      true,
+    );
+    expect(PayoutDetail.safeParse({ ...p, approvals: { given: 11, required: 1 } }).success).toBe(
+      false,
+    );
+    expect(PayoutDetail.safeParse({ ...p, approvals: { given: -1, required: 1 } }).success).toBe(
+      false,
+    );
+  });
+
+  it('balances an instance budget across used, pending, committed and remaining', () => {
+    const m = first(set.mandates, (x) => x.instances.length > 0);
+    const instance = m.instances[0];
+    if (instance === undefined) throw new Error('unreachable');
+    const net = instance.budget.total.network;
+    const t = (amount: string) => ({
+      amount,
+      asset: 'USDC' as const,
+      network: net,
+      scale: 7 as const,
+    });
+    instance.budget = {
+      total: t('1000'),
+      used: t('100'),
+      pending: t('400'),
+      committed: t('200'),
+      remaining: t('300'),
+    };
+    expect(MandateDetail.safeParse(m).success).toBe(true);
+    // Leaving pending out of the sum is the bug this catches: these four
+    // balance only if pending is ignored, as the earlier rule did.
+    instance.budget = { ...instance.budget, remaining: t('700') };
+    expect(MandateDetail.safeParse(m).success).toBe(false);
+  });
+
+  it('derives the available balance from the instance state', () => {
+    const f = first(set.funding, (x) => x.accounts.length > 0);
+    const account = f.accounts[0];
+    if (account === undefined) throw new Error('unreachable');
+    const net = account.network;
+    const t = (amount: string) => ({
+      amount,
+      asset: 'USDC' as const,
+      network: net,
+      scale: 7 as const,
+    });
+    const balance = (available: string, pending: string, committed: string) => ({
+      total: t('1000'),
+      available: t(available),
+      pending: t(pending),
+      committed: t(committed),
+    });
+    const parse = (status: string, b: unknown): boolean =>
+      FundingOverview.safeParse({ ...f, accounts: [{ ...account, status, balance: b }] }).success;
+
+    // Active: a payout awaiting approval holds back part of the balance.
+    expect(parse('active', balance('400', '400', '200'))).toBe(true);
+    expect(parse('active', balance('1000', '400', '200'))).toBe(false);
+    // Paused still reserves, because the payouts are still live.
+    expect(parse('paused', balance('400', '400', '200'))).toBe(true);
+    // Expired but not revoked: the whole balance is free again, committed stays.
+    expect(parse('expired', balance('1000', '0', '200'))).toBe(true);
+    expect(parse('expired', balance('800', '0', '200'))).toBe(false);
+    expect(parse('revoked', balance('1000', '0', '200'))).toBe(true);
+    // Underfunded: reservations above the balance clamp the free amount at zero.
+    expect(parse('active', balance('0', '900', '400'))).toBe(true);
+  });
+
   it('checks funding balances and deposits', () => {
     const f = first(set.funding, (x) => x.accounts.length > 0);
     const account = f.accounts[0];
@@ -209,6 +283,24 @@ describe('schema rules', () => {
       received: { amount: '1', asset: 'USDC', network: 'stellar:pubnet', scale: 7 },
     };
     expect(RecipientReceipt.safeParse({ ...r, legs: [wallet] }).success).toBe(false);
+  });
+
+  it('shows a recipient which receipt a correction replaced', () => {
+    const r = first(set.recipientReceipts, (x) => x.revision === 1);
+    expect(r.supersedes).toBeNull();
+    expect(RecipientReceipt.safeParse({ ...r, revision: 2 }).success).toBe(false);
+    expect(
+      RecipientReceipt.safeParse({ ...r, revision: 2, supersedes: 'R-ABCDEFGH1234' }).success,
+    ).toBe(true);
+    // A receipt number, never an id, so no tenant id reaches a recipient.
+    expect(
+      RecipientReceipt.safeParse({
+        ...r,
+        revision: 2,
+        supersedes: '00000000-0000-4000-8000-000000000000',
+      }).success,
+    ).toBe(false);
+    expect(RecipientReceipt.safeParse({ ...r, supersedes: 'R-ABCDEFGH1234' }).success).toBe(false);
   });
 
   it('checks principal receipt totals and revisions', () => {

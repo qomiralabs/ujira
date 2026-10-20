@@ -17,6 +17,7 @@ import {
 import { checkFixtures } from './check.js';
 import {
   EDGE_NAMES,
+  SYNTHETIC,
   EDGE_PAYOUT_COUNT,
   LOW_BALANCE_CASES,
   edgeFixtures,
@@ -129,15 +130,114 @@ describe('edge fixtures', () => {
     expect(named).toEqual(new Set([true, false]));
   });
 
+  it('covers a pending payout, an expired instance still holding committed funds, and approvals past the requirement', () => {
+    const accounts = set.funding.flatMap((f) => f.accounts);
+
+    // A payout awaiting approval holds part of the balance back.
+    const pending = accounts.filter((a) => BigInt(a.balance.pending.amount) > 0n);
+    expect(pending.length).toBeGreaterThan(0);
+    for (const a of pending) {
+      const active = !['expired', 'revoked'].includes(a.status);
+      if (active) {
+        const free =
+          BigInt(a.balance.total.amount) -
+          BigInt(a.balance.pending.amount) -
+          BigInt(a.balance.committed.amount);
+        expect(BigInt(a.balance.available.amount)).toBe(free > 0n ? free : 0n);
+      }
+    }
+
+    // Expired but not revoked: the whole balance reads as available even
+    // though funds are still committed to approved payouts.
+    const expired = accounts.filter(
+      (a) => a.status === 'expired' && BigInt(a.balance.committed.amount) > 0n,
+    );
+    expect(expired.length).toBeGreaterThan(0);
+    for (const a of expired) expect(a.balance.available.amount).toBe(a.balance.total.amount);
+
+    // An instance budget that uses all four parts.
+    const budgets = set.mandates.flatMap((m) => m.instances.map((i) => i.budget));
+    expect(budgets.some((b) => BigInt(b.pending.amount) > 0n)).toBe(true);
+    for (const b of budgets) {
+      const parts =
+        BigInt(b.used.amount) +
+        BigInt(b.pending.amount) +
+        BigInt(b.committed.amount) +
+        BigInt(b.remaining.amount);
+      expect(parts).toBe(BigInt(b.total.amount));
+    }
+
+    // More approvals than the requirement, after the principal lowered it.
+    expect(set.payouts.some((p) => p.approvals.given > p.approvals.required)).toBe(true);
+  });
+
+  it('shows a recipient which receipt a correction replaced', () => {
+    const corrected = set.recipientReceipts.filter((r) => r.revision > 1);
+    expect(corrected.length).toBeGreaterThan(0);
+    for (const r of corrected) expect(r.supersedes).toMatch(/^R-[0-9A-Z]{12}$/);
+    expect(set.recipientReceipts.some((r) => r.revision === 1 && r.supersedes === null)).toBe(true);
+  });
+
   it('fixture data looks synthetic: no realistic addresses or hashes', () => {
     for (const m of set.mandates) {
-      for (const role of m.instances.flatMap((i) => i.roles))
-        expect(role.address).toContain('FIXTURE');
+      for (const role of m.instances.flatMap((i) => i.roles)) {
+        expect(role.address).toMatch(SYNTHETIC.address);
+      }
     }
     for (const d of set.deposits) {
-      expect(d.txHash.startsWith('0000000000000000')).toBe(true);
-      expect(d.fromAddress).toContain('FIXTURE');
+      expect(d.txHash).toMatch(SYNTHETIC.hash);
+      expect(d.fromAddress).toMatch(SYNTHETIC.address);
     }
+  });
+
+  // A future fixture must not drift into looking real, so every synthetic
+  // value comes from one place and this walks the whole set against it.
+  it('builds every address, hash, name and reference from the synthetic patterns', () => {
+    const problems: string[] = [];
+    const check = (where: string, value: unknown, pattern: RegExp): void => {
+      if (typeof value === 'string' && !pattern.test(value)) problems.push(`${where}: ${value}`);
+    };
+    for (const m of set.mandates) {
+      check('mandate.name', m.name, SYNTHETIC.mandateName);
+      for (const i of m.instances) {
+        check('instance.fundingAddress', i.fundingAddress, SYNTHETIC.address);
+        for (const role of i.roles) check('role.address', role.address, SYNTHETIC.address);
+      }
+    }
+    for (const p of set.payouts) {
+      check('payout.taskId', p.taskId, SYNTHETIC.taskId);
+      for (const leg of p.legs) {
+        check('leg.txHash', leg.txHash, SYNTHETIC.hash);
+        check('leg.maskedDestination', leg.maskedDestination, SYNTHETIC.maskedDestination);
+        check('leg.anchorName', leg.anchorName, SYNTHETIC.anchorName);
+        check('leg.anchorTransactionId', leg.anchorTransactionId, SYNTHETIC.anchorTransactionId);
+      }
+      if (p.receipt !== null)
+        check('payout.receiptNumber', p.receipt.receiptNumber, SYNTHETIC.receiptNumber);
+    }
+    for (const r of set.receipts) {
+      check('receipt.number', r.receiptNumber, SYNTHETIC.receiptNumber);
+      check('receipt.payer', r.payerDisplayName, SYNTHETIC.principalName);
+      check('receipt.verifyUrl', r.verifyUrl, SYNTHETIC.url);
+      for (const leg of r.legs) check('receipt.leg.txHash', leg.txHash, SYNTHETIC.hash);
+    }
+    for (const r of set.recipientReceipts) {
+      check('recipientReceipt.verifyUrl', r.verifyUrl, SYNTHETIC.url);
+      check('recipientReceipt.supersedes', r.supersedes, SYNTHETIC.receiptNumber);
+      for (const leg of r.legs) {
+        if (leg.method === 'stellar_wallet') {
+          check('recipientLeg.txHash', leg.txHash, SYNTHETIC.hash);
+          check('recipientLeg.explorerUrl', leg.explorerUrl, SYNTHETIC.url);
+        } else {
+          check('recipientLeg.anchorName', leg.anchorName, SYNTHETIC.anchorName);
+        }
+      }
+    }
+    for (const d of set.deposits) {
+      check('deposit.txHash', d.txHash, SYNTHETIC.hash);
+      check('deposit.fromAddress', d.fromAddress, SYNTHETIC.address);
+    }
+    expect(problems).toEqual([]);
   });
 
   it('every tenant row belongs to one of the fixture tenants', () => {

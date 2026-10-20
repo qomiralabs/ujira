@@ -831,10 +831,11 @@
             "properties": {
               "total": { "$ref": "#/components/schemas/TokenAmount" },
               "used": { "$ref": "#/components/schemas/TokenAmount" },
+              "pending": { "$ref": "#/components/schemas/TokenAmount" },
               "committed": { "$ref": "#/components/schemas/TokenAmount" },
               "remaining": { "$ref": "#/components/schemas/TokenAmount" }
             },
-            "required": ["total", "used", "committed", "remaining"],
+            "required": ["total", "used", "pending", "committed", "remaining"],
             "additionalProperties": false
           },
           "specVersion": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
@@ -966,10 +967,11 @@
                   "properties": {
                     "total": { "$ref": "#/components/schemas/TokenAmount" },
                     "used": { "$ref": "#/components/schemas/TokenAmount" },
+                    "pending": { "$ref": "#/components/schemas/TokenAmount" },
                     "committed": { "$ref": "#/components/schemas/TokenAmount" },
                     "remaining": { "$ref": "#/components/schemas/TokenAmount" }
                   },
-                  "required": ["total", "used", "committed", "remaining"],
+                  "required": ["total", "used", "pending", "committed", "remaining"],
                   "additionalProperties": false
                 }
               },
@@ -2000,6 +2002,9 @@
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
           },
           "documentSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "supersedes": {
+            "anyOf": [{ "type": "string", "pattern": "^R-[0-9A-Z]{12}$" }, { "type": "null" }]
+          },
           "legs": {
             "minItems": 1,
             "maxItems": 4,
@@ -2057,6 +2062,7 @@
           "status",
           "deliveredAt",
           "documentSha256",
+          "supersedes",
           "legs"
         ],
         "additionalProperties": false
@@ -2175,9 +2181,10 @@
             "properties": {
               "total": { "$ref": "#/components/schemas/TokenAmount" },
               "available": { "$ref": "#/components/schemas/TokenAmount" },
+              "pending": { "$ref": "#/components/schemas/TokenAmount" },
               "committed": { "$ref": "#/components/schemas/TokenAmount" }
             },
-            "required": ["total", "available", "committed"],
+            "required": ["total", "available", "pending", "committed"],
             "additionalProperties": false
           },
           "lowBalance": { "$ref": "#/components/schemas/LowBalanceState" }
