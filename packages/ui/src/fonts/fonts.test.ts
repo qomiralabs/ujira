@@ -39,8 +39,8 @@ const KNOWN_TAGS = [
   'LTSH', 'PCLT', 'VDMX', 'vhea', 'vmtx', 'BASE', 'GDEF', 'GPOS', 'GSUB', 'EBSC',
   'JSTF', 'MATH', 'CBDT', 'CBLC', 'COLR', 'CPAL', 'SVG ', 'sbix', 'acnt', 'avar',
   'bdat', 'bloc', 'bsln', 'cvar', 'fdsc', 'feat', 'fmtx', 'fvar', 'gvar', 'hsty',
-  'just', 'lcar', 'ltag', 'meta', 'mort', 'morx', 'opbd', 'prop', 'trak', 'Zapf',
-  'Silf', 'Glat', 'Gloc',
+  'just', 'lcar', 'mort', 'morx', 'opbd', 'prop', 'trak', 'Zapf', 'Silf', 'Glat',
+  'Gloc', 'Feat', 'Sill',
 ] as const;
 
 interface Reader {
@@ -233,6 +233,25 @@ function declaration(property: string): string {
   return value;
 }
 
+// The table is only right if it is the whole list in the right order: an
+// index off by one would name a table that is really another one. This font
+// uses none of the tags past 48, so a mistake at the tail would otherwise
+// show up only when some later font carried one.
+test('the known table tags match the WOFF2 list', () => {
+  expect(KNOWN_TAGS).toHaveLength(63);
+  expect(KNOWN_TAGS[0]).toBe('cmap');
+  expect(KNOWN_TAGS[10]).toBe('glyf');
+  expect(KNOWN_TAGS[11]).toBe('loca');
+  expect(KNOWN_TAGS[26]).toBe('GDEF');
+  expect(KNOWN_TAGS[47]).toBe('fvar');
+  expect(KNOWN_TAGS[52]).toBe('mort');
+  expect(KNOWN_TAGS[56]).toBe('trak');
+  expect(KNOWN_TAGS[61]).toBe('Feat');
+  expect(KNOWN_TAGS[62]).toBe('Sill');
+  expect(new Set(KNOWN_TAGS).size).toBe(KNOWN_TAGS.length);
+  for (const tag of KNOWN_TAGS) expect(tag).toHaveLength(4);
+});
+
 test('unicode-range is exactly U+20A6, U+20B5, U+20B1, U+20B9', () => {
   const entries = declaration('unicode-range')
     .split(',')
@@ -311,10 +330,36 @@ function familyList(stack: string): string[] {
   return families;
 }
 
-test('the second mono face follows the brand mono face in the stack', () => {
+// An app fills the mono variable with its own font setup, and a font loader
+// usually puts a metric compatible fallback family in there beside the real
+// face, declared from a local system font. Such a fallback carries no
+// unicode-range, so it claims every code point, including the four signs. If
+// the variable came first in the stack, the signs would be drawn by that
+// local face, at its own width, and never reach the subset: on a machine with
+// Arial installed that is three of the four signs, at three widths that do
+// not match the digits. The signs face therefore goes in front of the
+// variable, which is safe because its own unicode-range confines it.
+test('the second mono face comes before the app variable in the stack', () => {
   const families = familyList(fonts.mono.stack);
-  expect(families[0]).toContain(fonts.mono.variable);
-  expect(families[1]).toBe(`'${fonts.mono.signs.face}'`);
+  const signs = families.indexOf(`'${fonts.mono.signs.face}'`);
+  const variable = families.findIndex((family) => family.includes(fonts.mono.variable));
+  expect(signs, `no ${fonts.mono.signs.face} in ${fonts.mono.stack}`).toBeGreaterThanOrEqual(0);
+  expect(variable, `no ${fonts.mono.variable} in ${fonts.mono.stack}`).toBeGreaterThanOrEqual(0);
+  expect(signs, 'the signs face must come before the app variable').toBeLessThan(variable);
+  // Nothing at all may sit in front of it, since anything there would be
+  // asked for the signs first.
+  expect(signs).toBe(0);
   // The generic fallbacks stay last, so the brand faces always win.
-  expect(families.slice(2)).toEqual([...fonts.mono.fallback]);
+  expect(families.slice(variable + 1)).toEqual([...fonts.mono.fallback]);
+});
+
+// The same order in the stylesheet the apps actually load, not only in the
+// typed constants.
+test('the stylesheet puts the second mono face before the app variable', () => {
+  const css = readFileSync(join(PACKAGE_ROOT, 'styles/tokens.css'), 'utf8');
+  const declared = /--ujira-font-mono:([^;]+);/.exec(css)?.[1];
+  expect(declared, 'no --ujira-font-mono in tokens.css').toBeDefined();
+  const families = familyList((declared ?? '').replace(/\s+/g, ' ').trim());
+  expect(families[0]).toBe(`'${fonts.mono.signs.face}'`);
+  expect(families[1]).toContain(fonts.mono.variable);
 });

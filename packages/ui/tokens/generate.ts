@@ -383,11 +383,19 @@ export function cssString(value: string): string {
 
 type FontRole = SystemTokens['font'][keyof SystemTokens['font']];
 
-// A second face goes straight after the brand face and before the generic
-// fallbacks, so a character only it draws never reaches a system font.
+/**
+ * A second face goes in front of everything else, not after the brand face.
+ * An app fills the variable below with its own font setup, and a font loader
+ * usually puts a metric compatible fallback family in there beside the real
+ * face. That fallback is declared from a local system font with no
+ * unicode-range, so it claims every code point and would answer for the signs
+ * before the stack ever reached the second face. The second face is safe in
+ * front because its own unicode-range confines it to the few characters it
+ * carries: every other character falls straight through to the brand face.
+ */
 function fontStack(font: FontRole): string {
   const signs = 'signs' in font ? [cssString(font.signs.face)] : [];
-  return [`var(${font.variable}, ${cssString(font.face)})`, ...signs, ...font.fallback].join(', ');
+  return [...signs, `var(${font.variable}, ${cssString(font.face)})`, ...font.fallback].join(', ');
 }
 
 /**

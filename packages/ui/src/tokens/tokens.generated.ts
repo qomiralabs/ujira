@@ -174,7 +174,7 @@ export const fonts = {
       unicodeRange: ['U+20A6', 'U+20B1', 'U+20B5', 'U+20B9'],
     },
     stack:
-      "var(--ujira-font-jetbrains-mono, 'JetBrains Mono'), 'Noto Sans Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
+      "'Noto Sans Mono', var(--ujira-font-jetbrains-mono, 'JetBrains Mono'), ui-monospace, SFMono-Regular, Menlo, monospace",
   },
 } as const;
 

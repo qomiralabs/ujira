@@ -117,11 +117,25 @@ JetBrains Mono draws no naira, cedi, peso or rupee sign, so an amount in one of 
 | ₵    | Ghanaian cedi   | U+20B5     |
 | ₹    | Indian rupee    | U+20B9     |
 
-Unlike the three faces above, this one needs nothing from the app. The subset lives in `fonts/`, `styles/fonts.css` declares it with a `unicode-range` holding exactly those four code points, and `styles/tokens.css` imports that stylesheet, so importing `@ujira/ui/styles/theme.css` (or `tokens.css`) is all it takes. The face sits after JetBrains Mono and before the generic fallbacks in `--ujira-font-mono`. Do not add Noto Sans Mono to an app's `next/font` call: that fetches a whole family from a font service at build time, and the point of the subset is that nothing is fetched at all.
+Unlike the three faces above, this one needs nothing from the app. The subset lives in `fonts/`, `styles/fonts.css` declares it with a `unicode-range` holding exactly those four code points, and `styles/tokens.css` imports that stylesheet, so importing `@ujira/ui/styles/theme.css` (or `tokens.css`) is all it takes. Set the three variables above as described and do nothing else. In particular, do not add Noto Sans Mono to an app's `next/font` call: that fetches a whole family from a font service at build time, and the point of the subset is that nothing is fetched at all.
+
+What makes "nothing from the app" true is the order of `--ujira-font-mono`, which puts this face **first**, ahead of `--ujira-font-jetbrains-mono`:
+
+```css
+--ujira-font-mono:
+  'Noto Sans Mono', var(--ujira-font-jetbrains-mono, 'JetBrains Mono'), ui-monospace,
+  SFMono-Regular, Menlo, monospace;
+```
+
+`next/font` does not put one family in that variable. It emits the real face plus a metric compatible fallback family, declared from a local system font so that text does not shift while the real face loads, and sets the variable to both. That fallback carries no `unicode-range`, so it claims every code point, the four signs included. With the signs face second, an amount in naira, peso or cedi is drawn by the local system font at its own width, which is a visibly ragged column next to the digits, and the subset is never reached. The rupee usually slips through only because the local font happens to lack it. Measured in Chrome on macOS with Arial installed: naira 72.22px, peso 66.70px and cedi 72.22px against a 60.00px column, with the signs face second; all four at 60.00px with it first.
+
+Putting it first costs nothing, because its `unicode-range` confines it to the four signs: every other character fails to match it and falls straight through to the brand face. That holds even on a machine with a full Noto Sans Mono installed, since an `@font-face` rule shadows an installed family of the same name for the document (measured, not assumed).
 
 Both faces advance 0.6 em per character, so a column of amounts keeps one width whichever face draws the sign. `font-display: swap` keeps the amount readable while the 2 KB file arrives.
 
-The subset and its `unicode-range` come from the `font.mono.signs` tokens in `tokens/system.json`; run `pnpm --filter @ujira/ui tokens` after changing them. `src/fonts/fonts.test.ts` fails if the range stops being those four code points, if the file grows past 10 KB, if the subset draws anything else, if a sign loses the mono advance, or if the licence text goes missing.
+The subset and its `unicode-range` come from the `font.mono.signs` tokens in `tokens/system.json`; run `pnpm --filter @ujira/ui tokens` after changing them. `src/fonts/fonts.test.ts` fails if the range stops being those four code points, if the file grows past 10 KB, if the subset draws anything else, if a sign loses the mono advance, if the licence text goes missing, or if the signs face stops coming before the app variable in the stack, in the typed constants and in `tokens.css` alike. Those last two are what stop the ordering regressing: a test that only looked for the family in the stack passed while the bug was live.
+
+The stack order is a package level guarantee, but only an app can prove it end to end, because the metric fallback family only exists once a font loader has run. The dashboard suite owns that check.
 
 #### Rebuilding the subset
 
