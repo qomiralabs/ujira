@@ -1,0 +1,57 @@
+/* Copyright (c) 2026 Qomira Labs. All rights reserved. */
+/* Proprietary and confidential. Unauthorized copying is prohibited. */
+
+@import 'tailwindcss';
+@import '@ujira/ui/styles/theme.css';
+
+/*
+ * The rail collapses to icons when the root carries data-rail="collapsed".
+ * Only elements inside [data-collapsible] react, so the mobile drawer, which
+ * reuses the same navigation, always shows labels.
+ */
+@custom-variant rail-collapsed {
+  [data-rail='collapsed'] [data-collapsible] &,
+  [data-rail='collapsed'] &[data-collapsible] {
+    @slot;
+  }
+}
+
+@layer base {
+  html {
+    background-color: var(--ujira-bg);
+    color: var(--ujira-text);
+    font-family: var(--ujira-font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    min-height: 100dvh;
+  }
+
+  /* Amounts, codes and labels never shift width as digits change. */
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0s !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0s !important;
+    }
+  }
+}
+
+/* The skeleton breathes slowly, and rests under reduced motion. */
+@keyframes ujira-skeleton {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@utility animate-skeleton {
+  animation: ujira-skeleton 1.6s var(--ujira-ease-out) infinite;
+}
