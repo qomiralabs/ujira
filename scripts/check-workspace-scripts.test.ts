@@ -269,11 +269,11 @@ describe('check-workspace-scripts', () => {
       ]);
     });
 
-    it('rejects a Next.js app until the gate builds one', () => {
-      const root = workspace({ 'apps/web': member('web', { 'next.config.ts': '' }) });
-      expect(checkWorkspace(root)).toEqual([
-        'web: Next.js apps are not built by the root gate yet; extend scripts/gate.ts first',
-      ]);
+    it('accepts a Next.js app found by its next.config, with tsconfig.json only', () => {
+      const root = workspace({
+        'apps/web': member('web', { 'next.config.ts': '', 'tsconfig.build.json': undefined }),
+      });
+      expect(checkWorkspace(root)).toEqual([]);
     });
 
     describe('member tsconfig files', () => {
@@ -562,21 +562,101 @@ describe('check-workspace-scripts', () => {
     });
 
     describe('Next.js apps', () => {
-      it.each(['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'])(
-        'rejects a member with next in %s',
-        (field) => {
-          const pkg = JSON.stringify({
+      const NEXT_TSCONFIG = JSON.stringify({
+        extends: '../../tsconfig.base.json',
+        compilerOptions: { noEmit: true, module: 'ESNext', moduleResolution: 'Bundler' },
+      });
+      const nextApp = (
+        field = 'dependencies',
+        overrides: Record<string, string | undefined> = {},
+      ): Record<string, string> =>
+        member('web', {
+          'package.json': JSON.stringify({
             name: 'web',
-            scripts: SCRIPTS,
+            scripts: { ...SCRIPTS, build: 'next build' },
             [field]: { next: '16.0.0' },
+          }),
+          'tsconfig.json': NEXT_TSCONFIG,
+          'tsconfig.build.json': undefined,
+          ...overrides,
+        });
+
+      it.each(['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'])(
+        'accepts a member with next in %s',
+        (field) => {
+          expect(checkWorkspace(workspace({ 'apps/web': nextApp(field) }))).toEqual([]);
+        },
+      );
+
+      it('rejects a tsconfig.build.json, which next build never reads', () => {
+        const root = workspace({
+          'apps/web': nextApp('dependencies', { 'tsconfig.build.json': TSCONFIG_BUILD }),
+        });
+        expect(checkWorkspace(root)).toEqual([
+          'web: tsconfig.build.json must not exist in a Next.js app; the gate builds it with next build',
+        ]);
+      });
+
+      it('requires tsconfig.json', () => {
+        const root = workspace({
+          'apps/web': nextApp('dependencies', { 'tsconfig.json': undefined }),
+        });
+        expect(checkWorkspace(root)).toEqual(['web: tsconfig.json is missing']);
+      });
+
+      it.each([
+        ['module', 'NodeNext'],
+        ['module', 'CommonJS'],
+        ['moduleResolution', 'Node10'],
+        ['moduleResolution', 'NodeNext'],
+      ])('rejects compilerOptions.%s of %s', (key, value) => {
+        const tsconfig = JSON.stringify({
+          extends: '../../tsconfig.base.json',
+          compilerOptions: {
+            noEmit: true,
+            module: 'ESNext',
+            moduleResolution: 'Bundler',
+            [key]: value,
+          },
+        });
+        const root = workspace({
+          'apps/web': nextApp('dependencies', { 'tsconfig.json': tsconfig }),
+        });
+        expect(checkWorkspace(root)).toEqual([
+          `web: tsconfig.json compilerOptions.${key} may only be "${key === 'module' ? 'ESNext' : 'Bundler'}" in a Next.js app, found "${value}"`,
+        ]);
+      });
+
+      it.each(['module', 'moduleResolution'])(
+        'rejects compilerOptions.%s outside a Next.js app',
+        (key) => {
+          const tsconfig = JSON.stringify({
+            extends: '../../tsconfig.base.json',
+            compilerOptions: { noEmit: true, [key]: key === 'module' ? 'ESNext' : 'Bundler' },
           });
-          expect(
-            checkWorkspace(workspace({ 'apps/web': member('web', { 'package.json': pkg }) })),
-          ).toEqual([
-            'web: Next.js apps are not built by the root gate yet; extend scripts/gate.ts first',
+          const root = workspace({ 'packages/a': member('a', { 'tsconfig.json': tsconfig }) });
+          expect(checkWorkspace(root)).toEqual([
+            `a: tsconfig.json must not set compilerOptions.${key}; shared options live in tsconfig.base.json`,
           ]);
         },
       );
+
+      it('skips the .next output folder at the member root', () => {
+        const root = workspace({
+          'apps/web': nextApp('dependencies', {
+            '.next/package.json': '{"type":"commonjs"}',
+            '.next/types/tsconfig.json': '{}',
+          }),
+        });
+        expect(checkWorkspace(root)).toEqual([]);
+      });
+
+      it('rejects files tracked inside .next', () => {
+        const root = workspace({ 'apps/web': nextApp() });
+        expect(checkWorkspace(root, { trackedFiles: ['apps/web/.next/BUILD_ID'] })).toEqual([
+          'apps/web/.next/BUILD_ID: tracked inside a member output folder, which the build replaces and lint skips',
+        ]);
+      });
     });
 
     describe('symlinks', () => {
