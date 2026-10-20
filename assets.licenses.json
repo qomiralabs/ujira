@@ -1,0 +1,28 @@
+{
+  "assets": [
+    {
+      "path": "packages/ui/assets/brand/*.svg",
+      "kind": "image",
+      "source": "https://github.com/qomiralabs/ujira",
+      "license": "LicenseRef-QomiraLabs-Proprietary",
+      "copyright": "Qomira Labs",
+      "added": "2026-10-17"
+    },
+    {
+      "path": "packages/ui/assets/brand/Tokens.json",
+      "kind": "data",
+      "source": "https://github.com/qomiralabs/ujira",
+      "license": "LicenseRef-QomiraLabs-Proprietary",
+      "copyright": "Qomira Labs",
+      "added": "2026-10-17"
+    },
+    {
+      "path": "scripts/fixtures/embedded-metadata/clean.*",
+      "kind": "image",
+      "source": "https://github.com/qomiralabs/ujira",
+      "license": "LicenseRef-QomiraLabs-Proprietary",
+      "copyright": "Qomira Labs",
+      "added": "2026-10-17"
+    }
+  ]
+}
