@@ -30,6 +30,10 @@ export default defineConfig({
         // `@vitest-environment jsdom` comment. The token generator has its
         // own tests next to it.
         '@ujira/ui': { include: ['src/**/*.test.{ts,tsx}', 'tokens/**/*.test.ts'] },
+        // The widget's own tests, plus the generator that turns the shared
+        // tokens and the brand mark into the files it ships. The browser
+        // tests live in e2e/ and run under Playwright, not here.
+        '@ujira/embed': { include: ['src/**/*.test.ts', 'tokens/**/*.test.ts'] },
         // The spike tests start a Postgres container and real worker pools.
         '@ujira/payouts': {
           include: ['src/**/*.test.ts', 'spikes/**/*.test.ts'],

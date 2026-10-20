@@ -8,6 +8,12 @@ UJIRA uses the open source packages and assets listed below under the licenses s
 
 | Package | Version | License | Repository |
 | --- | --- | --- | --- |
+| @lit-labs/ssr-dom-shim | 1.6.0 | BSD-3-Clause | https://github.com/lit/lit |
+| @lit/reactive-element | 2.1.2 | BSD-3-Clause | https://github.com/lit/lit |
+| @types/trusted-types | 2.0.7 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
+| lit | 3.3.3 | BSD-3-Clause | https://github.com/lit/lit |
+| lit-element | 4.2.2 | BSD-3-Clause | https://github.com/lit/lit |
+| lit-html | 3.3.3 | BSD-3-Clause | https://github.com/lit/lit |
 | zod | 4.6.5 | MIT | https://github.com/colinhacks/zod |
 
 ## Production platform specific packages
@@ -26,6 +32,7 @@ Used to build and test UJIRA. They are not shipped.
 | --- | --- | --- | --- |
 | @asamuzakjp/css-color | 7.1.5 | MIT | https://github.com/asamuzaK/cssColor |
 | @asamuzakjp/dom-selector | 10.0.3 | MIT | https://github.com/asamuzaK/domSelector |
+| @axe-core/playwright | 4.13.0 | MPL-2.0 | https://github.com/dequelabs/axe-core-npm |
 | @babel/code-frame | 7.29.7 | MIT | https://github.com/babel/babel |
 | @babel/helper-string-parser | 7.29.7 | MIT | https://github.com/babel/babel |
 | @babel/helper-validator-identifier | 7.29.7 | MIT | https://github.com/babel/babel |
@@ -81,6 +88,7 @@ Used to build and test UJIRA. They are not shipped.
 | @open-draft/until | 2.1.0 | MIT | https://github.com/open-draft/until |
 | @oxc-project/types | 0.154.0 | MIT | https://github.com/oxc-project/oxc |
 | @pkgjs/parseargs | 0.11.0 | MIT | https://github.com/pkgjs/parseargs |
+| @playwright/test | 1.63.0 | Apache-2.0 | https://github.com/microsoft/playwright |
 | @protobufjs/aspromise | 1.1.2 | BSD-3-Clause | https://github.com/dcodeIO/protobuf.js |
 | @protobufjs/base64 | 1.1.2 | BSD-3-Clause | https://github.com/dcodeIO/protobuf.js |
 | @protobufjs/codegen | 2.0.5 | BSD-3-Clause | https://github.com/dcodeIO/protobuf.js |
@@ -150,6 +158,7 @@ Used to build and test UJIRA. They are not shipped.
 | ast-v8-to-istanbul | 1.0.7 | MIT | https://github.com/AriPerkkio/ast-v8-to-istanbul |
 | async | 3.2.6 | MIT | https://github.com/caolan/async |
 | async-lock | 1.4.1 | MIT | https://github.com/rogierschouten/async-lock |
+| axe-core | 4.13.0 | MPL-2.0 | https://github.com/dequelabs/axe-core |
 | b4a | 1.9.0 | Apache-2.0 | https://github.com/holepunchto/b4a |
 | balanced-match | 1.0.2 | MIT | https://github.com/juliangruber/balanced-match |
 | balanced-match | 4.0.4 | MIT | https://github.com/juliangruber/balanced-match |
@@ -329,6 +338,8 @@ Used to build and test UJIRA. They are not shipped.
 | pgpass | 1.0.5 | MIT | https://github.com/hoegaarden/pgpass |
 | picocolors | 1.1.1 | ISC | https://github.com/alexeyraspopov/picocolors |
 | picomatch | 4.0.7 | MIT | https://github.com/micromatch/picomatch |
+| playwright | 1.63.0 | Apache-2.0 | https://github.com/microsoft/playwright |
+| playwright-core | 1.63.0 | Apache-2.0 | https://github.com/microsoft/playwright |
 | postcss | 8.5.30 | MIT | https://github.com/postcss/postcss |
 | postgres-array | 2.0.0 | MIT | https://github.com/bendrucker/postgres-array |
 | postgres-bytea | 1.0.1 | MIT | https://github.com/bendrucker/postgres-bytea |
@@ -486,6 +497,7 @@ Files that do not come from npm, from `assets.licenses.json`.
 
 | Asset | Files | License | Copyright | Source | Added |
 | --- | --- | --- | --- | --- | --- |
+| packages/embed/assets/brand/*.svg | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-20 |
 | packages/ui/assets/brand/*.svg | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-17 |
 | packages/ui/assets/brand/Tokens.json | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-17 |
 | scripts/fixtures/embedded-metadata/clean.* | 3 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-17 |

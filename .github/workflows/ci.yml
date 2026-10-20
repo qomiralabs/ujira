@@ -267,6 +267,93 @@ jobs:
           if-no-files-found: ${{ job.status == 'success' && 'error' || 'ignore' }}
           retention-days: 14
 
+  # The embed widget is the only surface that ships as a file on someone
+  # else's page, so its budget and its browser tests run on every change. A
+  # separate job because it needs a browser, which the verify job does not.
+  embed:
+    name: Embed widget
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The same hand installation and check as the verify job: the download
+      # is verified against a pinned hash before anything runs it.
+      - name: Set up pnpm
+        run: |
+          curl -fsSLo pnpm.tgz "https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-${PNPM_VERSION}.tgz"
+          echo "${PNPM_EXE_SHA512}  pnpm.tgz" | sha512sum --check --strict
+          mkdir -p "${RUNNER_TEMP}/pnpm"
+          tar -xzf pnpm.tgz -C "${RUNNER_TEMP}/pnpm" --strip-components 1 package/pnpm
+          rm pnpm.tgz
+          echo "${RUNNER_TEMP}/pnpm" >> "${GITHUB_PATH}"
+          PATH="${RUNNER_TEMP}/pnpm:${PATH}" scripts/assert-pnpm.sh
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm install --frozen-lockfile --ignore-scripts
+
+      # Fails above 60 KB gzipped. The widget is built in memory, so this
+      # writes nothing into the checkout.
+      - name: Size budget
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/embed size
+
+      - name: Install Chromium
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/embed exec playwright install --with-deps chromium
+
+      # Theming, accessibility in both modes, the 320px layout and the time to
+      # interactive on a throttled connection.
+      - name: Browser tests
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/embed e2e
+
+      # Light and dark at every review width, for the design review on the
+      # pull request.
+      - name: Screenshots
+        if: ${{ !cancelled() }}
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/embed screenshots "${RUNNER_TEMP}/embed-screenshots"
+
+      - name: Upload screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: embed-screenshots
+          path: ${{ runner.temp }}/embed-screenshots/
+          if-no-files-found: ${{ job.status == 'success' && 'error' || 'ignore' }}
+          retention-days: 14
+
+      # On a failure this carries the diff of the visual snapshot and the
+      # trace of every failed test.
+      - name: Upload the browser test report
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: embed-playwright-report
+          path: |
+            packages/embed/playwright-report/
+            packages/embed/test-results/
+            packages/embed/e2e/__screenshots__/
+          if-no-files-found: ignore
+          retention-days: 14
+
   # Fails on any em dash or en dash in a tracked file. The same scripts run
   # in every UJIRA repository.
   dashes:

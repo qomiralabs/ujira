@@ -1,0 +1,56 @@
+// Copyright (c) 2026 Qomira Labs. All rights reserved.
+// Proprietary and confidential. Unauthorized copying is prohibited.
+
+import { expect, test, type Page } from '@playwright/test';
+
+import {
+  answerDestination,
+  answerMethod,
+  answerName,
+  open,
+  primary,
+  reach,
+  WIDGET,
+} from './flow.ts';
+
+const NARROW = 320;
+
+async function sidewaysScroll(page: Page): Promise<number> {
+  return page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+}
+
+test('the widget fits a 320 px screen', async ({ page }) => {
+  await open(page, { width: NARROW, height: 720 });
+  await expect(page.locator(`${WIDGET} .widget`)).toHaveScreenshot('name-step-320.png');
+  expect(await sidewaysScroll(page)).toBe(0);
+});
+
+test('nothing spills sideways on any step at 320 px', async ({ page }) => {
+  await open(page, { width: NARROW, height: 720 });
+  expect(await sidewaysScroll(page), 'the name step overflows').toBe(0);
+  await answerName(page);
+  expect(await sidewaysScroll(page), 'the method step overflows').toBe(0);
+  await answerMethod(page);
+  expect(await sidewaysScroll(page), 'the destination step overflows').toBe(0);
+  await answerDestination(page);
+  expect(await sidewaysScroll(page), 'the review step overflows').toBe(0);
+  await primary(page).click();
+  await expect(page.locator(`${WIDGET} .heading`)).toBeVisible();
+  expect(await sidewaysScroll(page), 'the confirmation overflows').toBe(0);
+});
+
+test('every control is big enough to hit with a thumb', async ({ page }) => {
+  await open(page, { width: NARROW, height: 720 });
+  await reach(page, 'destination');
+  const controls = page.locator(
+    `${WIDGET} input.input, ${WIDGET} .primary, ${WIDGET} .text-button`,
+  );
+  const count = await controls.count();
+  expect(count).toBeGreaterThan(2);
+  for (let index = 0; index < count; index++) {
+    const box = await controls.nth(index).boundingBox();
+    expect(box?.height ?? 0, `control ${String(index)} is too short`).toBeGreaterThanOrEqual(44);
+  }
+});
