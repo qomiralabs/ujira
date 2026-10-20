@@ -77,7 +77,7 @@ export function SelectLabel({ className, ...props }: ComponentProps<typeof Selec
   return (
     <SelectPrimitive.Label
       data-slot="select-label"
-      className={cn('px-2 py-1.5 font-mono text-label text-text-subtle uppercase', className)}
+      className={cn('px-2 py-2 font-mono text-label text-text-subtle uppercase', className)}
       {...props}
     />
   );
@@ -111,6 +111,10 @@ export function SelectItem({ className, children, description, ...props }: Selec
       {...(descriptionId === undefined ? {} : { 'aria-describedby': descriptionId })}
       {...props}
     >
+      {/*
+       * Off the 4px grid on purpose: 10px centres the 16px check on the
+       * first line of the option, whether or not a description follows.
+       */}
       <span className="absolute top-2.5 left-2 flex size-4 items-center justify-center">
         <SelectPrimitive.ItemIndicator>
           <Check aria-hidden="true" strokeWidth={1.5} className="size-4" />

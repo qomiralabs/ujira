@@ -24,7 +24,7 @@ describe('Button', () => {
       // A destructive action is not a payment, so it takes no payment status
       // colour. It is marked by the strongest border of the four, and by the
       // icon the caller gives it.
-      danger: ['bg-surface', 'text-text', 'border-text'],
+      danger: ['bg-surface', 'text-text', 'border-text', 'border-2'],
     } as const;
     for (const [variant, tokens] of Object.entries(expected)) {
       const classes = buttonVariants({ variant: variant as keyof typeof expected }).split(' ');
@@ -34,6 +34,55 @@ describe('Button', () => {
     for (const variant of ['secondary', 'ghost', 'danger'] as const) {
       expect(buttonVariants({ variant })).not.toContain('accent-fill');
     }
+  });
+
+  it('tells danger apart from secondary by build, not by colour', () => {
+    const danger = buttonVariants({ variant: 'danger' }).split(' ');
+    const secondary = buttonVariants({ variant: 'secondary' }).split(' ');
+    // Same ground and same text colour, so the difference has to be
+    // structural: a double weight border, and the ruled cap the component
+    // draws around the required icon.
+    expect(danger).toContain('bg-surface');
+    expect(secondary).toContain('bg-surface');
+    expect(danger).toContain('border-2');
+    expect(secondary).not.toContain('border-2');
+
+    render(
+      <>
+        <Button variant="danger" icon={<span data-testid="icon" />}>
+          Pause mandate
+        </Button>
+        <Button variant="secondary">Export CSV</Button>
+      </>,
+    );
+    const dangerButton = screen.getByRole('button', { name: 'Pause mandate' });
+    const cap = dangerButton.querySelector('[data-button-cap]');
+    expect(cap).not.toBeNull();
+    expect(cap?.getAttribute('aria-hidden')).toBe('true');
+    expect(cap?.className).toContain('border-r-2');
+    expect(cap?.querySelector('[data-testid="icon"]')).not.toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Export CSV' }).querySelector('[data-button-cap]'),
+    ).toBeNull();
+  });
+
+  it('does not compile a danger button without an icon', () => {
+    // The icon is what says "destructive" once the colour is gone, so it is
+    // part of the variant rather than a convention someone can forget.
+    // @ts-expect-error variant="danger" requires an icon
+    const missing = <Button variant="danger">Pause mandate</Button>;
+    expect(missing).toBeTruthy();
+  });
+
+  it('puts the busy mark in the cap, so a danger button keeps its shape', () => {
+    render(
+      <Button variant="danger" loading icon={<span data-testid="icon" />}>
+        Pausing
+      </Button>,
+    );
+    const cap = screen.getByRole('button').querySelector('[data-button-cap]');
+    expect(cap?.querySelector('svg[data-loading]')).not.toBeNull();
+    expect(cap?.querySelector('[data-testid="icon"]')).toBeNull();
   });
 
   it('keeps the payment status colours off every variant', () => {
@@ -137,6 +186,11 @@ describe('Button', () => {
     const classes = buttonVariants().split(' ');
     expect(classes).not.toContain('transition-colors');
     expect(classes).not.toContain('transition-all');
+  });
+
+  it('renders a leading icon from the icon prop', () => {
+    render(<Button icon={<span data-testid="icon" />}>Export CSV</Button>);
+    expect(screen.getByTestId('icon')).toBeTruthy();
   });
 
   it('draws the loading icon with the brand stroke', () => {

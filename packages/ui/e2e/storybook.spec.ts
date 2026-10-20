@@ -2,7 +2,7 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 import { AxeBuilder } from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { THEMES, VIEWPORTS } from '../.storybook/modes.ts';
 import { loadStories, openStory } from './stories.ts';
 
@@ -40,6 +40,17 @@ const RESPONSIVE = new Set([
 // The width the single width stories are taken at.
 const BASE = VIEWPORTS.tablet.width;
 
+async function expectNoSidewaysScroll(page: Page, id: string): Promise<void> {
+  const overflow = await page.evaluate(() => {
+    const root = document.documentElement;
+    return { scrollWidth: root.scrollWidth, clientWidth: root.clientWidth };
+  });
+  expect(
+    overflow.scrollWidth,
+    `${id} scrolls sideways at ${String(overflow.clientWidth)}px`,
+  ).toBeLessThanOrEqual(overflow.clientWidth);
+}
+
 for (const theme of THEMES) {
   test.describe(`${theme} mode`, () => {
     for (const story of loadStories()) {
@@ -58,6 +69,11 @@ for (const theme of THEMES) {
             targets: nodes.map((node) => node.target.join(' ')),
           })),
         ).toEqual([]);
+        // Nothing may push the page wider than the window. A hero amount at
+        // 40px with a real corridor value does exactly that on a phone, and
+        // a story is the pattern the first screen copies.
+        await expectNoSidewaysScroll(page, story.id);
+
         if (!SNAPSHOTS) return;
         if (!RESPONSIVE.has(story.id)) {
           await expect(page).toHaveScreenshot(`${story.id}--${theme}.png`);
@@ -65,6 +81,7 @@ for (const theme of THEMES) {
         }
         for (const { width, height } of Object.values(VIEWPORTS)) {
           await page.setViewportSize({ width, height });
+          await expectNoSidewaysScroll(page, story.id);
           await expect(page).toHaveScreenshot(`${story.id}--${theme}--${String(width)}.png`);
         }
         await page.setViewportSize({ width: BASE, height: VIEWPORTS.tablet.height });

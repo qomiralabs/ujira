@@ -48,15 +48,20 @@ export const Amount: Story = {
       <Field label="Amount" hint="What the recipient is paid, in their own currency.">
         <Input
           inputMode="decimal"
-          defaultValue="1,500.00"
+          defaultValue="12,500,000.00"
           className="text-right font-mono tabular-nums"
         />
       </Field>
       <div className="flex flex-col gap-1">
         <span className="text-body-s text-text-secondary">They receive</span>
-        {/* The amount is the hero, so it never wraps and never shrinks. */}
-        <span className="font-mono text-amount-xl tabular-nums whitespace-nowrap text-text">
-          KSh 1,500.00
+        {/*
+         * The amount is the hero and never wraps, so it steps down on a
+         * narrow screen instead: at 40px the longest amount a live corridor
+         * can produce is wider than a phone, and the page would scroll
+         * sideways. The value shown is that longest case, not a short one.
+         */}
+        <span className="font-mono text-amount-l tabular-nums whitespace-nowrap text-text sm:text-amount-xl">
+          KSh 12,500,000.00
         </span>
       </div>
     </div>

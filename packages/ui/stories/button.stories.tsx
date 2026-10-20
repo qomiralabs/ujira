@@ -2,7 +2,7 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { Download } from 'lucide-react';
+import { Download, Trash2 } from 'lucide-react';
 import { BrandIcon } from '../src/icons/brand-icon.js';
 import { Button } from '../src/primitives/button.js';
 import { focusFirst, HOVER } from './helpers.js';
@@ -34,7 +34,7 @@ function renderVariants(args: Story['args']) {
       <Button {...args} variant="ghost">
         Cancel
       </Button>
-      <Button {...args} variant="danger">
+      <Button {...args} variant="danger" icon={<BrandIcon name="pause" size={16} />}>
         Revoke mandate
       </Button>
     </div>
@@ -67,20 +67,36 @@ export const Sizes: Story = {
  * a generic one. Lucide is for everything the brand has no icon for.
  */
 export const WithIcon: Story = {
-  args: { variant: 'danger', children: 'Pause mandate' },
+  args: { children: 'Pause mandate' },
   render: (args) => (
     <div className="flex flex-wrap items-center gap-3">
-      <Button {...args}>
-        <BrandIcon name="pause" size={16} />
+      <Button variant="danger" icon={<BrandIcon name="pause" size={16} />}>
         {args.children}
       </Button>
-      <Button variant="secondary">
-        <BrandIcon name="receipt" size={16} />
+      <Button variant="secondary" icon={<BrandIcon name="receipt" size={16} />}>
         View receipt
       </Button>
-      <Button variant="ghost">
-        <Download aria-hidden="true" strokeWidth={1.5} />
+      <Button variant="ghost" icon={<Download aria-hidden="true" strokeWidth={1.5} />}>
         Export CSV
+      </Button>
+    </div>
+  ),
+};
+
+/**
+ * A destructive action is told apart from an ordinary one by its build, not by
+ * a colour: a double weight border and an icon in a ruled cap. The icon is
+ * required by the type, so `variant="danger"` cannot be written without one.
+ */
+export const DangerBesideSecondary: Story = {
+  render: () => (
+    <div className="flex flex-wrap items-center gap-3">
+      <Button variant="secondary">Export CSV</Button>
+      <Button variant="danger" icon={<BrandIcon name="pause" size={16} />}>
+        Pause mandate
+      </Button>
+      <Button variant="danger" size="sm" icon={<Trash2 aria-hidden="true" strokeWidth={1.5} />}>
+        Delete saved view
       </Button>
     </div>
   ),

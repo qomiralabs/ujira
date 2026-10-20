@@ -120,14 +120,20 @@ export function Field({
             </span>
           ) : null}
         </Label>
-        {children}
+        {/*
+         * Above the control, not below it. Under a list of choices the hint
+         * sits at the same size and colour as the last choice's own
+         * description, and reads as belonging to that choice instead of to
+         * the field.
+         */}
         {value.hintId === undefined ? null : (
           <p id={value.hintId} className="text-body-s text-text-secondary">
             {hint}
           </p>
         )}
+        {children}
         {value.errorId === undefined ? null : (
-          <p id={value.errorId} className="flex items-start gap-1.5 text-body-s text-blocked">
+          <p id={value.errorId} className="flex items-start gap-2 text-body-s text-blocked">
             <CircleAlert aria-hidden="true" strokeWidth={1.5} className="mt-0.5 size-4 shrink-0" />
             <span>{error}</span>
           </p>

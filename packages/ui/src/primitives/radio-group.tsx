@@ -70,6 +70,10 @@ export function RadioGroupItem({
       {...(descriptionId === undefined ? {} : { 'aria-describedby': descriptionId })}
       {...props}
     >
+      {/*
+       * Off the 4px grid on purpose: a 10px dot leaves an even 4px ring of
+       * ground inside the 20px circle. 8px reads hollow, 12px reads filled.
+       */}
       <RadioGroupPrimitive.Indicator className="size-2.5 rounded-full bg-text" />
     </RadioGroupPrimitive.Item>
   );
