@@ -233,8 +233,10 @@ const MISSING = new Set([
 
 export type Decision = { ok: true } | { ok: false; reason: string };
 
-// `packageName` matters only for font licenses in production; without it a
-// font license is treated as coming from a non font package.
+// `packageName` decides whether a per package allowance applies: a font
+// license in production, or an entry in PACKAGE_LICENSE_EXCEPTIONS. Without
+// it, the license is judged as if it came from a package with no allowance,
+// which is the stricter reading.
 export function evaluateLicense(license: string, scope: Scope, packageName?: string): Decision {
   const value = license.trim();
   if (MISSING.has(value.toLowerCase()) || /^see license in /i.test(value)) {

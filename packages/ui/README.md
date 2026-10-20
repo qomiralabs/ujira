@@ -1,6 +1,6 @@
 # @ujira/ui
 
-The UJIRA design system, shared by the dashboard and the website. This first slice holds the design tokens, the nine brand icons and the font setup notes. Primitives, charts and payment components come later.
+The UJIRA design system, shared by the dashboard and the website. It holds the design tokens, the nine brand icons, the form primitives and the component catalogue. Charts and payment components come later.
 
 ## Layout
 
@@ -16,6 +16,102 @@ The UJIRA design system, shared by the dashboard and the website. This first sli
 | `src/tokens/tokens.generated.ts`     | Generated. Typed constants with the same values                                                                                    |
 | `src/icons/brand-icons.generated.ts` | Generated. The nine icon names and their shapes, read from the sprite                                                              |
 | `src/icons/brand-icon.tsx`           | `<BrandIcon name="payout" />`                                                                                                      |
+| `src/primitives/`                    | The form primitives, shadcn/ui on Radix restyled to the brand                                                                      |
+| `src/lib/cn.ts`                      | `cn()`, the class merge that knows the brand type steps, radii and shadows                                                         |
+| `stories/`                           | One story file per primitive, every variant and state                                                                              |
+| `.storybook/`                        | The catalogue: light and dark, the three widths, the axe addon                                                                     |
+| `e2e/`                               | The browser tests: axe, the focus ring and the visual snapshots                                                                    |
+
+## Primitives
+
+```tsx
+import { Button, Field, Input } from '@ujira/ui';
+
+<Field label="Recipient email" hint="We send the receipt here." error={errors.email?.message}>
+  <Input type="email" {...register('email')} />
+</Field>
+<Button variant="primary">Approve payout</Button>
+```
+
+`Field` is the wiring: it gives the control an id, links the label, the hint and the error with
+`aria-describedby` and `aria-errormessage`, and marks the control invalid while an error is set.
+Pass a react-hook-form message straight to `error`. Group controls such as `RadioGroup` are named
+by the label instead. Input, Textarea, Select, Checkbox, RadioGroup and Switch all read the field
+around them, so nothing has to be wired twice.
+
+Rules the primitives hold to:
+
+- One saffron primary action per view. `Button` has `primary`, `secondary`, `ghost` and `danger`;
+  only `primary` uses the saffron fill.
+- No action borrows a payment status colour. Paid, waiting and blocked describe a payment, so
+  `danger` is marked by the strongest border of the four variants and by the icon the caller gives
+  it, not by red. The red belongs to the confirmation step that follows. A test fails if any
+  variant picks up a status token. If we later want a louder destructive button, that needs a
+  destructive colour in the brand tokens, which is the brand owner's decision, not a local one.
+- Every interactive element has the 2px saffron focus ring with a 2px offset, and a teal ink ring
+  in the offset band so it stays visible on cream, on white and on a saffron button.
+- 6px radius on inputs and buttons, no shadows outside overlays.
+- Errors carry an icon and a sentence, never colour alone.
+- A loading button keeps its label and its place in the tab order: it is marked busy and disabled,
+  and ignores clicks, rather than dropping out of the page.
+- Lucide icons are drawn at `strokeWidth={1.5}`, and only where the brand has no icon of its own.
+  The nine core ideas (mandate, payout, recipient, approval, receipt, rail, local currency, agent,
+  pause) use `<BrandIcon />`, so a pause button shows the brand glyph rather than a generic one.
+- Choices the product named carry a description: `RadioGroupItem` and `SelectItem` take one, linked
+  with `aria-describedby`, and the name stays the accessible name. Choices the principal named
+  themselves, such as a project or a mandate, stay bare, because the name is the whole content.
+- Radius: an overlay anchored to and sized by a control, such as the open `Select` list, matches
+  the control's 6px. A free standing overlay, such as a dialog or a sheet, uses 14px. There is no
+  third value.
+- Text only ever sits on `bg` or `surface`. Those are the two grounds the token tests hold every
+  text colour to 4.5:1 against. A highlighted row therefore uses `bg`, never `rule`: secondary text
+  on the rule ground measures 3.8:1 in dark mode, and axe catches it.
+- Checkbox and radio boxes are 20px with a 24px hit area, so they meet WCAG 2.2 AA target size even
+  in a dense row with no label beside them to click.
+- Colours come from the generated theme only. A test fails on a hex, `rgb()` or `hsl()` literal, on
+  a colour utility that is not in the theme, and on a custom property that is not a UJIRA or Radix one.
+
+## Catalogue
+
+```sh
+pnpm --filter @ujira/ui storybook        # the catalogue at http://localhost:6006
+pnpm --filter @ujira/ui build-storybook  # static build into storybook-static/
+pnpm --filter @ujira/ui test-storybook   # the browser tests against that build
+```
+
+The catalogue switches mode with the same `data-theme` attribute the apps use, and the viewport
+toolbar holds the three widths every screen is checked at: 375, 768 and 1440. The a11y addon runs
+axe on the story you are looking at.
+
+`test-storybook` runs every story twice, once per mode. Each run checks axe for WCAG 2.2 AA
+violations and compares a screenshot. A separate spec presses Tab on every interactive story in
+both modes and asserts the saffron ring. Build the catalogue first; the tests read its
+`index.json`, so a new story is covered the moment it exists.
+
+Most stories are a single control whose layout does not change with the width, so they are
+snapshotted once at 768. The stories whose layout does change, listed in `RESPONSIVE` in
+`e2e/storybook.spec.ts`, are snapshotted at all three widths. Add a story to that list when its
+layout reflows, rather than tripling every image.
+
+Off Linux the screenshot comparison is the only thing that does not run: axe, the focus ring and
+the sideways scroll check at every width still do. The run says so before it starts and each story
+carries a `snapshot skipped` annotation, so a green local run cannot be mistaken for the full
+visual gate.
+
+Screenshots are compared only on Linux, so that one set of files works for everyone. Take and
+check them in the same image CI uses:
+
+```sh
+docker run --rm --platform linux/amd64 -v "$PWD/../..":/w \
+  mcr.microsoft.com/playwright:v1.63.0-noble \
+  bash -c 'cd /w/packages/ui && node node_modules/@playwright/test/cli.js test --update-snapshots'
+```
+
+Look at every changed image before you commit it. Run the same command without
+`--update-snapshots` to check them.
+
+The screenshots are our own output, not third party material, so they are registered once in
+`assets.licenses.json` as a single glob over the folder. New stories need no new entry.
 
 ## Tokens
 
