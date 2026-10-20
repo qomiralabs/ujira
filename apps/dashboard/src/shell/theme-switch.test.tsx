@@ -13,15 +13,15 @@ function open(): void {
 describe('ThemeSwitch', () => {
   it('names the current theme in words and starts on the system setting', () => {
     render(<ThemeSwitch />);
-    const trigger = screen.getByRole('button', { name: 'Theme: Match system. Choose a theme' });
-    expect(trigger.textContent).toContain('Match system');
+    const trigger = screen.getByRole('button', { name: 'Theme: System. Choose a theme' });
+    expect(trigger.textContent).toContain('System');
   });
 
   it('offers the three modes, each named, with the current one marked', () => {
     render(<ThemeSwitch />);
     open();
     const items = screen.getAllByRole('menuitemradio');
-    expect(items.map((item) => item.textContent)).toEqual(['Match system', 'Light', 'Dark']);
+    expect(items.map((item) => item.textContent)).toEqual(['System', 'Light', 'Dark']);
     expect(items[0]?.getAttribute('aria-checked')).toBe('true');
   });
 
@@ -32,16 +32,16 @@ describe('ThemeSwitch', () => {
     expect(document.documentElement.dataset['theme']).toBe('dark');
     expect(screen.getByRole('button', { name: /Choose a theme/ }).textContent).toContain('Dark');
     open();
-    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Match system' }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'System' }));
     expect(document.documentElement.dataset['theme']).toBeUndefined();
   });
 
   it('marks the chosen mode with an outline and a mark, never a fill alone', () => {
     render(<ThemeSwitch />);
     open();
-    const chosen = screen.getByRole('menuitemradio', { name: 'Match system' });
+    const chosen = screen.getByRole('menuitemradio', { name: 'System' });
     const other = screen.getByRole('menuitemradio', { name: 'Dark' });
-    expect(chosen.className).toContain('data-[state=checked]:chosen-outline');
+    expect(chosen.className).toContain('data-[state=checked]:chosen-ring');
     // The mark is carried as well as the ground.
     expect(chosen.querySelectorAll('svg')).toHaveLength(2);
     expect(other.querySelectorAll('svg')).toHaveLength(1);

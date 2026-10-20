@@ -533,7 +533,7 @@ Used to build and test UJIRA. They are not shipped.
 | pac-resolver | 7.0.1 | MIT | https://github.com/TooTallNate/proxy-agents |
 | package-json-from-dist | 1.0.1 | BlueOak-1.0.0 | https://github.com/isaacs/package-json-from-dist |
 | parent-module | 1.0.1 | MIT | https://github.com/sindresorhus/parent-module |
-| parse-cache-control | 1.0.1 | BSD-3-Clause | https://github.com/roryf/parse-cache-control |
+| parse-cache-control | 1.0.1 | BSD-3-Clause (read from file) | https://github.com/roryf/parse-cache-control |
 | parse-json | 5.2.0 | MIT | https://github.com/sindresorhus/parse-json |
 | parse5 | 8.0.1 | MIT | https://github.com/inikulin/parse5 |
 | parseurl | 1.3.3 | MIT | https://github.com/pillarjs/parseurl |

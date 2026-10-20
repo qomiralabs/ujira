@@ -15,7 +15,7 @@ interface ThemeOption {
   icon: IconSource;
 }
 
-const SYSTEM: ThemeOption = { value: 'system', label: 'Match system', icon: { lucide: Monitor } };
+const SYSTEM: ThemeOption = { value: 'system', label: 'System', icon: { lucide: Monitor } };
 
 const OPTIONS: readonly ThemeOption[] = [
   SYSTEM,
@@ -42,6 +42,11 @@ export function ThemeSwitch() {
         className="flex h-10 items-center gap-2 rounded-control border border-rule bg-surface px-3 text-body-s text-text transition-[background-color,color] duration-150 ease-out hover:bg-bg"
       >
         <Icon source={chosen.icon} size={20} className="shrink-0 text-text-secondary" />
+        {/*
+         * The word is dropped on a phone, where showing it squeezes the
+         * search control to "Find a pa...". The accessible name on the
+         * trigger still carries the current mode.
+         */}
         <span className="hidden sm:inline">{chosen.label}</span>
       </Menu.Trigger>
       <Menu.Portal>
@@ -49,9 +54,9 @@ export function ThemeSwitch() {
           align="end"
           sideOffset={8}
           collisionPadding={12}
-          className="z-50 min-w-48 rounded-overlay border border-rule bg-surface p-1.5 text-text shadow-overlay"
+          className="z-50 min-w-48 rounded-overlay border border-rule bg-surface p-2 text-text shadow-overlay"
         >
-          <Menu.Label className="px-2.5 pt-1.5 pb-2 text-label font-mono text-text-secondary uppercase">
+          <Menu.Label className="px-3 pt-2 pb-2 text-label font-mono text-text-secondary uppercase">
             Theme
           </Menu.Label>
           <Menu.RadioGroup
@@ -68,7 +73,7 @@ export function ThemeSwitch() {
                 // the shared ring. The chosen row carries the outline that
                 // marks a current choice, plus the mark, so neither state
                 // rests on a fill that is nearly its own ground.
-                className="group flex h-10 cursor-default items-center gap-3 rounded-control px-2.5 outline-none select-none data-highlighted:bg-bg data-highlighted:focus-ring-inset data-[state=checked]:bg-bg data-[state=checked]:chosen-outline"
+                className="group flex h-10 cursor-default items-center gap-3 rounded-control px-3 outline-none select-none data-highlighted:bg-bg data-highlighted:focus-ring-inset data-[state=checked]:bg-bg data-[state=checked]:chosen-ring"
               >
                 <Icon
                   source={option.icon}

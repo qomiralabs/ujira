@@ -112,7 +112,7 @@ function listing(packages: readonly Listed[]): string {
 function world(
   extra: Record<string, Manifest> = {},
   links: Record<string, string> = {},
-  licenses: Record<string, string> = {},
+  licenses: Record<string, readonly string[]> = {},
 ): ManifestInspector {
   const manifests: Record<string, Manifest> = {};
   for (const p of [...PROD, ...DEV]) {
@@ -127,7 +127,7 @@ function world(
   return {
     realpath: (path) => links[path] ?? (path in manifests ? path : undefined),
     manifest: (dir) => manifests[dir],
-    licenseText: (dir) => licenses[dir],
+    licenseTexts: (dir) => licenses[dir] ?? [],
   };
 }
 
@@ -165,7 +165,9 @@ describe('license-tree', () => {
   });
 
   describe('metadata that is not a recognised SPDX expression', () => {
-    // The old `licenses: [{ type: "BSD" }]` form, as parse-cache-control uses.
+    // The old `licenses: [{ type: "BSD" }]` form, as parse-cache-control
+    // uses. copyleft-lib is not in the reviewed license map, so nothing it
+    // ships can answer for it.
     const vague = (): Listed[] =>
       PROD.map((p) => (p.name === 'copyleft-lib' ? { ...p, license: 'BSD' } : p));
     const dir = store('copyleft-lib', '1.0.0');
@@ -179,55 +181,27 @@ modification, are permitted provided that the following conditions are met:
       products derived from this software without specific prior written
       permission.`;
 
-    it('takes the license from the package LICENSE file when it is clear', () => {
-      const result = checkTree(
-        inputs({
-          prodListing: listing(vague()),
-          inspector: world({}, {}, { [dir]: THREE_CLAUSE }),
-        }),
-      );
-      expect(result.problems).toEqual([]);
-      expect(result.violations).toEqual([]);
-      // The notices record the licence that was actually established.
-      expect(result.notices).toContain('| copyleft-lib | 1.0.0 | BSD-3-Clause |');
-    });
-
-    it('fails when the LICENSE file does not clearly match one license', () => {
+    it.each([
+      ['a clean three clause BSD file', [THREE_CLAUSE]],
+      ['a permissive file of another licence', ['Permission is hereby granted, free of charge']],
+      ['no licence file at all', []],
+      ['two licence files that disagree', [THREE_CLAUSE, 'GNU GENERAL PUBLIC LICENSE Version 3']],
+    ])('fails an unreviewed package with %s', (_label, texts) => {
       expect(
-        report({
-          prodListing: listing(vague()),
-          inspector: world({}, {}, { [dir]: 'Terms are available on request.' }),
-        }),
+        report({ prodListing: listing(vague()), inspector: world({}, {}, { [dir]: texts }) }),
       ).toEqual([
-        'copyleft-lib@1.0.0: license "BSD" is not an SPDX expression and its LICENSE file does not clearly match one known license',
+        'copyleft-lib@1.0.0: license "BSD" is not an SPDX expression and copyleft-lib@1.0.0 is not in the reviewed license map; read its LICENSE file and add it only once a maintainer agrees',
       ]);
     });
 
-    it('fails when the package ships no LICENSE file', () => {
-      expect(report({ prodListing: listing(vague()), inspector: world() })).toEqual([
-        'copyleft-lib@1.0.0: license "BSD" is not an SPDX expression and the package ships no LICENSE file to check',
-      ]);
-    });
-
-    it('still holds a license read from the file to the allowlist', () => {
-      expect(
-        report({
-          prodListing: listing(vague()),
-          inspector: world({}, {}, { [dir]: 'GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007' }),
-        }),
-      ).toEqual([
-        'copyleft-lib@1.0.0 (prod): license "GPL-3.0": "GPL-3.0" not allowed in prod dependencies',
-      ]);
-    });
-
-    it('does not read the LICENSE file when the metadata is a recognised expression', () => {
+    it('reads no licence file when every package declares a licence we recognise', () => {
       const read: string[] = [];
-      const base = world({}, {}, { [dir]: THREE_CLAUSE });
+      const base = world({}, {}, { [dir]: [THREE_CLAUSE] });
       const watched = {
         ...base,
-        licenseText: (d: string) => {
+        licenseTexts: (d: string) => {
           read.push(d);
-          return base.licenseText(d);
+          return base.licenseTexts(d);
         },
       };
       expect(report({ inspector: watched })).toEqual([]);

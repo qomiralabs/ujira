@@ -78,15 +78,29 @@
 }
 
 /*
- * What is currently chosen, as opposed to where focus is. A 1px outline in
- * the secondary text colour, which clears 3:1 on every ground in both modes,
- * where the surface and ground fills alone are nearly the same colour. Never
- * saffron: the brand spends that on the mark, the amount, the one primary
- * action and the focus ring.
+ * What is currently chosen, as opposed to where focus is. A 1px ring in the
+ * secondary text colour, which clears 3:1 on every ground in both modes,
+ * where the surface and ground fills alone are nearly the same colour.
+ *
+ * Drawn as a pseudo element rather than an outline or a box shadow, because
+ * the focus ring uses both of those. An element that is chosen and focused
+ * at once has to show the saffron ring as well as the choice, and two rules
+ * setting `outline` cannot: the later one simply wins and the ring vanishes.
+ *
+ * Never saffron: the brand spends that on the mark, the amount, the one
+ * primary action and the focus ring.
  */
-@utility chosen-outline {
-  outline: 1px solid var(--ujira-text-secondary);
-  outline-offset: -1px;
+@utility chosen-ring {
+  position: relative;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 1px solid var(--ujira-text-secondary);
+    border-radius: inherit;
+    pointer-events: none;
+  }
 }
 
 /* The skeleton breathes slowly, and rests under reduced motion. */

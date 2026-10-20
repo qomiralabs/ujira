@@ -82,9 +82,9 @@ export function ProjectSwitcher({
           align="start"
           sideOffset={inline ? 8 : 16}
           collisionPadding={12}
-          className="z-50 w-(--radix-dropdown-menu-trigger-width) max-w-[calc(100vw-1.5rem)] min-w-48 rounded-overlay border border-rule bg-surface p-1.5 text-text shadow-overlay"
+          className="z-50 w-(--radix-dropdown-menu-trigger-width) max-w-[calc(100vw-1.5rem)] min-w-48 rounded-overlay border border-rule bg-surface p-2 text-text shadow-overlay"
         >
-          <Menu.Label className="px-2.5 pt-1.5 pb-2 text-label font-mono text-text-secondary uppercase">
+          <Menu.Label className="px-3 pt-2 pb-2 text-label font-mono text-text-secondary uppercase">
             Projects
           </Menu.Label>
           <Menu.RadioGroup
@@ -97,7 +97,7 @@ export function ProjectSwitcher({
               <Menu.RadioItem
                 key={p.id}
                 value={p.id}
-                className="group flex h-10 cursor-default items-center gap-3 rounded-control px-2.5 outline-none select-none data-highlighted:bg-bg data-highlighted:focus-ring-inset data-[state=checked]:bg-bg data-[state=checked]:chosen-outline"
+                className="group flex h-10 cursor-default items-center gap-3 rounded-control px-3 outline-none select-none data-highlighted:bg-bg data-highlighted:focus-ring-inset data-[state=checked]:bg-bg data-[state=checked]:chosen-ring"
               >
                 <span className="min-w-0 flex-1 truncate text-body-s font-medium text-text-secondary group-data-[state=checked]:text-text">
                   {p.name}

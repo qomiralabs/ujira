@@ -19,9 +19,18 @@ interface CommandPaletteProps {
   onOpenChange: (open: boolean) => void;
 }
 
-/** True for Cmd+K on a Mac and Ctrl+K everywhere else. */
+/**
+ * True for Cmd+K on a Mac and Ctrl+K everywhere else, and for nothing else.
+ * Shift and Alt are excluded: Ctrl+Shift+K is a different shortcut, and
+ * swallowing it with preventDefault would take a key this never advertised.
+ */
 export function isPaletteShortcut(event: KeyboardEvent): boolean {
-  return event.key.toLowerCase() === 'k' && (event.metaKey || event.ctrlKey) && !event.altKey;
+  return (
+    event.key.toLowerCase() === 'k' &&
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    !event.shiftKey
+  );
 }
 
 /**
@@ -62,7 +71,7 @@ export function CommandPalette({ project, open, onOpenChange }: CommandPalettePr
                 className="h-10 flex-1 bg-transparent text-body text-text placeholder:text-text-subtle"
               />
             </div>
-            <Command.List className="max-h-80 overflow-y-auto p-2">
+            <Command.List className="max-h-[min(60vh,28rem)] overflow-y-auto p-2">
               <Command.Empty className="px-3 py-6 text-body-s text-text-secondary">
                 No page matches that. Try another word.
               </Command.Empty>
@@ -73,9 +82,11 @@ export function CommandPalette({ project, open, onOpenChange }: CommandPalettePr
                 {NAV_ITEMS.map((item) => (
                   <Command.Item
                     key={item.segment}
-                    // Typing matches the name or what the page does, so
-                    // "money" finds Funding.
-                    value={`${item.label} ${item.summary}`}
+                    // The name is what a search ranks on. The summary still
+                    // matches, as a keyword, which scores below the value, so
+                    // "pay" puts Payouts first and "money" still finds Funding.
+                    value={item.label}
+                    keywords={[item.summary]}
                     onSelect={() => {
                       onOpenChange(false);
                       router.push(withProject(hrefFor(item), { project }));
@@ -83,7 +94,7 @@ export function CommandPalette({ project, open, onOpenChange }: CommandPalettePr
                     className="flex cursor-default items-start gap-3 rounded-control px-3 py-2 select-none data-[selected=true]:bg-bg data-[selected=true]:focus-ring-inset"
                   >
                     <Icon source={item.icon} className="mt-0.5 shrink-0 text-text-secondary" />
-                    <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="flex min-w-0 flex-col gap-1">
                       <span className="text-body-s font-medium text-text">{item.label}</span>
                       {/* Every choice says what it is, never a bare name. */}
                       <span className="text-body-s text-text-secondary">{item.summary}</span>

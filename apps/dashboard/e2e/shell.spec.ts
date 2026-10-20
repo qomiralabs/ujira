@@ -135,7 +135,7 @@ test.describe('shell', () => {
     await expect(html).toHaveAttribute('data-theme', 'dark');
     expect(await background()).toBe(dark);
     await page.getByRole('button', { name: /Choose a theme/ }).click();
-    await page.getByRole('menuitemradio', { name: 'Match system' }).click();
+    await page.getByRole('menuitemradio', { name: 'System' }).click();
     await expect(html).not.toHaveAttribute('data-theme');
     expect(await background()).toBe(light);
   });
@@ -222,6 +222,66 @@ test.describe('shell', () => {
     expect(panel?.x ?? 0).toBeGreaterThanOrEqual((rail?.x ?? 0) + (rail?.width ?? 0));
     await expect(page.getByRole('link', { name: 'Mandates' })).toBeVisible();
   });
+
+  // Class name assertions cannot see this: both classes are present and
+  // correct, and the collision only shows in the computed style. The chosen
+  // ring and the focus ring must be able to land on one element at once.
+  for (const scheme of SCHEMES) {
+    test(`the current page shows the saffron ring when focused, ${scheme}`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.goto('/');
+      await settle(page);
+      const current = page.locator('aside a[aria-current="page"]');
+      const ring = () =>
+        current.evaluate((el) => {
+          const style = getComputedStyle(el);
+          const chosen = getComputedStyle(el, '::after');
+          return {
+            outlineColor: style.outlineColor,
+            outlineWidth: style.outlineWidth,
+            chosenBorder: chosen.borderTopColor,
+            chosenWidth: chosen.borderTopWidth,
+          };
+        });
+
+      const resting = await ring();
+      // Chosen, but not focused: the choice ring only.
+      expect(resting.chosenWidth).toBe('1px');
+      expect(resting.outlineWidth).not.toBe('2px');
+
+      await current.focus();
+      const focused = await ring();
+      // Focused and chosen at once: the saffron ring as well as the choice.
+      expect(focused.outlineColor).toBe('rgb(244, 163, 0)');
+      expect(focused.outlineWidth).toBe('2px');
+      expect(focused.chosenWidth).toBe('1px');
+      expect(focused.chosenBorder).toBe(resting.chosenBorder);
+    });
+
+    test(`the chosen menu row shows the saffron ring when highlighted, ${scheme}`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.goto('/');
+      await settle(page);
+      // Opened from the keyboard, the menu highlights its first row, which
+      // is the chosen one, so that row is highlighted and chosen at once.
+      await page.getByRole('button', { name: /Choose a theme/ }).focus();
+      await page.keyboard.press('Enter');
+      const chosen = page.locator('[role="menuitemradio"][data-state="checked"][data-highlighted]');
+      await expect(chosen).toBeVisible();
+      const style = await chosen.evaluate((el) => ({
+        outlineColor: getComputedStyle(el).outlineColor,
+        outlineWidth: getComputedStyle(el).outlineWidth,
+        chosenWidth: getComputedStyle(el, '::after').borderTopWidth,
+      }));
+      expect(style.outlineColor).toBe('rgb(244, 163, 0)');
+      expect(style.outlineWidth).toBe('2px');
+      expect(style.chosenWidth).toBe('1px');
+    });
+  }
 
   test('the project menu follows the theme, including while it is open', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });

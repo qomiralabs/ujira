@@ -35,7 +35,7 @@ export function NavList({ project, group, collapsed = false, onNavigate }: NavLi
               className={[
                 'flex h-10 items-center gap-3 rounded-control px-3 text-body-s font-medium transition-[background-color,color] duration-150 ease-out rail-collapsed:justify-center rail-collapsed:px-0',
                 active
-                  ? 'bg-surface text-text chosen-outline'
+                  ? 'bg-surface text-text chosen-ring'
                   : 'text-text-secondary hover:bg-surface/60 hover:text-text',
               ].join(' ')}
             >

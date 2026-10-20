@@ -77,24 +77,34 @@ describe('routes', () => {
     const alert = screen.getByRole('alert');
     expect(alert.textContent).toContain('This page did not load');
     expect(alert.textContent).toContain('quote the reference below');
-    expect(alert.textContent).toContain('d1g35t');
+    // The reference block itself, not the word in the sentence above it.
+    expect(screen.getByText(/^Reference/).textContent).toContain('d1g35t');
+    // Whatever went wrong is never shown to the person.
     expect(alert.textContent).not.toContain('boom');
     screen.getByRole('button', { name: 'Try again' }).click();
     expect(reset).toHaveBeenCalledOnce();
+
     rerender(<ErrorPage error={new Error('boom')} reset={reset} />);
-    expect(screen.getByRole('alert').textContent).not.toContain('reference');
+    // With no digest there is no reference block at all, and still no message.
+    expect(screen.queryByText(/^Reference/)).toBeNull();
+    expect(screen.getByRole('alert').textContent).not.toContain('boom');
   });
 
   it('brings its own document when the frame fails', () => {
     const html = renderToStaticMarkup(
-      <GlobalError error={Object.assign(new Error('x'), { digest: 'r3f' })} reset={vi.fn()} />,
+      <GlobalError
+        error={Object.assign(new Error('kaboom-secret'), { digest: 'r3f' })}
+        reset={vi.fn()}
+      />,
     );
     expect(html).toMatch(/^<html lang="en">/);
     expect(html).toContain('The dashboard did not load');
     expect(html).toContain('r3f');
-    expect(
-      renderToStaticMarkup(<GlobalError error={new Error('x')} reset={vi.fn()} />),
-    ).not.toContain('Reference');
+    const noDigest = renderToStaticMarkup(
+      <GlobalError error={new Error('boom')} reset={vi.fn()} />,
+    );
+    expect(noDigest).not.toContain('Reference');
+    expect(noDigest).not.toContain('boom');
   });
 
   it('points a missing page back to the navigation', () => {

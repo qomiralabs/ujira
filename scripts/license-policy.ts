@@ -258,6 +258,18 @@ export function evaluateLicense(license: string, scope: Scope, packageName?: str
 // one entry. Zero matches or more than one means we cannot tell, and the
 // caller fails rather than guessing. A licence missing from this table is not
 // "allowed by default": it simply cannot be recognised from its text.
+// Phrases that turn a permissive licence into something else. A text
+// carrying one of these is never identified as the licence it is built on:
+// the base phrases are all still present, so presence alone cannot tell them
+// apart. Real npm packages carry every one of these.
+const ADDED_RESTRICTIONS: readonly RegExp[] = [
+  /used for good,? not evil/,
+  /commons clause/,
+  /non-?commercial/,
+  /all advertising materials mentioning features or use/,
+  /without fee is hereby granted[^.]*provided that[^.]*not be used in advertising/,
+];
+
 const LICENSE_TEXTS: readonly { id: string; needs: RegExp[]; rejects?: RegExp[] }[] = [
   {
     id: 'MIT',
@@ -314,6 +326,7 @@ const LICENSE_TEXTS: readonly { id: string; needs: RegExp[]; rejects?: RegExp[] 
 export function identifyLicenseText(text: string): string | undefined {
   const normalised = text.toLowerCase().replace(/\s+/g, ' ').trim();
   if (normalised === '') return undefined;
+  if (ADDED_RESTRICTIONS.some((pattern) => pattern.test(normalised))) return undefined;
   const matches = LICENSE_TEXTS.filter(
     (entry) =>
       entry.needs.every((pattern) => pattern.test(normalised)) &&
@@ -328,10 +341,12 @@ function allIdentifiersRecognised(node: Node): boolean {
   switch (node.kind) {
     case 'id':
       return RECOGNISED_SPDX.has(node.value);
-    // An exception has never been reviewed, so a WITH clause is never trusted
-    // on its metadata alone.
+    // A WITH clause is a recognised construct, so it is judged here and
+    // blocked by the allowlist, which admits no exception. Treating it as
+    // unrecognised would send a copyleft licence with an exception to the
+    // file reader, where a second licence file could answer for it.
     case 'with':
-      return false;
+      return true;
     case 'and':
     case 'or':
       return allIdentifiersRecognised(node.left) && allIdentifiersRecognised(node.right);
@@ -343,7 +358,41 @@ function allIdentifiersRecognised(node: Node): boolean {
  * when the metadata licence turns out to be unusable, so a clean tree never
  * touches the file system.
  */
-export type LicenseTextSource = string | undefined | (() => string | undefined);
+/**
+ * Packages whose metadata licence is not a recognised SPDX expression and
+ * whose real licence a maintainer has read and agreed. The map decides. The
+ * package's own LICENSE file is the evidence a reviewer checks it against,
+ * and must still agree, so a package that adds a restriction in a later
+ * version fails rather than inheriting this entry. Keyed by name and exact
+ * version for the same reason.
+ *
+ * Nothing resolves from file text alone: identifying a licence by the
+ * phrases it contains cannot tell a licence from the same licence with a
+ * restriction bolted on, and both carry every phrase of the permissive base.
+ */
+export const PACKAGE_LICENSE_FROM_FILE: ReadonlyMap<string, string> = new Map([
+  // parse-cache-control's package.json uses the old
+  // `licenses: [{ type: "BSD" }]` array, and "BSD" is not an SPDX
+  // identifier. Its LICENSE file is the three clause BSD text, copyright
+  // Walmart and other contributors, carrying the no endorsement clause and
+  // no advertising clause. Development only, through @lhci/cli.
+  // Reviewed and approved 2026-10-20.
+  ['parse-cache-control@1.0.1', 'BSD-3-Clause'],
+]);
+
+export interface PackageRef {
+  name: string;
+  version: string;
+}
+
+/**
+ * Every licence file the package ships, or a function returning them. A
+ * function is only called when the metadata licence turns out to be
+ * unusable, so a clean tree never touches the file system. All of them are
+ * read: taking the first filename found would let the order of LICENSE,
+ * COPYING and the rest decide which licence a package is published under.
+ */
+export type LicenseTextSource = readonly string[] | (() => readonly string[]);
 
 export type ResolvedLicense =
   | { license: string; fromFile: boolean; problem?: undefined }
@@ -351,13 +400,17 @@ export type ResolvedLicense =
 
 /**
  * The licence to judge a package by. Normally the string in its metadata.
- * When that is not an SPDX expression this policy recognises, such as the old
- * `licenses: [{ type: "BSD" }]` form, the package's own LICENSE text is read
- * instead and must clearly carry exactly one licence. A package with no
- * licence at all is never rescued by its files, and an unreadable or
- * ambiguous file is a failure, never a pass.
+ * When that is not an SPDX expression this policy recognises, such as the
+ * old `licenses: [{ type: "BSD" }]` form, the package must appear in
+ * PACKAGE_LICENSE_FROM_FILE, and its own LICENSE text must still read as the
+ * licence recorded there. A package with no licence at all is never rescued
+ * by its files, and an unreviewed package never resolves on its text alone.
  */
-export function resolveLicense(metadata: string, licenseText: LicenseTextSource): ResolvedLicense {
+export function resolveLicense(
+  pkg: PackageRef,
+  metadata: string,
+  licenseTexts: LicenseTextSource,
+): ResolvedLicense {
   const value = metadata.trim();
   if (MISSING.has(value.toLowerCase()) || /^see license in /i.test(value)) {
     return { problem: value === '' ? 'no license' : `no usable license ("${value}")` };
@@ -369,16 +422,39 @@ export function resolveLicense(metadata: string, licenseText: LicenseTextSource)
     if (!(error instanceof SpdxSyntaxError)) throw error;
   }
   if (recognised) return { license: value, fromFile: false };
+
+  const key = `${pkg.name}@${pkg.version}`;
   const prefix = `license "${value}" is not an SPDX expression`;
-  const text = typeof licenseText === 'function' ? licenseText() : licenseText;
-  if (text === undefined) {
-    return { problem: `${prefix} and the package ships no LICENSE file to check` };
+  const reviewed = PACKAGE_LICENSE_FROM_FILE.get(key);
+  if (reviewed === undefined) {
+    return {
+      problem: `${prefix} and ${key} is not in the reviewed license map; read its LICENSE file and add it only once a maintainer agrees`,
+    };
   }
-  const identified = identifyLicenseText(text);
-  if (identified === undefined) {
-    return { problem: `${prefix} and its LICENSE file does not clearly match one known license` };
+  const texts = typeof licenseTexts === 'function' ? licenseTexts() : licenseTexts;
+  if (texts.length === 0) {
+    return {
+      problem: `${prefix}; ${key} is reviewed as "${reviewed}" but ships no LICENSE file to check that against`,
+    };
   }
-  return { license: identified, fromFile: true };
+  const identified = texts.map((text) => identifyLicenseText(text));
+  if (identified.some((id) => id === undefined)) {
+    return {
+      problem: `${prefix}; ${key} is reviewed as "${reviewed}" but ships a license file this policy cannot identify`,
+    };
+  }
+  const distinct = [...new Set(identified)];
+  if (distinct.length > 1) {
+    return {
+      problem: `${prefix}; ${key} ships license files that disagree: ${distinct.join(', ')}`,
+    };
+  }
+  if (distinct[0] !== reviewed) {
+    return {
+      problem: `${prefix}; ${key} is reviewed as "${reviewed}" but its LICENSE file reads as "${String(distinct[0])}"`,
+    };
+  }
+  return { license: reviewed, fromFile: true };
 }
 
 export interface Violation {
@@ -450,6 +526,10 @@ export interface NoticeEntry {
   version: string;
   license: string;
   repository: string | undefined;
+  // True when the licence came from reading the package's own licence file
+  // rather than from the licence it declares. Marked in the table, because a
+  // reader of a legal document should be able to tell the two apart.
+  fromFile?: boolean;
 }
 
 function sortBy<T extends { name: string; version: string }>(items: T[]): T[] {
@@ -475,8 +555,9 @@ function table(entries: readonly NoticeEntry[]): string[] {
     const key = `${e.name}@${e.version}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    const license = e.fromFile === true ? `${e.license} (read from file)` : e.license;
     rows.push(
-      `| ${cell(e.name)} | ${cell(e.version)} | ${cell(e.license)} | ${cell(e.repository ?? '')} |`,
+      `| ${cell(e.name)} | ${cell(e.version)} | ${cell(license)} | ${cell(e.repository ?? '')} |`,
     );
   }
   return rows;

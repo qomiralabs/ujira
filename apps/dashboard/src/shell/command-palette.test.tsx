@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -21,6 +21,9 @@ describe('CommandPalette', () => {
     [{ key: 'K', ctrlKey: true }, true],
     [{ key: 'k' }, false],
     [{ key: 'k', ctrlKey: true, altKey: true }, false],
+    // A different shortcut, which this one must not swallow.
+    [{ key: 'k', ctrlKey: true, shiftKey: true }, false],
+    [{ key: 'K', metaKey: true, shiftKey: true }, false],
     [{ key: 'j', metaKey: true }, false],
   ])('treats %o as the shortcut: %s', (init, expected) => {
     expect(isPaletteShortcut(new KeyboardEvent('keydown', init))).toBe(expected);
@@ -42,12 +45,39 @@ describe('CommandPalette', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('finds a page by what it does, not only by its name', () => {
+  // The list is re-sorted after the keystroke, so each search waits for the
+  // order to settle rather than reading it mid flight.
+  async function firstPage(term: string): Promise<string> {
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: term } });
+    let first = '';
+    await waitFor(() => {
+      first = screen.getAllByRole('option')[0]?.textContent ?? '';
+      expect(first).not.toBe('');
+    });
+    return first;
+  }
+
+  it.each([
+    ['pay', 'Payouts'],
+    ['approve', 'Approvals'],
+    ['receipt', 'Receipts'],
+    ['mandate', 'Mandates'],
+  ])('puts the page named for %s first, not one that merely mentions it', async (term, page) => {
+    render(<Harness />);
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    await waitFor(async () => {
+      expect(await firstPage(term)).toMatch(new RegExp(`^${page}`));
+    });
+  });
+
+  it('still finds a page by what it does when no name matches', async () => {
     render(<Harness />);
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'money' } });
-    const names = screen.getAllByRole('option').map((o) => o.textContent);
-    expect(names.some((name) => name.startsWith('Funding'))).toBe(true);
+    await waitFor(() => {
+      const names = screen.getAllByRole('option').map((option) => option.textContent);
+      expect(names.some((name) => name.startsWith('Funding'))).toBe(true);
+    });
   });
 
   it('closes when the shortcut is pressed again', () => {
