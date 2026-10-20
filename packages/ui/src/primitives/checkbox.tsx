@@ -16,8 +16,11 @@ export function Checkbox({ className, ...props }: ComponentProps<typeof Checkbox
     <CheckboxPrimitive.Root
       data-slot="checkbox"
       className={cn(
-        'peer inline-flex size-5 shrink-0 cursor-pointer items-center justify-center',
+        'peer relative inline-flex size-5 shrink-0 cursor-pointer items-center justify-center',
         'rounded-control border border-text-subtle bg-surface text-surface',
+        // The box stays 20px, but the target is 24px, so it still meets WCAG
+        // 2.2 AA in a dense table row with no label to click beside it.
+        'before:absolute before:top-1/2 before:left-1/2 before:size-6 before:-translate-x-1/2 before:-translate-y-1/2',
         'transition-[color,background-color,border-color] duration-150 ease-out motion-reduce:transition-none',
         'hover:border-text',
         'data-[state=checked]:border-text data-[state=checked]:bg-text',

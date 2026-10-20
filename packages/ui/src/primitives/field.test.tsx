@@ -63,15 +63,34 @@ describe('Field', () => {
     expect(error?.className).toContain('text-blocked');
   });
 
-  it('marks the control required and says so in the label', () => {
+  it('marks the control required without that word joining its name', () => {
     render(
       <Field label="Mandate name" required>
         <Input />
       </Field>,
     );
-    const input = screen.getByRole('textbox', { name: /Mandate name/ });
+    // The marker is for the eye. The meaning reaches assistive technology
+    // through aria-required, so a screen reader must not hear the control
+    // called "Mandate nameRequired".
+    const input = screen.getByRole('textbox', { name: 'Mandate name' });
     expect(input.getAttribute('aria-required')).toBe('true');
-    expect(screen.getByText('Required')).toBeTruthy();
+    const marker = screen.getByText('Required');
+    expect(marker.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('keeps the accessible name clean for every control a field wraps', () => {
+    render(
+      <>
+        <Field label="Note" required>
+          <Textarea />
+        </Field>
+        <Field label="Send a receipt" required>
+          <Checkbox />
+        </Field>
+      </>,
+    );
+    expect(screen.getByRole('textbox', { name: 'Note' })).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'Send a receipt' })).toBeTruthy();
   });
 
   it('keeps an id the caller gave the control', () => {

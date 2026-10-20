@@ -77,3 +77,30 @@ export const Open: Story = {
   args: { defaultOpen: true, defaultValue: 'ke-mobile' },
   parameters: { a11y: { context: { exclude: ['#storybook-root'] } } },
 };
+
+/** Where the product named the choice, each option carries a line saying what it is. */
+export const WithDescriptions: Story = {
+  parameters: { a11y: { context: { exclude: ['#storybook-root'] } } },
+  render: () => (
+    <div className="max-w-sm">
+      <Field label="Payout method">
+        <Select defaultOpen defaultValue="mobile">
+          <SelectTrigger>
+            <SelectValue placeholder="Choose a method" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="mobile" description="Usually within minutes.">
+              Mobile money
+            </SelectItem>
+            <SelectItem value="bank" description="Usually the next working day.">
+              Bank account
+            </SelectItem>
+            <SelectItem value="cash" description="Collected in person, with an ID.">
+              Cash pickup
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+    </div>
+  ),
+};

@@ -43,13 +43,31 @@ Rules the primitives hold to:
 
 - One saffron primary action per view. `Button` has `primary`, `secondary`, `ghost` and `danger`;
   only `primary` uses the saffron fill.
+- No action borrows a payment status colour. Paid, waiting and blocked describe a payment, so
+  `danger` is marked by the strongest border of the four variants and by the icon the caller gives
+  it, not by red. The red belongs to the confirmation step that follows. A test fails if any
+  variant picks up a status token. If we later want a louder destructive button, that needs a
+  destructive colour in the brand tokens, which is the brand owner's decision, not a local one.
 - Every interactive element has the 2px saffron focus ring with a 2px offset, and a teal ink ring
   in the offset band so it stays visible on cream, on white and on a saffron button.
 - 6px radius on inputs and buttons, no shadows outside overlays.
 - Errors carry an icon and a sentence, never colour alone.
 - A loading button keeps its label and its place in the tab order: it is marked busy and disabled,
   and ignores clicks, rather than dropping out of the page.
-- Lucide icons are drawn at `strokeWidth={1.5}`.
+- Lucide icons are drawn at `strokeWidth={1.5}`, and only where the brand has no icon of its own.
+  The nine core ideas (mandate, payout, recipient, approval, receipt, rail, local currency, agent,
+  pause) use `<BrandIcon />`, so a pause button shows the brand glyph rather than a generic one.
+- Choices the product named carry a description: `RadioGroupItem` and `SelectItem` take one, linked
+  with `aria-describedby`, and the name stays the accessible name. Choices the principal named
+  themselves, such as a project or a mandate, stay bare, because the name is the whole content.
+- Radius: an overlay anchored to and sized by a control, such as the open `Select` list, matches
+  the control's 6px. A free standing overlay, such as a dialog or a sheet, uses 14px. There is no
+  third value.
+- Text only ever sits on `bg` or `surface`. Those are the two grounds the token tests hold every
+  text colour to 4.5:1 against. A highlighted row therefore uses `bg`, never `rule`: secondary text
+  on the rule ground measures 3.8:1 in dark mode, and axe catches it.
+- Checkbox and radio boxes are 20px with a 24px hit area, so they meet WCAG 2.2 AA target size even
+  in a dense row with no label beside them to click.
 - Colours come from the generated theme only. A test fails on a hex, `rgb()` or `hsl()` literal, on
   a colour utility that is not in the theme, and on a custom property that is not a UJIRA or Radix one.
 
@@ -69,6 +87,11 @@ axe on the story you are looking at.
 violations and compares a screenshot. A separate spec presses Tab on every interactive story in
 both modes and asserts the saffron ring. Build the catalogue first; the tests read its
 `index.json`, so a new story is covered the moment it exists.
+
+Most stories are a single control whose layout does not change with the width, so they are
+snapshotted once at 768. The stories whose layout does change, listed in `RESPONSIVE` in
+`e2e/storybook.spec.ts`, are snapshotted at all three widths. Add a story to that list when its
+layout reflows, rather than tripling every image.
 
 Screenshots are compared only on Linux, so that one set of files works for everyone. Take and
 check them in the same image CI uses:

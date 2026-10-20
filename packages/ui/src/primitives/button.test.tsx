@@ -21,7 +21,10 @@ describe('Button', () => {
       primary: ['bg-accent-fill', 'text-teal-ink'],
       secondary: ['bg-surface', 'text-text', 'border-text-subtle'],
       ghost: ['bg-transparent', 'text-text'],
-      danger: ['bg-surface', 'text-blocked', 'border-blocked'],
+      // A destructive action is not a payment, so it takes no payment status
+      // colour. It is marked by the strongest border of the four, and by the
+      // icon the caller gives it.
+      danger: ['bg-surface', 'text-text', 'border-text'],
     } as const;
     for (const [variant, tokens] of Object.entries(expected)) {
       const classes = buttonVariants({ variant: variant as keyof typeof expected }).split(' ');
@@ -30,6 +33,17 @@ describe('Button', () => {
     // Only the primary variant uses the saffron fill.
     for (const variant of ['secondary', 'ghost', 'danger'] as const) {
       expect(buttonVariants({ variant })).not.toContain('accent-fill');
+    }
+  });
+
+  it('keeps the payment status colours off every variant', () => {
+    // Paid, waiting and blocked describe a payment. An action never borrows
+    // one, so a button can never be mistaken for a status.
+    for (const variant of ['primary', 'secondary', 'ghost', 'danger'] as const) {
+      const classes = buttonVariants({ variant });
+      for (const status of ['paid', 'waiting', 'blocked']) {
+        expect(classes, `${variant} ${status}`).not.toContain(status);
+      }
     }
   });
 
@@ -81,6 +95,25 @@ describe('Button', () => {
     expect(document.activeElement).toBe(button);
   });
 
+  it('does not let a loading click reach the row it sits in', () => {
+    const onRowClick = vi.fn();
+    const onClick = vi.fn();
+    render(
+      <div
+        onClick={() => {
+          onRowClick();
+        }}
+      >
+        <Button loading onClick={onClick}>
+          Approving
+        </Button>
+      </div>,
+    );
+    fireEvent.click(screen.getByRole('button'));
+    expect(onClick).not.toHaveBeenCalled();
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+
   it('does not submit a form while loading', () => {
     const onSubmit = vi.fn((event: Event) => {
       event.preventDefault();
@@ -110,6 +143,18 @@ describe('Button', () => {
     render(<Button loading>Saving</Button>);
     const icon = screen.getByRole('button').querySelector('svg[data-loading]');
     expect(icon?.getAttribute('stroke-width')).toBe('1.5');
+  });
+
+  it('swaps the spinner for a still mark under reduced motion', () => {
+    render(<Button loading>Saving</Button>);
+    const button = screen.getByRole('button');
+    const spinner = button.querySelector('svg[data-loading=""]');
+    const still = button.querySelector('svg[data-loading="static"]');
+    // A frozen spinner reads as broken, so only one of the two is ever shown.
+    expect(spinner?.getAttribute('class')).toContain('motion-reduce:hidden');
+    expect(still?.getAttribute('class')).toContain('hidden');
+    expect(still?.getAttribute('class')).toContain('motion-reduce:block');
+    expect(still?.getAttribute('aria-hidden')).toBe('true');
   });
 
   it('is disabled when asked', () => {

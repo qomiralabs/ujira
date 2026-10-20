@@ -30,6 +30,8 @@ export function Switch({ className, ...props }: ComponentProps<typeof SwitchPrim
         data-slot="switch-thumb"
         className={cn(
           'pointer-events-none block size-4 rounded-full bg-text-subtle',
+          // Off the 4px grid on purpose: 3px and 19px centre the 16px thumb
+          // in the 40px track, leaving an even 3px of rail at each end.
           'translate-x-0.75 transition-transform duration-150 ease-out motion-reduce:transition-none',
           'data-[state=checked]:translate-x-4.75 data-[state=checked]:bg-surface',
         )}

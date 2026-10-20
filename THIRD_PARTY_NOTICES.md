@@ -714,5 +714,5 @@ Files that do not come from npm, from `assets.licenses.json`.
 | --- | --- | --- | --- | --- | --- |
 | packages/ui/assets/brand/*.svg | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-17 |
 | packages/ui/assets/brand/Tokens.json | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-17 |
-| packages/ui/e2e/__snapshots__/*.png | 120 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-20 |
+| packages/ui/e2e/__snapshots__/*.png | 152 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-20 |
 | scripts/fixtures/embedded-metadata/clean.* | 3 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-17 |

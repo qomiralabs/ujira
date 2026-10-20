@@ -25,6 +25,11 @@ const INTERACTIVE = new Set([
 // the real Tab key is pressed on every other story of the component instead.
 const SKIPPED = /^(Disabled|Open|Focus)/;
 
+// Stories that show a value rather than offer a control. They have nothing to
+// focus, so they are not focus ring cases. Named one by one on purpose: a
+// story that silently lost its only control should still fail here.
+const DISPLAY_ONLY = new Set(['primitives-input--amount-in-a-principal-view']);
+
 function rgb(hex: string): string {
   const value = hex.replace('#', '');
   const channel = (start: number) => String(Number.parseInt(value.slice(start, start + 2), 16));
@@ -33,7 +38,8 @@ function rgb(hex: string): string {
 
 test('every interactive story shows the saffron ring on keyboard focus', async ({ page }) => {
   const stories = loadStories().filter(
-    (story) => INTERACTIVE.has(story.title) && !SKIPPED.test(story.name),
+    (story) =>
+      INTERACTIVE.has(story.title) && !SKIPPED.test(story.name) && !DISPLAY_ONLY.has(story.id),
   );
   expect(stories.length).toBeGreaterThan(0);
   test.setTimeout(stories.length * THEMES.length * 5_000);
@@ -48,7 +54,12 @@ test('every interactive story shows the saffron ring on keyboard focus', async (
         if (!(element instanceof HTMLElement) || element === document.body) return null;
         const style = getComputedStyle(element);
         return {
-          inStory: document.getElementById('storybook-root')?.contains(element) ?? false,
+          // Inside the story, or inside one of our primitives rendered into a
+          // portal: an open list or an overlay lives on document.body, not
+          // under the story root, and focus belongs there while it is open.
+          inStory:
+            (document.getElementById('storybook-root')?.contains(element) ?? false) ||
+            element.closest('[data-slot]') !== null,
           focusVisible: element.matches(':focus-visible'),
           outlineStyle: style.outlineStyle,
           outlineWidth: style.outlineWidth,

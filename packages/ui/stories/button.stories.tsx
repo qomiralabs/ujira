@@ -2,7 +2,8 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { Download, Pause } from 'lucide-react';
+import { Download } from 'lucide-react';
+import { BrandIcon } from '../src/icons/brand-icon.js';
 import { Button } from '../src/primitives/button.js';
 import { focusFirst, HOVER } from './helpers.js';
 
@@ -45,10 +46,10 @@ export const Variants: Story = { render: renderVariants };
 export const Sizes: Story = {
   render: (args) => (
     <div className="flex flex-wrap items-center gap-3">
-      <Button {...args} size="sm">
+      <Button {...args} size="sm" variant="secondary">
         Small
       </Button>
-      <Button {...args} size="md">
+      <Button {...args} size="md" variant="secondary">
         Medium
       </Button>
       <Button {...args} size="lg">
@@ -61,13 +62,27 @@ export const Sizes: Story = {
   ),
 };
 
+/**
+ * Pause is one of the nine core brand ideas, so it takes the brand glyph, not
+ * a generic one. Lucide is for everything the brand has no icon for.
+ */
 export const WithIcon: Story = {
   args: { variant: 'danger', children: 'Pause mandate' },
   render: (args) => (
-    <Button {...args}>
-      <Pause aria-hidden="true" strokeWidth={1.5} />
-      {args.children}
-    </Button>
+    <div className="flex flex-wrap items-center gap-3">
+      <Button {...args}>
+        <BrandIcon name="pause" size={16} />
+        {args.children}
+      </Button>
+      <Button variant="secondary">
+        <BrandIcon name="receipt" size={16} />
+        View receipt
+      </Button>
+      <Button variant="ghost">
+        <Download aria-hidden="true" strokeWidth={1.5} />
+        Export CSV
+      </Button>
+    </div>
   ),
 };
 

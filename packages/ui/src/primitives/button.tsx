@@ -5,7 +5,7 @@
 
 import { Slot, Slottable } from '@radix-ui/react-slot';
 import { cva, type VariantProps } from 'class-variance-authority';
-import { LoaderCircle } from 'lucide-react';
+import { Circle, LoaderCircle } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { cn } from '../lib/cn.js';
 import { FOCUS_RING } from './focus-ring.js';
@@ -27,8 +27,14 @@ export const buttonVariants = cva(
         primary: 'border-transparent bg-accent-fill text-teal-ink hover:bg-(--ujira-saffron-lift)',
         secondary: 'border-text-subtle bg-surface text-text hover:bg-rule',
         ghost: 'border-transparent bg-transparent text-text hover:bg-rule',
-        // Pause, revoke and delete. Ask for confirmation before acting.
-        danger: 'border-blocked bg-surface text-blocked hover:bg-bg',
+        /*
+         * Pause, revoke and delete. It carries the strongest border of the
+         * four and always an icon, so it reads as deliberate without taking
+         * a payment status colour: blocked red means a payment was blocked,
+         * failed or rejected, and an action is not a payment. The red
+         * belongs to the confirmation step that follows.
+         */
+        danger: 'border-text bg-surface text-text hover:bg-bg',
       },
       size: {
         sm: 'h-8 px-3 text-body-s',
@@ -68,10 +74,15 @@ export function Button({
 }: ButtonProps) {
   const Comp = asChild ? Slot : 'button';
   // A loading button stays focusable, so a keyboard user who just pressed it
-  // keeps their place. It is marked busy and disabled, and ignores clicks.
+  // keeps their place. It is marked busy and disabled, and swallows the click
+  // rather than only ignoring it: a button inside a clickable table row would
+  // otherwise still open the row, which is the thing the loading state exists
+  // to prevent.
   const handleClick: ButtonProps['onClick'] = loading
     ? (event) => {
         event.preventDefault();
+        event.stopPropagation();
+        event.nativeEvent.stopImmediatePropagation();
       }
     : onClick;
   return (
@@ -84,12 +95,24 @@ export function Button({
       onClick={handleClick}
     >
       {loading ? (
-        <LoaderCircle
-          data-loading=""
-          aria-hidden="true"
-          strokeWidth={1.5}
-          className="motion-safe:animate-spin"
-        />
+        <>
+          <LoaderCircle
+            data-loading=""
+            aria-hidden="true"
+            strokeWidth={1.5}
+            className="animate-spin motion-reduce:hidden"
+          />
+          {/*
+           * A frozen spinner reads as broken, so under reduced motion the
+           * busy mark is a closed circle: a still shape that looks meant.
+           */}
+          <Circle
+            data-loading="static"
+            aria-hidden="true"
+            strokeWidth={1.5}
+            className="hidden motion-reduce:block"
+          />
+        </>
       ) : null}
       <Slottable>{children}</Slottable>
     </Comp>

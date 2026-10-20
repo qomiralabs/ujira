@@ -15,6 +15,10 @@ export default defineConfig({
   // One file per snapshot name, with no platform suffix: snapshots are only
   // taken on Linux, inside the pinned Playwright container.
   snapshotPathTemplate: '{testDir}/__snapshots__/{arg}{ext}',
+  // Headroom for taking screenshots at three widths, and for running the
+  // container under emulation on an arm64 machine, where every frame is
+  // translated and a story can take several seconds to settle.
+  timeout: 90_000,
   fullyParallel: true,
   forbidOnly: inCi,
   retries: 0,

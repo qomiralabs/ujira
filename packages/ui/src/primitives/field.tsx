@@ -104,11 +104,20 @@ export function Field({
   };
   return (
     <FieldContext value={value}>
-      <div data-slot="field" className={cn('flex flex-col gap-1.5', className)} {...props}>
+      <div data-slot="field" className={cn('flex flex-col gap-2', className)} {...props}>
         <Label id={value.labelId} htmlFor={value.controlId}>
           {label}
           {required ? (
-            <span className="ml-2 font-mono text-label text-text-subtle uppercase">Required</span>
+            // Hidden from assistive technology on purpose: inside the label
+            // it would join the control's accessible name, which would then
+            // be read as "Mandate nameRequired". aria-required on the control
+            // carries the meaning instead.
+            <span
+              aria-hidden="true"
+              className="ml-2 font-mono text-label text-text-subtle uppercase"
+            >
+              Required
+            </span>
           ) : null}
         </Label>
         {children}
