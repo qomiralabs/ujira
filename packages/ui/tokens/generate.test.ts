@@ -213,12 +213,8 @@ describe('the second mono face', () => {
     weight: string;
     unicodeRange: string[];
   }
-  interface SignsSource {
-    font: { mono: { signs: Signs } };
-  }
-
   function withSigns(change: (signs: Signs) => void): unknown {
-    const changed = structuredClone(systemJson) as SignsSource;
+    const changed = structuredClone(systemJson) as { font: { mono: { signs: Signs } } };
     change(changed.font.mono.signs);
     return changed;
   }
