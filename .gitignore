@@ -39,6 +39,7 @@ coverage/
 apps/*/out/
 packages/*/out/
 next-env.d.ts
+.lighthouseci/
 .vercel/
 
 # Playwright and Storybook

@@ -71,13 +71,19 @@ describe('gate', () => {
     expect(plan('build', '/r', [web, ui, core])).toEqual([
       {
         label: '@u/core build',
+        tool: 'tsc',
         args: ['-p', '/r/packages/core/tsconfig.build.json', '--noEmitOnError'],
       },
       {
         label: '@u/ui build',
+        tool: 'tsc',
         args: ['-p', '/r/packages/ui/tsconfig.build.json', '--noEmitOnError'],
       },
-      { label: '@u/web build', args: ['-p', '/r/apps/web/tsconfig.build.json', '--noEmitOnError'] },
+      {
+        label: '@u/web build',
+        tool: 'tsc',
+        args: ['-p', '/r/apps/web/tsconfig.build.json', '--noEmitOnError'],
+      },
     ]);
   });
 
@@ -85,17 +91,45 @@ describe('gate', () => {
     expect(plan('typecheck', '/r', [web, ui, core])).toEqual([
       {
         label: '@u/core build',
+        tool: 'tsc',
         args: ['-p', '/r/packages/core/tsconfig.build.json', '--noEmitOnError'],
       },
       {
         label: '@u/ui build',
+        tool: 'tsc',
         args: ['-p', '/r/packages/ui/tsconfig.build.json', '--noEmitOnError'],
       },
-      { label: 'root typecheck', args: ['-p', '/r/tsconfig.json', '--noEmit'] },
-      { label: '@u/core typecheck', args: ['-p', '/r/packages/core/tsconfig.json', '--noEmit'] },
-      { label: '@u/ui typecheck', args: ['-p', '/r/packages/ui/tsconfig.json', '--noEmit'] },
-      { label: '@u/web typecheck', args: ['-p', '/r/apps/web/tsconfig.json', '--noEmit'] },
+      { label: 'root typecheck', tool: 'tsc', args: ['-p', '/r/tsconfig.json', '--noEmit'] },
+      {
+        label: '@u/core typecheck',
+        tool: 'tsc',
+        args: ['-p', '/r/packages/core/tsconfig.json', '--noEmit'],
+      },
+      {
+        label: '@u/ui typecheck',
+        tool: 'tsc',
+        args: ['-p', '/r/packages/ui/tsconfig.json', '--noEmit'],
+      },
+      {
+        label: '@u/web typecheck',
+        tool: 'tsc',
+        args: ['-p', '/r/apps/web/tsconfig.json', '--noEmit'],
+      },
     ]);
+  });
+
+  it('builds a Next.js app with next build after the members it uses', () => {
+    const app = member('@u/dash', 'apps/dash', {
+      dependencies: { '@u/ui': 'workspace:*', next: '16.0.0' },
+    });
+    expect(plan('build', '/r', [app, ui, core]).slice(2)).toEqual([
+      { label: '@u/dash build', tool: 'next', args: ['build', '/r/apps/dash'] },
+    ]);
+    expect(plan('typecheck', '/r', [app, ui, core]).at(-1)).toEqual({
+      label: '@u/dash typecheck',
+      tool: 'tsc',
+      args: ['-p', '/r/apps/dash/tsconfig.json', '--noEmit'],
+    });
   });
 
   it('takes no flags from the member', () => {
@@ -138,6 +172,10 @@ describe('gate', () => {
           calls.push(args.join(' ').replaceAll(root, '<root>'));
           return fail(args) ? 1 : 0;
         },
+        next: (args) => {
+          calls.push(`next ${args.join(' ').replaceAll(root, '<root>')}`);
+          return fail(args) ? 1 : 0;
+        },
         out: (text) => (out += text),
         err: (text) => (err += text),
       });
@@ -172,6 +210,69 @@ describe('gate', () => {
       expect(result.status).toBe(1);
       expect(result.calls).toEqual(['-p <root>/packages/a/tsconfig.build.json --noEmitOnError']);
       expect(result.err).toBe('build failed: a build\n');
+    });
+
+    it('runs next build for a Next.js app and leaves .next to it', () => {
+      const root = tree('packages:\n  - packages/*\n  - apps/*\n');
+      mkdirSync(join(root, 'apps', 'web', '.next'), { recursive: true });
+      writeFileSync(join(root, 'apps', 'web', '.next', 'stale.js'), '');
+      writeFileSync(
+        join(root, 'apps', 'web', 'package.json'),
+        JSON.stringify({ name: 'web', dependencies: { a: 'workspace:*', next: '16.0.0' } }),
+      );
+      const stale: boolean[] = [];
+      const calls: string[] = [];
+      let out = '';
+      const status = run('build', root, {
+        tsc: (args) => {
+          calls.push(args.join(' ').replaceAll(root, '<root>'));
+          return 0;
+        },
+        next: (args) => {
+          stale.push(existsSync(join(root, 'apps', 'web', '.next', 'stale.js')));
+          calls.push(`next ${args.join(' ').replaceAll(root, '<root>')}`);
+          return 0;
+        },
+        out: (text) => (out += text),
+        err: () => undefined,
+      });
+      rmSync(root, { recursive: true, force: true });
+      expect(status).toBe(0);
+      expect(calls).toEqual([
+        '-p <root>/packages/a/tsconfig.build.json --noEmitOnError',
+        'next build <root>/apps/web',
+        '-p <root>/packages/b/tsconfig.build.json --noEmitOnError',
+      ]);
+      // next build empties .next itself, keeping a running dev server's files.
+      expect(stale).toEqual([true]);
+      expect(out).toContain('> next build apps/web\n');
+    });
+
+    it('stops the build when next build fails', () => {
+      const root = tree('packages:\n  - packages/*\n  - apps/*\n');
+      mkdirSync(join(root, 'apps', 'web'), { recursive: true });
+      writeFileSync(
+        join(root, 'apps', 'web', 'package.json'),
+        JSON.stringify({ name: 'web', dependencies: { next: '16.0.0' } }),
+      );
+      const result = exec(root, 'build', (args) => args[0] === 'build');
+      expect(result.status).toBe(1);
+      expect(result.err).toBe('build failed: web build\n');
+    });
+
+    it('refuses to build a Next.js app whose .next is a link', () => {
+      const root = tree('packages:\n  - packages/*\n  - apps/*\n');
+      mkdirSync(join(root, 'apps', 'web'), { recursive: true });
+      mkdirSync(join(root, 'elsewhere'));
+      writeFileSync(
+        join(root, 'apps', 'web', 'package.json'),
+        JSON.stringify({ name: 'web', dependencies: { next: '16.0.0' } }),
+      );
+      symlinkSync(join(root, 'elsewhere'), join(root, 'apps', 'web', '.next'));
+      const result = exec(root, 'build', () => false);
+      expect(result.status).toBe(1);
+      expect(result.calls.some((call) => call.startsWith('next '))).toBe(false);
+      expect(result.err).toContain('web: .next must be a folder inside the member');
     });
 
     it('fails without running tsc when the workspace file is unsupported', () => {
@@ -269,6 +370,7 @@ describe('gate', () => {
           calls.push(args.join(' '));
           return 0;
         },
+        next: () => 0,
         out: () => undefined,
         err: (text) => (err += text),
       });
@@ -502,6 +604,7 @@ describe('gate', () => {
       let err = '';
       const status = run('build', tmp, {
         tsc: () => 0,
+        next: () => 0,
         out: () => undefined,
         err: (text) => (err += text),
       });
@@ -524,6 +627,7 @@ describe('gate', () => {
           seen.push(existsSync(join(tmp, 'packages', 'a', 'dist', 'stale.js')));
           return 0;
         },
+        next: () => 0,
         out: () => undefined,
         err: () => undefined,
       });
