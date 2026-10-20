@@ -160,6 +160,11 @@ describe('mock handlers', () => {
     }
     const unknown = await problemOf(await get('/v1/payouts?colour=blue'));
     expect(unknown.errors).toEqual([{ field: 'colour', code: 'unknown_field' }]);
+    const repeated = await problemOf(await get('/v1/payouts?status=paid&status=failed'));
+    expect(repeated.errors).toEqual([{ field: 'status', code: 'repeated_key' }]);
+    const noCurrency = await problemOf(await get('/v1/payouts?amountMin=100'));
+    expect(noCurrency.code).toBe('INVALID_FILTER');
+    expect(noCurrency.errors).toEqual([{ field: 'amountCurrency', code: 'currency_required' }]);
     const inverted = await problemOf(
       await get('/v1/payouts?amountCurrency=USD&amountMin=9&amountMax=1'),
     );

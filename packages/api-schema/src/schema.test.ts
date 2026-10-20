@@ -137,6 +137,19 @@ describe('schema rules', () => {
     expect(LowBalanceState.safeParse({ ...base, firedBy: ['runway', 'runway'] }).success).toBe(
       false,
     );
+    // The short-history fallback is the runway rule, so it never fires next to it.
+    expect(LowBalanceState.safeParse({ ...base, firedBy: ['runway_fallback'] }).success).toBe(true);
+    expect(
+      LowBalanceState.safeParse({ ...base, firedBy: ['runway_fallback', 'runway'] }).success,
+    ).toBe(false);
+    expect(
+      LowBalanceState.safeParse({
+        ...base,
+        runwayDays: null,
+        fixed: null,
+        firedBy: ['runway_fallback'],
+      }).success,
+    ).toBe(false);
     expect(LowBalanceState.safeParse({ ...base, since: null }).success).toBe(false);
     expect(
       LowBalanceState.safeParse({

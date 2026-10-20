@@ -25,7 +25,13 @@ export type LowBalance = z.infer<typeof LowBalance>;
 /** What a mandate gets until the principal changes it. */
 export const DEFAULT_LOW_BALANCE = Object.freeze({ runwayDays: 7, fixed: null } as const);
 
-export const LowBalanceTrigger = z.enum(['runway', 'fixed']);
+/**
+ * runway_fallback is the runway rule firing on its short-history fallback,
+ * with fewer than seven days of spend to average, when it compares the free
+ * balance with what is already committed instead.
+ */
+export const LowBalanceTrigger = z.enum(['runway', 'runway_fallback', 'fixed']);
+export type LowBalanceTrigger = z.infer<typeof LowBalanceTrigger>;
 
 /** The setting plus whether it is firing now, which rules fired, and since when. */
 export const LowBalanceState = z
@@ -43,7 +49,15 @@ export const LowBalanceState = z
     if (new Set(value.firedBy).size !== value.firedBy.length) {
       ctx.addIssue({ code: 'custom', path: ['firedBy'], message: 'each rule at most once' });
     }
-    if (value.firedBy.includes('runway') && value.runwayDays === null) {
+    const runway = value.firedBy.filter((rule) => rule !== 'fixed');
+    if (runway.length > 1) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['firedBy'],
+        message: 'the runway rule fires one way at a time',
+      });
+    }
+    if (runway.length > 0 && value.runwayDays === null) {
       ctx.addIssue({ code: 'custom', path: ['firedBy'], message: 'the runway rule is off' });
     }
     if (value.firedBy.includes('fixed') && value.fixed === null) {

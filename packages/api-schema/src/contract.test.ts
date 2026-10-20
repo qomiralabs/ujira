@@ -123,9 +123,9 @@ describe('parseQuery', () => {
     const mixed = parseQuery('listPayouts', { cursor: 'has spaces', limit: '0' });
     expect(codeOf(mixed)).toBe('INVALID_FILTER');
     const twice = parseQuery('listPayouts', new URLSearchParams('method=bank&method=cash_pickup'));
-    expect(errorsOf(twice)).toEqual([{ field: 'method', code: 'invalid_value' }]);
+    expect(errorsOf(twice)).toEqual([{ field: 'method', code: 'repeated_key' }]);
     const missing = parseQuery('listPayouts', { amountMax: '10' });
-    expect(errorsOf(missing)).toEqual([{ field: 'amountCurrency', code: 'invalid_value' }]);
+    expect(errorsOf(missing)).toEqual([{ field: 'amountCurrency', code: 'currency_required' }]);
   });
 
   it('refuses a route that is not in the table', () => {

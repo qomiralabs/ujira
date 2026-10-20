@@ -76,6 +76,8 @@ export const FieldErrorCode = z.enum([
   'invalid_value',
   'unsupported_operator',
   'range_inverted',
+  'repeated_key',
+  'currency_required',
 ]);
 
 /**

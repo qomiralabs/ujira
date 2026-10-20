@@ -3,7 +3,7 @@
 
 import type { z } from 'zod';
 
-import { PROBLEM_CODES, PROBLEM_TYPE_BASE, Problem } from './envelope.js';
+import { FieldErrorCode, PROBLEM_CODES, PROBLEM_TYPE_BASE, Problem } from './envelope.js';
 import type { ProblemCode } from './envelope.js';
 import { ContractMismatchError, UnknownRouteError } from './errors.js';
 import type { ContractIssue } from './errors.js';
@@ -28,7 +28,7 @@ const TITLES: Readonly<Record<ProblemCode, string>> = Object.freeze({
 
 export interface FieldError {
   readonly field: string;
-  readonly code: 'unknown_field' | 'invalid_value' | 'unsupported_operator' | 'range_inverted';
+  readonly code: z.infer<typeof FieldErrorCode>;
 }
 
 /** A problem body that always passes its own schema. */
@@ -59,9 +59,11 @@ function routeOf(route: string): (typeof ROUTES)[RouteId] {
   return ROUTES[route as RouteId];
 }
 
+// Refinements that stand for a specific field code carry it as their message.
 function fieldCode(issue: z.core.$ZodIssue): FieldError['code'] {
-  if (issue.code === 'custom' && issue.message === 'range_inverted') return 'range_inverted';
-  return 'invalid_value';
+  if (issue.code !== 'custom') return 'invalid_value';
+  const named = FieldErrorCode.safeParse(issue.message);
+  return named.success ? named.data : 'invalid_value';
 }
 
 /**
@@ -79,7 +81,7 @@ export function parseQuery<R extends RouteId>(
   const record: Record<string, string> = {};
   const errors: FieldError[] = [];
   for (const [key, value] of entries) {
-    if (Object.hasOwn(record, key)) errors.push({ field: key, code: 'invalid_value' });
+    if (Object.hasOwn(record, key)) errors.push({ field: key, code: 'repeated_key' });
     record[key] = value;
   }
   const parsed = definition.query.safeParse(record);

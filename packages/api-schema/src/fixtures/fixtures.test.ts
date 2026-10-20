@@ -115,7 +115,7 @@ describe('edge fixtures', () => {
       expect(fired.get('both')).toEqual(['runway', 'fixed']);
       expect(fired.get('runway')).toEqual(['runway']);
       expect(fired.get('fixed')).toEqual(['fixed']);
-      expect(fired.get('fallback')).toEqual(['runway']);
+      expect(fired.get('fallback')).toEqual(['runway_fallback']);
       expect(fired.get('none')).toEqual([]);
     }
     // Every mandate starts from the default unless it set a fixed amount.

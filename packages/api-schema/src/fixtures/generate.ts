@@ -43,7 +43,7 @@ import type {
 } from '../enums.js';
 import type { Deposit, FundingOverview } from '../funding.js';
 import { DEFAULT_LOW_BALANCE } from '../low-balance.js';
-import type { LowBalance } from '../low-balance.js';
+import type { LowBalance, LowBalanceTrigger } from '../low-balance.js';
 import type { MandateDetail, MandateListItem } from '../mandates.js';
 import { toWireMoney, toWireToken } from '../money.js';
 import type { Money, TokenAmount } from '../money.js';
@@ -800,8 +800,10 @@ class Builder {
             available = runway * 2n + (fixed ?? 0n) * 2n + unit;
         }
         const runwayLimit = lowCase === 'fallback' ? committed : runway;
-        const firedBy: ('runway' | 'fixed')[] = [];
-        if (m.lowBalance.runwayDays !== null && available < runwayLimit) firedBy.push('runway');
+        const firedBy: LowBalanceTrigger[] = [];
+        if (m.lowBalance.runwayDays !== null && available < runwayLimit) {
+          firedBy.push(lowCase === 'fallback' ? 'runway_fallback' : 'runway');
+        }
         if (fixed !== null && available < fixed) firedBy.push('fixed');
         const triggered = firedBy.length > 0;
         return [

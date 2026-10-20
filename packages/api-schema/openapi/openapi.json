@@ -739,7 +739,9 @@
                     "unknown_field",
                     "invalid_value",
                     "unsupported_operator",
-                    "range_inverted"
+                    "range_inverted",
+                    "repeated_key",
+                    "currency_required"
                   ]
                 }
               },
@@ -788,7 +790,7 @@
           "firedBy": {
             "maxItems": 2,
             "type": "array",
-            "items": { "type": "string", "enum": ["runway", "fixed"] }
+            "items": { "type": "string", "enum": ["runway", "runway_fallback", "fixed"] }
           },
           "since": {
             "anyOf": [

@@ -397,7 +397,7 @@ export const PayoutListQuery = z
   .superRefine((value, ctx) => {
     const ranged = value.amountMin !== undefined || value.amountMax !== undefined;
     if (ranged && value.amountCurrency === undefined) {
-      ctx.addIssue({ code: 'custom', path: ['amountCurrency'], message: 'invalid_value' });
+      ctx.addIssue({ code: 'custom', path: ['amountCurrency'], message: 'currency_required' });
     }
     if (
       value.amountMin !== undefined &&
