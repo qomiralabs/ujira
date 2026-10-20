@@ -17,6 +17,9 @@ import {
 import { checkFixtures } from './check.js';
 import {
   EDGE_NAMES,
+  toMandateListItem,
+  toPayoutListItem,
+  toReceiptListItem,
   SYNTHETIC,
   EDGE_PAYOUT_COUNT,
   LOW_BALANCE_CASES,
@@ -248,6 +251,54 @@ describe('edge fixtures', () => {
       check('deposit.fromAddress', d.fromAddress, SYNTHETIC.address);
     }
     expect(problems).toEqual([]);
+  });
+
+  // A projection must carry the detail's own values, not merely values of the
+  // right shape. Both tenant ids are uuids, so swapping them type checks and
+  // still parses; only comparing against the source catches that.
+  it('projects list items from their detail without changing a value', () => {
+    const rows = (value: unknown): Record<string, unknown> => value as Record<string, unknown>;
+    const compare = (
+      item: Record<string, unknown>,
+      source: Record<string, unknown>,
+      label: string,
+      options: { skip?: readonly string[]; minFields: number },
+    ): void => {
+      const keys = Object.keys(item).filter((k) => !(options.skip ?? []).includes(k));
+      // Guards against an empty or gutted projection passing the loop.
+      expect(keys.length, `${label} field count`).toBeGreaterThanOrEqual(options.minFields);
+      for (const key of keys) {
+        expect(Object.hasOwn(source, key), `${label}.${key} exists on the detail`).toBe(true);
+        expect(item[key], `${label}.${key}`).toEqual(source[key]);
+      }
+    };
+
+    for (const detail of set.mandates.slice(0, 20)) {
+      const item = toMandateListItem(detail);
+      expect(item.principalId).toBe(detail.principalId);
+      expect(item.projectId).toBe(detail.projectId);
+      compare(rows(item), rows(detail), 'mandate', { skip: ['instances'], minFields: 8 });
+      expect(item.instances).toHaveLength(detail.instances.length);
+      item.instances.forEach((projected, i) => {
+        const source = detail.instances[i];
+        expect(source, `mandate.instances[${String(i)}]`).toBeDefined();
+        compare(rows(projected), rows(source), `mandate.instances[${String(i)}]`, { minFields: 5 });
+      });
+    }
+
+    for (const detail of set.payouts.slice(0, 50)) {
+      const item = toPayoutListItem(detail);
+      expect(item.principalId).toBe(detail.principalId);
+      expect(item.projectId).toBe(detail.projectId);
+      compare(rows(item), rows(detail), 'payout', { minFields: 16 });
+    }
+
+    for (const receipt of set.receipts.slice(0, 20)) {
+      const item = toReceiptListItem(receipt);
+      expect(item.principalId).toBe(receipt.principalId);
+      expect(item.projectId).toBe(receipt.projectId);
+      compare(rows(item), rows(receipt), 'receipt', { minFields: 10 });
+    }
   });
 
   it('every tenant row belongs to one of the fixture tenants', () => {
