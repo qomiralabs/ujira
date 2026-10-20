@@ -19,6 +19,7 @@
     "metadata:check": "node scripts/check-embedded-metadata.ts",
     "metadata:strip": "node scripts/strip-embedded-metadata.ts",
     "invisible:check": "node scripts/check-invisible-characters.ts",
+    "budget:check": "node scripts/check-bundle-budget.ts apps/dashboard 250",
     "db:types": "node scripts/db-types.ts"
   },
   "devDependencies": {

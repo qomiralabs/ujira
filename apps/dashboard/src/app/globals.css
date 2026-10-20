@@ -1,0 +1,103 @@
+/* Copyright (c) 2026 Qomira Labs. All rights reserved. */
+/* Proprietary and confidential. Unauthorized copying is prohibited. */
+
+@import 'tailwindcss';
+@import '@ujira/ui/styles/theme.css';
+
+/*
+ * The rail collapses to icons when the root carries data-rail="collapsed".
+ * Only elements inside [data-collapsible] react, so the mobile drawer, which
+ * reuses the same navigation, always shows labels.
+ */
+@custom-variant rail-collapsed {
+  [data-rail='collapsed'] [data-collapsible] &,
+  [data-rail='collapsed'] &[data-collapsible] {
+    @slot;
+  }
+}
+
+@layer base {
+  html {
+    background-color: var(--ujira-bg);
+    color: var(--ujira-text);
+    font-family: var(--ujira-font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    min-height: 100dvh;
+  }
+
+  /* Amounts, codes and labels never shift width as digits change. */
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0s !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0s !important;
+    }
+  }
+}
+
+/*
+ * The shared focus ring, for the two places where the ring has to be drawn
+ * on a wrapper because the control itself is visually hidden or sits flush
+ * with a panel edge. Same width, offset, saffron and teal ink band as the
+ * :focus-visible rule in the tokens, so nothing drifts from it.
+ */
+@utility focus-ring {
+  outline: var(--ujira-focus-ring-width) solid var(--ujira-focus-ring-color);
+  outline-offset: var(--ujira-focus-ring-offset);
+  box-shadow: 0 0 0 var(--ujira-focus-ring-offset) var(--ujira-focus-ring-inner);
+}
+
+/* The same ring drawn inside the element, where an outside ring would be
+ * clipped by the panel it sits in. */
+@utility focus-ring-inset {
+  outline: var(--ujira-focus-ring-width) solid var(--ujira-focus-ring-color);
+  outline-offset: calc(var(--ujira-focus-ring-offset) * -1);
+  box-shadow: inset 0 0 0 var(--ujira-focus-ring-offset) var(--ujira-focus-ring-inner);
+}
+
+/*
+ * What is currently chosen, as opposed to where focus is. A 1px ring in the
+ * secondary text colour, which clears 3:1 on every ground in both modes,
+ * where the surface and ground fills alone are nearly the same colour.
+ *
+ * Drawn as a pseudo element rather than an outline or a box shadow, because
+ * the focus ring uses both of those. An element that is chosen and focused
+ * at once has to show the saffron ring as well as the choice, and two rules
+ * setting `outline` cannot: the later one simply wins and the ring vanishes.
+ *
+ * Never saffron: the brand spends that on the mark, the amount, the one
+ * primary action and the focus ring.
+ */
+@utility chosen-ring {
+  position: relative;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 1px solid var(--ujira-text-secondary);
+    border-radius: inherit;
+    pointer-events: none;
+  }
+}
+
+/* The skeleton breathes slowly, and rests under reduced motion. */
+@keyframes ujira-skeleton {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@utility animate-skeleton {
+  animation: ujira-skeleton 1.6s var(--ujira-ease-out) infinite;
+}

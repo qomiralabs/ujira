@@ -7,7 +7,9 @@
 
 import { describe, expect, it } from 'vitest';
 
-import pg from 'pg';
+import type pg from 'pg';
+
+import { CompiledQuery } from 'kysely';
 
 import { loadDatabaseConfig, type DatabaseEnvironment } from './config.js';
 import { ClientConnection, createDatabase, OwnedClientDriver } from './database.js';
@@ -88,11 +90,7 @@ describe('the driver kysely is handed', () => {
 
   it('checks the statement before sending it, even on this connection', async () => {
     await expect(
-      connection.executeQuery({
-        sql: "set ujira.principal_id = 'p'",
-        parameters: [],
-        query: { kind: 'RawNode' } as never,
-      }),
+      connection.executeQuery(CompiledQuery.raw("set ujira.principal_id = 'p'")),
     ).rejects.toThrow(SessionStateError);
   });
 });

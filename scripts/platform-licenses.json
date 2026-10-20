@@ -2,6 +2,54 @@
   "$comment": "Reviewed licenses of platform specific packages (os, cpu or libc), which pnpm lists only on matching platforms. Each entry was checked against the package metadata on the npm registry. Adding or changing an entry needs a license review.",
   "packages": [
     {
+      "name": "@next/swc-darwin-arm64",
+      "versions": "16.3.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/next.js"
+    },
+    {
+      "name": "@next/swc-darwin-x64",
+      "versions": "16.3.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/next.js"
+    },
+    {
+      "name": "@next/swc-linux-arm64-gnu",
+      "versions": "16.3.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/next.js"
+    },
+    {
+      "name": "@next/swc-linux-arm64-musl",
+      "versions": "16.3.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/next.js"
+    },
+    {
+      "name": "@next/swc-linux-x64-gnu",
+      "versions": "16.3.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/next.js"
+    },
+    {
+      "name": "@next/swc-linux-x64-musl",
+      "versions": "16.3.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/next.js"
+    },
+    {
+      "name": "@next/swc-win32-arm64-msvc",
+      "versions": "16.3.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/next.js"
+    },
+    {
+      "name": "@next/swc-win32-x64-msvc",
+      "versions": "16.3.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/next.js"
+    },
+    {
       "name": "@rolldown/binding-android-arm-eabi",
       "versions": "1.2.14",
       "license": "MIT",
@@ -92,6 +140,78 @@
       "source": "https://github.com/rolldown/rolldown"
     },
     {
+      "name": "@tailwindcss/oxide-android-arm64",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-darwin-arm64",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-darwin-x64",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-freebsd-x64",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-linux-arm-gnueabihf",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-linux-arm64-gnu",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-linux-arm64-musl",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-linux-x64-gnu",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-linux-x64-musl",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-wasm32-wasi",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-win32-arm64-msvc",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-win32-x64-msvc",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
       "name": "@turbo/darwin-64",
       "versions": "2.11.8",
       "license": "MIT",
@@ -135,7 +255,19 @@
     },
     {
       "name": "lightningcss-android-arm64",
+      "versions": "1.32.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-android-arm64",
       "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-darwin-arm64",
+      "versions": "1.32.0",
       "license": "MPL-2.0",
       "source": "https://github.com/parcel-bundler/lightningcss"
     },
@@ -147,7 +279,19 @@
     },
     {
       "name": "lightningcss-darwin-x64",
+      "versions": "1.32.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-darwin-x64",
       "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-freebsd-x64",
+      "versions": "1.32.0",
       "license": "MPL-2.0",
       "source": "https://github.com/parcel-bundler/lightningcss"
     },
@@ -159,7 +303,19 @@
     },
     {
       "name": "lightningcss-linux-arm-gnueabihf",
+      "versions": "1.32.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-linux-arm-gnueabihf",
       "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-linux-arm64-gnu",
+      "versions": "1.32.0",
       "license": "MPL-2.0",
       "source": "https://github.com/parcel-bundler/lightningcss"
     },
@@ -171,7 +327,19 @@
     },
     {
       "name": "lightningcss-linux-arm64-musl",
+      "versions": "1.32.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-linux-arm64-musl",
       "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-linux-x64-gnu",
+      "versions": "1.32.0",
       "license": "MPL-2.0",
       "source": "https://github.com/parcel-bundler/lightningcss"
     },
@@ -183,13 +351,31 @@
     },
     {
       "name": "lightningcss-linux-x64-musl",
+      "versions": "1.32.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-linux-x64-musl",
       "versions": "1.33.0",
       "license": "MPL-2.0",
       "source": "https://github.com/parcel-bundler/lightningcss"
     },
     {
       "name": "lightningcss-win32-arm64-msvc",
+      "versions": "1.32.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-win32-arm64-msvc",
       "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-win32-x64-msvc",
+      "versions": "1.32.0",
       "license": "MPL-2.0",
       "source": "https://github.com/parcel-bundler/lightningcss"
     },

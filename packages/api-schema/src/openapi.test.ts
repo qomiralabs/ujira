@@ -36,6 +36,7 @@ const IN_SCOPE = [
   '/v1/receipts/{id}',
   '/v1/funding',
   '/v1/approvals',
+  '/v1/stats/overview',
 ];
 
 describe('OpenAPI document', () => {

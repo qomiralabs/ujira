@@ -722,6 +722,13 @@ export default defineConfig(
       'apps/*/dist/**',
       'apps/*/coverage/**',
       'apps/*/.turbo/**',
+      // Next.js, Playwright and Lighthouse CI output, and the type file
+      // next build writes.
+      'apps/*/.next/**',
+      'apps/*/next-env.d.ts',
+      'apps/*/test-results/**',
+      'apps/*/playwright-report/**',
+      'apps/*/.lighthouseci/**',
     ],
   },
   {

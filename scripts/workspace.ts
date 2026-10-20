@@ -96,6 +96,18 @@ const DEPENDENCY_FIELDS = [
   'peerDependencies',
 ];
 
+const NEXT_CONFIG = /^next\.config\.(?:js|mjs|cjs|ts|mts)$/;
+
+// A member is a Next.js app when it declares next in any dependency field or
+// has a next.config file. The gate builds these with next build instead of tsc.
+export function isNextApp(manifest: Record<string, unknown>, dir: string): boolean {
+  const declared = DEPENDENCY_FIELDS.some((field) => {
+    const deps = manifest[field];
+    return typeof deps === 'object' && deps !== null && Object.hasOwn(deps, 'next');
+  });
+  return declared || (existsSync(dir) && readdirSync(dir).some((entry) => NEXT_CONFIG.test(entry)));
+}
+
 // Names of the other members this member depends on.
 export function workspaceDependencies(member: Member, names: ReadonlySet<string>): string[] {
   const found = new Set<string>();
