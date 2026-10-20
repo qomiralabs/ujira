@@ -1,0 +1,23 @@
+/* Copyright (c) 2026 Qomira Labs. All rights reserved. */
+/* Proprietary and confidential. Unauthorized copying is prohibited. */
+
+@import 'tailwindcss';
+@import '../styles/theme.css';
+@import '@fontsource-variable/inter/wght.css';
+@import '@fontsource-variable/jetbrains-mono/wght.css';
+
+@source '../src';
+@source '../stories';
+
+/* The apps load these faces with next/font; the catalogue self-hosts the same ones. */
+:root {
+  --ujira-font-inter: 'Inter Variable';
+  --ujira-font-jetbrains-mono: 'JetBrains Mono Variable';
+}
+
+body {
+  margin: 0;
+  background: var(--ujira-bg);
+  color: var(--ujira-text);
+  font-family: var(--ujira-font-sans);
+}

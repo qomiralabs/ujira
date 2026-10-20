@@ -1,6 +1,6 @@
 # @ujira/ui
 
-The UJIRA design system, shared by the dashboard and the website. This first slice holds the design tokens, the nine brand icons and the font setup notes. Primitives, charts and payment components come later.
+The UJIRA design system, shared by the dashboard and the website. It holds the design tokens, the nine brand icons, the form primitives and the component catalogue. Charts and payment components come later.
 
 ## Layout
 
@@ -16,6 +16,71 @@ The UJIRA design system, shared by the dashboard and the website. This first sli
 | `src/tokens/tokens.generated.ts`     | Generated. Typed constants with the same values                                                                                    |
 | `src/icons/brand-icons.generated.ts` | Generated. The nine icon names and their shapes, read from the sprite                                                              |
 | `src/icons/brand-icon.tsx`           | `<BrandIcon name="payout" />`                                                                                                      |
+| `src/primitives/`                    | The form primitives, shadcn/ui on Radix restyled to the brand                                                                      |
+| `src/lib/cn.ts`                      | `cn()`, the class merge that knows the brand type steps, radii and shadows                                                         |
+| `stories/`                           | One story file per primitive, every variant and state                                                                              |
+| `.storybook/`                        | The catalogue: light and dark, the three widths, the axe addon                                                                     |
+| `e2e/`                               | The browser tests: axe, the focus ring and the visual snapshots                                                                    |
+
+## Primitives
+
+```tsx
+import { Button, Field, Input } from '@ujira/ui';
+
+<Field label="Recipient email" hint="We send the receipt here." error={errors.email?.message}>
+  <Input type="email" {...register('email')} />
+</Field>
+<Button variant="primary">Approve payout</Button>
+```
+
+`Field` is the wiring: it gives the control an id, links the label, the hint and the error with
+`aria-describedby` and `aria-errormessage`, and marks the control invalid while an error is set.
+Pass a react-hook-form message straight to `error`. Group controls such as `RadioGroup` are named
+by the label instead. Input, Textarea, Select, Checkbox, RadioGroup and Switch all read the field
+around them, so nothing has to be wired twice.
+
+Rules the primitives hold to:
+
+- One saffron primary action per view. `Button` has `primary`, `secondary`, `ghost` and `danger`;
+  only `primary` uses the saffron fill.
+- Every interactive element has the 2px saffron focus ring with a 2px offset, and a teal ink ring
+  in the offset band so it stays visible on cream, on white and on a saffron button.
+- 6px radius on inputs and buttons, no shadows outside overlays.
+- Errors carry an icon and a sentence, never colour alone.
+- A loading button keeps its label and its place in the tab order: it is marked busy and disabled,
+  and ignores clicks, rather than dropping out of the page.
+- Lucide icons are drawn at `strokeWidth={1.5}`.
+- Colours come from the generated theme only. A test fails on a hex, `rgb()` or `hsl()` literal, on
+  a colour utility that is not in the theme, and on a custom property that is not a UJIRA or Radix one.
+
+## Catalogue
+
+```sh
+pnpm --filter @ujira/ui storybook        # the catalogue at http://localhost:6006
+pnpm --filter @ujira/ui build-storybook  # static build into storybook-static/
+pnpm --filter @ujira/ui test-storybook   # the browser tests against that build
+```
+
+The catalogue switches mode with the same `data-theme` attribute the apps use, and the viewport
+toolbar holds the three widths every screen is checked at: 375, 768 and 1440. The a11y addon runs
+axe on the story you are looking at.
+
+`test-storybook` runs every story twice, once per mode. Each run checks axe for WCAG 2.2 AA
+violations and compares a screenshot. A separate spec presses Tab on every interactive story in
+both modes and asserts the saffron ring. Build the catalogue first; the tests read its
+`index.json`, so a new story is covered the moment it exists.
+
+Screenshots are compared only on Linux, so that one set of files works for everyone. Take and
+check them in the same image CI uses:
+
+```sh
+docker run --rm --platform linux/amd64 -v "$PWD/../..":/w \
+  mcr.microsoft.com/playwright:v1.63.0-noble \
+  bash -c 'cd /w/packages/ui && node node_modules/@playwright/test/cli.js test --update-snapshots'
+```
+
+Look at every changed image before you commit it. Run the same command without
+`--update-snapshots` to check them.
 
 ## Tokens
 

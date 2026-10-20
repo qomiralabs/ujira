@@ -9,6 +9,7 @@ import {
   formatViolation,
   normalizeRepository,
   parseSpdx,
+  DEV_DATA_PACKAGES,
   PROD_FONT_PACKAGES,
   renderNotices,
   sanitizeUrl,
@@ -125,6 +126,19 @@ describe('check-licenses', () => {
 
   it('starts with an empty production font allowlist', () => {
     expect([...PROD_FONT_PACKAGES]).toEqual([]);
+  });
+
+  it('accepts CC-BY-4.0 only on the reviewed dev data packages', () => {
+    expect([...DEV_DATA_PACKAGES]).toEqual(['caniuse-lite']);
+    expect(findViolations([pkg('CC-BY-4.0', 'caniuse-lite', 'dev')])).toEqual([]);
+    expect(evaluateLicense('CC-BY-4.0 AND GPL-3.0', 'dev', 'caniuse-lite').ok).toBe(false);
+  });
+
+  it('rejects CC-BY-4.0 on any other dev package and on every production package', () => {
+    expect(findViolations([pkg('CC-BY-4.0', 'icon-kit', 'dev')]).map(formatViolation)).toEqual([
+      'icon-kit@1.0.0 (dev): license "CC-BY-4.0": "CC-BY-4.0" not allowed in dev dependencies (data licenses are allowed in development only for packages in DEV_DATA_PACKAGES)',
+    ]);
+    expect(evaluateLicense('CC-BY-4.0', 'prod', 'caniuse-lite').ok).toBe(false);
   });
 
   it('accepts OFL-1.1 on any dev package', () => {

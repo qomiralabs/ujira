@@ -2,6 +2,384 @@
   "$comment": "Reviewed licenses of platform specific packages (os, cpu or libc), which pnpm lists only on matching platforms. Each entry was checked against the package metadata on the npm registry. Adding or changing an entry needs a license review.",
   "packages": [
     {
+      "name": "@esbuild/aix-ppc64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/android-arm",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/android-arm64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/android-x64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/darwin-arm64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/darwin-x64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/freebsd-arm64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/freebsd-x64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/linux-arm",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/linux-arm64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/linux-ia32",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/linux-loong64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/linux-mips64el",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/linux-ppc64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/linux-riscv64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/linux-s390x",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/linux-x64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/netbsd-arm64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/netbsd-x64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/openbsd-arm64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/openbsd-x64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/openharmony-arm64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/sunos-x64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/win32-arm64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/win32-ia32",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@esbuild/win32-x64",
+      "versions": "0.28.2",
+      "license": "MIT",
+      "source": "https://github.com/evanw/esbuild"
+    },
+    {
+      "name": "@oxc-parser/binding-android-arm-eabi",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-parser/binding-android-arm64",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-parser/binding-darwin-arm64",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-parser/binding-darwin-x64",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-parser/binding-freebsd-x64",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-parser/binding-linux-arm-gnueabihf",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-parser/binding-linux-arm-musleabihf",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-parser/binding-linux-arm64-gnu",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-parser/binding-linux-arm64-musl",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-parser/binding-linux-ppc64-gnu",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-parser/binding-linux-riscv64-gnu",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-parser/binding-linux-riscv64-musl",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-parser/binding-linux-s390x-gnu",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-parser/binding-linux-x64-gnu",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-parser/binding-linux-x64-musl",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-parser/binding-openharmony-arm64",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-parser/binding-win32-arm64-msvc",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-parser/binding-win32-ia32-msvc",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-parser/binding-win32-x64-msvc",
+      "versions": "0.127.0",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc"
+    },
+    {
+      "name": "@oxc-resolver/binding-android-arm-eabi",
+      "versions": "11.21.2",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc-resolver"
+    },
+    {
+      "name": "@oxc-resolver/binding-android-arm64",
+      "versions": "11.21.2",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc-resolver"
+    },
+    {
+      "name": "@oxc-resolver/binding-darwin-arm64",
+      "versions": "11.21.2",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc-resolver"
+    },
+    {
+      "name": "@oxc-resolver/binding-darwin-x64",
+      "versions": "11.21.2",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc-resolver"
+    },
+    {
+      "name": "@oxc-resolver/binding-freebsd-x64",
+      "versions": "11.21.2",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc-resolver"
+    },
+    {
+      "name": "@oxc-resolver/binding-linux-arm-gnueabihf",
+      "versions": "11.21.2",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc-resolver"
+    },
+    {
+      "name": "@oxc-resolver/binding-linux-arm-musleabihf",
+      "versions": "11.21.2",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc-resolver"
+    },
+    {
+      "name": "@oxc-resolver/binding-linux-arm64-gnu",
+      "versions": "11.21.2",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc-resolver"
+    },
+    {
+      "name": "@oxc-resolver/binding-linux-arm64-musl",
+      "versions": "11.21.2",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc-resolver"
+    },
+    {
+      "name": "@oxc-resolver/binding-linux-ppc64-gnu",
+      "versions": "11.21.2",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc-resolver"
+    },
+    {
+      "name": "@oxc-resolver/binding-linux-riscv64-gnu",
+      "versions": "11.21.2",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc-resolver"
+    },
+    {
+      "name": "@oxc-resolver/binding-linux-riscv64-musl",
+      "versions": "11.21.2",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc-resolver"
+    },
+    {
+      "name": "@oxc-resolver/binding-linux-s390x-gnu",
+      "versions": "11.21.2",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc-resolver"
+    },
+    {
+      "name": "@oxc-resolver/binding-linux-x64-gnu",
+      "versions": "11.21.2",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc-resolver"
+    },
+    {
+      "name": "@oxc-resolver/binding-linux-x64-musl",
+      "versions": "11.21.2",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc-resolver"
+    },
+    {
+      "name": "@oxc-resolver/binding-openharmony-arm64",
+      "versions": "11.21.2",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc-resolver"
+    },
+    {
+      "name": "@oxc-resolver/binding-win32-arm64-msvc",
+      "versions": "11.21.2",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc-resolver"
+    },
+    {
+      "name": "@oxc-resolver/binding-win32-x64-msvc",
+      "versions": "11.21.2",
+      "license": "MIT",
+      "source": "https://github.com/oxc-project/oxc-resolver"
+    },
+    {
       "name": "@rolldown/binding-android-arm-eabi",
       "versions": "1.2.14",
       "license": "MIT",
@@ -92,6 +470,72 @@
       "source": "https://github.com/rolldown/rolldown"
     },
     {
+      "name": "@tailwindcss/oxide-android-arm64",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-darwin-arm64",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-darwin-x64",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-freebsd-x64",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-linux-arm-gnueabihf",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-linux-arm64-gnu",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-linux-arm64-musl",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-linux-x64-gnu",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-linux-x64-musl",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-win32-arm64-msvc",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
+      "name": "@tailwindcss/oxide-win32-x64-msvc",
+      "versions": "4.3.3",
+      "license": "MIT",
+      "source": "https://github.com/tailwindlabs/tailwindcss"
+    },
+    {
       "name": "@turbo/darwin-64",
       "versions": "2.11.8",
       "license": "MIT",
@@ -135,7 +579,19 @@
     },
     {
       "name": "lightningcss-android-arm64",
+      "versions": "1.32.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-android-arm64",
       "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-darwin-arm64",
+      "versions": "1.32.0",
       "license": "MPL-2.0",
       "source": "https://github.com/parcel-bundler/lightningcss"
     },
@@ -147,7 +603,19 @@
     },
     {
       "name": "lightningcss-darwin-x64",
+      "versions": "1.32.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-darwin-x64",
       "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-freebsd-x64",
+      "versions": "1.32.0",
       "license": "MPL-2.0",
       "source": "https://github.com/parcel-bundler/lightningcss"
     },
@@ -159,7 +627,19 @@
     },
     {
       "name": "lightningcss-linux-arm-gnueabihf",
+      "versions": "1.32.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-linux-arm-gnueabihf",
       "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-linux-arm64-gnu",
+      "versions": "1.32.0",
       "license": "MPL-2.0",
       "source": "https://github.com/parcel-bundler/lightningcss"
     },
@@ -171,7 +651,19 @@
     },
     {
       "name": "lightningcss-linux-arm64-musl",
+      "versions": "1.32.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-linux-arm64-musl",
       "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-linux-x64-gnu",
+      "versions": "1.32.0",
       "license": "MPL-2.0",
       "source": "https://github.com/parcel-bundler/lightningcss"
     },
@@ -183,13 +675,31 @@
     },
     {
       "name": "lightningcss-linux-x64-musl",
+      "versions": "1.32.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-linux-x64-musl",
       "versions": "1.33.0",
       "license": "MPL-2.0",
       "source": "https://github.com/parcel-bundler/lightningcss"
     },
     {
       "name": "lightningcss-win32-arm64-msvc",
+      "versions": "1.32.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-win32-arm64-msvc",
       "versions": "1.33.0",
+      "license": "MPL-2.0",
+      "source": "https://github.com/parcel-bundler/lightningcss"
+    },
+    {
+      "name": "lightningcss-win32-x64-msvc",
+      "versions": "1.32.0",
       "license": "MPL-2.0",
       "source": "https://github.com/parcel-bundler/lightningcss"
     },

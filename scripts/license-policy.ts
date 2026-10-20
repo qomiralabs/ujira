@@ -39,8 +39,25 @@ export const DEV_ALLOWED: ReadonlySet<string> = new Set([
 
 const PROD_FONT_ALLOWED: ReadonlySet<string> = new Set([...PROD_ALLOWED, ...FONT_LICENSES]);
 
+// Licenses for data files rather than code, accepted only in development and
+// only for the packages listed below.
+export const DATA_LICENSES: ReadonlySet<string> = new Set(['CC-BY-4.0']);
+
+// Dev packages allowed to use a data license. Adding a package here needs a
+// license review: confirm it ships data only and is never bundled into a
+// product. caniuse-lite is the browser support table that browserslist reads
+// at build time; it comes in through Babel under the Storybook React docgen
+// and its attribution is carried in THIRD_PARTY_NOTICES.md.
+export const DEV_DATA_PACKAGES: ReadonlySet<string> = new Set(['caniuse-lite']);
+
+const DEV_DATA_ALLOWED: ReadonlySet<string> = new Set([...DEV_ALLOWED, ...DATA_LICENSES]);
+
 export function allowlistFor(scope: Scope, packageName?: string): ReadonlySet<string> {
-  if (scope === 'dev') return DEV_ALLOWED;
+  if (scope === 'dev') {
+    return packageName !== undefined && DEV_DATA_PACKAGES.has(packageName)
+      ? DEV_DATA_ALLOWED
+      : DEV_ALLOWED;
+  }
   return packageName !== undefined && PROD_FONT_PACKAGES.has(packageName)
     ? PROD_FONT_ALLOWED
     : PROD_ALLOWED;
@@ -162,8 +179,9 @@ const MISSING = new Set([
 
 export type Decision = { ok: true } | { ok: false; reason: string };
 
-// `packageName` matters only for font licenses in production; without it a
-// font license is treated as coming from a non font package.
+// `packageName` matters only for font licenses in production and data
+// licenses in development; without it either is treated as coming from an
+// unlisted package.
 export function evaluateLicense(license: string, scope: Scope, packageName?: string): Decision {
   const value = license.trim();
   if (MISSING.has(value.toLowerCase()) || /^see license in /i.test(value)) {
@@ -181,9 +199,12 @@ export function evaluateLicense(license: string, scope: Scope, packageName?: str
   const fontHint = blocked.some((id) => FONT_LICENSES.has(id))
     ? ' (font licenses are allowed in production only for packages in PROD_FONT_PACKAGES)'
     : '';
+  const dataHint = blocked.some((id) => DATA_LICENSES.has(id))
+    ? ' (data licenses are allowed in development only for packages in DEV_DATA_PACKAGES)'
+    : '';
   return {
     ok: false,
-    reason: `${blocked.map((id) => `"${id}"`).join(', ')} not allowed in ${scope} dependencies${fontHint}`,
+    reason: `${blocked.map((id) => `"${id}"`).join(', ')} not allowed in ${scope} dependencies${fontHint}${dataHint}`,
   };
 }
 
