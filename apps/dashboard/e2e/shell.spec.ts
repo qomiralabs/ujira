@@ -127,13 +127,15 @@ test.describe('shell', () => {
     await page.emulateMedia({ colorScheme: 'light' });
     const light = await background();
     expect(light).not.toBe(dark);
-    await page.getByRole('group', { name: 'Theme' }).getByText('Dark').click({ force: true });
+    await page.getByRole('button', { name: /Choose a theme/ }).click();
+    await page.getByRole('menuitemradio', { name: 'Dark' }).click();
     await expect(html).toHaveAttribute('data-theme', 'dark');
     expect(await background()).toBe(dark);
     await page.reload();
     await expect(html).toHaveAttribute('data-theme', 'dark');
     expect(await background()).toBe(dark);
-    await page.getByRole('radio', { name: 'Match system' }).check({ force: true });
+    await page.getByRole('button', { name: /Choose a theme/ }).click();
+    await page.getByRole('menuitemradio', { name: 'Match system' }).click();
     await expect(html).not.toHaveAttribute('data-theme');
     expect(await background()).toBe(light);
   });
@@ -238,8 +240,11 @@ test.describe('shell', () => {
     const light = await background();
     const lightSurface = await surface();
 
-    // The theme changes while the panel is open.
-    await page.getByRole('radio', { name: 'Dark' }).check({ force: true });
+    // The theme changes while the panel is open. Set on the root the way the
+    // theme switch does: clicking the switch itself would dismiss the menu.
+    await page.evaluate(() => {
+      document.documentElement.dataset['theme'] = 'dark';
+    });
     await expect(panel).toBeVisible();
     const dark = await background();
     expect(dark).not.toBe(light);
@@ -251,7 +256,9 @@ test.describe('shell', () => {
     await expect(panel).toBeVisible();
     expect(await background()).toBe(dark);
 
-    await page.getByRole('radio', { name: 'Light' }).check({ force: true });
+    await page.evaluate(() => {
+      document.documentElement.dataset['theme'] = 'light';
+    });
     expect(await background()).toBe(light);
   });
 

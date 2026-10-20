@@ -4,7 +4,7 @@
 import './globals.css';
 
 import type { Metadata, Viewport } from 'next';
-import { Inter, JetBrains_Mono } from 'next/font/google';
+import { Inter, JetBrains_Mono, Noto_Sans_Mono } from 'next/font/google';
 import Script from 'next/script';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import type { ReactNode } from 'react';
@@ -29,6 +29,16 @@ const mono = JetBrains_Mono({
   display: 'swap',
 });
 
+// JetBrains Mono has no naira, cedi, peso or rupee sign. Noto Sans Mono is
+// loaded only to supply those four, through the stack in globals.css, so an
+// amount in one of them keeps the same character width as every other.
+const signs = Noto_Sans_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  variable: '--ujira-font-noto-sans-mono',
+  display: 'swap',
+});
+
 export const metadata: Metadata = {
   title: { default: 'UJIRA', template: '%s | UJIRA' },
   description: 'Mandates, payouts, approvals and receipts for your UJIRA projects.',
@@ -45,7 +55,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     // The preferences script sets data-theme and data-rail before React loads.
-    <html lang="en" className={`${inter.variable} ${mono.variable}`} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${inter.variable} ${mono.variable} ${signs.variable}`}
+      suppressHydrationWarning
+    >
       <body>
         <Script id="ujira-preferences" strategy="beforeInteractive">
           {PREFERENCES_SCRIPT}

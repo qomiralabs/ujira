@@ -39,6 +39,6 @@ describe('TopBar', () => {
   it('holds the drawer button and the theme switch', () => {
     render(<TopBar project="labelling" onProjectChange={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Open navigation' })).toBeTruthy();
-    expect(screen.getByRole('group', { name: 'Theme' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Choose a theme/ })).toBeTruthy();
   });
 });

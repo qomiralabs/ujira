@@ -35,7 +35,7 @@ export function watchConsole(page: Page): string[] {
  * Waits for the self-hosted fonts and for React to hydrate. The prerendered
  * HTML is interactive looking before hydration, so a click or a shortcut sent
  * too early would do nothing. React marks the DOM nodes it owns with a
- * __reactProps key; the theme radios exist on every page.
+ * __reactProps key; the theme control exists on every page.
  */
 export async function settle(page: Page): Promise<void> {
   await page.waitForLoadState('networkidle');
@@ -44,7 +44,7 @@ export async function settle(page: Page): Promise<void> {
   });
   await expect(page.locator('main')).toBeVisible();
   await page.waitForFunction(() => {
-    const radio = document.querySelector('input[name="theme"]');
-    return radio !== null && Object.keys(radio).some((key) => key.startsWith('__reactProps'));
+    const control = document.querySelector('[aria-label^="Theme:"]');
+    return control !== null && Object.keys(control).some((key) => key.startsWith('__reactProps'));
   });
 }

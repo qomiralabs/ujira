@@ -54,11 +54,12 @@ export function CommandPalette({ project, open, onOpenChange }: CommandPalettePr
         >
           <Dialog.Title className="sr-only">Find a page</Dialog.Title>
           <Command label="Find a page" loop>
-            <div className="flex items-center gap-3 border-b border-rule px-4 has-focus-visible:outline-2 has-focus-visible:-outline-offset-2 has-focus-visible:outline-focus">
-              <Icon source={{ lucide: Search }} size={18} className="text-text-secondary" />
+            <div className="flex items-center gap-3 border-b border-rule px-4 py-2">
+              <Icon source={{ lucide: Search }} className="text-text-secondary" />
               <Command.Input
                 placeholder="Search pages"
-                className="h-12 flex-1 bg-transparent text-body text-text placeholder:text-text-subtle focus-visible:shadow-none focus-visible:outline-none"
+                // The shared :focus-visible ring applies here unchanged.
+                className="h-10 flex-1 bg-transparent text-body text-text placeholder:text-text-subtle"
               />
             </div>
             <Command.List className="max-h-80 overflow-y-auto p-2">
@@ -79,13 +80,9 @@ export function CommandPalette({ project, open, onOpenChange }: CommandPalettePr
                       onOpenChange(false);
                       router.push(withProject(hrefFor(item), { project }));
                     }}
-                    className="flex cursor-default items-start gap-3 rounded-control px-3 py-2 select-none data-[selected=true]:bg-bg"
+                    className="flex cursor-default items-start gap-3 rounded-control px-3 py-2 select-none data-[selected=true]:bg-bg data-[selected=true]:focus-ring-inset"
                   >
-                    <Icon
-                      source={item.icon}
-                      size={18}
-                      className="mt-0.5 shrink-0 text-text-secondary"
-                    />
+                    <Icon source={item.icon} className="mt-0.5 shrink-0 text-text-secondary" />
                     <span className="flex min-w-0 flex-col gap-0.5">
                       <span className="text-body-s font-medium text-text">{item.label}</span>
                       {/* Every choice says what it is, never a bare name. */}

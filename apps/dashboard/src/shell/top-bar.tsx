@@ -42,11 +42,11 @@ export function TopBar({ project, onProjectChange }: TopBarProps) {
         }}
         aria-haspopup="dialog"
         aria-keyshortcuts={apple ? 'Meta+K' : 'Control+K'}
-        className="flex h-10 min-w-0 flex-1 items-center gap-3 rounded-control border border-rule bg-surface px-3 text-body-s text-text-secondary transition-colors duration-150 ease-out hover:text-text sm:max-w-sm"
+        className="flex h-10 min-w-0 flex-1 items-center gap-3 rounded-control border border-rule bg-surface px-3 text-body-s text-text-secondary transition-[background-color,color] duration-150 ease-out hover:text-text sm:max-w-sm"
       >
-        <Icon source={{ lucide: Search }} size={18} className="shrink-0" />
+        <Icon source={{ lucide: Search }} size={20} className="shrink-0" />
         <span className="flex-1 truncate text-left">Find a page</span>
-        <kbd className="hidden rounded-control border border-rule px-1.5 font-mono text-label text-text-secondary sm:inline">
+        <kbd className="hidden rounded-control border border-rule px-2 font-mono text-label text-text-secondary sm:inline">
           {apple ? '⌘ K' : 'Ctrl K'}
         </kbd>
       </button>

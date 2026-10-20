@@ -22,7 +22,7 @@ interface NavListProps {
 export function NavList({ project, group, collapsed = false, onNavigate }: NavListProps) {
   const current = activeItem(usePathname());
   return (
-    <ul className="flex flex-col gap-0.5">
+    <ul className="flex flex-col gap-1">
       {NAV_ITEMS.filter((item) => item.group === group).map((item) => {
         const active = current?.segment === item.segment;
         return (
@@ -33,9 +33,9 @@ export function NavList({ project, group, collapsed = false, onNavigate }: NavLi
               title={collapsed ? item.label : undefined}
               onClick={() => onNavigate?.()}
               className={[
-                'flex h-10 items-center gap-3 rounded-control px-3 text-body-s font-medium transition-colors duration-150 ease-out rail-collapsed:justify-center rail-collapsed:px-0',
+                'flex h-10 items-center gap-3 rounded-control px-3 text-body-s font-medium transition-[background-color,color] duration-150 ease-out rail-collapsed:justify-center rail-collapsed:px-0',
                 active
-                  ? 'bg-surface text-text'
+                  ? 'bg-surface text-text chosen-outline'
                   : 'text-text-secondary hover:bg-surface/60 hover:text-text',
               ].join(' ')}
             >

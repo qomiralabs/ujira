@@ -3,43 +3,89 @@
 
 'use client';
 
-import { Monitor, Moon, Sun } from 'lucide-react';
+import * as Menu from '@radix-ui/react-dropdown-menu';
+import { Check, Monitor, Moon, Sun } from 'lucide-react';
 
 import { Icon, type IconSource } from './icon';
 import { setTheme, useTheme, type Theme } from './preferences';
 
-const OPTIONS: readonly { value: Theme; label: string; icon: IconSource }[] = [
-  { value: 'system', label: 'Match system', icon: { lucide: Monitor } },
+interface ThemeOption {
+  value: Theme;
+  label: string;
+  icon: IconSource;
+}
+
+const SYSTEM: ThemeOption = { value: 'system', label: 'Match system', icon: { lucide: Monitor } };
+
+const OPTIONS: readonly ThemeOption[] = [
+  SYSTEM,
   { value: 'light', label: 'Light', icon: { lucide: Sun } },
   { value: 'dark', label: 'Dark', icon: { lucide: Moon } },
 ];
 
-/** Native radios, so arrow keys move between the three options for free. */
+function isTheme(value: string): value is Theme {
+  return OPTIONS.some((option) => option.value === value);
+}
+
+/**
+ * A menu rather than three bare icons: the chosen mode is named in words on
+ * the trigger, and each option says what it is. Menu items are real focusable
+ * controls, so the shared focus ring applies to them unchanged.
+ */
 export function ThemeSwitch() {
   const theme = useTheme();
+  const chosen = OPTIONS.find((option) => option.value === theme) ?? SYSTEM;
   return (
-    <fieldset className="flex items-center rounded-control border border-rule bg-surface p-0.5">
-      <legend className="sr-only">Theme</legend>
-      {OPTIONS.map((option) => (
-        <label
-          key={option.value}
-          title={option.label}
-          className="grid size-9 cursor-pointer place-items-center rounded-control text-text-secondary transition-colors duration-150 ease-out hover:text-text has-checked:bg-bg has-checked:text-text has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-focus"
+    <Menu.Root modal={false}>
+      <Menu.Trigger
+        aria-label={`Theme: ${chosen.label}. Choose a theme`}
+        className="flex h-10 items-center gap-2 rounded-control border border-rule bg-surface px-3 text-body-s text-text transition-[background-color,color] duration-150 ease-out hover:bg-bg"
+      >
+        <Icon source={chosen.icon} size={20} className="shrink-0 text-text-secondary" />
+        <span className="hidden sm:inline">{chosen.label}</span>
+      </Menu.Trigger>
+      <Menu.Portal>
+        <Menu.Content
+          align="end"
+          sideOffset={8}
+          collisionPadding={12}
+          className="z-50 min-w-48 rounded-overlay border border-rule bg-surface p-1.5 text-text shadow-overlay"
         >
-          <input
-            type="radio"
-            name="theme"
-            value={option.value}
-            checked={theme === option.value}
-            onChange={() => {
-              setTheme(option.value);
+          <Menu.Label className="px-2.5 pt-1.5 pb-2 text-label font-mono text-text-secondary uppercase">
+            Theme
+          </Menu.Label>
+          <Menu.RadioGroup
+            value={theme}
+            onValueChange={(value) => {
+              if (isTheme(value)) setTheme(value);
             }}
-            className="sr-only"
-          />
-          <Icon source={option.icon} size={18} />
-          <span className="sr-only">{option.label}</span>
-        </label>
-      ))}
-    </fieldset>
+          >
+            {OPTIONS.map((option) => (
+              <Menu.RadioItem
+                key={option.value}
+                value={option.value}
+                // The highlighted row is the one Enter acts on, so it wears
+                // the shared ring. The chosen row carries the outline that
+                // marks a current choice, plus the mark, so neither state
+                // rests on a fill that is nearly its own ground.
+                className="group flex h-10 cursor-default items-center gap-3 rounded-control px-2.5 outline-none select-none data-highlighted:bg-bg data-highlighted:focus-ring-inset data-[state=checked]:bg-bg data-[state=checked]:chosen-outline"
+              >
+                <Icon
+                  source={option.icon}
+                  size={20}
+                  className="shrink-0 text-text-secondary group-data-[state=checked]:text-text"
+                />
+                <span className="flex-1 text-body-s text-text-secondary group-data-[state=checked]:text-text">
+                  {option.label}
+                </span>
+                <Menu.ItemIndicator className="shrink-0 text-text">
+                  <Icon source={{ lucide: Check }} size={16} />
+                </Menu.ItemIndicator>
+              </Menu.RadioItem>
+            ))}
+          </Menu.RadioGroup>
+        </Menu.Content>
+      </Menu.Portal>
+    </Menu.Root>
   );
 }

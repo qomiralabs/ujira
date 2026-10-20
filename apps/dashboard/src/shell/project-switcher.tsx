@@ -51,7 +51,7 @@ export function ProjectSwitcher({
     <Menu.Root modal={false}>
       <Menu.Trigger
         aria-label={`Project: ${chosen.name}. Choose a different project`}
-        className="flex h-11 w-full items-center gap-3 rounded-control border border-rule px-2 text-left text-body-s text-text transition-colors duration-150 ease-out hover:bg-surface/60 rail-collapsed:justify-center rail-collapsed:border-transparent rail-collapsed:px-0"
+        className="flex h-11 w-full items-center gap-3 rounded-control border border-rule px-2 text-left text-body-s text-text transition-[background-color,color] duration-150 ease-out hover:bg-surface/60 rail-collapsed:justify-center rail-collapsed:border-transparent rail-collapsed:px-0"
       >
         <span
           aria-hidden="true"
@@ -80,9 +80,9 @@ export function ProjectSwitcher({
           // flips it back if a narrow window leaves no space either way.
           side={inline ? 'bottom' : 'right'}
           align="start"
-          sideOffset={8}
+          sideOffset={inline ? 8 : 16}
           collisionPadding={12}
-          className="z-50 w-(--radix-dropdown-menu-trigger-width) max-w-[calc(100vw-1.5rem)] min-w-56 rounded-overlay border border-rule bg-surface p-1.5 text-text shadow-overlay"
+          className="z-50 w-(--radix-dropdown-menu-trigger-width) max-w-[calc(100vw-1.5rem)] min-w-48 rounded-overlay border border-rule bg-surface p-1.5 text-text shadow-overlay"
         >
           <Menu.Label className="px-2.5 pt-1.5 pb-2 text-label font-mono text-text-secondary uppercase">
             Projects
@@ -97,7 +97,7 @@ export function ProjectSwitcher({
               <Menu.RadioItem
                 key={p.id}
                 value={p.id}
-                className="group flex h-10 cursor-default items-center gap-3 rounded-control px-2.5 outline-none select-none data-highlighted:bg-bg data-[state=checked]:bg-bg"
+                className="group flex h-10 cursor-default items-center gap-3 rounded-control px-2.5 outline-none select-none data-highlighted:bg-bg data-highlighted:focus-ring-inset data-[state=checked]:bg-bg data-[state=checked]:chosen-outline"
               >
                 <span className="min-w-0 flex-1 truncate text-body-s font-medium text-text-secondary group-data-[state=checked]:text-text">
                   {p.name}

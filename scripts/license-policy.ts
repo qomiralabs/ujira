@@ -38,11 +38,16 @@ export const PROD_FONT_PACKAGES: ReadonlySet<string> = new Set<string>([]);
 export const PACKAGE_LICENSE_EXCEPTIONS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   [
     // caniuse-lite is browser support data that browserslist reads at build
-    // time. It is not code, and none of it reaches a browser. CC-BY-4.0
-    // permits commercial use and asks only for attribution, which
-    // THIRD_PARTY_NOTICES.md already gives. It arrives as a transitive
-    // dependency of Next.js and cannot be removed without removing Next.js.
-    // Reviewed and approved 2026-10-20. Any other CC-BY-4.0 package still fails.
+    // time. It is not code, and none of it is served to anyone. It reaches
+    // this repository by two paths: the dashboard's framework, which is a
+    // production dependency, and the component catalogue's documentation
+    // generator, which is a development one. CC-BY-4.0 permits commercial
+    // use and requires only attribution, which THIRD_PARTY_NOTICES.md gives.
+    // It cannot be removed without removing those tools. The exception
+    // therefore covers both scopes, which is intended rather than an
+    // oversight. Reviewed and approved 2026-10-20. It must never widen to a
+    // path or name pattern, and never to a second licence: any other
+    // CC-BY-4.0 package, and any other licence on this one, still fails.
     'caniuse-lite',
     new Set(['CC-BY-4.0']),
   ],

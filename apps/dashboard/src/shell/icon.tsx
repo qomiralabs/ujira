@@ -9,6 +9,11 @@ export type IconSource = { brand: BrandIconName } | { lucide: LucideIcon };
 
 interface IconProps {
   source: IconSource;
+  /**
+   * Defaults to 24, the grid the brand icons are drawn on. A smaller size
+   * keeps the 1.5px stroke rather than scaling it down with the box, so the
+   * weight matches the sprite whatever the size.
+   */
   size?: number;
   className?: string;
 }
@@ -18,7 +23,7 @@ interface IconProps {
  * brand grid: 1.5px stroke, round caps and joins. Icons are decorative; the
  * word next to them, or the control's label, carries the meaning.
  */
-export function Icon({ source, size = 20, className }: IconProps) {
+export function Icon({ source, size = 24, className }: IconProps) {
   if ('brand' in source) {
     return <BrandIcon name={source.brand} size={size} className={className} />;
   }
@@ -27,6 +32,7 @@ export function Icon({ source, size = 20, className }: IconProps) {
     <Lucide
       size={size}
       strokeWidth={1.5}
+      nonScalingStroke
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"

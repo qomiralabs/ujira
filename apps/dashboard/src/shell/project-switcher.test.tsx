@@ -38,6 +38,40 @@ describe('ProjectSwitcher', () => {
     expect(onChange).toHaveBeenCalledWith('bounties');
   });
 
+  it('marks the chosen project with the brand stroke in the text colour, never saffron', () => {
+    const { container } = render(<ProjectSwitcher project="bounties" onChange={vi.fn()} />);
+    open();
+    const chosen = screen.getByRole('menuitemradio', { name: /Bug bounties/ });
+    const marker = chosen.querySelector('svg');
+    expect(marker).not.toBeNull();
+    // The brand grid: a 1.5px stroke that does not thin when drawn small.
+    expect(marker?.getAttribute('stroke-width')).toBe('1.5');
+    expect(marker?.querySelector('path')?.getAttribute('vector-effect')).toBe('non-scaling-stroke');
+    expect(marker?.getAttribute('stroke')).toBe('currentColor');
+    // Saffron is the coin, the amount, the one primary action and the focus
+    // ring. A selection marker is none of those, so it never wears saffron.
+    // The indicator wrapper sets the colour, which the stroke inherits.
+    // The indicator wrapper sets the colour, which the stroke inherits.
+    const indicator = marker?.parentElement;
+    expect(indicator?.classList.contains('text-text')).toBe(true);
+    for (const element of container.querySelectorAll('[class]')) {
+      expect(element.getAttribute('class')).not.toMatch(/accent|saffron/);
+    }
+  });
+
+  it('gives the chosen row a raised ground, so selection never rests on colour alone', () => {
+    render(<ProjectSwitcher project="bounties" onChange={vi.fn()} />);
+    open();
+    const chosen = screen.getByRole('menuitemradio', { name: /Bug bounties/ });
+    const other = screen.getByRole('menuitemradio', { name: /Community grants/ });
+    expect(chosen.className).toContain('data-[state=checked]:bg-bg');
+    // The mark is carried as well as the ground, not instead of it.
+    expect(chosen.querySelector('svg')).not.toBeNull();
+    expect(other.querySelector('svg')).toBeNull();
+    expect(chosen.getAttribute('aria-checked')).toBe('true');
+    expect(other.getAttribute('aria-checked')).toBe('false');
+  });
+
   it('carries no colour mode of its own, so it follows the dashboard theme', () => {
     render(<ProjectSwitcher project="labelling" onChange={vi.fn()} />);
     open();

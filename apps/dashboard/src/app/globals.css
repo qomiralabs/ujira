@@ -17,6 +17,18 @@
 }
 
 @layer base {
+  /*
+   * The mono stack from the tokens, with Noto Sans Mono inserted after
+   * JetBrains Mono. The browser falls through per glyph, so the naira, cedi,
+   * peso and rupee signs come from Noto and everything else from JetBrains.
+   */
+  :root {
+    --ujira-font-mono:
+      var(--ujira-font-jetbrains-mono, 'JetBrains Mono'),
+      var(--ujira-font-noto-sans-mono, 'Noto Sans Mono'), ui-monospace, SFMono-Regular, Menlo,
+      monospace;
+  }
+
   html {
     background-color: var(--ujira-bg);
     color: var(--ujira-text);
@@ -43,6 +55,38 @@
       transition-duration: 0s !important;
     }
   }
+}
+
+/*
+ * The shared focus ring, for the two places where the ring has to be drawn
+ * on a wrapper because the control itself is visually hidden or sits flush
+ * with a panel edge. Same width, offset, saffron and teal ink band as the
+ * :focus-visible rule in the tokens, so nothing drifts from it.
+ */
+@utility focus-ring {
+  outline: var(--ujira-focus-ring-width) solid var(--ujira-focus-ring-color);
+  outline-offset: var(--ujira-focus-ring-offset);
+  box-shadow: 0 0 0 var(--ujira-focus-ring-offset) var(--ujira-focus-ring-inner);
+}
+
+/* The same ring drawn inside the element, where an outside ring would be
+ * clipped by the panel it sits in. */
+@utility focus-ring-inset {
+  outline: var(--ujira-focus-ring-width) solid var(--ujira-focus-ring-color);
+  outline-offset: calc(var(--ujira-focus-ring-offset) * -1);
+  box-shadow: inset 0 0 0 var(--ujira-focus-ring-offset) var(--ujira-focus-ring-inner);
+}
+
+/*
+ * What is currently chosen, as opposed to where focus is. A 1px outline in
+ * the secondary text colour, which clears 3:1 on every ground in both modes,
+ * where the surface and ground fills alone are nearly the same colour. Never
+ * saffron: the brand spends that on the mark, the amount, the one primary
+ * action and the focus ring.
+ */
+@utility chosen-outline {
+  outline: 1px solid var(--ujira-text-secondary);
+  outline-offset: -1px;
 }
 
 /* The skeleton breathes slowly, and rests under reduced motion. */

@@ -71,7 +71,8 @@ for (const scheme of SCHEMES) {
       await page.goto('/');
       await settle(page);
       const other = scheme === 'light' ? 'Dark' : 'Light';
-      await page.getByRole('radio', { name: other }).check({ force: true });
+      await page.getByRole('button', { name: /Choose a theme/ }).click();
+      await page.getByRole('menuitemradio', { name: other }).click();
       expect(await violations(page)).toEqual([]);
     });
   });

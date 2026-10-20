@@ -793,6 +793,10 @@ Files that do not come from npm, from `assets.licenses.json`.
 
 | Asset | Files | License | Copyright | Source | Added |
 | --- | --- | --- | --- | --- | --- |
+| apps/dashboard/e2e/__screenshots__/**/*.png | 14 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-20 |
+| apps/dashboard/public/brand/*.svg | 2 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-20 |
+| apps/dashboard/src/app/apple-icon.png | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-20 |
+| apps/dashboard/src/app/icon.png | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-20 |
 | packages/ui/assets/brand/*.svg | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-17 |
 | packages/ui/assets/brand/Tokens.json | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-17 |
 | scripts/fixtures/embedded-metadata/clean.* | 3 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-17 |

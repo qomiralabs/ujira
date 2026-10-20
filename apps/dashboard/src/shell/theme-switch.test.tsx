@@ -6,26 +6,52 @@ import { describe, expect, it } from 'vitest';
 
 import { ThemeSwitch } from './theme-switch';
 
+function open(): void {
+  fireEvent.keyDown(screen.getByRole('button', { name: /Choose a theme/ }), { key: 'Enter' });
+}
+
 describe('ThemeSwitch', () => {
-  it('is a labelled group of three radios that starts on the system setting', () => {
+  it('names the current theme in words and starts on the system setting', () => {
     render(<ThemeSwitch />);
-    expect(screen.getByRole('group', { name: 'Theme' })).toBeTruthy();
-    expect(screen.getAllByRole('radio').map((r) => r.getAttribute('value'))).toEqual([
-      'system',
-      'light',
-      'dark',
-    ]);
-    expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Match system' }).checked).toBe(
-      true,
-    );
+    const trigger = screen.getByRole('button', { name: 'Theme: Match system. Choose a theme' });
+    expect(trigger.textContent).toContain('Match system');
+  });
+
+  it('offers the three modes, each named, with the current one marked', () => {
+    render(<ThemeSwitch />);
+    open();
+    const items = screen.getAllByRole('menuitemradio');
+    expect(items.map((item) => item.textContent)).toEqual(['Match system', 'Light', 'Dark']);
+    expect(items[0]?.getAttribute('aria-checked')).toBe('true');
   });
 
   it('applies and remembers the choice', () => {
     render(<ThemeSwitch />);
-    fireEvent.click(screen.getByRole('radio', { name: 'Dark' }));
+    open();
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Dark' }));
     expect(document.documentElement.dataset['theme']).toBe('dark');
-    expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Dark' }).checked).toBe(true);
-    fireEvent.click(screen.getByRole('radio', { name: 'Match system' }));
+    expect(screen.getByRole('button', { name: /Choose a theme/ }).textContent).toContain('Dark');
+    open();
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Match system' }));
     expect(document.documentElement.dataset['theme']).toBeUndefined();
+  });
+
+  it('marks the chosen mode with an outline and a mark, never a fill alone', () => {
+    render(<ThemeSwitch />);
+    open();
+    const chosen = screen.getByRole('menuitemradio', { name: 'Match system' });
+    const other = screen.getByRole('menuitemradio', { name: 'Dark' });
+    expect(chosen.className).toContain('data-[state=checked]:chosen-outline');
+    // The mark is carried as well as the ground.
+    expect(chosen.querySelectorAll('svg')).toHaveLength(2);
+    expect(other.querySelectorAll('svg')).toHaveLength(1);
+  });
+
+  it('gives the row Enter acts on the shared focus ring', () => {
+    render(<ThemeSwitch />);
+    open();
+    expect(screen.getByRole('menuitemradio', { name: 'Light' }).className).toContain(
+      'data-highlighted:focus-ring-inset',
+    );
   });
 });
