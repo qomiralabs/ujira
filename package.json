@@ -18,10 +18,12 @@
     "licenses:check": "node scripts/check-licenses.ts",
     "metadata:check": "node scripts/check-embedded-metadata.ts",
     "metadata:strip": "node scripts/strip-embedded-metadata.ts",
-    "invisible:check": "node scripts/check-invisible-characters.ts"
+    "invisible:check": "node scripts/check-invisible-characters.ts",
+    "db:types": "node scripts/db-types.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@testcontainers/postgresql": "12.2.0",
     "@types/node": "24.19.2",
     "@vitest/coverage-v8": "5.0.5",
     "eslint": "10.12.0",

@@ -140,6 +140,10 @@ export interface MemberTestSettings {
   include?: string[];
   environment?: string;
   setupFiles?: string[];
+  // Run once for the whole project, before any of its test files. The
+  // database member starts one Postgres here and migrates a template that
+  // every test file is cloned from.
+  globalSetup?: string[];
   hookTimeout?: number;
   testTimeout?: number;
 }

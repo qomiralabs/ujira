@@ -37,6 +37,9 @@ export default defineConfig({
           include: ['src/**/*.test.ts', 'spikes/**/*.test.ts'],
           hookTimeout: 180_000,
           testTimeout: 300_000,
+          // One container for the whole run, migrated once into a template
+          // database that each test file is cloned from.
+          globalSetup: ['src/testing/global-setup.ts'],
         },
         '@ujira/payouts': {
           include: ['src/**/*.test.ts', 'spikes/**/*.test.ts'],
@@ -67,7 +70,22 @@ export default defineConfig({
         'scripts/pnpm-command.ts',
         'scripts/strict-json.ts',
       ],
-      exclude: ['**/*.test.ts', '**/*.test-d.ts', '**/*.d.ts'],
+      exclude: [
+        '**/*.test.ts',
+        '**/*.test-d.ts',
+        '**/*.d.ts',
+        // Generated from the migrations by scripts/db-types.ts, and types
+        // only, so there is nothing in it to execute.
+        'packages/db/src/schema.generated.ts',
+        // These two run in the vitest global setup, in the main process,
+        // which the workers' coverage instrumentation never sees, so they
+        // would report as zero however well they work. Their behaviour is
+        // checked by packages/db/src/testing/harness.test.ts against a real
+        // container. Named one by one on purpose: a pattern over the folder
+        // would silently exclude the next file put there.
+        'packages/db/src/testing/global-setup.ts',
+        'packages/db/src/testing/harness.ts',
+      ],
       reporter: ['text', 'json-summary', 'lcov'],
       thresholds: {
         lines: 85,
@@ -81,6 +99,16 @@ export default defineConfig({
           functions: 95,
           branches: 95,
           statements: 95,
+        },
+        // Every row of every tenant passes through the database package, so
+        // it carries a stricter bar than the rest of the repository. The
+        // generated schema types are excluded below: they are types only,
+        // with no statement to cover.
+        'packages/db/src/**': {
+          lines: 90,
+          functions: 90,
+          branches: 90,
+          statements: 90,
         },
         // The chain adapter is the only code that touches a chain, so it
         // carries the same bar.

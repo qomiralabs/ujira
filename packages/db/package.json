@@ -17,10 +17,19 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint --max-warnings 0 .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "migrate:up": "node-pg-migrate up",
+    "migrate:down": "node-pg-migrate down",
+    "db:types": "node ../../scripts/db-types.ts"
   },
   "devDependencies": {
+    "@testcontainers/postgresql": "12.2.0",
     "@types/pg": "8.23.1",
+    "kysely-codegen": "0.20.0",
+    "node-pg-migrate": "9.0.0"
+  },
+  "dependencies": {
+    "kysely": "0.29.6",
     "pg": "8.23.1"
   }
 }
