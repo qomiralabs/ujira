@@ -130,7 +130,7 @@ Keep `.env` files untracked; only `.env.example` belongs in git.
 
 ## Dashes
 
-No file may contain an em dash or an en dash. `scripts/check-dashes.sh` searches the content git holds for every tracked file, skipping binary files, prints each hit as `path:line:text` and exits 1 on any. Staged content counts; an edit left only in the working tree does not, and the pre-commit hook covers that. `scripts/test-check-dashes.sh` is its self test. The `dashes` CI job runs the self test, then the check. Both scripts are shared with ujira-contracts, ujira-docs and ujira-mcp, identical apart from the licence header, so a change is made in all four.
+No file may contain an em dash or an en dash. `scripts/check-dashes.sh` searches the content git holds for every tracked file, skipping binary files, prints each hit as `path:line:text` and exits 1 on any. Staged content counts; an edit left only in the working tree does not, and a commit time check covers that. `scripts/test-check-dashes.sh` is its self test. The `dashes` CI job runs the self test, then the check. Both scripts are shared with ujira-contracts, ujira-docs and ujira-mcp, identical apart from the licence header, so a change is made in all four.
 
 ## Pull requests
 
