@@ -38,6 +38,13 @@ export default defineConfig({
           setupFiles: ['./src/test-setup.ts'],
         },
         // The spike tests start a Postgres container and real worker pools.
+        // The Supabase spike runs against the staging project only when its
+        // pooler URLs are in the environment, and skips everywhere else.
+        '@ujira/db': {
+          include: ['src/**/*.test.ts', 'spikes/**/*.test.ts'],
+          hookTimeout: 180_000,
+          testTimeout: 300_000,
+        },
         '@ujira/payouts': {
           include: ['src/**/*.test.ts', 'spikes/**/*.test.ts'],
           hookTimeout: 180_000,

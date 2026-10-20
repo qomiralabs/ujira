@@ -11,6 +11,10 @@ import { availableBalance } from './index.js';
 import type { RESERVES_BALANCE } from './index.js';
 import type {
   AllowedBy,
+  MandateRunway,
+  OverviewKpis,
+  OverviewStats,
+  StatsSeries,
   MandateInstanceStatus,
   Money,
   NetworkId,
@@ -66,6 +70,23 @@ describe('exported types', () => {
     // Every status is answered, so adding one is a compile error here.
     expectTypeOf<keyof typeof RESERVES_BALANCE>().toEqualTypeOf<MandateInstanceStatus>();
     expectTypeOf(availableBalance).returns.toEqualTypeOf<bigint>();
+  });
+
+  it('OverviewStats has kpis, mandates, approvalsWaiting, volume and corridors', () => {
+    expectTypeOf<OverviewStats['current']['kpis']>().toEqualTypeOf<OverviewKpis>();
+    expectTypeOf<OverviewStats['previous']>().toEqualTypeOf<OverviewStats['current'] | null>();
+    expectTypeOf<NonNullable<OverviewStats['previous']>['kpis']>().toEqualTypeOf<OverviewKpis>();
+    expectTypeOf<OverviewStats['mandates']>().toEqualTypeOf<MandateRunway[]>();
+    expectTypeOf<OverviewStats['approvalsWaiting']>().toEqualTypeOf<number>();
+    expectTypeOf<OverviewStats['volumeByCorridor']>().toEqualTypeOf<StatsSeries[]>();
+    expectTypeOf<OverviewStats['volumeByStatus']>().toEqualTypeOf<StatsSeries[]>();
+    expectTypeOf<OverviewStats['corridors'][number]['country']>().toEqualTypeOf<string>();
+    // Money stays per currency and a runway can be absent.
+    expectTypeOf<OverviewKpis['paid']>().toEqualTypeOf<Money[]>();
+    expectTypeOf<MandateRunway['runwayDays']>().toEqualTypeOf<number | null>();
+    expectTypeOf<OverviewStats['principalId']>().toEqualTypeOf<string>();
+    expectTypeOf<RouteResponse<'getOverviewStats'>>().toEqualTypeOf<OverviewStats>();
+    expectTypeOf<OverviewStats>().not.toBeAny();
   });
 
   it('a recipient local leg has no token or hash field', () => {
