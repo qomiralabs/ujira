@@ -258,8 +258,9 @@ export const PayoutCharges = z
     // The same cap the contract enforces, computed without overflow.
     const total = amountOf(value.settlement);
     const take = amountOf(value.take);
-    // takeBps is a number, so a fractional one that failed its own check
-    // would still reach this conversion and throw.
+    // Defensive, not a reachable path: the field's own check refuses a
+    // fractional rate before this runs. Kept so the conversion is safe on
+    // its own terms rather than through the order the checks happen in.
     if (total === undefined || take === undefined || !Number.isSafeInteger(value.takeBps)) return;
     const bps = BigInt(value.takeBps);
     const cap = (total / 10000n) * bps + ((total % 10000n) * bps) / 10000n;

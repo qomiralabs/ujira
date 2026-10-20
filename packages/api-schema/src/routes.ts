@@ -13,6 +13,7 @@ import { FundingOverview, FundingQuery } from './funding.js';
 import { MandateDetail, MandateListItem, MandateListQuery, MandateParams } from './mandates.js';
 import { PayoutDetail, PayoutListItem, PayoutListQuery, PayoutParams } from './payouts.js';
 import { ReceiptListItem, ReceiptListQuery, ReceiptParams, ReceiptView } from './receipts.js';
+import { OverviewStats, OverviewStatsQuery } from './stats.js';
 
 export const MandatePage = Page(MandateListItem);
 export const PayoutPage = Page(PayoutListItem);
@@ -98,6 +99,15 @@ export const ROUTES = {
     params: NoParams,
     query: FundingQuery,
     response: FundingOverview,
+    errors: LIST_ERRORS,
+  },
+  getOverviewStats: {
+    method: 'GET',
+    path: '/v1/stats/overview',
+    summary: 'The overview numbers for a period, with the previous period for deltas',
+    params: NoParams,
+    query: OverviewStatsQuery,
+    response: OverviewStats,
     errors: LIST_ERRORS,
   },
   listApprovals: {

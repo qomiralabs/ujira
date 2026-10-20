@@ -4,6 +4,12 @@ packages:
 
 engineStrict: true
 
+# Next.js lists sharp as optional for image optimisation, which the dashboard
+# turns off. Its libvips binaries are LGPL, outside the license allowlist, so
+# it is never installed.
+ignoredOptionalDependencies:
+  - sharp
+
 # Install scripts stay off unless reviewed. These come in through the Docker
 # client used by testcontainers and work without their scripts: cpu-features
 # is an optional native speedup for ssh2, and the protobufjs script only

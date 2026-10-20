@@ -18,3 +18,4 @@ export * from './openapi.js';
 export * from './payouts.js';
 export * from './receipts.js';
 export * from './routes.js';
+export * from './stats.js';

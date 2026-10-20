@@ -158,6 +158,54 @@
       "source": "https://github.com/evanw/esbuild"
     },
     {
+      "name": "@next/swc-darwin-arm64",
+      "versions": "16.3.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/next.js"
+    },
+    {
+      "name": "@next/swc-darwin-x64",
+      "versions": "16.3.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/next.js"
+    },
+    {
+      "name": "@next/swc-linux-arm64-gnu",
+      "versions": "16.3.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/next.js"
+    },
+    {
+      "name": "@next/swc-linux-arm64-musl",
+      "versions": "16.3.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/next.js"
+    },
+    {
+      "name": "@next/swc-linux-x64-gnu",
+      "versions": "16.3.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/next.js"
+    },
+    {
+      "name": "@next/swc-linux-x64-musl",
+      "versions": "16.3.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/next.js"
+    },
+    {
+      "name": "@next/swc-win32-arm64-msvc",
+      "versions": "16.3.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/next.js"
+    },
+    {
+      "name": "@next/swc-win32-x64-msvc",
+      "versions": "16.3.8",
+      "license": "MIT",
+      "source": "https://github.com/vercel/next.js"
+    },
+    {
       "name": "@oxc-parser/binding-android-arm-eabi",
       "versions": "0.127.0",
       "license": "MIT",
