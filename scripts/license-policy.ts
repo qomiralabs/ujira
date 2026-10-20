@@ -262,6 +262,13 @@ export function evaluateLicense(license: string, scope: Scope, packageName?: str
 // carrying one of these is never identified as the licence it is built on:
 // the base phrases are all still present, so presence alone cannot tell them
 // apart. Real npm packages carry every one of these.
+//
+// This list is a backstop against reviewer error, not a control, and it
+// cannot be complete: a rider can always be paraphrased past it. A text that
+// passes it is not thereby clean. What actually holds the line is
+// PACKAGE_LICENSE_FROM_FILE below, which admits a package only at an exact
+// version that a person has read, so a later version carrying a new rider
+// fails on the version key rather than on anything matched here.
 const ADDED_RESTRICTIONS: readonly RegExp[] = [
   /used for good,? not evil/,
   /commons clause/,
