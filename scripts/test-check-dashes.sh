@@ -243,4 +243,8 @@ fi
 
 echo
 echo "$passed passed, $failures failed"
+# Probe only, never merged: a deliberately failing self test, so the check
+# step is seen to run and report anyway.
+# shellcheck disable=SC2317
+exit 1
 [ "$failures" -eq 0 ]
