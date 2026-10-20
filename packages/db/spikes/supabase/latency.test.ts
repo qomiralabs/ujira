@@ -5,6 +5,14 @@
 // through the transaction pooler? Times a tenant transaction (begin, the
 // context statement, one read, commit) against the same transaction
 // without the context statement, from wherever this runs.
+//
+// Every figure here is the network round trip of wherever it ran, so the
+// numbers mean little outside the region; only the difference between the
+// two transactions carries over. The default run count is small enough to
+// finish from anywhere. SPIKE_LATENCY_RUNS raises it: the figures in the
+// results file came from 200 runs, which takes several minutes from far
+// away and can outrun the timeout below.
+//
 // Set SPIKE_RESULTS_FILE to keep the numbers. Runs only when the pooler
 // URLs are in the environment.
 
@@ -26,7 +34,19 @@ import {
 import type { Spike } from './harness.js';
 
 const env = spikeEnv();
-const RUNS = 200;
+const DEFAULT_RUNS = 20;
+const MAX_RUNS = 5_000;
+
+/** How many timed pairs to run: SPIKE_LATENCY_RUNS, else DEFAULT_RUNS. */
+function runCount(): number {
+  const raw = process.env['SPIKE_LATENCY_RUNS'];
+  if (raw === undefined || raw === '') return DEFAULT_RUNS;
+  const runs = Number(raw);
+  if (!Number.isInteger(runs) || runs < 1 || runs > MAX_RUNS) {
+    throw new Error(`SPIKE_LATENCY_RUNS must be a whole number from 1 to ${String(MAX_RUNS)}`);
+  }
+  return runs;
+}
 
 function percentile(sorted: readonly number[], p: number): number {
   const index = Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1);
@@ -76,6 +96,7 @@ describe.skipIf(env === null)('tenant context round trip', { timeout: 900_000 },
       await app.query('commit');
       return performance.now() - started;
     };
+    const runs = runCount();
     // Warm the connection and plans before measuring.
     for (let i = 0; i < 20; i += 1) {
       await time(true);
@@ -83,13 +104,13 @@ describe.skipIf(env === null)('tenant context round trip', { timeout: 900_000 },
     }
     const plain: number[] = [];
     const tenant: number[] = [];
-    for (let i = 0; i < RUNS; i += 1) {
+    for (let i = 0; i < runs; i += 1) {
       plain.push(await time(false));
       tenant.push(await time(true));
     }
     // One bare round trip, to compare the added cost against.
     const roundTrip: number[] = [];
-    for (let i = 0; i < 100; i += 1) {
+    for (let i = 0; i < Math.min(runs, 100); i += 1) {
       const started = performance.now();
       await app.query('select 1');
       roundTrip.push(performance.now() - started);
@@ -114,7 +135,7 @@ describe.skipIf(env === null)('tenant context round trip', { timeout: 900_000 },
       end $$`);
     app.off('notice', onNotice);
     const result = {
-      runs: RUNS,
+      runs,
       roundTripMs: summary(roundTrip),
       serverMicrosecondsPerContextPair: serverUs,
       plainTransactionMs: summary(plain),

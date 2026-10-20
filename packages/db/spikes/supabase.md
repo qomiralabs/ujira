@@ -17,10 +17,22 @@ The tests skip unless `SUPABASE_SESSION_POOLER_URL`, `SUPABASE_TRANSACTION_POOLE
 
 Locally, with the git-ignored `.env` in the repository root:
 
+**Run one file at a time.** The files must not run in parallel. A parallel run of the
+three gave 2 failed and 4 passed, every failure
+`could not connect: timeout expired` against the harness's 15 second
+`connectionTimeoutMillis` (measured). Each file bootstraps its own roles and
+opens several pooled connections, so run together they ask the free
+project's pooler for more connections at once than it hands out inside that
+limit. The failures are connections not being granted in time, not the
+design. Either name one file per command, as below, or
+pass `--no-file-parallelism`.
+
 ```sh
 set -a; . ./.env; set +a
-SUPABASE_SPIKE_REQUIRED=1 SPIKE_RESULTS_FILE=/tmp/latency.json \
-  pnpm exec vitest run --project @ujira/db
+for f in roles pooler latency; do
+  SUPABASE_SPIKE_REQUIRED=1 SPIKE_RESULTS_FILE=/tmp/latency.json \
+    pnpm exec vitest run --project @ujira/db "spikes/supabase/$f.test.ts"
+done
 # The probes also run with SUPABASE_SPIKE_PROBES=1; each writes its
 # numbers to SPIKE_PROBE_RESULTS.
 SUPABASE_SPIKE_REQUIRED=1 SUPABASE_SPIKE_PROBES=1 SPIKE_PROBE_RESULTS=/tmp/cache.json \
@@ -39,7 +51,7 @@ Each test file builds its own copy of the role design under a fresh prefix (`s49
 - The pooler certificate is verified against the pinned Supabase Root 2021 CA (`supabase-root-2021-ca.crt`, SHA-256 `80:70:25:AD:50:D4:ED:21:9D:2C:9C:7D:29:9C:00:4F:82:4E:B0:0C:F7:F6:5A:FE:F6:07:D0:7B:72:E6:CA:FA`), never with verification turned off.
 - Any `ssl*` parameter in a pooler URL is refused, because pg lets it replace the pinned CA. `sslmode=no-verify` or `disable` would turn verification or TLS off. Before connecting, the harness also checks that the client's TLS settings are the pinned object.
 
-Last run with `SUPABASE_SPIKE_REQUIRED=1`: 4 files and 39 tests passed, with the 2 probe files skipped. The probes were run separately (see below).
+Last run with `SUPABASE_SPIKE_REQUIRED=1`, one file at a time: `roles.test.ts` 16 passed, `pooler.test.ts` 5 passed, `latency.test.ts` 1 passed, `harness.test.ts` 17 passed, with the 2 probe files skipped. The probes were run separately (see below). After every run, 0 spike roles and 0 spike schemas remained.
 
 ## What stays on the project
 
@@ -142,12 +154,14 @@ The exposed schema list is not visible to SQL: the `authenticator` role carries 
 
 ## Latency of the tenant context round trip (`latency.test.ts`)
 
-There were 200 timed runs of each transaction, after 20 warm up runs:
+**These figures only describe where they were taken.** Two transactions are timed:
 
 - **plain:** `begin`, `select 1`, `commit`;
 - **tenant:** the same, plus the `set_config` statement.
 
-They ran from the developer machine through the transaction pooler, outside the project's region, not from Render. The p95 figures vary with the developer's network: an earlier run measured 566 ms and 752 ms for the two transactions, and 186 ms added.
+The numbers below came from a developer machine through the transaction pooler, outside the project's region and not from Render, with `SPIKE_LATENCY_RUNS=200` after 20 warm up runs. Only the difference between the two transactions carries to another location; every absolute figure is that machine's round trip. Even the difference moves with the network: an earlier run on the same machine gave 566 ms and 752 ms for the two transactions, and 186 ms added.
+
+The test defaults to 20 runs, so it finishes from anywhere; `SPIKE_LATENCY_RUNS` reproduces the 200 run figures and takes several minutes from far away. At 200 runs from far outside the region it can outrun its own 900 second timeout, which is a limit of where it runs and not a broken test.
 
 |                                                                 | p50                            | p95      |
 | --------------------------------------------------------------- | ------------------------------ | -------- |
