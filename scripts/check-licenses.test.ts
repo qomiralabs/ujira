@@ -515,6 +515,37 @@ describe('check-licenses', () => {
     expect(sanitizeUrl(undefined)).toBeUndefined();
   });
 
+  it('marks a license read from a file, and marks only that one', () => {
+    // The suffix is the only thing in a published legal document that tells
+    // a reader our reading of a licence file from a licence the package
+    // declared. Without a case pinning it, it can be dropped silently.
+    const notices = renderNotices({
+      prod: [
+        { name: 'declared', version: '1.0.0', license: 'MIT', repository: undefined },
+        {
+          name: 'read',
+          version: '1.0.1',
+          license: 'BSD-3-Clause',
+          repository: undefined,
+          fromFile: true,
+        },
+      ],
+      dev: [],
+      platformProd: [],
+      platformDev: [],
+      assets: [],
+    });
+    expect(notices).toContain('| declared | 1.0.0 | MIT |  |');
+    expect(notices).toContain('| read | 1.0.1 | BSD-3-Clause (read from file) |  |');
+    // Exactly one table row carries it, so the marker cannot leak onto a
+    // licence the package declared. The explanation above the tables uses
+    // the same words, so only rows are counted.
+    const marked = [...notices.matchAll(/^\|.*\(read from file\).*$/gm)];
+    expect(marked).toHaveLength(1);
+    // And the file says what the marker means.
+    expect(notices).toContain('A license marked "(read from file)"');
+  });
+
   it('renders sorted, deduplicated and deterministic notices', () => {
     const prod: NoticeEntry[] = [
       { name: 'zeta', version: '1.0.0', license: 'MIT', repository: 'https://github.com/z/zeta' },
