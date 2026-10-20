@@ -13,6 +13,7 @@ import {
   normalizeRepository,
   renderNotices,
   sanitizeUrl,
+  type AssetNotice,
   type NoticeEntry,
   type Scope,
   type ScopedLicense,
@@ -258,6 +259,8 @@ export interface TreeInputs {
   workspaces: readonly WorkspaceProject[];
   platformMap: readonly PlatformLicense[];
   inspector: ManifestInspector;
+  // Non-npm assets already checked against assets.licenses.json.
+  assets?: readonly AssetNotice[];
 }
 
 export interface TreeResult {
@@ -392,6 +395,9 @@ export function checkTree(inputs: TreeInputs): TreeResult {
     problems: [...new Set(problems)].sort(),
     violations,
     checked: toCheck.length,
-    notices: problems.length === 0 && violations.length === 0 ? renderNotices(notices) : undefined,
+    notices:
+      problems.length === 0 && violations.length === 0
+        ? renderNotices({ ...notices, assets: inputs.assets ?? [] })
+        : undefined,
   };
 }
