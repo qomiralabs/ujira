@@ -68,12 +68,22 @@ describe('catalogue', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('gives every choice a line of its own', () => {
-    for (const id of ['wallet', 'bank', 'mobile', 'cash']) {
-      const name = en[`method.${id}.name` as keyof typeof en];
-      const line = en[`method.${id}.line` as keyof typeof en];
-      expect(name.length).toBeGreaterThan(0);
-      expect(line.length).toBeGreaterThan(name.length);
-    }
+  it('gives every choice a line that says what it is', () => {
+    expect([
+      [en['method.wallet.name'], en['method.wallet.line']],
+      [en['method.bank.name'], en['method.bank.line']],
+      [en['method.mobile.name'], en['method.mobile.line']],
+      [en['method.cash.name'], en['method.cash.line']],
+    ]).toEqual([
+      ['USDC to your Stellar wallet', 'Paid in USDC to a wallet you hold the keys to.'],
+      ['Bank transfer', 'Paid into your own bank account, in your local currency.'],
+      ['Mobile money', 'Paid to your mobile money number, in your local currency.'],
+      ['Cash pickup', 'Collected as cash from an agent near you, in your local currency.'],
+    ]);
+  });
+
+  it('shows no amount, so no currency sign has to be drawn', () => {
+    const amounts = Object.entries(en).filter(([, value]) => /[\d.,]*\d\s*[A-Z]{3}\b/.test(value));
+    expect(amounts).toEqual([]);
   });
 });

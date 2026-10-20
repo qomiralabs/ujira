@@ -48,6 +48,11 @@ test('host CSS variables change colours and radius', async ({ page }) => {
   expect(before.radius).toBe('10px');
   expect(before.controlRadius).toBe('6px');
   expect(before.card).toBe('rgb(255, 255, 255)');
+  // Read from the rendered element, not from our own stylesheet: a font
+  // declaration that loses the cascade is invisible any other way.
+  // The page asks for Inter first and falls back to the system stack, which
+  // is the shared token stack resolved.
+  expect(before.font).toBe('Inter, ui-sans-serif, system-ui, sans-serif');
 
   await page.addStyleTag({
     content: `#widget {

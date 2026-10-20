@@ -120,7 +120,9 @@ describe('ujira-onboarding', () => {
     await submit();
     expect(widget.currentStep).toBe('method');
     expect(find('.progress').textContent.trim()).toBe('Step 2 of 4');
-    expect(find('.text-button').textContent.trim()).toBe(`Back to ${en['step.name.short']}`);
+    const back = find('.text-button');
+    expect(back.textContent.trim()).toBe('Back');
+    expect(back.getAttribute('aria-label')).toBe(`Back to ${en['step.name.short']}`);
 
     await submit();
     expect(widget.currentStep).toBe('destination');

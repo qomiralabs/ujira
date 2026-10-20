@@ -195,8 +195,12 @@ export class UjiraOnboarding extends LitElement {
       ${
         back === undefined || backLabel === undefined
           ? nothing
-          : textButton(t('widget.back', { step: t(backLabel) }), () => {
-              this.goTo(back);
+          : textButton({
+              label: t('widget.back'),
+              name: t('widget.back.name', { step: t(backLabel) }),
+              press: () => {
+                this.goTo(back);
+              },
             })
       }
       <p class="progress" part="progress" role="status">

@@ -173,12 +173,19 @@ const widget = css`
   }
 
   .answer {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: start;
-    column-gap: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
     padding: 12px 0;
     border-top: 1px solid var(--ujira-embed-rule);
+  }
+
+  .answer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 44px;
   }
 
   .answer:last-child {
@@ -187,25 +194,18 @@ const widget = css`
 
   .answer-label {
     ${typeStep('label')}
-    grid-column: 1;
     color: var(--ujira-embed-text-secondary);
     text-transform: uppercase;
   }
 
   .answer-value {
     ${typeStep('body')}
-    grid-column: 1;
-    margin: 4px 0 0;
+    margin: 0 0 8px;
     overflow-wrap: anywhere;
   }
 
   .answer-value[data-code] {
     ${typeStep('data')}
-  }
-
-  .answer .text-button {
-    grid-column: 2;
-    grid-row: 1 / span 2;
   }
 
   .primary {

@@ -52,6 +52,8 @@ try {
           await page.locator('ujira-onboarding .primary').click();
         }
         await page.locator('ujira-onboarding .heading').waitFor();
+        // Away from the action, so nothing is caught in its hover state.
+        await page.mouse.move(0, 0);
         const path = join(folder, `embed-${step}-${String(width)}-${mode}.png`);
         await page.screenshot({ path, animations: 'disabled' });
         process.stdout.write(`${path}\n`);

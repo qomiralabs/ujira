@@ -140,9 +140,11 @@ function answerRow(
   code: boolean,
 ): TemplateResult {
   return html`<li class="answer">
-    <span class="answer-label">${label}</span>
+    <div class="answer-head">
+      <span class="answer-label">${label}</span>
+      ${change}
+    </div>
     <span class="answer-value" ?data-code=${code}>${value}</span>
-    ${change}
   </li>`;
 }
 
@@ -150,8 +152,12 @@ export function reviewStep(ctx: StepContext): TemplateResult {
   const { t } = ctx;
   const method = methodById(ctx.answers.method, ctx.methods);
   const changeTo = (step: StepId, thing: string): TemplateResult =>
-    textButton(t('review.change', { thing }), () => {
-      ctx.goTo(step);
+    textButton({
+      label: t('review.change'),
+      name: t('review.change.name', { thing }),
+      press: () => {
+        ctx.goTo(step);
+      },
     });
   return html`<form class="step" novalidate @submit=${ctx.submit}>
     ${heading(t('review.heading'))}

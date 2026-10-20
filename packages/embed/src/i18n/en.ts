@@ -13,7 +13,8 @@
 export const en = {
   'widget.label': 'Get set up to be paid',
   'widget.progress': 'Step {step} of {total}',
-  'widget.back': 'Back to {step}',
+  'widget.back': 'Back',
+  'widget.back.name': 'Back to {step}',
   'widget.busy': 'Saving your answer',
 
   'step.name.short': 'your name',
@@ -76,7 +77,8 @@ export const en = {
   'review.name': 'Name',
   'review.method': 'How you get paid',
   'review.destination': 'Where it arrives',
-  'review.change': 'Change {thing}',
+  'review.change': 'Change',
+  'review.change.name': 'Change {thing}',
   'review.action': 'Finish setting up',
 
   'done.heading': 'You are set up.',

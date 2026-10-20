@@ -112,10 +112,11 @@ describe('step views', () => {
     const lines = host.querySelectorAll('.choice-line');
     expect(names).toHaveLength(2);
     expect(lines).toHaveLength(2);
-    for (const radio of host.querySelectorAll('input[type="radio"]')) {
-      const described = radio.getAttribute('aria-describedby') ?? '';
-      expect(host.querySelector(`#${described}`)?.textContent.length).toBeGreaterThan(0);
-    }
+    const described = Array.from(host.querySelectorAll('input[type="radio"]'), (radio) => {
+      const id = radio.getAttribute('aria-describedby') ?? '';
+      return host.querySelector(`#${id}`)?.textContent;
+    });
+    expect(described).toEqual([en['method.wallet.line'], en['method.bank.line']]);
   });
 
   it('tells a person when no method is open at all', () => {
@@ -171,13 +172,15 @@ describe('step views', () => {
     expect(host.querySelector('.answer-value')?.textContent).toBe('Amara Eze');
     expect(text()).toContain(en['method.wallet.name']);
     expect(text()).toContain(WALLET);
-    const changes = Array.from(host.querySelectorAll('.text-button'), (button) =>
+    const changes = Array.from(host.querySelectorAll('.text-button'), (button) => [
       button.textContent.trim(),
-    );
+      button.getAttribute('aria-label'),
+    ]);
+    // Short on screen, and the whole sentence for a screen reader.
     expect(changes).toEqual([
-      `Change ${en['step.name.short']}`,
-      `Change ${en['step.method.short']}`,
-      `Change ${en['step.destination.short']}`,
+      ['Change', `Change ${en['step.name.short']}`],
+      ['Change', `Change ${en['step.method.short']}`],
+      ['Change', `Change ${en['step.destination.short']}`],
     ]);
     host.querySelector<HTMLButtonElement>('.text-button')?.click();
     expect(ctx.goTo).toHaveBeenCalledWith('name');

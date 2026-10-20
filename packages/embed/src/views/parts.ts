@@ -57,8 +57,27 @@ export function primaryAction({ label, busy }: PrimaryAction): TemplateResult {
   </button>`;
 }
 
-export function textButton(label: string, press: () => void): TemplateResult {
-  return html`<button class="text-button" type="button" @click=${press}>${label}</button>`;
+export interface TextButtonOptions {
+  /** What the control says on screen. */
+  label: string;
+  /**
+   * What it says to a screen reader, when the row it sits in supplies the
+   * rest of the meaning. It always starts with the visible label, so the two
+   * never contradict each other.
+   */
+  name?: string;
+  press: () => void;
+}
+
+export function textButton({ label, name, press }: TextButtonOptions): TemplateResult {
+  return html`<button
+    class="text-button"
+    type="button"
+    aria-label=${name ?? nothing}
+    @click=${press}
+  >
+    ${label}
+  </button>`;
 }
 
 export interface TextFieldOptions {
