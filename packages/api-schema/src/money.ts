@@ -178,6 +178,26 @@ export function fromWireToken(value: TokenAmount): CoreTokenAmount {
   return tokenAmount(parsed.amount, token.asset, token.chain);
 }
 
+/**
+ * The integer value of a minor units string, or undefined when the text is
+ * not one. Never throws, so a cross-field rule can run on a value whose
+ * inner schema has already rejected it without turning a refusal into an
+ * exception. A caller that gets undefined says nothing: the field already
+ * carries its own issue.
+ */
+export function minorUnitsOf(value: unknown): bigint | undefined {
+  if (typeof value !== 'string' || value.length > MAX_AMOUNT_DIGITS || !INTEGER_TEXT.test(value)) {
+    return undefined;
+  }
+  return BigInt(value);
+}
+
+/** The same, reading the amount off a wire money or token object. */
+export function amountOf(value: unknown): bigint | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  return minorUnitsOf((value as { readonly amount?: unknown }).amount);
+}
+
 function parsedToken(value: unknown): TokenAmount | undefined {
   const parsed = TokenAmount.safeParse(value);
   return parsed.success ? parsed.data : undefined;

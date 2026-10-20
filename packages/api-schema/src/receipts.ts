@@ -15,7 +15,7 @@ import {
 } from './common.js';
 import { pageQueryFields } from './envelope.js';
 import { AllowedBy, LocalPayoutMethod, PayoutMethod, RailId } from './enums.js';
-import { Money, Rate, TokenAmount, tokenSumEquals } from './money.js';
+import { Money, Rate, TokenAmount, amountOf, tokenSumEquals } from './money.js';
 import {
   ApprovalCount,
   CashOutCosts,
@@ -130,7 +130,9 @@ export const PrincipalReceipt = z
         message: 'legs add up to the settlement amount',
       });
     }
-    if (BigInt(value.takeRefunded.amount) > BigInt(value.take.amount)) {
+    const refunded = amountOf(value.takeRefunded);
+    const take = amountOf(value.take);
+    if (refunded !== undefined && take !== undefined && refunded > take) {
       ctx.addIssue({
         code: 'custom',
         path: ['takeRefunded'],

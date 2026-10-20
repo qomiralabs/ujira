@@ -143,6 +143,10 @@ describe('mock handlers', () => {
       ['/v1/payouts?colour=blue', 400, 'INVALID_FILTER'],
       ['/v1/payouts?status=shipped', 400, 'INVALID_FILTER'],
       ['/v1/payouts?amountCurrency=USD&amountMin=9&amountMax=1', 400, 'INVALID_FILTER'],
+      // Query text a user can type must not become a 500 carrying an exception.
+      ['/v1/payouts?amountCurrency=USD&amountMin=500.0&amountMax=900', 400, 'INVALID_FILTER'],
+      ['/v1/payouts?amountCurrency=USD&amountMin=abc&amountMax=900', 400, 'INVALID_FILTER'],
+      ['/v1/payouts?amountCurrency=USD&amountMin=9&amountMax=1e3', 400, 'INVALID_FILTER'],
       ['/v1/payouts?status=paid&status=failed', 400, 'INVALID_FILTER'],
       ['/v1/funding?depositsCursor=bad', 400, 'INVALID_CURSOR'],
       ['/v1/payouts/00000000-0000-4000-8000-000000000000', 404, 'NOT_FOUND'],

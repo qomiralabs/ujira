@@ -25,7 +25,16 @@ import {
   RailId,
 } from './enums.js';
 import type { PayoutStatus as PayoutStatusValue, TIMELINE_STEPS } from './enums.js';
-import { FiatCurrency, MinorUnits, Money, Rate, TokenAmount, tokenSumEquals } from './money.js';
+import {
+  FiatCurrency,
+  MinorUnits,
+  Money,
+  Rate,
+  TokenAmount,
+  amountOf,
+  minorUnitsOf,
+  tokenSumEquals,
+} from './money.js';
 
 /** A mandate rule's error name from the spec, for example DAILY_CAP_EXCEEDED. */
 export const SpecErrorName = z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/, 'a spec error name');
@@ -247,10 +256,14 @@ export const PayoutCharges = z
       return;
     }
     // The same cap the contract enforces, computed without overflow.
-    const total = BigInt(value.settlement.amount);
+    const total = amountOf(value.settlement);
+    const take = amountOf(value.take);
+    // takeBps is a number, so a fractional one that failed its own check
+    // would still reach this conversion and throw.
+    if (total === undefined || take === undefined || !Number.isSafeInteger(value.takeBps)) return;
     const bps = BigInt(value.takeBps);
     const cap = (total / 10000n) * bps + ((total % 10000n) * bps) / 10000n;
-    if (BigInt(value.take.amount) > cap) {
+    if (take > cap) {
       ctx.addIssue({ code: 'custom', path: ['take'], message: 'take is above the rate cap' });
     }
   });
@@ -402,11 +415,11 @@ export const PayoutListQuery = z
     if (ranged && value.amountCurrency === undefined) {
       ctx.addIssue({ code: 'custom', path: ['amountCurrency'], message: 'currency_required' });
     }
-    if (
-      value.amountMin !== undefined &&
-      value.amountMax !== undefined &&
-      BigInt(value.amountMin) > BigInt(value.amountMax)
-    ) {
+    const min = minorUnitsOf(value.amountMin);
+    const max = minorUnitsOf(value.amountMax);
+    // A bound the field schema already rejected has its own issue, so the
+    // range rule stays quiet rather than converting text that cannot convert.
+    if (min !== undefined && max !== undefined && min > max) {
       ctx.addIssue({ code: 'custom', path: ['amountMin'], message: 'range_inverted' });
     }
     if (

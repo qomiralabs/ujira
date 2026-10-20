@@ -16,7 +16,7 @@ import { Cursor, LimitParam, Page } from './envelope.js';
 import { DepositStatus, MandateInstanceStatus } from './enums.js';
 import type { MandateInstanceStatus as MandateInstanceStatusValue } from './enums.js';
 import { LowBalanceState } from './low-balance.js';
-import { TokenAmount, TokenAssetCode } from './money.js';
+import { TokenAmount, TokenAssetCode, amountOf } from './money.js';
 
 /**
  * total is everything the instance holds. pending is held back for payouts
@@ -90,13 +90,22 @@ export const FundingAccount = z
         message: 'balance is on the account network',
       });
     }
-    const expected = availableBalance(
-      BigInt(value.balance.total.amount),
-      BigInt(value.balance.pending.amount),
-      BigInt(value.balance.committed.amount),
-      value.status,
-    );
-    if (BigInt(value.balance.available.amount) !== expected) {
+    const total = amountOf(value.balance.total);
+    const pending = amountOf(value.balance.pending);
+    const committed = amountOf(value.balance.committed);
+    const available = amountOf(value.balance.available);
+    // A part the inner schema already rejected carries its own issue, so the
+    // derived rule stays quiet rather than reading text it cannot trust.
+    if (
+      total === undefined ||
+      pending === undefined ||
+      committed === undefined ||
+      available === undefined
+    ) {
+      return;
+    }
+    const expected = availableBalance(total, pending, committed, value.status);
+    if (available !== expected) {
       ctx.addIssue({
         code: 'custom',
         path: ['balance', 'available'],

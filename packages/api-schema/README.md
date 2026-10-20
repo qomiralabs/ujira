@@ -22,6 +22,10 @@ the dashboard builds against the fixtures and mocks it ships.
 
 - Money is an integer count of minor units carried as a string, with its
   currency and scale. Numbers, decimal strings and the wrong scale are refused.
+- `safeParse` returns a result for every input and never throws, so a caller
+  does not need to wrap it. A cross-field rule stays quiet when a field it
+  reads has already been rejected, rather than converting text it cannot
+  trust.
 - Token amounts name their network, and totals are checked exactly (legs add
   up to the settlement amount, charged is settlement plus take).
 - Every tenant resource carries `principalId` and `projectId`.
