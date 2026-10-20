@@ -82,6 +82,9 @@ docker run --rm --platform linux/amd64 -v "$PWD/../..":/w \
 Look at every changed image before you commit it. Run the same command without
 `--update-snapshots` to check them.
 
+The screenshots are our own output, not third party material, so they are registered once in
+`assets.licenses.json` as a single glob over the folder. New stories need no new entry.
+
 ## Tokens
 
 Never type a brand hex value by hand. Colours come from `assets/brand/Tokens.json`; `tokens/system.json` refers to them as `{core.teal}`, `{neutral.mist-300}`, `{status.paid.fill}` or `{mode.rule}`. The only literal hex values in `system.json` are values the brand palette does not have: the data visualisation steps and `status.blocked.dark-text`. A test fails if one of them duplicates a brand colour.

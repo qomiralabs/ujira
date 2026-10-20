@@ -1,6 +1,9 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -17,6 +20,16 @@ import {
   type Scope,
   type ScopedLicense,
 } from './license-policy.ts';
+import {
+  AssetRegisterError,
+  checkAssets,
+  cleanGitEnv,
+  globToRegExp,
+  isGeometryJson,
+  OWN_LICENSE,
+  parseAssetRegister,
+  type AssetEntry,
+} from './asset-register.ts';
 
 function pkg(license: string, name = 'some-package', scope: Scope = 'prod'): ScopedLicense {
   return { name, version: '1.0.0', license, scope };
@@ -287,7 +300,7 @@ describe('check-licenses', () => {
       { name: 'zeta', version: '1.0.0', license: 'MIT', repository: 'https://github.com/z/zeta' },
       { name: 'pipe', version: '1.0.0', license: 'MIT OR | x', repository: undefined },
     ];
-    const sections = { prod, dev: [], platformProd: [], platformDev: [] };
+    const sections = { prod, dev: [], platformProd: [], platformDev: [], assets: [] };
     const first = renderNotices(sections);
     expect(renderNotices({ ...sections, prod: [...prod].reverse() })).toBe(first);
     expect(first).toContain(
@@ -304,7 +317,7 @@ describe('check-licenses', () => {
         '## Production platform specific packages',
       ].join('\n'),
     );
-    expect(first).toMatch(/## Development platform specific packages\n\nNone\.\n$/);
+    expect(first).toMatch(/## Development platform specific packages\n\nNone\.\n\n## Assets\n/);
   });
 
   it('sorts notices by code unit, not by locale', () => {
@@ -321,6 +334,7 @@ describe('check-licenses', () => {
       dev: [],
       platformProd: [],
       platformDev: [],
+      assets: [],
     });
     const names = [...notices.matchAll(/^\| (\S+) \| 1\.0\.0 /gm)].map((m) => m[1]);
     expect(names).toEqual(['@x', 'B', 'a', 'e', 'é']);
@@ -335,8 +349,315 @@ describe('check-licenses', () => {
       dev: one('d'),
       platformProd: one('pp'),
       platformDev: one('pd'),
+      assets: [],
     });
     const order = ['| p |', '| pp |', '| d |', '| pd |'].map((cell) => notices.indexOf(cell));
     expect(order.every((index, i) => index > (order[i - 1] ?? -1))).toBe(true);
+  });
+});
+
+function asset(overrides: Partial<AssetEntry> = {}): AssetEntry {
+  return {
+    path: 'packages/ui/fonts/inter-*.woff2',
+    kind: 'font',
+    source: 'https://github.com/rsms/inter',
+    license: 'OFL-1.1',
+    copyright: 'The Inter Project Authors',
+    added: '2026-10-18',
+    ...overrides,
+  };
+}
+
+function register(entries: readonly object[]): string {
+  return JSON.stringify({ assets: entries });
+}
+
+it('an unregistered woff2 under packages/ui/fonts fails', () => {
+  const result = checkAssets([], ['packages/ui/fonts/inter-regular.woff2']);
+  expect(result.problems).toEqual([
+    'packages/ui/fonts/inter-regular.woff2: not in assets.licenses.json',
+  ]);
+});
+
+it('a font entry with a licence other than OFL-1.1 fails', () => {
+  const result = checkAssets(
+    [asset({ license: 'MIT' })],
+    ['packages/ui/fonts/inter-regular.woff2'],
+  );
+  expect(result.problems).toEqual([
+    'packages/ui/fonts/inter-*.woff2: license "MIT" not allowed for font assets (allowed: OFL-1.1)',
+  ]);
+});
+
+it('an entry matching no file fails', () => {
+  const result = checkAssets([asset()], []);
+  expect(result.problems).toEqual(['packages/ui/fonts/inter-*.woff2: matches no file']);
+});
+
+describe('asset register', () => {
+  it('passes a registered font and lists it in the notices', () => {
+    const result = checkAssets(
+      [asset()],
+      ['packages/ui/fonts/inter-regular.woff2', 'packages/ui/fonts/inter-bold.woff2'],
+    );
+    expect(result.problems).toEqual([]);
+    expect(result.notices).toEqual([
+      {
+        path: 'packages/ui/fonts/inter-*.woff2',
+        files: 2,
+        license: 'OFL-1.1',
+        copyright: 'The Inter Project Authors',
+        source: 'https://github.com/rsms/inter',
+        added: '2026-10-18',
+      },
+    ]);
+  });
+
+  it.each(['CC0-1.0', 'ISC', 'MIT', OWN_LICENSE])('accepts %s for images and data', (license) => {
+    const files = ['packages/ui/assets/brand/sprite.svg', 'packages/ui/assets/maps/world.topojson'];
+    const entries = [
+      asset({ path: 'packages/ui/assets/brand/*.svg', kind: 'image', license }),
+      asset({ path: 'packages/ui/assets/maps/*.topojson', kind: 'data', license }),
+    ];
+    expect(checkAssets(entries, files).problems).toEqual([]);
+  });
+
+  it.each(['GPL-3.0', 'CC-BY-4.0', 'OFL-1.1', 'MIT OR GPL-3.0'])(
+    'rejects %s for an image',
+    (license) => {
+      const entries = [asset({ path: 'packages/ui/assets/a.svg', kind: 'image', license })];
+      expect(checkAssets(entries, ['packages/ui/assets/a.svg']).problems).toEqual([
+        `packages/ui/assets/a.svg: license "${license}" not allowed for image assets (allowed: CC0-1.0, ISC, MIT, ${OWN_LICENSE})`,
+      ]);
+    },
+  );
+
+  it('requires every file in an asset folder to be registered, whatever its type', () => {
+    const files = [
+      'packages/ui/assets/brand/Tokens.json',
+      'apps/website/public/logo.png',
+      'apps/dashboard/assets/flags/ke.svg',
+      'packages/core/src/index.ts',
+      'README.md',
+    ];
+    expect(checkAssets([], files).problems).toEqual([
+      'apps/dashboard/assets/flags/ke.svg: not in assets.licenses.json',
+      'apps/website/public/logo.png: not in assets.licenses.json',
+      'packages/ui/assets/brand/Tokens.json: not in assets.licenses.json',
+    ]);
+  });
+
+  it('requires fonts, images and map data anywhere in the tree to be registered', () => {
+    const files = [
+      'docs/diagram.SVG',
+      'scripts/fixtures/clean.png',
+      'packages/ui/src/fonts/Inter.ttf',
+      'data/world.geojson',
+      'packages/core/src/data.json',
+    ];
+    expect(checkAssets([], files).problems).toEqual([
+      'data/world.geojson: not in assets.licenses.json',
+      'docs/diagram.SVG: not in assets.licenses.json',
+      'packages/ui/src/fonts/Inter.ttf: not in assets.licenses.json',
+      'scripts/fixtures/clean.png: not in assets.licenses.json',
+    ]);
+  });
+
+  it('rejects a file that two entries match', () => {
+    const entries = [
+      asset({ path: 'packages/ui/assets/**', kind: 'image', license: OWN_LICENSE }),
+      asset({ path: 'packages/ui/assets/a.svg', kind: 'image', license: 'MIT' }),
+    ];
+    expect(checkAssets(entries, ['packages/ui/assets/a.svg']).problems).toEqual([
+      'packages/ui/assets/a.svg: matched by more than one entry (packages/ui/assets/**, packages/ui/assets/a.svg)',
+    ]);
+  });
+
+  it('rejects a font file under an image entry and a non-font file under a font entry', () => {
+    const entries = [
+      asset({ path: 'packages/ui/assets/*.woff2', kind: 'image', license: 'MIT' }),
+      asset({ path: 'packages/ui/fonts/*', kind: 'font' }),
+    ];
+    const files = [
+      'packages/ui/assets/x.woff2',
+      'packages/ui/fonts/README.md',
+      'packages/ui/fonts/inter.woff2',
+    ];
+    expect(checkAssets(entries, files).problems).toEqual([
+      'packages/ui/assets/x.woff2: a font file must be under a font entry, not image',
+      'packages/ui/fonts/README.md: not a font file but under the font entry packages/ui/fonts/*',
+    ]);
+  });
+
+  it('lets a font entry carry the font licence text', () => {
+    const files = ['packages/ui/fonts/inter.woff2', 'packages/ui/fonts/OFL.txt'];
+    expect(checkAssets([asset({ path: 'packages/ui/fonts/*' })], files).problems).toEqual([]);
+  });
+
+  it('matches globs by path segment', () => {
+    expect(globToRegExp('a/*.svg').test('a/b.svg')).toBe(true);
+    expect(globToRegExp('a/*.svg').test('a/b/c.svg')).toBe(false);
+    expect(globToRegExp('a/**').test('a/b/c.svg')).toBe(true);
+    expect(globToRegExp('a/**/c.svg').test('a/c.svg')).toBe(true);
+    expect(globToRegExp('a/?.svg').test('a/bb.svg')).toBe(false);
+    expect(globToRegExp('a.b/c+d.svg').test('aXb/c+d.svg')).toBe(false);
+  });
+
+  it('parses a valid register', () => {
+    const entry = asset();
+    expect(parseAssetRegister(register([{ ...entry }]))).toEqual([entry]);
+  });
+
+  it.each([
+    ['an unknown field', { ...asset(), note: 'x' }, 'assets[0]: unknown field "note"'],
+    [
+      'a missing field',
+      { path: 'a', kind: 'font', source: 'https://x', license: 'OFL-1.1', copyright: 'x' },
+      'assets[0]: "added" must be a non-empty string',
+    ],
+    [
+      'a bad date',
+      { ...asset(), added: '2026-13-01' },
+      'assets[0]: "added" must be a date as YYYY-MM-DD',
+    ],
+    [
+      'a non https source',
+      { ...asset(), source: 'http://x.example' },
+      'assets[0]: "source" must be an https URL',
+    ],
+    [
+      'an unknown kind',
+      { ...asset(), kind: 'video' },
+      'assets[0]: "kind" must be font, image or data',
+    ],
+  ])('rejects %s', (_name, entry, message) => {
+    expect(() => parseAssetRegister(register([entry]))).toThrow(new AssetRegisterError(message));
+  });
+
+  it.each(['**', '**/*', '*/**', '*.svg', '*/assets/*.svg', '?/a.svg', '**/brand/*.svg'])(
+    'rejects the path "%s", which is not anchored to a directory',
+    (path) => {
+      expect(() => parseAssetRegister(register([asset({ path })]))).toThrow(
+        new AssetRegisterError(
+          `assets[0]: path "${path}" must start with a directory name, not a wildcard`,
+        ),
+      );
+    },
+  );
+
+  it.each(['packages/ui/assets/**', 'packages/*/fonts/*.woff2', 'scripts/fixtures/clean.*'])(
+    'accepts the anchored path "%s"',
+    (path) => {
+      expect(parseAssetRegister(register([asset({ path })]))[0]?.path).toBe(path);
+    },
+  );
+
+  it('refuses an entry whose matches include a file that is not an asset', () => {
+    const entries = [asset({ path: 'packages/ui/**', kind: 'image', license: OWN_LICENSE })];
+    const files = ['packages/ui/assets/a.svg', 'packages/ui/src/index.ts'];
+    expect(checkAssets(entries, files).problems).toEqual([
+      'packages/ui/src/index.ts: not an asset file, but matched by packages/ui/**',
+    ]);
+  });
+
+  it('requires map data saved as .json anywhere in the tree to be registered', () => {
+    const files = ['packages/core/src/world.json', 'packages/core/src/config.json'];
+    const isMapData = (path: string): boolean => path.endsWith('world.json');
+    expect(checkAssets([], files, { isMapData }).problems).toEqual([
+      'packages/core/src/world.json: not in assets.licenses.json',
+    ]);
+    const entries = [asset({ path: 'packages/core/src/world.json', kind: 'data', license: 'ISC' })];
+    expect(checkAssets(entries, files, { isMapData }).problems).toEqual([]);
+  });
+
+  it.each([
+    ['a TopoJSON topology', '{"type": "Topology", "objects": {}, "arcs": []}', true],
+    ['a GeoJSON feature collection', '{"type":"FeatureCollection","features":[]}', true],
+    ['a GeoJSON feature', '{"type": "Feature", "geometry": null, "properties": {}}', true],
+    ['a GeoJSON geometry collection', '{"type": "GeometryCollection", "geometries": []}', true],
+    ['an ordinary config', '{"type": "module", "name": "x"}', false],
+    ['an array', '[{"type": "Topology"}]', false],
+    ['invalid JSON', '{"type": "Topology"', false],
+  ])('detects %s as map data: %s', (_name, text, expected) => {
+    expect(isGeometryJson(text)).toBe(expected);
+  });
+
+  it('strips every GIT_ variable from the environment git runs in', () => {
+    const env = cleanGitEnv({
+      PATH: '/usr/bin',
+      HOME: '/home/u',
+      GIT_DIR: '/elsewhere/.git',
+      GIT_WORK_TREE: '/elsewhere',
+      GIT_INDEX_FILE: '/tmp/index',
+      GIT_CONFIG_PARAMETERS: "'core.quotepath=true'",
+      GIT_CEILING_DIRECTORIES: '/',
+    });
+    expect(env).toEqual({ PATH: '/usr/bin', HOME: '/home/u' });
+  });
+
+  it('rejects two entries with the same path', () => {
+    expect(() => parseAssetRegister(register([asset(), asset()]))).toThrow(
+      new AssetRegisterError('assets[1]: path "packages/ui/fonts/inter-*.woff2" is listed twice'),
+    );
+  });
+
+  it('rejects a duplicate key', () => {
+    expect(() => parseAssetRegister('{"assets": [], "assets": [{"path": "x"}]}')).toThrow(
+      AssetRegisterError,
+    );
+  });
+
+  it('registers the brand assets as our own in the committed register', () => {
+    const entries = parseAssetRegister(
+      readFileSync(join(import.meta.dirname, '..', 'assets.licenses.json'), 'utf8'),
+    );
+    const brand = entries.filter((e) => e.path.startsWith('packages/ui/assets/brand/'));
+    expect(brand.map((e) => e.path).sort()).toEqual([
+      'packages/ui/assets/brand/*.svg',
+      'packages/ui/assets/brand/Tokens.json',
+    ]);
+    expect(brand.every((e) => e.license === OWN_LICENSE && e.copyright === 'Qomira Labs')).toBe(
+      true,
+    );
+  });
+
+  it('renders assets in their own section', () => {
+    const notices = renderNotices({
+      prod: [],
+      dev: [],
+      platformProd: [],
+      platformDev: [],
+      assets: [
+        {
+          path: 'packages/ui/fonts/*.woff2',
+          files: 2,
+          license: 'OFL-1.1',
+          copyright: 'The Inter Project Authors',
+          source: 'https://github.com/rsms/inter',
+          added: '2026-10-18',
+        },
+        {
+          path: 'packages/ui/assets/brand/*',
+          files: 1,
+          license: OWN_LICENSE,
+          copyright: 'Qomira Labs',
+          source: 'https://github.com/qomiralabs/ujira',
+          added: '2026-10-18',
+        },
+      ],
+    });
+    expect(notices).toContain(
+      [
+        '## Assets',
+        '',
+        'Files that do not come from npm, from `assets.licenses.json`.',
+        '',
+        '| Asset | Files | License | Copyright | Source | Added |',
+        '| --- | --- | --- | --- | --- | --- |',
+        `| packages/ui/assets/brand/* | 1 | ${OWN_LICENSE} | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-18 |`,
+        '| packages/ui/fonts/*.woff2 | 2 | OFL-1.1 | The Inter Project Authors | https://github.com/rsms/inter | 2026-10-18 |',
+        '',
+      ].join('\n'),
+    );
   });
 });
