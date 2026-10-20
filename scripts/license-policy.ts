@@ -39,15 +39,18 @@ export const PACKAGE_LICENSE_EXCEPTIONS: ReadonlyMap<string, ReadonlySet<string>
   [
     // caniuse-lite is browser support data that browserslist reads at build
     // time. It is not code, and none of it is served to anyone. It reaches
-    // this repository by two paths: the dashboard's framework, which is a
-    // production dependency, and the component catalogue's documentation
-    // generator, which is a development one. CC-BY-4.0 permits commercial
-    // use and requires only attribution, which THIRD_PARTY_NOTICES.md gives.
-    // It cannot be removed without removing those tools. The exception
-    // therefore covers both scopes, which is intended rather than an
-    // oversight. Reviewed and approved 2026-10-20. It must never widen to a
-    // path or name pattern, and never to a second licence: any other
-    // CC-BY-4.0 package, and any other licence on this one, still fails.
+    // this repository by two paths: the dashboard's framework, a production
+    // dependency, and the component catalogue's documentation generator, a
+    // development one. Where one of those two is not yet in this
+    // repository's lockfile, it is the intended path rather than a current
+    // one, so read the lockfile for which of them are present today. Neither
+    // can drop caniuse-lite without dropping the tool it comes with.
+    // CC-BY-4.0 permits commercial use and requires only attribution, which
+    // THIRD_PARTY_NOTICES.md gives. The exception therefore covers both
+    // scopes, which is intended rather than an oversight. Reviewed and
+    // approved 2026-10-20. It must never widen to a path or name pattern,
+    // and never to a second licence: any other CC-BY-4.0 package, and any
+    // other licence on this one, still fails.
     'caniuse-lite',
     new Set(['CC-BY-4.0']),
   ],
