@@ -258,6 +258,10 @@ describe('edge fixtures', () => {
   // still parses; only comparing against the source catches that.
   it('projects list items from their detail without changing a value', () => {
     const rows = (value: unknown): Record<string, unknown> => value as Record<string, unknown>;
+    // Counted so the case cannot pass by comparing nothing. Without these it
+    // leans on a neighbouring case to pin the counts, which makes it
+    // meaningful only as long as that case exists.
+    const compared = { mandate: 0, instance: 0, payout: 0, receipt: 0 };
     const compare = (
       item: Record<string, unknown>,
       source: Record<string, unknown>,
@@ -278,11 +282,15 @@ describe('edge fixtures', () => {
       expect(item.principalId).toBe(detail.principalId);
       expect(item.projectId).toBe(detail.projectId);
       compare(rows(item), rows(detail), 'mandate', { skip: ['instances'], minFields: 8 });
+      compared.mandate += 1;
       expect(item.instances).toHaveLength(detail.instances.length);
       item.instances.forEach((projected, i) => {
         const source = detail.instances[i];
         expect(source, `mandate.instances[${String(i)}]`).toBeDefined();
-        compare(rows(projected), rows(source), `mandate.instances[${String(i)}]`, { minFields: 5 });
+        compare(rows(projected), rows(source), `mandate.instances[${String(i)}]`, {
+          minFields: 5,
+        });
+        compared.instance += 1;
       });
     }
 
@@ -291,6 +299,7 @@ describe('edge fixtures', () => {
       expect(item.principalId).toBe(detail.principalId);
       expect(item.projectId).toBe(detail.projectId);
       compare(rows(item), rows(detail), 'payout', { minFields: 16 });
+      compared.payout += 1;
     }
 
     for (const receipt of set.receipts.slice(0, 20)) {
@@ -298,6 +307,11 @@ describe('edge fixtures', () => {
       expect(item.principalId).toBe(receipt.principalId);
       expect(item.projectId).toBe(receipt.projectId);
       compare(rows(item), rows(receipt), 'receipt', { minFields: 10 });
+      compared.receipt += 1;
+    }
+
+    for (const [kind, count] of Object.entries(compared)) {
+      expect(count, `${kind} rows compared`).toBeGreaterThan(0);
     }
   });
 
