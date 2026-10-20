@@ -12,7 +12,6 @@ import RootLayout, { metadata, viewport } from './layout';
 vi.mock('next/font/google', () => ({
   Inter: (options: { variable: string }) => ({ variable: `font${options.variable}` }),
   JetBrains_Mono: (options: { variable: string }) => ({ variable: `font${options.variable}` }),
-  Noto_Sans_Mono: (options: { variable: string }) => ({ variable: `font${options.variable}` }),
 }));
 vi.mock('next/script', () => ({
   default: ({ id, children }: { id: string; children: string }) => (
@@ -35,10 +34,8 @@ describe('RootLayout', () => {
   );
 
   it('puts the font variables the tokens read on the root element', () => {
-    // Noto Sans Mono is there only to supply the naira, cedi, peso and rupee
-    // signs, which JetBrains Mono does not draw.
     expect(html).toMatch(
-      /^<html lang="en" class="font--ujira-font-inter font--ujira-font-jetbrains-mono font--ujira-font-noto-sans-mono">/,
+      /^<html lang="en" class="font--ujira-font-inter font--ujira-font-jetbrains-mono">/,
     );
   });
 

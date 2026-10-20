@@ -17,18 +17,6 @@
 }
 
 @layer base {
-  /*
-   * The mono stack from the tokens, with Noto Sans Mono inserted after
-   * JetBrains Mono. The browser falls through per glyph, so the naira, cedi,
-   * peso and rupee signs come from Noto and everything else from JetBrains.
-   */
-  :root {
-    --ujira-font-mono:
-      var(--ujira-font-jetbrains-mono, 'JetBrains Mono'),
-      var(--ujira-font-noto-sans-mono, 'Noto Sans Mono'), ui-monospace, SFMono-Regular, Menlo,
-      monospace;
-  }
-
   html {
     background-color: var(--ujira-bg);
     color: var(--ujira-text);
