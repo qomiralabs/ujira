@@ -1,0 +1,50 @@
+{
+  "name": "@ujira/api-schema",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./fixtures": {
+      "types": "./dist/fixtures/index.d.ts",
+      "default": "./dist/fixtures/index.js"
+    },
+    "./msw": {
+      "types": "./dist/msw/index.d.ts",
+      "default": "./dist/msw/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "openapi"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint --max-warnings 0 .",
+    "test": "vitest run --coverage",
+    "openapi": "UJIRA_WRITE_OPENAPI=1 vitest run src/openapi.test.ts"
+  },
+  "dependencies": {
+    "@ujira/core": "workspace:*",
+    "zod": "4.6.5"
+  },
+  "peerDependencies": {
+    "msw": "2.15.0"
+  },
+  "peerDependenciesMeta": {
+    "msw": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@ujira/chain-adapter": "workspace:*",
+    "fast-check": "4.10.2",
+    "msw": "2.15.0",
+    "prettier": "3.9.10"
+  }
+}
