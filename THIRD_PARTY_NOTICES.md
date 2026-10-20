@@ -133,6 +133,11 @@ Used to build and test UJIRA. They are not shipped.
 | @humanfs/types | 0.15.0 | Apache-2.0 | https://github.com/humanwhocodes/humanfs |
 | @humanwhocodes/module-importer | 1.0.1 | Apache-2.0 | https://github.com/humanwhocodes/module-importer |
 | @humanwhocodes/retry | 0.4.3 | Apache-2.0 | https://github.com/humanwhocodes/retry |
+| @inquirer/ansi | 2.0.8 | MIT | https://github.com/SBoudrias/Inquirer.js |
+| @inquirer/confirm | 6.3.2 | MIT | https://github.com/SBoudrias/Inquirer.js |
+| @inquirer/core | 12.0.3 | MIT | https://github.com/SBoudrias/Inquirer.js |
+| @inquirer/figures | 2.0.9 | MIT | https://github.com/SBoudrias/Inquirer.js |
+| @inquirer/type | 4.1.1 | MIT | https://github.com/SBoudrias/Inquirer.js |
 | @isaacs/cliui | 8.0.2 | ISC | https://github.com/yargs/cliui |
 | @joshwooding/vite-plugin-react-docgen-typescript | 0.7.0 | MIT | https://github.com/joshwooding/vite-plugin-react-docgen-typescript |
 | @jridgewell/gen-mapping | 0.3.13 | MIT | https://github.com/jridgewell/sourcemaps |
@@ -144,6 +149,11 @@ Used to build and test UJIRA. They are not shipped.
 | @keyv/bigmap | 1.3.1 | MIT | https://github.com/jaredwray/keyv |
 | @keyv/serialize | 1.1.1 | MIT | https://github.com/jaredwray/keyv |
 | @kwsites/file-exists | 1.1.1 | MIT | https://github.com/kwsites/file-exists |
+| @mswjs/interceptors | 0.41.9 | MIT | https://github.com/mswjs/interceptors |
+| @open-draft/deferred-promise | 2.2.0 | MIT | https://github.com/open-draft/deferred-promise |
+| @open-draft/deferred-promise | 3.0.0 | MIT | https://github.com/open-draft/deferred-promise |
+| @open-draft/logger | 0.3.0 | MIT | https://github.com/open-draft/logger |
+| @open-draft/until | 2.1.0 | MIT | https://github.com/open-draft/until |
 | @oxc-project/types | 0.127.0 | MIT | https://github.com/oxc-project/oxc |
 | @oxc-project/types | 0.154.0 | MIT | https://github.com/oxc-project/oxc |
 | @pkgjs/parseargs | 0.11.0 | MIT | https://github.com/pkgjs/parseargs |
@@ -197,9 +207,11 @@ Used to build and test UJIRA. They are not shipped.
 | @types/pg | 8.23.1 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/resolve | 1.20.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/semver | 7.8.0 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
+| @types/set-cookie-parser | 2.4.10 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/ssh2 | 0.5.52 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/ssh2 | 1.15.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/ssh2-streams | 0.1.13 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
+| @types/statuses | 2.0.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @typescript-eslint/eslint-plugin | 8.71.2 | MIT | https://github.com/typescript-eslint/typescript-eslint |
 | @typescript-eslint/parser | 8.71.2 | MIT | https://github.com/typescript-eslint/typescript-eslint |
 | @typescript-eslint/project-service | 8.71.2 | MIT | https://github.com/typescript-eslint/typescript-eslint |
@@ -241,6 +253,7 @@ Used to build and test UJIRA. They are not shipped.
 | async | 3.2.6 | MIT | https://github.com/caolan/async |
 | async-lock | 1.4.1 | MIT | https://github.com/rogierschouten/async-lock |
 | axe-core | 4.13.0 | MPL-2.0 | https://github.com/dequelabs/axe-core |
+| axe-core | 4.14.0 | MPL-2.0 | https://github.com/dequelabs/axe-core |
 | b4a | 1.9.0 | Apache-2.0 | https://github.com/holepunchto/b4a |
 | balanced-match | 1.0.2 | MIT | https://github.com/juliangruber/balanced-match |
 | balanced-match | 4.0.4 | MIT | https://github.com/juliangruber/balanced-match |
@@ -271,11 +284,13 @@ Used to build and test UJIRA. They are not shipped.
 | chalk | 4.1.2 | MIT | https://github.com/chalk/chalk |
 | check-error | 2.1.3 | MIT | https://github.com/chaijs/check-error |
 | chownr | 1.1.4 | ISC | https://github.com/isaacs/chownr |
+| cli-width | 4.1.0 | ISC | https://github.com/knownasilya/cli-width |
 | cliui | 8.0.1 | ISC | https://github.com/yargs/cliui |
 | color-convert | 2.0.1 | MIT | https://github.com/Qix-/color-convert |
 | color-name | 1.1.4 | MIT | https://github.com/colorjs/color-name |
 | compress-commons | 6.0.2 | MIT | https://github.com/archiverjs/node-compress-commons |
 | convert-source-map | 2.0.0 | MIT | https://github.com/thlorenz/convert-source-map |
+| cookie | 1.1.1 | MIT | https://github.com/jshttp/cookie |
 | core-util-is | 1.0.3 | MIT | https://github.com/isaacs/core-util-is |
 | cosmiconfig | 8.3.6 | MIT | https://github.com/cosmiconfig/cosmiconfig |
 | cpu-features | 0.0.10 | MIT | https://github.com/mscdex/cpu-features |
@@ -301,7 +316,7 @@ Used to build and test UJIRA. They are not shipped.
 | dom-accessibility-api | 0.5.16 | MIT | https://github.com/eps1lon/dom-accessibility-api |
 | dom-accessibility-api | 0.6.3 | MIT | https://github.com/eps1lon/dom-accessibility-api |
 | eastasianwidth | 0.2.0 | MIT | https://github.com/komagata/eastasianwidth |
-| electron-to-chromium | 1.5.444 | ISC | https://github.com/Kilian/electron-to-chromium |
+| electron-to-chromium | 1.5.445 | ISC | https://github.com/Kilian/electron-to-chromium |
 | emoji-regex | 8.0.0 | MIT | https://github.com/mathiasbynens/emoji-regex |
 | emoji-regex | 9.2.2 | MIT | https://github.com/mathiasbynens/emoji-regex |
 | empathic | 2.1.0 | MIT | https://github.com/lukeed/empathic |
@@ -335,6 +350,9 @@ Used to build and test UJIRA. They are not shipped.
 | fast-fifo | 1.3.2 | MIT | https://github.com/mafintosh/fast-fifo |
 | fast-json-stable-stringify | 2.1.0 | MIT | https://github.com/epoberezkin/fast-json-stable-stringify |
 | fast-levenshtein | 2.0.6 | MIT | https://github.com/hiddentao/fast-levenshtein |
+| fast-string-truncated-width | 3.0.3 | MIT | https://github.com/fabiospampinato/fast-string-truncated-width |
+| fast-string-width | 3.0.2 | MIT | https://github.com/fabiospampinato/fast-string-width |
+| fast-wrap-ansi | 0.2.2 | MIT | https://github.com/43081j/fast-wrap-ansi |
 | fdir | 6.5.0 | MIT | https://github.com/thecodrr/fdir |
 | file-entry-cache | 11.1.5 | MIT | https://github.com/jaredwray/cacheable |
 | find-up | 5.0.0 | MIT | https://github.com/sindresorhus/find-up |
@@ -353,9 +371,11 @@ Used to build and test UJIRA. They are not shipped.
 | graceful-fs | 4.2.11 | ISC | https://github.com/isaacs/node-graceful-fs |
 | graphile-config | 0.0.1-beta.18 | MIT | https://github.com/graphile/crystal |
 | graphile-worker | 0.18.0 | MIT | https://github.com/graphile/worker |
+| graphql | 16.14.2 | MIT | https://github.com/graphql/graphql-js |
 | has-flag | 4.0.0 | MIT | https://github.com/sindresorhus/has-flag |
 | hashery | 1.5.1 | MIT | https://github.com/jaredwray/hashery |
 | hasown | 2.0.4 | MIT | https://github.com/inspect-js/hasOwn |
+| headers-polyfill | 5.0.1 | MIT | https://github.com/mswjs/headers-polyfill |
 | hookified | 1.15.1 | MIT | https://github.com/jaredwray/hookified |
 | hookified | 2.2.0 | MIT | https://github.com/jaredwray/hookified |
 | html-encoding-sniffer | 7.0.0 | MIT | https://github.com/jsdom/html-encoding-sniffer |
@@ -374,6 +394,7 @@ Used to build and test UJIRA. They are not shipped.
 | is-fullwidth-code-point | 3.0.0 | MIT | https://github.com/sindresorhus/is-fullwidth-code-point |
 | is-glob | 4.0.3 | MIT | https://github.com/micromatch/is-glob |
 | is-inside-container | 1.0.0 | MIT | https://github.com/sindresorhus/is-inside-container |
+| is-node-process | 1.2.0 | MIT | https://github.com/mswjs/is-node-process |
 | is-potential-custom-element-name | 1.0.1 | MIT | https://github.com/mathiasbynens/is-potential-custom-element-name |
 | is-stream | 2.0.1 | MIT | https://github.com/sindresorhus/is-stream |
 | is-wsl | 3.1.1 | MIT | https://github.com/sindresorhus/is-wsl |
@@ -419,6 +440,8 @@ Used to build and test UJIRA. They are not shipped.
 | mkdirp | 3.0.1 | MIT | https://github.com/isaacs/node-mkdirp |
 | mkdirp-classic | 0.5.3 | MIT | https://github.com/mafintosh/mkdirp-classic |
 | ms | 2.1.3 | MIT | https://github.com/vercel/ms |
+| msw | 2.15.0 | MIT | https://github.com/mswjs/msw |
+| mute-stream | 3.0.0 | ISC | https://github.com/npm/mute-stream |
 | nan | 2.29.0 | MIT | https://github.com/nodejs/nan |
 | nanoid | 3.3.20 | MIT | https://github.com/ai/nanoid |
 | natural-compare | 1.4.0 | MIT | https://github.com/litejs/natural-compare-lite |
@@ -428,6 +451,7 @@ Used to build and test UJIRA. They are not shipped.
 | once | 1.4.0 | ISC | https://github.com/isaacs/once |
 | open | 10.2.0 | MIT | https://github.com/sindresorhus/open |
 | optionator | 0.9.4 | MIT | https://github.com/gkz/optionator |
+| outvariant | 1.4.3 | MIT | https://github.com/open-draft/outvariant |
 | oxc-parser | 0.127.0 | MIT | https://github.com/oxc-project/oxc |
 | oxc-resolver | 11.21.2 | MIT | https://github.com/oxc-project/oxc-resolver |
 | p-limit | 3.1.0 | MIT | https://github.com/sindresorhus/p-limit |
@@ -441,6 +465,7 @@ Used to build and test UJIRA. They are not shipped.
 | path-parse | 1.0.7 | MIT | https://github.com/jbgutierrez/path-parse |
 | path-scurry | 1.11.1 | BlueOak-1.0.0 | https://github.com/isaacs/path-scurry |
 | path-scurry | 2.0.2 | BlueOak-1.0.0 | https://github.com/isaacs/path-scurry |
+| path-to-regexp | 6.3.0 | MIT | https://github.com/pillarjs/path-to-regexp |
 | path-type | 4.0.0 | MIT | https://github.com/sindresorhus/path-type |
 | pathval | 2.0.1 | MIT | https://github.com/chaijs/pathval |
 | pg | 8.23.1 | MIT | https://github.com/brianc/node-postgres |
@@ -487,6 +512,7 @@ Used to build and test UJIRA. They are not shipped.
 | resolve | 1.22.12 | MIT | https://github.com/browserify/resolve |
 | resolve-from | 4.0.0 | MIT | https://github.com/sindresorhus/resolve-from |
 | retry | 0.12.0 | MIT | https://github.com/tim-kos/node-retry |
+| rettime | 0.11.12 | MIT | https://github.com/kettanaito/rettime |
 | rolldown | 1.2.14 | MIT | https://github.com/rolldown/rolldown |
 | run-applescript | 7.1.0 | MIT | https://github.com/sindresorhus/run-applescript |
 | safe-buffer | 5.1.2 | MIT | https://github.com/feross/safe-buffer |
@@ -495,6 +521,7 @@ Used to build and test UJIRA. They are not shipped.
 | saxes | 6.0.0 | ISC | https://github.com/lddubeau/saxes |
 | semver | 6.3.1 | ISC | https://github.com/npm/node-semver |
 | semver | 7.8.5 | ISC | https://github.com/npm/node-semver |
+| set-cookie-parser | 3.1.2 | MIT | https://github.com/nfriedly/set-cookie-parser |
 | shebang-command | 2.0.0 | MIT | https://github.com/kevva/shebang-command |
 | shebang-regex | 3.0.0 | MIT | https://github.com/sindresorhus/shebang-regex |
 | signal-exit | 3.0.7 | ISC | https://github.com/tapjs/signal-exit |
@@ -505,10 +532,12 @@ Used to build and test UJIRA. They are not shipped.
 | split2 | 4.2.0 | ISC | https://github.com/mcollina/split2 |
 | ssh-remote-port-forward | 1.0.4 | MIT | https://github.com/cristianrgreco/ssh-remote-port-forward |
 | ssh2 | 1.17.0 | MIT | https://github.com/mscdex/ssh2 |
+| statuses | 2.0.2 | MIT | https://github.com/jshttp/statuses |
 | std-env | 4.3.0 | MIT | https://github.com/unjs/std-env |
 | storybook | 10.6.1 | MIT | https://github.com/storybookjs/storybook |
 | storybook-addon-pseudo-states | 10.6.1 | MIT | https://github.com/storybookjs/storybook |
 | streamx | 2.28.1 | MIT | https://github.com/mafintosh/streamx |
+| strict-event-emitter | 0.5.1 | MIT | https://github.com/open-draft/strict-event-emitter |
 | string-width | 4.2.3 | MIT | https://github.com/sindresorhus/string-width |
 | string-width | 5.1.2 | MIT | https://github.com/sindresorhus/string-width |
 | string_decoder | 1.1.1 | MIT | https://github.com/nodejs/string_decoder |
@@ -520,6 +549,7 @@ Used to build and test UJIRA. They are not shipped.
 | strip-indent | 4.1.1 | MIT | https://github.com/sindresorhus/strip-indent |
 | supports-color | 7.2.0 | MIT | https://github.com/chalk/supports-color |
 | supports-preserve-symlinks-flag | 1.0.0 | MIT | https://github.com/inspect-js/node-supports-preserve-symlinks-flag |
+| tagged-tag | 1.0.0 | MIT | https://github.com/sindresorhus/tagged-tag |
 | tailwindcss | 4.3.3 | MIT | https://github.com/tailwindlabs/tailwindcss |
 | tapable | 2.3.3 | MIT | https://github.com/webpack/tapable |
 | tar-fs | 2.1.5 | MIT | https://github.com/mafintosh/tar-fs |
@@ -547,12 +577,14 @@ Used to build and test UJIRA. They are not shipped.
 | turbo | 2.11.8 | MIT | https://github.com/vercel/turborepo |
 | tweetnacl | 0.14.5 | Unlicense | https://github.com/dchest/tweetnacl-js |
 | type-check | 0.4.0 | MIT | https://github.com/gkz/type-check |
+| type-fest | 5.10.0 | (MIT OR CC0-1.0) | https://github.com/sindresorhus/type-fest |
 | typescript | 6.0.3 | Apache-2.0 | https://github.com/microsoft/TypeScript |
 | typescript-eslint | 8.71.2 | MIT | https://github.com/typescript-eslint/typescript-eslint |
 | undici | 8.12.2 | MIT | https://github.com/nodejs/undici |
 | undici-types | 5.26.5 | MIT | https://github.com/nodejs/undici |
 | undici-types | 6.21.0 | MIT | https://github.com/nodejs/undici |
 | undici-types | 7.24.6 | MIT | https://github.com/nodejs/undici |
+| until-async | 3.0.2 | MIT | https://github.com/kettanaito/until-async |
 | update-browserslist-db | 1.3.3 | MIT | https://github.com/browserslist/update-db |
 | uri-js | 4.4.1 | BSD-2-Clause | https://github.com/garycourt/uri-js |
 | use-sync-external-store | 1.7.0 | MIT | https://github.com/react/react |
