@@ -87,29 +87,60 @@ describe('OpenAPI document', () => {
         string,
         Record<string, { parameters: { name: string; schema: { description?: string } }[] }>
       >;
-      components: {
-        schemas: Record<string, { properties?: Record<string, { description?: string }> }>;
-      };
+      components: { schemas: Record<string, unknown> };
     };
-    const states = (text: string | undefined): boolean =>
-      text !== undefined && /signs?/i.test(text) && /(forg|another query|reused)/i.test(text);
+    const states = (text: unknown): boolean =>
+      typeof text === 'string' && /signs?/i.test(text) && /(forg|another query|reused)/i.test(text);
 
     // Every cursor a client sends back.
     const cursorParams = Object.values(doc.paths)
       .flatMap((methods) => Object.values(methods))
       .flatMap((operation) => operation.parameters)
       .filter((p) => /cursor/i.test(p.name));
-    expect(cursorParams.length).toBeGreaterThan(0);
+    expect(cursorParams.map((p) => p.name).sort()).toEqual([
+      'cursor',
+      'cursor',
+      'cursor',
+      'cursor',
+      'depositsCursor',
+    ]);
     for (const p of cursorParams) expect(states(p.schema.description), p.name).toBe(true);
 
-    // And every cursor the server hands out.
-    const pages = Object.entries(doc.components.schemas).filter(
-      ([, schema]) => schema.properties?.['nextCursor'] !== undefined,
-    );
-    expect(pages.length).toBeGreaterThan(0);
-    for (const [name, schema] of pages) {
-      expect(states(schema.properties?.['nextCursor']?.description), name).toBe(true);
-    }
+    // And every cursor the server hands out. Walked to any depth, because a
+    // page can be nested inside another response, as the deposits page is
+    // inside the funding one, and a scan one level deep would pass while
+    // saying nothing about it.
+    const found: { path: string; description: unknown }[] = [];
+    const walk = (node: unknown, path: string): void => {
+      if (Array.isArray(node)) {
+        node.forEach((item, i) => {
+          walk(item, `${path}[${String(i)}]`);
+        });
+        return;
+      }
+      if (typeof node !== 'object' || node === null) return;
+      for (const [key, value] of Object.entries(node)) {
+        if (key === 'nextCursor') {
+          found.push({
+            path: `${path}.${key}`,
+            description: (value as { description?: unknown }).description,
+          });
+        }
+        walk(value, `${path}.${key}`);
+      }
+    };
+    walk(doc.components.schemas, 'schemas');
+
+    // Four page envelopes plus the deposits page nested in the funding response.
+    expect(found).toHaveLength(5);
+    expect(found.map((f) => f.path).sort()).toEqual([
+      'schemas.ApprovalPage.properties.nextCursor',
+      'schemas.FundingOverview.properties.deposits.properties.nextCursor',
+      'schemas.MandatePage.properties.nextCursor',
+      'schemas.PayoutPage.properties.nextCursor',
+      'schemas.ReceiptPage.properties.nextCursor',
+    ]);
+    for (const f of found) expect(states(f.description), f.path).toBe(true);
   });
 
   it('describes query parameters as the text clients send', () => {
