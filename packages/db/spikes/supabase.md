@@ -5,6 +5,7 @@ Issue #49. Run on 2026-10-18 against the UJIRA staging project (free plan, regio
 Each result is marked:
 
 - **measured**: run on the staging project by a committed test or probe, named with the result;
+- **confirmed by the maintainer**: read by a person from the Supabase dashboard on the date given. Nothing in this repository can re-verify it, because the setting is not visible to any query; re-checking it means opening the dashboard again;
 - **assumed**: not verified.
 
 ## How to run
@@ -132,10 +133,12 @@ None of these needs the IPv4 add-on.
 
 ## Data API
 
-| Check                                                                                     | Result                                                                                                                                                                                                                                                                                       |                           |
-| ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| The API roles (`anon`, `authenticated`, `service_role`) get no grant on the tenant schema | Pass                                                                                                                                                                                                                                                                                         | measured                  |
-| Which schemas the Data API exposes                                                        | Not visible from SQL. The `authenticator` role carries no `pgrst.db_schemas` setting, so the exposed list is managed in the dashboard. The maintainer should confirm that `ujira` is not in Settings > Data API > Exposed schemas, or turn the Data API off, before the tenancy schema lands | open, needs the dashboard |
+| Check                                                                                     | Result                                                                                                                                                 |                             |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------- |
+| The API roles (`anon`, `authenticated`, `service_role`) get no grant on the tenant schema | Pass                                                                                                                                                   | measured                    |
+| Which schemas the Data API exposes                                                        | Schema `ujira` is not exposed through the Data API. The maintainer read this from Settings > Data API > Exposed schemas in the dashboard on 2026-10-20 | confirmed by the maintainer |
+
+The exposed schema list is not visible to SQL: the `authenticator` role carries no `pgrst.db_schemas` setting, so no query in this repository can check it or notice a later change. Someone changing the exposed schemas in the dashboard would not fail any test here. The grant checks above are what the repository can enforce, and they hold whatever the Data API is set to.
 
 ## Latency of the tenant context round trip (`latency.test.ts`)
 
@@ -167,7 +170,9 @@ A setting that somehow survived into another transaction, through a session leve
 
 ## Paid add-ons
 
-Not visible from the database. Point in time recovery, the read replica and the IPv4 add-on were not enabled by this spike, and nothing here needs them. The maintainer should confirm the add-on list in the dashboard (Settings > Add-ons) and record it here; until then, this criterion is open.
+No paid add-on is enabled on the project. The maintainer read the add-on list from Settings > Add-ons in the dashboard on 2026-10-20 (confirmed by the maintainer). That covers point in time recovery, the read replica and the IPv4 add-on, none of which this spike needs or enabled.
+
+As with the Data API list, add-ons are not visible from the database, so nothing in this repository can re-verify this or catch a later change. Re-checking it means opening the dashboard again. Point in time recovery is a launch gate and is expected to be bought just before mainnet, which will change this line.
 
 ## Project facts at the time of the run
 
