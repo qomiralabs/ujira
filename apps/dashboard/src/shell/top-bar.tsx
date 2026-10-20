@@ -46,6 +46,11 @@ export function TopBar({ project, onProjectChange }: TopBarProps) {
       >
         <Icon source={{ lucide: Search }} size={20} className="shrink-0" />
         <span className="flex-1 truncate text-left">Find a page</span>
+        {/*
+         * The command symbol is deliberate: it is the correct character for
+         * that key, and no ASCII substitute reads right on a Mac. Leave it
+         * in place when sweeping the repository for non ASCII characters.
+         */}
         <kbd className="hidden rounded-control border border-rule px-2 font-mono text-label text-text-secondary sm:inline">
           {apple ? '⌘ K' : 'Ctrl K'}
         </kbd>

@@ -33,7 +33,7 @@ export const PLACEHOLDERS: Record<'overview' | Section, Placeholder> = {
   },
   receipts: {
     title: 'No receipts yet',
-    body: 'Every payout that arrives gets a receipt: the amount in the person’s own money, the day it landed, and a link to the record on Stellar.',
+    body: 'Every payout that arrives gets a receipt: the amount in their own money, the day it landed, and a link to the record on Stellar.',
   },
   funding: {
     title: 'No money added yet',

@@ -18,6 +18,11 @@ export default function NotFound() {
         </Link>
       }
     >
+      {/*
+       * The command symbol below is deliberate, for the same reason it is
+       * kept in the top bar: it is the right character for that key. Leave
+       * it in place when sweeping for non ASCII characters.
+       */}
       The link may be old or mistyped. Use the menu to find the page you want, or press Ctrl K (⌘ K
       on a Mac) to search for it.
     </EmptyState>

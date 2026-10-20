@@ -77,13 +77,18 @@ export function allowlistFor(scope: Scope, packageName?: string): ReadonlySet<st
   return exception === undefined ? base : new Set([...base, ...exception]);
 }
 
-// SPDX identifiers this policy recognises: everything it allows, plus the
-// families section 16.3 names as never allowed. An identifier outside this
-// set is not treated as a licence decision at all; it means the package's
-// metadata is not telling us something we can act on, and its own LICENSE
-// file is read instead. Add an identifier here only when it is a real SPDX
-// identifier, so that a vague string such as "BSD" keeps failing over to the
-// file rather than being judged on its spelling.
+// SPDX identifiers this policy recognises. That is everything it allows,
+// plus the ones it refuses by name: the GPL, LGPL and AGPL family, SSPL, the
+// Business Source License, Elastic, and the Creative Commons attribution,
+// share alike, non commercial and no derivatives licences.
+//
+// An identifier outside this set is not treated as a licence decision at
+// all. It means the package's metadata is not telling us something we can
+// act on, so its own licence files are read instead. Add an identifier here
+// only when it is a real SPDX identifier, so that a vague string such as
+// "BSD" keeps failing over to the files rather than being judged on its
+// spelling. Listing an identifier here does not allow it; the allowlist
+// above decides that.
 const RECOGNISED_SPDX: ReadonlySet<string> = new Set([
   ...PROD_ALLOWED,
   ...FONT_LICENSES,
