@@ -12,6 +12,7 @@ import {
   findViolations,
   normalizeRepository,
   renderNotices,
+  resolveLicense,
   sanitizeUrl,
   type NoticeEntry,
   type Scope,
@@ -86,6 +87,9 @@ export interface ManifestInspector {
   realpath(path: string): string | undefined;
   // Parsed package.json in `dir`, or undefined when there is none.
   manifest(dir: string): Manifest | undefined;
+  // Text of the package's own LICENSE file, or undefined when it ships none.
+  // Read only when a package's metadata licence is not one we recognise.
+  licenseText(dir: string): string | undefined;
 }
 
 export interface WorkspaceProject {
@@ -378,11 +382,19 @@ export function checkTree(inputs: TreeInputs): TreeResult {
     if (lock === undefined) problems.push(`${key}: listed by pnpm but not in pnpm-lock.yaml`);
     if (lock?.platformSpecific === true) continue;
     const scope: Scope = listedScope === 'prod' || lock?.scope === 'prod' ? 'prod' : 'dev';
-    toCheck.push({ name: pkg.name, version: pkg.version, license: pkg.license, scope });
+    // Packages that still use the old `licenses: [{ type: "BSD" }]` form give
+    // a string no allowlist can judge, so the licence comes from their own
+    // LICENSE file instead. Anything unclear there is a problem, not a pass.
+    const resolved = resolveLicense(pkg.license, () => inputs.inspector.licenseText(pkg.path));
+    if (resolved.problem !== undefined) {
+      problems.push(`${key}: ${resolved.problem}`);
+      continue;
+    }
+    toCheck.push({ name: pkg.name, version: pkg.version, license: resolved.license, scope });
     (scope === 'prod' ? notices.prod : notices.dev).push({
       name: pkg.name,
       version: pkg.version,
-      license: pkg.license,
+      license: resolved.license,
       repository: normalizeRepository(pkg.repository) ?? sanitizeUrl(pkg.homepage),
     });
   }

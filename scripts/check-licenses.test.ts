@@ -7,15 +7,64 @@ import {
   evaluateLicense,
   findViolations,
   formatViolation,
+  identifyLicenseText,
   normalizeRepository,
   parseSpdx,
+  PACKAGE_LICENSE_EXCEPTIONS,
   PROD_FONT_PACKAGES,
   renderNotices,
+  resolveLicense,
   sanitizeUrl,
   type NoticeEntry,
   type Scope,
   type ScopedLicense,
 } from './license-policy.ts';
+
+// The three clause BSD text, as shipped by parse-cache-control.
+const BSD_3_CLAUSE = `Copyright (c) 2012-2014, Walmart and other contributors.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    * The names of any contributors may not be used to endorse or promote
+      products derived from this software without specific prior written
+      permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED.`;
+
+const BSD_2_CLAUSE = `Copyright (c) 2010, Someone.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS "AS IS" AND ANY EXPRESS OR
+IMPLIED WARRANTIES ARE DISCLAIMED.`;
+
+const MIT_TEXT = `MIT License
+
+Copyright (c) 2026 Someone
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.`;
+
+const GPL_TEXT = `                    GNU GENERAL PUBLIC LICENSE
+                       Version 3, 29 June 2007
+
+ Copyright (C) 2007 Free Software Foundation, Inc.`;
 
 function pkg(license: string, name = 'some-package', scope: Scope = 'prod'): ScopedLicense {
   return { name, version: '1.0.0', license, scope };
@@ -31,6 +80,101 @@ describe('check-licenses', () => {
 
   it('rejects GPL-3.0 in dev', () => {
     expect(evaluateLicense('GPL-3.0-only', 'dev').ok).toBe(false);
+  });
+
+  describe('the caniuse-lite exception', () => {
+    it('allows CC-BY-4.0 for caniuse-lite only', () => {
+      expect(evaluateLicense('CC-BY-4.0', 'prod', 'caniuse-lite')).toEqual({ ok: true });
+    });
+
+    it('rejects CC-BY-4.0 for any other production package', () => {
+      expect(findViolations([pkg('CC-BY-4.0', 'some-data-set')]).map(formatViolation)).toEqual([
+        'some-data-set@1.0.0 (prod): license "CC-BY-4.0": "CC-BY-4.0" not allowed in prod dependencies',
+      ]);
+      expect(evaluateLicense('CC-BY-4.0', 'prod', 'caniuse-lite-ish').ok).toBe(false);
+      expect(evaluateLicense('CC-BY-4.0', 'dev', 'other-tool').ok).toBe(false);
+    });
+
+    it('grants the named package nothing beyond its listed license', () => {
+      expect(evaluateLicense('GPL-3.0', 'prod', 'caniuse-lite').ok).toBe(false);
+      expect(evaluateLicense('CC-BY-4.0 AND GPL-3.0', 'prod', 'caniuse-lite').ok).toBe(false);
+      expect(evaluateLicense('CC-BY-NC-4.0', 'prod', 'caniuse-lite').ok).toBe(false);
+    });
+
+    it('keeps the exception list short, so each entry stays reviewed', () => {
+      expect([...PACKAGE_LICENSE_EXCEPTIONS].map(([name, ids]) => [name, [...ids]])).toEqual([
+        ['caniuse-lite', ['CC-BY-4.0']],
+      ]);
+    });
+  });
+
+  describe('identifyLicenseText', () => {
+    it.each([
+      ['the three clause BSD text', BSD_3_CLAUSE, 'BSD-3-Clause'],
+      ['the two clause BSD text', BSD_2_CLAUSE, 'BSD-2-Clause'],
+      ['the MIT text', MIT_TEXT, 'MIT'],
+      ['the GPL text', GPL_TEXT, 'GPL-3.0'],
+    ])('recognises %s', (_label, text, expected) => {
+      expect(identifyLicenseText(text)).toBe(expected);
+    });
+
+    it.each([
+      ['an empty file', ''],
+      ['whitespace only', '   \n\t '],
+      ['a file that says nothing useful', 'See the website for terms.'],
+      ['a file holding two different licenses', `${MIT_TEXT}\n\n${GPL_TEXT}`],
+    ])('refuses to guess from %s', (_label, text) => {
+      expect(identifyLicenseText(text)).toBeUndefined();
+    });
+  });
+
+  describe('resolveLicense', () => {
+    it('uses the metadata string when it is a valid SPDX expression', () => {
+      expect(resolveLicense('BSD-3-Clause', undefined)).toEqual({
+        license: 'BSD-3-Clause',
+        fromFile: false,
+      });
+      expect(resolveLicense('MIT OR Apache-2.0', GPL_TEXT)).toEqual({
+        license: 'MIT OR Apache-2.0',
+        fromFile: false,
+      });
+    });
+
+    it('falls back to the LICENSE file when the metadata string is not SPDX', () => {
+      expect(resolveLicense('BSD', BSD_3_CLAUSE)).toEqual({
+        license: 'BSD-3-Clause',
+        fromFile: true,
+      });
+    });
+
+    it('fails when the metadata string is not SPDX and there is no LICENSE file', () => {
+      expect(resolveLicense('BSD', undefined)).toEqual({
+        problem:
+          'license "BSD" is not an SPDX expression and the package ships no LICENSE file to check',
+      });
+    });
+
+    it('fails when the LICENSE file does not clearly match one known license', () => {
+      expect(resolveLicense('BSD', 'See the website for terms.')).toEqual({
+        problem:
+          'license "BSD" is not an SPDX expression and its LICENSE file does not clearly match one known license',
+      });
+      expect(resolveLicense('BSD', `${MIT_TEXT}\n${GPL_TEXT}`).problem).toMatch(
+        /does not clearly match/,
+      );
+    });
+
+    it('never rescues a license that is simply missing', () => {
+      for (const missing of ['', 'UNLICENSED', 'SEE LICENSE IN LICENSE.md']) {
+        expect(resolveLicense(missing, MIT_TEXT).problem, missing).toBeDefined();
+      }
+    });
+
+    it('still holds a license read from the file to the allowlist', () => {
+      const resolved = resolveLicense('BSD', GPL_TEXT);
+      expect(resolved).toEqual({ license: 'GPL-3.0', fromFile: true });
+      expect(evaluateLicense('GPL-3.0', 'dev').ok).toBe(false);
+    });
   });
 
   it('accepts MPL-2.0 in dev', () => {

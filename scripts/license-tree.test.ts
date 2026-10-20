@@ -112,6 +112,7 @@ function listing(packages: readonly Listed[]): string {
 function world(
   extra: Record<string, Manifest> = {},
   links: Record<string, string> = {},
+  licenses: Record<string, string> = {},
 ): ManifestInspector {
   const manifests: Record<string, Manifest> = {};
   for (const p of [...PROD, ...DEV]) {
@@ -126,6 +127,7 @@ function world(
   return {
     realpath: (path) => links[path] ?? (path in manifests ? path : undefined),
     manifest: (dir) => manifests[dir],
+    licenseText: (dir) => licenses[dir],
   };
 }
 
@@ -160,6 +162,77 @@ describe('license-tree', () => {
     );
     const devPlatform = result.notices?.split('## Development platform specific packages')[1];
     expect(devPlatform).toContain('| native-darwin-arm64 | 3.0.0 | MIT |');
+  });
+
+  describe('metadata that is not a recognised SPDX expression', () => {
+    // The old `licenses: [{ type: "BSD" }]` form, as parse-cache-control uses.
+    const vague = (): Listed[] =>
+      PROD.map((p) => (p.name === 'copyleft-lib' ? { ...p, license: 'BSD' } : p));
+    const dir = store('copyleft-lib', '1.0.0');
+
+    const THREE_CLAUSE = `Copyright (c) 2012-2014, Walmart and other contributors.
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    * Redistributions of source code must retain the above copyright notice.
+    * Redistributions in binary form must reproduce the above copyright notice.
+    * The names of any contributors may not be used to endorse or promote
+      products derived from this software without specific prior written
+      permission.`;
+
+    it('takes the license from the package LICENSE file when it is clear', () => {
+      const result = checkTree(
+        inputs({
+          prodListing: listing(vague()),
+          inspector: world({}, {}, { [dir]: THREE_CLAUSE }),
+        }),
+      );
+      expect(result.problems).toEqual([]);
+      expect(result.violations).toEqual([]);
+      // The notices record the licence that was actually established.
+      expect(result.notices).toContain('| copyleft-lib | 1.0.0 | BSD-3-Clause |');
+    });
+
+    it('fails when the LICENSE file does not clearly match one license', () => {
+      expect(
+        report({
+          prodListing: listing(vague()),
+          inspector: world({}, {}, { [dir]: 'Terms are available on request.' }),
+        }),
+      ).toEqual([
+        'copyleft-lib@1.0.0: license "BSD" is not an SPDX expression and its LICENSE file does not clearly match one known license',
+      ]);
+    });
+
+    it('fails when the package ships no LICENSE file', () => {
+      expect(report({ prodListing: listing(vague()), inspector: world() })).toEqual([
+        'copyleft-lib@1.0.0: license "BSD" is not an SPDX expression and the package ships no LICENSE file to check',
+      ]);
+    });
+
+    it('still holds a license read from the file to the allowlist', () => {
+      expect(
+        report({
+          prodListing: listing(vague()),
+          inspector: world({}, {}, { [dir]: 'GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007' }),
+        }),
+      ).toEqual([
+        'copyleft-lib@1.0.0 (prod): license "GPL-3.0": "GPL-3.0" not allowed in prod dependencies',
+      ]);
+    });
+
+    it('does not read the LICENSE file when the metadata is a recognised expression', () => {
+      const read: string[] = [];
+      const base = world({}, {}, { [dir]: THREE_CLAUSE });
+      const watched = {
+        ...base,
+        licenseText: (d: string) => {
+          read.push(d);
+          return base.licenseText(d);
+        },
+      };
+      expect(report({ inspector: watched })).toEqual([]);
+      expect(read).toEqual([]);
+    });
   });
 
   it('rejects a GPL dependency declared by a workspace package', () => {

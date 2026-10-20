@@ -42,7 +42,32 @@ function readManifest(dir: string): Manifest | undefined {
     : undefined;
 }
 
-const inspector: ManifestInspector = { realpath, manifest: readManifest };
+// The usual spellings of a licence file. Read only when a package's metadata
+// licence is not one the policy recognises.
+const LICENSE_FILES = [
+  'LICENSE',
+  'LICENCE',
+  'LICENSE.md',
+  'LICENCE.md',
+  'LICENSE.txt',
+  'LICENCE.txt',
+  'COPYING',
+  'COPYING.md',
+];
+
+function readLicenseText(dir: string): string | undefined {
+  for (const name of LICENSE_FILES) {
+    const file = join(dir, name);
+    if (existsSync(file)) return readFileSync(file, 'utf8');
+  }
+  return undefined;
+}
+
+const inspector: ManifestInspector = {
+  realpath,
+  manifest: readManifest,
+  licenseText: readLicenseText,
+};
 
 // Workspace folders from the `<dir>/*` globs in pnpm-workspace.yaml, plus the root.
 function workspaceProjects(): WorkspaceProject[] {

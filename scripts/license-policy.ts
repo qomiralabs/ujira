@@ -30,6 +30,24 @@ export const FONT_LICENSES: ReadonlySet<string> = new Set(['OFL-1.1']);
 // needs a license review: confirm it ships font files only, not code.
 export const PROD_FONT_PACKAGES: ReadonlySet<string> = new Set<string>([]);
 
+// Licenses allowed for one named package and nothing else. Every entry is a
+// standing decision by the maintainer, recorded here with its reason and
+// date. Keep this list short, and never widen an entry to a pattern: the
+// point is that the exception cannot spread to the next package that happens
+// to carry the same license.
+export const PACKAGE_LICENSE_EXCEPTIONS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  [
+    // caniuse-lite is browser support data that browserslist reads at build
+    // time. It is not code, and none of it reaches a browser. CC-BY-4.0
+    // permits commercial use and asks only for attribution, which
+    // THIRD_PARTY_NOTICES.md already gives. It arrives as a transitive
+    // dependency of Next.js and cannot be removed without removing Next.js.
+    // Reviewed and approved 2026-10-20. Any other CC-BY-4.0 package still fails.
+    'caniuse-lite',
+    new Set(['CC-BY-4.0']),
+  ],
+]);
+
 // Dev dependencies never ship, so font licenses are not restricted there.
 export const DEV_ALLOWED: ReadonlySet<string> = new Set([
   ...PROD_ALLOWED,
@@ -40,11 +58,51 @@ export const DEV_ALLOWED: ReadonlySet<string> = new Set([
 const PROD_FONT_ALLOWED: ReadonlySet<string> = new Set([...PROD_ALLOWED, ...FONT_LICENSES]);
 
 export function allowlistFor(scope: Scope, packageName?: string): ReadonlySet<string> {
-  if (scope === 'dev') return DEV_ALLOWED;
-  return packageName !== undefined && PROD_FONT_PACKAGES.has(packageName)
-    ? PROD_FONT_ALLOWED
-    : PROD_ALLOWED;
+  const base =
+    scope === 'dev'
+      ? DEV_ALLOWED
+      : packageName !== undefined && PROD_FONT_PACKAGES.has(packageName)
+        ? PROD_FONT_ALLOWED
+        : PROD_ALLOWED;
+  const exception =
+    packageName === undefined ? undefined : PACKAGE_LICENSE_EXCEPTIONS.get(packageName);
+  return exception === undefined ? base : new Set([...base, ...exception]);
 }
+
+// SPDX identifiers this policy recognises: everything it allows, plus the
+// families section 16.3 names as never allowed. An identifier outside this
+// set is not treated as a licence decision at all; it means the package's
+// metadata is not telling us something we can act on, and its own LICENSE
+// file is read instead. Add an identifier here only when it is a real SPDX
+// identifier, so that a vague string such as "BSD" keeps failing over to the
+// file rather than being judged on its spelling.
+const RECOGNISED_SPDX: ReadonlySet<string> = new Set([
+  ...PROD_ALLOWED,
+  ...FONT_LICENSES,
+  'MPL-2.0',
+  'GPL-2.0',
+  'GPL-2.0-only',
+  'GPL-2.0-or-later',
+  'GPL-3.0',
+  'GPL-3.0-only',
+  'GPL-3.0-or-later',
+  'LGPL-2.1',
+  'LGPL-2.1-only',
+  'LGPL-2.1-or-later',
+  'LGPL-3.0',
+  'LGPL-3.0-only',
+  'LGPL-3.0-or-later',
+  'AGPL-3.0',
+  'AGPL-3.0-only',
+  'AGPL-3.0-or-later',
+  'SSPL-1.0',
+  'BUSL-1.1',
+  'Elastic-2.0',
+  'CC-BY-4.0',
+  'CC-BY-SA-4.0',
+  'CC-BY-NC-4.0',
+  'CC-BY-ND-4.0',
+]);
 
 // SPDX expression evaluation. Precedence follows the SPDX spec: WITH binds
 // tightest, then AND, then OR. An expression passes when it can be satisfied
@@ -185,6 +243,134 @@ export function evaluateLicense(license: string, scope: Scope, packageName?: str
     ok: false,
     reason: `${blocked.map((id) => `"${id}"`).join(', ')} not allowed in ${scope} dependencies${fontHint}`,
   };
+}
+
+// Identifies a LICENSE file by its text. Deliberately narrow: each entry
+// needs a phrase that only that licence uses, and the text must match exactly
+// one entry. Zero matches or more than one means we cannot tell, and the
+// caller fails rather than guessing. A licence missing from this table is not
+// "allowed by default": it simply cannot be recognised from its text.
+const LICENSE_TEXTS: readonly { id: string; needs: RegExp[]; rejects?: RegExp[] }[] = [
+  {
+    id: 'MIT',
+    needs: [/permission is hereby granted, free of charge/],
+  },
+  {
+    id: 'ISC',
+    needs: [
+      /permission to use, copy, modify,? and\/or distribute this software for any purpose/,
+      /copyright notice and this permission notice appear in all copies/,
+    ],
+  },
+  {
+    id: 'Apache-2.0',
+    needs: [/apache license/, /version 2\.0/],
+  },
+  {
+    // The two clause form: redistribution conditions without the third, no
+    // endorsement, clause.
+    id: 'BSD-2-Clause',
+    needs: [
+      /redistribution and use in source and binary forms/,
+      /redistributions in binary form must reproduce/,
+    ],
+    rejects: [/endorse or promote/],
+  },
+  {
+    id: 'BSD-3-Clause',
+    needs: [
+      /redistribution and use in source and binary forms/,
+      /redistributions in binary form must reproduce/,
+      /endorse or promote/,
+    ],
+  },
+  {
+    id: 'GPL-3.0',
+    needs: [/gnu general public license/, /version 3/],
+    rejects: [/affero/, /lesser/],
+  },
+  {
+    id: 'AGPL-3.0',
+    needs: [/gnu affero general public license/],
+  },
+  {
+    id: 'LGPL-3.0',
+    needs: [/gnu lesser general public license/, /version 3/],
+  },
+];
+
+/**
+ * The SPDX identifier a LICENSE file clearly carries, or undefined when the
+ * text matches none or several. Never guesses.
+ */
+export function identifyLicenseText(text: string): string | undefined {
+  const normalised = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (normalised === '') return undefined;
+  const matches = LICENSE_TEXTS.filter(
+    (entry) =>
+      entry.needs.every((pattern) => pattern.test(normalised)) &&
+      !(entry.rejects ?? []).some((pattern) => pattern.test(normalised)),
+  );
+  return matches.length === 1 ? matches[0]?.id : undefined;
+}
+
+// True when every identifier in the expression is one this policy recognises,
+// so its verdict can be trusted without reading the package's own files.
+function allIdentifiersRecognised(node: Node): boolean {
+  switch (node.kind) {
+    case 'id':
+      return RECOGNISED_SPDX.has(node.value);
+    // An exception has never been reviewed, so a WITH clause is never trusted
+    // on its metadata alone.
+    case 'with':
+      return false;
+    case 'and':
+    case 'or':
+      return allIdentifiersRecognised(node.left) && allIdentifiersRecognised(node.right);
+  }
+}
+
+/**
+ * The LICENSE text, or a function returning it. A function is only called
+ * when the metadata licence turns out to be unusable, so a clean tree never
+ * touches the file system.
+ */
+export type LicenseTextSource = string | undefined | (() => string | undefined);
+
+export type ResolvedLicense =
+  | { license: string; fromFile: boolean; problem?: undefined }
+  | { license?: undefined; fromFile?: undefined; problem: string };
+
+/**
+ * The licence to judge a package by. Normally the string in its metadata.
+ * When that is not an SPDX expression this policy recognises, such as the old
+ * `licenses: [{ type: "BSD" }]` form, the package's own LICENSE text is read
+ * instead and must clearly carry exactly one licence. A package with no
+ * licence at all is never rescued by its files, and an unreadable or
+ * ambiguous file is a failure, never a pass.
+ */
+export function resolveLicense(metadata: string, licenseText: LicenseTextSource): ResolvedLicense {
+  const value = metadata.trim();
+  if (MISSING.has(value.toLowerCase()) || /^see license in /i.test(value)) {
+    return { problem: value === '' ? 'no license' : `no usable license ("${value}")` };
+  }
+  let recognised = false;
+  try {
+    recognised = allIdentifiersRecognised(parseSpdx(value));
+  } catch (error) {
+    if (!(error instanceof SpdxSyntaxError)) throw error;
+  }
+  if (recognised) return { license: value, fromFile: false };
+  const prefix = `license "${value}" is not an SPDX expression`;
+  const text = typeof licenseText === 'function' ? licenseText() : licenseText;
+  if (text === undefined) {
+    return { problem: `${prefix} and the package ships no LICENSE file to check` };
+  }
+  const identified = identifyLicenseText(text);
+  if (identified === undefined) {
+    return { problem: `${prefix} and its LICENSE file does not clearly match one known license` };
+  }
+  return { license: identified, fromFile: true };
 }
 
 export interface Violation {
