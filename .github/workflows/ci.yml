@@ -178,14 +178,21 @@ jobs:
             exit 1
           fi
 
+      # This ceiling has been raised once already, from the runner's default
+      # of about 2 GB to 6 GB, in #338. If you are here to raise it again,
+      # the growth is the problem rather than the number.
+      #
       # The type aware lint builds one TypeScript program per workspace
       # member and holds them all at once, so its peak memory grows with the
-      # workspace. Measured peak resident size on one machine: 2.00 GiB at
-      # e3f6990, 2.37 GiB with the embed package added. Node's default heap
-      # on this runner is about 2 GiB, which the lint had already reached, so
-      # the next member of any kind would have run it out of memory. Raising
-      # the ceiling is the stopgap; building the programs lazily is the fix,
-      # and that is a change to the shared ESLint configuration.
+      # workspace. Measured peak resident size on one machine, same command:
+      # 2.00 GiB at e3f6990, 2.37 GiB with the embed package added, which is
+      # 21 percent for one member. The default heap was already reached at
+      # 2.00 GiB, so the next member of any kind would have run the lint out
+      # of memory whichever it turned out to be.
+      #
+      # Raising the ceiling is a stopgap. The fix is to build the programs
+      # lazily rather than eagerly, which changes the shared ESLint
+      # configuration and belongs in its own change.
       - name: Lint
         env:
           NODE_OPTIONS: --max-old-space-size=6144
