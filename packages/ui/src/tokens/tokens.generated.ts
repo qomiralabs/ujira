@@ -237,6 +237,13 @@ export const typeScale = {
     tracking: '-0.01em',
     weight: 500,
   },
+  'amount-l': {
+    family: 'mono',
+    size: 28,
+    lineHeight: 1.15,
+    tracking: '-0.01em',
+    weight: 500,
+  },
   data: {
     family: 'mono',
     size: 14,

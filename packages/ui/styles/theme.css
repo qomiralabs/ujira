@@ -112,6 +112,10 @@
   --text-amount-xl--line-height: 1.1;
   --text-amount-xl--letter-spacing: -0.01em;
   --text-amount-xl--font-weight: 500;
+  --text-amount-l: 1.75rem;
+  --text-amount-l--line-height: 1.15;
+  --text-amount-l--letter-spacing: -0.01em;
+  --text-amount-l--font-weight: 500;
   --text-data: 0.875rem;
   --text-data--line-height: 1.4;
   --text-data--letter-spacing: 0em;

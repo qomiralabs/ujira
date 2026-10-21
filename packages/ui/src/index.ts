@@ -2,4 +2,6 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 export * from './icons/index.js';
+export { cn } from './lib/cn.js';
+export * from './primitives/index.js';
 export * from './tokens/index.js';
