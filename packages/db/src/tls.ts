@@ -12,6 +12,17 @@
 // supabase-root-2021-ca.crt is the source of truth, and tls.test.ts fails if
 // the two ever differ or if the embedded bytes stop being that CA.
 //
+// Where it came from, because a fingerprint proves identity without saying
+// where identity came from:
+//
+//   https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt
+//
+// Downloaded and compared byte for byte against the vendored file on
+// 2026-10-21: 1367 bytes, identical. Rotating the pin means fetching that
+// URL again, checking the fingerprint below against what Supabase
+// publishes, and updating both the file and this module, which tls.test.ts
+// requires to agree.
+//
 // A URL may not carry an ssl parameter, and config.ts refuses one: pg lets
 // sslmode replace or disable this, which would quietly undo the pin.
 

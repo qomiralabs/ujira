@@ -19,6 +19,27 @@
 
 import { SessionStateError } from './errors.js';
 
+// Whether the literal starting at the next quote takes backslash escapes.
+// Only an E immediately before the quote, as a token of its own, does that:
+// E'a\\'b' continues past the escaped quote, while 'a\\' ends at the second
+// quote under standard_conforming_strings.
+//
+// The character class is not optional, and that matters. With it optional,
+// any identifier ending in the letter e satisfied the rule, and Postgres
+// accepts a type name immediately followed by a literal, so `select
+// name'a\\'; set ujira.principal_id = 'attacker'` was read as an escape
+// string, the scan ran past the literal's real end and swallowed the
+// injected statement. Code review proved that live.
+//
+// blank() and setConfigArguments both decide this same question, so they
+// use this one expression. They are read together: a rule written twice is
+// a rule that diverges.
+const ESCAPE_STRING_PREFIX = /(?:^|[^a-z0-9_$])[eE]$/i;
+
+function takesBackslashEscapes(before: string): boolean {
+  return ESCAPE_STRING_PREFIX.test(before.trimEnd());
+}
+
 // Statement forms that change state beyond the current transaction. SET
 // LOCAL is included: it is transaction local and so harmless, but context
 // here travels through set_config, and a second spelling would be a second
@@ -92,6 +113,12 @@ function blank(sql: string, { literals }: Replace): string {
     // identifier is what the patterns below need to read: `set
     // "ujira.principal_id" = ...` is a session level SET of a tenant key.
     // The quotes are dropped and the name is kept.
+    //
+    // The trade, the same one the dollar quoted bodies carry: a quoted
+    // identifier is now read as code, so selecting a column whose name
+    // happens to contain a banned phrase is refused although it is valid
+    // and leaks nothing. Rename the column, or quote the whole statement
+    // out of this layer. Blanking identifiers instead was the bug.
     if (char === '"') {
       at += 1;
       while (at < sql.length) {
@@ -111,12 +138,9 @@ function blank(sql: string, { literals }: Replace): string {
       continue;
     }
     if (literals && char === "'") {
-      // Backslashes escape only in an E string. With
-      // standard_conforming_strings on, which is the default, a plain
-      // literal ends at its closing quote even if a backslash precedes it,
-      // so treating one as an escape would run the scan past the end of the
-      // statement and miss whatever follows.
-      const escapes = /[eE]$/.test(out.trimEnd()) && /[^a-z0-9_$]?[eE]$/i.test(out);
+      // See takesBackslashEscapes above: only a standalone E prefix makes
+      // backslashes escape.
+      const escapes = takesBackslashEscapes(out);
       at += 1;
       while (at < sql.length) {
         if (sql[at] === "'") {
@@ -188,9 +212,8 @@ export function setConfigArguments(sql: string): string[][] {
     while (at < sql.length && depth > 0) {
       const char = sql[at] ?? '';
       if (char === "'" || char === '"') {
-        // An E immediately before the quote makes backslashes escape, which
-        // changes where the literal ends. blank() applies the same rule.
-        const escapes = char === "'" && /(?:^|[^a-z0-9_$])[eE]$/i.test(current.trimEnd());
+        // The same question as in blank(), answered by the same expression.
+        const escapes = char === "'" && takesBackslashEscapes(current);
         const quoted = readQuoted(sql, at, escapes);
         current += quoted.text;
         at = quoted.next;

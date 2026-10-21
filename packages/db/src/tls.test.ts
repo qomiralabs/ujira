@@ -30,10 +30,20 @@ describe('the pinned TLS trust', () => {
     expect(certificate.subject).toContain('Supabase Root 2021 CA');
   });
 
-  it('is a certificate authority that has not expired', () => {
+  it('is a certificate authority with runway left before it has to be rotated', () => {
+    // Runway, not validity. A check that only fires once the certificate is
+    // dead buys nothing: the day it fails, every connection is already
+    // failing. Ninety days is enough to rotate a pin through review. This
+    // stays in the per pull request suite rather than a scheduled run
+    // because the expiry is in 2031, so it costs nothing until it matters,
+    // and the zero warnings rule means a soft signal is not available.
     const certificate = new X509Certificate(SUPABASE_ROOT_2021_CA);
     expect(certificate.ca).toBe(true);
-    expect(new Date(certificate.validTo).getTime()).toBeGreaterThan(Date.now());
+    const daysLeft = (new Date(certificate.validTo).getTime() - Date.now()) / 86_400_000;
+    expect(
+      daysLeft,
+      `the pinned CA expires in ${Math.round(daysLeft).toString()} days: rotate the pin in src/tls.ts and certs/, from the source URL in that file`,
+    ).toBeGreaterThan(90);
   });
 
   it('verifies the server rather than trusting it', () => {

@@ -120,9 +120,12 @@ export default defineConfig({
           statements: 95,
         },
         // Every row of every tenant passes through the database package, so
-        // it carries a stricter bar than the rest of the repository. The
-        // generated schema types are excluded below: they are types only,
-        // with no statement to cover.
+        // it carries 90 rather than the repository's 85. That is above the
+        // default and below the 95 that core and the chain adapter carry,
+        // because those two are the money and chain primitives. Three files
+        // are left out of the measurement by the exclude list above: the
+        // generated schema types, which are types only, and the two that
+        // run in the global setup.
         'packages/db/src/**': {
           lines: 90,
           functions: 90,

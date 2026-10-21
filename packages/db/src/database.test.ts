@@ -244,9 +244,16 @@ describe('withTenant', () => {
       loadDatabaseConfig({ ...environmentFor(database.url), UJIRA_DB_TLS: 'pinned' }),
     );
     try {
+      // The matcher is the point. A bare rejection would be satisfied by
+      // anything that throws before a socket is opened, including a
+      // tightened UUID rule in the context constructor, so the one guard
+      // between a refactor and a silent return to plaintext could pass
+      // while testing nothing. This is the driver's own words when the
+      // server answers no to the TLS request, so it says a handshake was
+      // attempted and refused.
       await expect(
         pinned.withTenant('app', CONTEXT_FOR_PIN, () => Promise.resolve()),
-      ).rejects.toThrow();
+      ).rejects.toThrow('The server does not support SSL connections');
     } finally {
       await pinned.close();
     }

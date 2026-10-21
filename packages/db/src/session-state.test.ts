@@ -213,3 +213,26 @@ describe('the three forms code review proved against a live server', () => {
     expect(holdsSessionState('do $$ begin set role app; end $$')).toBe(true);
   });
 });
+
+describe('the type prefixed literal code review proved live', () => {
+  // Postgres accepts a type name immediately followed by a literal, and
+  // some type names end in the letter e. An escape rule that looked only at
+  // the character before the quote read `name'` as an E string, ran past
+  // the literal's real end and swallowed the injected statement. The
+  // tenant key was still set after the commit.
+  it.each([
+    "select name'a\\'; set ujira.principal_id = 'attacker'",
+    "select varchar'a\\'; set ujira.principal_id = 'attacker'",
+    "select bytea'a\\'; reset all",
+    "select date'a\\'; set role app",
+  ])('refuses %s', (sql) => {
+    expect(holdsSessionState(sql)).toBe(true);
+  });
+
+  it('still allows a genuine escape string, where the backslash does escape', () => {
+    expect(holdsSessionState("select E'a\\'' as escaped")).toBe(false);
+    expect(holdsSessionState("select e'a\\'' as escaped")).toBe(false);
+    // An E that is part of a longer word is not an escape string prefix.
+    expect(holdsSessionState("select table'a\\'; set role app")).toBe(true);
+  });
+});
