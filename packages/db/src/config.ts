@@ -37,6 +37,32 @@ export interface DatabaseEnvironment {
   UJIRA_DB_LOCK_TIMEOUT_MS?: string | undefined;
 }
 
+// Every variable above, as a value rather than a type, so a test can
+// compare the set with .env.example. The object is written as a map and
+// checked against the interface, which makes it exhaustive in both
+// directions: a field added to DatabaseEnvironment and not named here
+// fails typecheck for a missing property, and a name here the interface
+// does not declare fails for an unknown one. The template test closes the
+// third direction, that a variable named in both is actually read.
+const ENVIRONMENT_KEY_MAP = {
+  UJIRA_DB_TLS: true,
+  UJIRA_DB_APP_URL: true,
+  UJIRA_DB_WORKER_URL: true,
+  UJIRA_DB_READER_URL: true,
+  UJIRA_DB_MIGRATION_URL: true,
+  UJIRA_DB_APP_POOL_SIZE: true,
+  UJIRA_DB_WORKER_POOL_SIZE: true,
+  UJIRA_DB_READER_POOL_SIZE: true,
+  UJIRA_DB_MIGRATION_POOL_SIZE: true,
+  UJIRA_DB_ACQUIRE_TIMEOUT_MS: true,
+  UJIRA_DB_STATEMENT_TIMEOUT_MS: true,
+  UJIRA_DB_LOCK_TIMEOUT_MS: true,
+} satisfies Record<keyof DatabaseEnvironment, true>;
+
+export const DATABASE_ENVIRONMENT_KEYS: readonly (keyof DatabaseEnvironment)[] = Object.freeze(
+  Object.keys(ENVIRONMENT_KEY_MAP) as (keyof DatabaseEnvironment)[],
+);
+
 export interface RoleConnection {
   readonly url: string;
   readonly poolSize: number;
