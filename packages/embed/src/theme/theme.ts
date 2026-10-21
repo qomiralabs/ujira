@@ -50,6 +50,57 @@ export function typeStep(step: ThemeStep): CSSResult {
 }
 
 /**
+ * The three focus lengths, typed.
+ *
+ * Without this a value CSS cannot parse as a length, which includes the
+ * unitless zero anyone would reach for first, makes the whole declaration
+ * invalid at computed value time. The longhands then fall back to their
+ * initial values, and the initial value of outline includes a style of
+ * none, so the clamps in the rule are bypassed and the focus indicator
+ * disappears entirely rather than being held at its floor.
+ *
+ * Registering a syntax moves the rejection earlier, to declaration time,
+ * where a bad value is dropped and the previous good one stands. The same
+ * treatment would make the colours reject nonsense rather than silently
+ * blanking the rule they are spent in, which is worth doing separately.
+ */
+const LENGTHS = [
+  '--ujira-embed-focus-width',
+  '--ujira-embed-focus-offset',
+  '--ujira-embed-focus-inner-width',
+] as const;
+
+interface PropertyRegistry {
+  registerProperty?: (definition: {
+    name: string;
+    syntax: string;
+    inherits: boolean;
+    initialValue: string;
+  }) => void;
+}
+
+/**
+ * Registers the three. It has to happen through the API rather than an
+ * at-rule in our own stylesheet, because an at-rule inside a shadow root
+ * does not register: measured, the same rule in the document works and in
+ * the shadow root does nothing. Registration is global to the page, which
+ * is why every name here is prefixed.
+ *
+ * Already registered throws, which happens when a page loads the widget
+ * twice, and is nothing to do about.
+ */
+export function registerLengths(registry: PropertyRegistry = CSS): void {
+  for (const name of LENGTHS) {
+    const initialValue = themeBase[name];
+    try {
+      registry.registerProperty?.({ name, syntax: '<length>', inherits: true, initialValue });
+    } catch {
+      // Registered already, by another copy of the widget on this page.
+    }
+  }
+}
+
+/**
  * Defaults on the host element. Rules on the integrator's page beat these, so
  * setting any of the properties on the element, or on an ancestor of it,
  * changes the widget.

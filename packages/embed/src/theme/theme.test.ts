@@ -158,10 +158,19 @@ describe('theme', () => {
    * strange negative test.
    */
   it('leaves the choice control its native appearance', () => {
-    const css = widgetStyles.map((sheet) => sheet.cssText).join('\n');
-    const rule = css.slice(css.indexOf('.choice input'));
-    const body = rule.slice(0, rule.indexOf('}'));
-    expect(body).not.toMatch(/\bappearance\s*:/);
+    // The whole sheet, not the one rule: slicing to a rule passes when the
+    // selector is renamed, which is what the person this guards against
+    // would do, and misses the same declaration in a later rule or in a
+    // blanket reset. If a legitimate use ever arrives this becomes an
+    // allowlist of one, which is still better than a slice.
+    // Comments stripped first: the guard is about declarations, and prose
+    // saying the word is not one. It caught its own comment before this.
+    const css = widgetStyles
+      .map((sheet) => sheet.cssText)
+      .join('\n')
+      .replaceAll(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).toContain('.choice input');
+    expect(css).not.toMatch(/\bappearance\s*:/);
   });
 
   it('refuses a property that is not ours', () => {

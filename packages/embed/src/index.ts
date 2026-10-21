@@ -4,6 +4,7 @@
 // The script tag entry point. Loading this file defines <ujira-onboarding>;
 // nothing else is needed on the page.
 
+import { registerLengths } from './theme/theme.js';
 import { TAG_NAME, UjiraOnboarding } from './onboarding-element.js';
 
 export {
@@ -19,6 +20,9 @@ export { LOCALES, type Locale, type MessageKey } from './i18n/catalogue.js';
 
 /** Defines the element once, so two script tags on one page are harmless. */
 export function define(): void {
+  // Before the element renders: this is what keeps a value CSS cannot read
+  // as a length from taking the focus ring with it.
+  registerLengths();
   if (customElements.get(TAG_NAME) === undefined) {
     customElements.define(TAG_NAME, UjiraOnboarding);
   }
