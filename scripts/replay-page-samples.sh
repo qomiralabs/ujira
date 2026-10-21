@@ -69,8 +69,11 @@ run_assert() {
   cp "$samples"/lhr-*.json "$dir/.lighthouseci/"
   # The assert command colours its output and wraps each metric name in
   # escape codes, which would split the names the checks below look for, so
-  # the codes are stripped as the output is saved. PIPESTATUS carries the
-  # command's own exit code rather than the filter's.
+  # the codes are stripped as the output is saved. This is not cosmetic: the
+  # name checks would never match without it. They would fail rather than
+  # pass, so dropping this would be loud, but it would be loud for the wrong
+  # reason and send the next person looking at the wrong thing.
+  # PIPESTATUS carries the command's own exit code rather than the filter's.
   ( cd "$dir" && "$lhci" assert --config "$rc_file" ) 2>&1 |
     sed $'s/\033\\[[0-9;]*m//g' > "$work/$name.out"
   return "${PIPESTATUS[0]}"

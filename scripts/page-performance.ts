@@ -177,10 +177,11 @@ export function parseGateConfig(text: string, where: string): GateConfig {
 
 // Audits that describe the page rather than time it, which makes them the
 // candidates to gate on in place of the two metrics that move on their own.
-// Measured across two runs of one commit on a CI runner: dom-size was
+// Measured across three runs of one commit on a CI runner: dom-size was
 // identical every time, and total-byte-weight moved by one to three bytes
-// in about 388 kB, while the median blocking time of the same bytes moved
-// by more than three times. So they are steady rather than exact, and a
+// on every route, on totals of about 392 kB for the overview and about
+// 388 kB for the other two, while the median blocking time of the same
+// bytes moved by more than three times. So they are steady rather than exact, and a
 // bar on either needs a tolerance rather than equality. They carry no bar
 // yet, because two runs are a start and not a basis, and a bar set without
 // measured spread is the guess this arrangement exists to remove. The

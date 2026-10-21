@@ -10,6 +10,7 @@
 // isolates the two metrics under test.
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -31,6 +32,25 @@ const ROOT = join(import.meta.dirname, '..');
 const CONFIG_PATH = join(ROOT, 'apps', 'dashboard', 'lighthouserc.json');
 const RECORDED = join(import.meta.dirname, 'fixtures', 'page-performance', 'recorded-samples');
 const CONFIG_TEXT = readFileSync(CONFIG_PATH, 'utf8');
+
+// The version of Lighthouse the pinned toolchain actually installs, read
+// through the packages that depend on it rather than written down twice.
+function installedLighthouseVersion(): string {
+  const fromDashboard = createRequire(join(ROOT, 'apps', 'dashboard', 'package.json'));
+  const fromCli = createRequire(fromDashboard.resolve('@lhci/cli/package.json'));
+  const manifest: unknown = JSON.parse(
+    readFileSync(fromCli.resolve('lighthouse/package.json'), 'utf8'),
+  );
+  if (
+    typeof manifest !== 'object' ||
+    manifest === null ||
+    !('version' in manifest) ||
+    typeof manifest.version !== 'string'
+  ) {
+    throw new Error('the installed lighthouse package has no version');
+  }
+  return manifest.version;
+}
 
 const temporary: string[] = [];
 
@@ -100,6 +120,36 @@ describe('the committed page gate config', () => {
       'categories:best-practices': 0.95,
       'cumulative-layout-shift': 0.05,
     });
+  });
+});
+
+// Nothing in the replay reads the version field, which is the reason to
+// pin it: a shape change fails loudly by design, while a version move
+// would leave these files working and no longer representative, and that
+// is the drift that does not announce itself. Tying the field to the
+// installed package means a bump has to be noticed, and whoever makes it
+// has to decide whether the recorded spread still describes the runner.
+describe('the recorded samples name the version that produced them', () => {
+  const installed = installedLighthouseVersion();
+
+  it.each(['lhr-1.json', 'lhr-2.json', 'lhr-3.json'])(
+    'matches the installed Lighthouse in %s',
+    (file) => {
+      const lhr: unknown = JSON.parse(readFileSync(join(RECORDED, file), 'utf8'));
+      const version =
+        typeof lhr === 'object' && lhr !== null && 'lighthouseVersion' in lhr
+          ? lhr.lighthouseVersion
+          : undefined;
+      expect(version).toBe(installed);
+    },
+  );
+
+  it('carries a note saying which of its fields are a measurement', () => {
+    for (const file of ['lhr-1.json', 'lhr-2.json', 'lhr-3.json']) {
+      const text = readFileSync(join(RECORDED, file), 'utf8');
+      expect(text).toContain('_fixtureNote');
+      expect(text).toContain('Fixture, not a real report');
+    }
   });
 });
 
