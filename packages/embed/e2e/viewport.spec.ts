@@ -23,8 +23,19 @@ async function sidewaysScroll(page: Page): Promise<number> {
 
 test('the widget fits a 320 px screen', async ({ page }) => {
   await open(page, { width: NARROW, height: 720 });
-  await expect(page.locator(`${WIDGET} .widget`)).toHaveScreenshot('name-step-320.png');
+  // Before the screenshot, not after: on a platform with no baseline the
+  // comparison throws and anything below it never runs.
   expect(await sidewaysScroll(page)).toBe(0);
+  await expect(page.locator(`${WIDGET} .widget`)).toHaveScreenshot('name-step-320.png');
+});
+
+// The step whose heading already wraps at 320 in the narrow face, and the
+// one the switched off methods will arrive on with longer headings still.
+test('the destination step fits a 320 px screen', async ({ page }) => {
+  await open(page, { width: NARROW, height: 720 });
+  await reach(page, 'destination');
+  expect(await sidewaysScroll(page)).toBe(0);
+  await expect(page.locator(`${WIDGET} .widget`)).toHaveScreenshot('destination-step-320.png');
 });
 
 test('nothing spills sideways on any step at 320 px', async ({ page }) => {

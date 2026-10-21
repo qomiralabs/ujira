@@ -5,8 +5,9 @@
 // component. Every word comes from a language file, so a translator has one
 // place to work and nobody has to hunt through templates.
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, relative } from 'node:path';
 
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
@@ -15,25 +16,81 @@ import { en } from './en.js';
 
 const PACKAGE_ROOT = join(import.meta.dirname, '..', '..');
 
-// Every file that renders markup.
-const COMPONENTS = [
-  'src/onboarding-element.ts',
-  'src/views/footer.ts',
-  'src/views/parts.ts',
-  'src/views/step-views.ts',
-];
-
 // Attributes a screen reader or a tooltip reads out.
 // A value that is typed in rather than interpolated: the marker stands for
 // `${...}`, so `aria-label=${label}` passes and `aria-label="Close"` does not.
 const SPOKEN_ATTRIBUTE =
-  /\b(?:aria-label|aria-description|aria-placeholder|placeholder|title|alt)=["']?[^"'\s>$]/i;
+  /\b(?:aria-label|aria-description|aria-placeholder|aria-roledescription|aria-valuetext|placeholder|title|alt)=["']?[^"'\s>$]/i;
+// A button's face is its value attribute, and an option's is its label.
+const PRESSED_VALUE = /\btype=["']?(?:submit|button|reset)\b/i;
+const VALUE_ATTRIBUTE = /\bvalue=["']?[^"'\s>$]/i;
+const LABEL_ATTRIBUTE = /\blabel=["']?[^"'\s>$]/i;
+const TAG_NAME = /^\s*([a-zA-Z][\w-]*)/;
 const MARKER = '\u0000';
+
+/**
+ * Every source file that renders markup, found rather than listed. A list
+ * kept by hand goes stale the day someone adds a screen, and this rule
+ * exists to catch exactly that day, so the rule would pass on the one
+ * occasion it was built for.
+ */
+export function filesWithTemplates(root: string, base = root): string[] {
+  const found: string[] = [];
+  for (const entry of readdirSync(root, { withFileTypes: true }).sort((a, b) =>
+    a.name < b.name ? -1 : 1,
+  )) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) {
+      found.push(...filesWithTemplates(path, base));
+      continue;
+    }
+    if (!entry.name.endsWith('.ts')) continue;
+    if (entry.name.endsWith('.test.ts') || entry.name.endsWith('.generated.ts')) continue;
+    const source = readFileSync(path, 'utf8');
+    if (/\b(?:html|svg)`/.test(source)) {
+      found.push(relative(base, path).split('\\').join('/'));
+    }
+  }
+  return found;
+}
 
 export interface Literal {
   file: string;
   line: number;
   text: string;
+}
+
+/** String literals with a space in them, inside a template's expressions. */
+function spokenExpressions(file: string, source: string): Literal[] {
+  const tree = ts.createSourceFile(file, source, ts.ScriptTarget.ESNext, true);
+  const found: Literal[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isTaggedTemplateExpression(node)) {
+      const tag = node.tag.getText(tree);
+      const template = node.template;
+      if ((tag === 'html' || tag === 'svg') && !ts.isNoSubstitutionTemplateLiteral(template)) {
+        for (const span of template.templateSpans) {
+          const look = (inner: ts.Node): void => {
+            if (
+              (ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner)) &&
+              inner.text.includes(' ')
+            ) {
+              found.push({
+                file,
+                line: tree.getLineAndCharacterOfPosition(inner.getStart(tree)).line + 1,
+                text: inner.text,
+              });
+            }
+            ts.forEachChild(inner, look);
+          };
+          look(span.expression);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  return found;
 }
 
 /** The literal spans of every html`` and svg`` template in a file. */
@@ -79,7 +136,14 @@ export function literalStrings(file: string, source: string): Literal[] {
       if (inTag && character === '>') {
         inTag = false;
         // The marker becomes a space, so an interpolated value reads as absent.
-        if (SPOKEN_ATTRIBUTE.test(tag.replaceAll(MARKER, ' '))) {
+        const cleaned = tag.replaceAll(MARKER, ' ');
+        const name = TAG_NAME.exec(cleaned)?.[1]?.toLowerCase() ?? '';
+        const pressed = name === 'input' && PRESSED_VALUE.test(cleaned);
+        if (
+          SPOKEN_ATTRIBUTE.test(cleaned) ||
+          (pressed && VALUE_ATTRIBUTE.test(cleaned)) ||
+          ((name === 'option' || name === 'optgroup') && LABEL_ATTRIBUTE.test(cleaned))
+        ) {
           problems.push({ file, line, text: tag.trim() });
         }
         continue;
@@ -90,15 +154,41 @@ export function literalStrings(file: string, source: string): Literal[] {
     const words = outside.replaceAll(MARKER, '').trim();
     if (words !== '') problems.push({ file, line, text: words });
   }
+  problems.push(...spokenExpressions(file, source));
   return problems;
 }
 
+const SRC = join(PACKAGE_ROOT, 'src');
+
 describe('i18n', () => {
   it('no literal user-facing strings in components', () => {
-    const problems = COMPONENTS.flatMap((file) =>
-      literalStrings(file, readFileSync(join(PACKAGE_ROOT, file), 'utf8')),
+    const files = filesWithTemplates(SRC);
+    // Pins what the walk found, so a walk that found nothing cannot report
+    // an empty violation list with full confidence.
+    expect(files).toEqual(
+      expect.arrayContaining([
+        'onboarding-element.ts',
+        'views/footer.ts',
+        'views/parts.ts',
+        'views/step-views.ts',
+      ]),
+    );
+    const problems = files.flatMap((file) =>
+      literalStrings(file, readFileSync(join(SRC, file), 'utf8')),
     );
     expect(problems).toEqual([]);
+  });
+
+  it('finds a file that renders markup without being told about it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ujira-i18n-'));
+    try {
+      writeFileSync(join(dir, 'new-view.ts'), 'export const v = () => html`<p>${t(k)}</p>`;\n');
+      writeFileSync(join(dir, 'plain.ts'), 'export const n = 1;\n');
+      writeFileSync(join(dir, 'skipped.test.ts'), 'html`<p>Pay now</p>`;\n');
+      expect(filesWithTemplates(dir)).toEqual(['new-view.ts']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('reports text typed straight into a template', () => {
@@ -113,9 +203,31 @@ describe('i18n', () => {
     ]);
   });
 
+  it('reports copy hidden in the attributes that carry it', () => {
+    const source = [
+      'const go = () => html`<input type="submit" value="Pay now" />`;',
+      'const pick = () => html`<option label="Bank transfer" value="bank"></option>`;',
+      'const said = () => html`<div aria-roledescription="payout card">${x}</div>`;',
+      'const read = () => html`<div aria-valuetext="two of four">${x}</div>`;',
+      'const fine = () => html`<input type="text" value=${v} />`;',
+    ].join('\n');
+    expect(literalStrings('sample.ts', source).map((p) => p.line)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('reports a choice of words made inside an interpolation', () => {
+    const source = [
+      'const v = () => html`<p>${done ? "All set" : t("k")}</p>`;',
+      'const ok = () => html`<p aria-invalid=${bad ? "true" : "false"}>${t("k")}</p>`;',
+    ].join('\n');
+    expect(literalStrings('sample.ts', source)).toEqual([
+      { file: 'sample.ts', line: 1, text: 'All set' },
+    ]);
+  });
+
   it('every key in the catalogue is used', () => {
-    const sources = COMPONENTS.concat(['src/methods.ts', 'src/steps.ts'])
-      .map((file) => readFileSync(join(PACKAGE_ROOT, file), 'utf8'))
+    const sources = filesWithTemplates(SRC)
+      .concat(['methods.ts', 'steps.ts'])
+      .map((file) => readFileSync(join(SRC, file), 'utf8'))
       .join('\n');
     const unused = Object.keys(en).filter((key) => !sources.includes(`'${key}'`));
     expect(unused).toEqual([]);
