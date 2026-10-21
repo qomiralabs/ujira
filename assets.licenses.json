@@ -57,6 +57,22 @@
       "added": "2026-10-20"
     },
     {
+      "path": "packages/ui/fonts/OFL.txt",
+      "kind": "font",
+      "source": "https://github.com/google/fonts/tree/097bc1b8c04c3224087c2ae95f7a923859b778cf/ofl/notosansmono",
+      "license": "OFL-1.1",
+      "copyright": "Noto Sans Mono: Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic)",
+      "added": "2026-10-20"
+    },
+    {
+      "path": "packages/ui/fonts/noto-sans-mono-currency-signs.woff2",
+      "kind": "font",
+      "source": "https://github.com/google/fonts/tree/097bc1b8c04c3224087c2ae95f7a923859b778cf/ofl/notosansmono",
+      "license": "OFL-1.1",
+      "copyright": "Noto Sans Mono: Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic)",
+      "added": "2026-10-20"
+    },
+    {
       "path": "scripts/fixtures/embedded-metadata/clean.*",
       "kind": "image",
       "source": "https://github.com/qomiralabs/ujira",

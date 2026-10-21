@@ -9,6 +9,8 @@
  * data-theme attribute picks a mode, so a manual toggle always wins.
  */
 
+@import './fonts.css';
+
 :root {
   --ujira-teal: #0f4c5c;
   --ujira-teal-night: #0a3540;
@@ -37,8 +39,8 @@
   --ujira-font-display: var(--ujira-font-nunito, 'Nunito'), ui-rounded, system-ui, sans-serif;
   --ujira-font-sans: var(--ujira-font-inter, 'Inter'), ui-sans-serif, system-ui, sans-serif;
   --ujira-font-mono:
-    var(--ujira-font-jetbrains-mono, 'JetBrains Mono'), ui-monospace, SFMono-Regular, Menlo,
-    monospace;
+    'Noto Sans Mono', var(--ujira-font-jetbrains-mono, 'JetBrains Mono'), ui-monospace,
+    SFMono-Regular, Menlo, monospace;
   --ujira-radius-control: 6px;
   --ujira-radius-card: 10px;
   --ujira-radius-overlay: 14px;

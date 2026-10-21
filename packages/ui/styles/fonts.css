@@ -1,0 +1,20 @@
+/* Copyright (c) 2026 Qomira Labs. All rights reserved. */
+/* Proprietary and confidential. Unauthorized copying is prohibited. */
+
+/*
+ * Generated from the font tokens in tokens/system.json.
+ * Do not edit by hand. Run `pnpm --filter @ujira/ui tokens` to regenerate.
+ *
+ * The brand mono face has no naira, cedi, peso or rupee sign. This second
+ * mono face carries those four code points only, and sits after the brand
+ * face in the mono stack, so amounts keep one character width.
+ */
+
+@font-face {
+  font-family: 'Noto Sans Mono';
+  src: url('../fonts/noto-sans-mono-currency-signs.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+20A6, U+20B1, U+20B5, U+20B9;
+}
