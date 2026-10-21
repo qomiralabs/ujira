@@ -1,0 +1,39 @@
+{
+  "_fixtureNote": "Fixture, not a real report. The two values that are a measurement are categories.performance.score and audits.total-blocking-time.numericValue: they are this sample's share of the three runs recorded for /payouts in one CI job, 0.79, 0.75 and 0.91 with 512.5, 651.2 and 136.5 ms, taken from bytes proved identical to the branch they were compared against. Everything else here, including the accessibility and best practices scores of 1, the layout shift of 0 and the fetch time, is the least a report needs for the other assertions to be evaluated at all, set to passing values so a replay isolates the two metrics under test. Do not read any of it as a measurement, and do not copy this file into a test that needs real page data. See the folder README beside it.",
+  "lighthouseVersion": "12.6.1",
+  "requestedUrl": "http://localhost:3300/payouts",
+  "finalUrl": "http://localhost:3300/payouts",
+  "finalDisplayedUrl": "http://localhost:3300/payouts",
+  "fetchTime": "2026-10-20T22:11:00.000Z",
+  "categories": {
+    "performance": {
+      "id": "performance",
+      "title": "Performance",
+      "score": 0.79
+    },
+    "accessibility": {
+      "id": "accessibility",
+      "title": "Accessibility",
+      "score": 1
+    },
+    "best-practices": {
+      "id": "best-practices",
+      "title": "Best Practices",
+      "score": 1
+    }
+  },
+  "audits": {
+    "total-blocking-time": {
+      "id": "total-blocking-time",
+      "scoreDisplayMode": "numeric",
+      "numericValue": 512.5,
+      "numericUnit": "millisecond"
+    },
+    "cumulative-layout-shift": {
+      "id": "cumulative-layout-shift",
+      "scoreDisplayMode": "numeric",
+      "numericValue": 0,
+      "numericUnit": "unitless"
+    }
+  }
+}

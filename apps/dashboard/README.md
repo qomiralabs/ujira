@@ -15,16 +15,16 @@ The root gate builds and checks it with everything else: `pnpm typecheck`, `pnpm
 
 ## Layout
 
-| Path                   | What it is                                                                      |
-| ---------------------- | ------------------------------------------------------------------------------- |
-| `src/app/`             | Routes: Overview at `/`, one folder per section, loading, error and not found   |
-| `src/shell/`           | The frame: rail, drawer, project switcher, top bar, command palette, theme      |
-| `src/shell/nav.ts`     | The ten sections, their icons and one line each on what they are for            |
-| `src/patterns/`        | Page header, empty state, error state, skeletons and button styles              |
-| `public/brand/`        | The reverse colourway lockup and mark from the brand kit, provenance stripped   |
-| `e2e/`                 | Playwright flows, axe checks and visual snapshots, with the Linux baselines     |
-| `scripts/e2e-linux.sh` | Runs Playwright in the CI image, or re-renders the baselines with `--update`    |
-| `lighthouserc.json`    | Lighthouse CI: performance 0.9, accessibility and best practices 0.95, CLS, TBT |
+| Path                   | What it is                                                                                                            |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `src/app/`             | Routes: Overview at `/`, one folder per section, loading, error and not found                                         |
+| `src/shell/`           | The frame: rail, drawer, project switcher, top bar, command palette, theme                                            |
+| `src/shell/nav.ts`     | The ten sections, their icons and one line each on what they are for                                                  |
+| `src/patterns/`        | Page header, empty state, error state, skeletons and button styles                                                    |
+| `public/brand/`        | The reverse colourway lockup and mark from the brand kit, provenance stripped                                         |
+| `e2e/`                 | Playwright flows, axe checks and visual snapshots, with the Linux baselines                                           |
+| `scripts/e2e-linux.sh` | Runs Playwright in the CI image, or re-renders the baselines with `--update`                                          |
+| `lighthouserc.json`    | Lighthouse CI: accessibility and best practices gate at 0.95, CLS at 0.05; performance and blocking time are reported |
 
 ## Shell
 
@@ -44,6 +44,8 @@ pnpm build
 pnpm --filter @ujira/dashboard exec playwright test   # flows, axe in light and dark, snapshots
 pnpm --filter @ujira/dashboard exec lhci autorun      # needs Chrome or CHROME_PATH
 pnpm budget:check                                      # 250 kB gzipped per route
+pnpm page:report                                       # every sample, median and spread
+scripts/replay-page-samples.sh                         # the self test for the arrangement
 ```
 
 Visual baselines are rendered on Linux x64, the platform CI uses, so they fail on macOS and Windows. Run the suite, or re-render the baselines after an intended change, in the CI image with Docker:
@@ -54,6 +56,40 @@ apps/dashboard/scripts/e2e-linux.sh --update   # writes e2e/__screenshots__
 ```
 
 Look at every changed image before committing it.
+
+## Page measurement
+
+Lighthouse CI collects three runs of three routes and judges the median of each metric. Two of its five assertions are warnings rather than errors:
+
+| Metric                      | Bar    | What it does    |
+| --------------------------- | ------ | --------------- |
+| `categories:accessibility`  | 0.95   | fails the build |
+| `categories:best-practices` | 0.95   | fails the build |
+| `cumulative-layout-shift`   | 0.05   | fails the build |
+| `categories:performance`    | 0.9    | reported only   |
+| `total-blocking-time`       | 200 ms | reported only   |
+
+The performance category is a composite score, and only five of its audits carry any weight in it. Two of those five are asserted in their own right and are named in the diff that demotes the category: blocking time, which is also reported now, and layout shift, which still fails the build. The remaining three are named nowhere a diff would show, and reporting the category rather than failing on it takes their only guard away.
+
+### What the demotion stops guarding
+
+- `largest-contentful-paint`
+- `first-contentful-paint`
+- `speed-index`
+
+Those three carried weight in the category score and are asserted nowhere else, so nothing fails the build on them now. The report prints them beside the demotion, at the moment they are relevant, rather than leaving a reader to find this section.
+
+Time to interactive and interaction to next paint are not in that list. The installed Lighthouse gives both weight zero, so the category score never reflected either and this bar never held them, which is also why a count of the category's audits is the wrong way to work out what was being guarded.
+
+The list above is checked against the installed package's own weights by a test, and against this section as a set rather than by containment. A list written down in a document and in code can be wrong in both places and still agree, and a check that merely looks for each name somewhere in the file is satisfied by ordinary prose that happens to use the words.
+
+Those last two are reported because the instrument is noisier than its own margin. Three runs of one route in one job, from bytes proved identical to the branch it was compared against, scored 0.79, 0.75 and 0.91 with 512.5, 651.2 and 136.5 ms of blocking time. The spread of 0.16 is wider than the 0.11 between the failing median and the bar, so a failure said nothing about whether the page had regressed, while teaching everyone to re-run the job until it passed. Those three runs are kept in `scripts/fixtures/page-performance/recorded-samples`, and `scripts/replay-page-samples.sh` replays them through the real assert command in both directions: the committed config must not fail them, and the same samples with both bars set to error must fail, so the first result means something. CI runs it before the measurement.
+
+The gate on page weight is the route bundle budget below, which counts bytes and is deterministic. That is a proxy: a change that slows a route without growing it is reported and not failed. What is still failed is everything that does not depend on a runner's mood, which is the accessibility, best practices and layout stability of every route.
+
+The report also prints `total-byte-weight` and `dom-size` with no bar. Those are the candidates to gate on in place of the two reported metrics: across three runs of one commit, `dom-size` was identical on every route and `total-byte-weight` moved by one to three bytes on each of them, against totals of about 392 kB for the overview and about 388 kB for the other two, while the median blocking time of the same bytes moved by more than three times. They stay unbarred until there is enough spread data to set a tolerance, and printing them is how that data accumulates.
+
+`pnpm page:report` prints every sample of every asserted metric with its median, its spread and its bar, so the next investigation starts from data rather than from a pass or a fail. It also fails when the measurement is incomplete: a route that produced no report, fewer runs than the config asks for, a metric that stopped being collected, or a report file named something the assert command silently ignores. That last group matters more than it looks: `lhci assert` exits 0 against an empty report folder, so the page measurement could pass having measured nothing at all.
 
 ## Route bundle budget
 

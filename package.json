@@ -20,6 +20,7 @@
     "lint": "node scripts/check-workspace-scripts.ts && eslint --config eslint.config.js --max-warnings 0 .",
     "metadata:check": "node scripts/check-embedded-metadata.ts",
     "metadata:strip": "node scripts/strip-embedded-metadata.ts",
+    "page:report": "node scripts/check-page-performance.ts apps/dashboard/lighthouserc.json apps/dashboard/.lighthouseci",
     "test": "vitest run --coverage --configLoader native",
     "typecheck": "node scripts/check-workspace-scripts.ts && node scripts/gate.ts typecheck"
   },
