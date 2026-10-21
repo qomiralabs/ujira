@@ -26,6 +26,9 @@ const PRESSED_VALUE = /\btype=["']?(?:submit|button|reset)\b/i;
 const VALUE_ATTRIBUTE = /\bvalue=["']?[^"'\s>$]/i;
 const LABEL_ATTRIBUTE = /\blabel=["']?[^"'\s>$]/i;
 const TAG_NAME = /^\s*([a-zA-Z][\w-]*)/;
+/** The attribute names a screen reader reads out, for an interpolation's slot. */
+const SPOKEN_NAME =
+  /^(?:aria-label|aria-description|aria-placeholder|aria-roledescription|aria-valuetext|placeholder|title|alt)$/;
 const MARKER = '\u0000';
 
 /**
@@ -60,7 +63,44 @@ export interface Literal {
   text: string;
 }
 
-/** String literals with a space in them, inside a template's expressions. */
+/**
+ * Where each interpolation lands: in text, in an attribute, and if so which
+ * one. A space in a string is no guide at all, in either direction: a one
+ * word answer is copy, and a class holding two words is not. The position
+ * is the thing that decides it.
+ */
+function slots(text: string): { inTag: boolean; attribute: string }[] {
+  const found: { inTag: boolean; attribute: string }[] = [];
+  let inTag = false;
+  let tag = '';
+  for (const character of text) {
+    if (character === MARKER) {
+      const attribute = /([a-zA-Z-]+)=["']?$/.exec(tag)?.[1]?.toLowerCase() ?? '';
+      found.push({ inTag, attribute });
+      continue;
+    }
+    if (!inTag && character === '<') {
+      inTag = true;
+      tag = '';
+      continue;
+    }
+    if (inTag && character === '>') {
+      inTag = false;
+      continue;
+    }
+    if (inTag) tag += character;
+  }
+  return found;
+}
+
+/**
+ * Words chosen inside an interpolation, in a position where they are read.
+ * Text position and the spoken attributes count whatever their length;
+ * every other attribute is structural and exempt by not being named.
+ *
+ * Arguments to a call are skipped, because t('name.heading') passes a key
+ * to the translator rather than rendering a string.
+ */
 function spokenExpressions(file: string, source: string): Literal[] {
   const tree = ts.createSourceFile(file, source, ts.ScriptTarget.ESNext, true);
   const found: Literal[] = [];
@@ -69,11 +109,21 @@ function spokenExpressions(file: string, source: string): Literal[] {
       const tag = node.tag.getText(tree);
       const template = node.template;
       if ((tag === 'html' || tag === 'svg') && !ts.isNoSubstitutionTemplateLiteral(template)) {
-        for (const span of template.templateSpans) {
+        const joined = [
+          template.head.text,
+          ...template.templateSpans.map((span) => span.literal.text),
+        ].join(MARKER);
+        const positions = slots(joined);
+        template.templateSpans.forEach((span, index) => {
+          const slot = positions[index];
+          if (slot === undefined) return;
+          const read = !slot.inTag || SPOKEN_NAME.test(slot.attribute);
+          if (!read) return;
           const look = (inner: ts.Node): void => {
+            if (ts.isCallExpression(inner) || ts.isElementAccessExpression(inner)) return;
             if (
               (ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner)) &&
-              inner.text.includes(' ')
+              inner.text.trim() !== ''
             ) {
               found.push({
                 file,
@@ -84,7 +134,7 @@ function spokenExpressions(file: string, source: string): Literal[] {
             ts.forEachChild(inner, look);
           };
           look(span.expression);
-        }
+        });
       }
     }
     ts.forEachChild(node, visit);
@@ -214,13 +264,24 @@ describe('i18n', () => {
     expect(literalStrings('sample.ts', source).map((p) => p.line)).toEqual([1, 2, 3, 4]);
   });
 
-  it('reports a choice of words made inside an interpolation', () => {
+  it('reports a choice of words made inside an interpolation, however short', () => {
     const source = [
       'const v = () => html`<p>${done ? "All set" : t("k")}</p>`;',
+      'const one = () => html`<p>${yes ? "Yes" : "No"}</p>`;',
+      'const said = () => html`<p aria-label=${busy ? "Saving" : "Saved"}>${t("k")}</p>`;',
       'const ok = () => html`<p aria-invalid=${bad ? "true" : "false"}>${t("k")}</p>`;',
+      'const cls = () => html`<p class=${wide ? "row wide" : "row"}>${t("k")}</p>`;',
+      'const key = () => html`<p>${t("name.heading")}</p>`;',
     ].join('\n');
+    // Text and spoken attributes count whatever the word count; structural
+    // attributes do not count however many words they hold; and a key
+    // passed to the translator is not copy.
     expect(literalStrings('sample.ts', source)).toEqual([
       { file: 'sample.ts', line: 1, text: 'All set' },
+      { file: 'sample.ts', line: 2, text: 'Yes' },
+      { file: 'sample.ts', line: 2, text: 'No' },
+      { file: 'sample.ts', line: 3, text: 'Saving' },
+      { file: 'sample.ts', line: 3, text: 'Saved' },
     ]);
   });
 

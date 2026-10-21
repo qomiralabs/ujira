@@ -13,6 +13,7 @@ export const themeBase = {
   '--ujira-embed-radius-card': '10px',
   '--ujira-embed-focus-width': '2px',
   '--ujira-embed-focus-offset': '2px',
+  '--ujira-embed-focus-inner-width': '2px',
   '--ujira-embed-focus': '#F4A300',
   '--ujira-embed-focus-inner': '#0B2A33',
   '--ujira-embed-ease': 'cubic-bezier(0.16, 1, 0.3, 1)',

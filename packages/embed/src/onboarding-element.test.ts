@@ -3,6 +3,9 @@
 
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { en } from './i18n/en.js';
@@ -10,9 +13,9 @@ import { define, TAG_NAME } from './index.js';
 import {
   COMPLETE_EVENT,
   STEP_CHANGE_EVENT,
+  UjiraOnboarding,
   type CompleteDetail,
   type StepChangeDetail,
-  type UjiraOnboarding,
 } from './onboarding-element.js';
 
 const WALLET = `G${'A'.repeat(55)}`;
@@ -231,4 +234,48 @@ describe('ujira-onboarding', () => {
   it('defaults to light, the way a recipient screen should', () => {
     expect(widget.getAttribute('mode')).toBe('light');
   });
+
+  // The README is the only place an integrator learns these names, and the
+  // code exports them, so nothing but a test stops the two drifting. A
+  // renamed event is worse than an undocumented property: the property goes
+  // unused, while the event silently breaks a listener already written.
+  it('documents the events it fires, by the names it fires them under', () => {
+    const readme = readmeText();
+    const rows = [...readme.matchAll(/^\| `(ujira-[a-z-]+)`/gm)].map((m) => m[1]);
+    expect(rows.sort()).toEqual([COMPLETE_EVENT, STEP_CHANGE_EVENT].sort());
+    // The worked example is a second copy of one of those names.
+    const listened = [...readme.matchAll(/addEventListener\('([^']+)'/g)].map((m) => m[1]);
+    expect(listened).toEqual([COMPLETE_EVENT]);
+  });
+
+  it('documents the attributes it accepts, with the defaults it actually has', () => {
+    const readme = readmeText();
+    // Scoped to the section, so a row from another table cannot answer for
+    // this one.
+    const section = readme.slice(readme.indexOf('## Attributes and properties'));
+    const table = section.slice(0, section.indexOf('\n\n', section.indexOf('|')));
+    const rows = [...table.matchAll(/^\| `([a-z]+)` *\| [^|]+\| ([^|]+)\|/gm)].map(
+      (m) => [m[1] ?? '', (m[2] ?? '').trim().replaceAll('`', '')] as const,
+    );
+    const declared = Object.entries(UjiraOnboarding.properties)
+      .filter(([, options]) => (options as { state?: boolean }).state !== true)
+      .map(([name]) => name)
+      .sort();
+    expect(rows.map(([name]) => name).sort()).toEqual(declared);
+    expect(Object.fromEntries(rows)).toEqual({
+      mode: 'light',
+      locale: 'en',
+      busy: 'false',
+      error: 'empty',
+    });
+    // The documented defaults are the ones a fresh element really has.
+    expect(widget.mode).toBe('light');
+    expect(widget.locale).toBe('en');
+    expect(widget.busy).toBe(false);
+    expect(widget.error).toBe('');
+  });
 });
+
+function readmeText(): string {
+  return readFileSync(join(import.meta.dirname, '..', 'README.md'), 'utf8');
+}

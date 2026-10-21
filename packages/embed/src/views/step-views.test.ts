@@ -119,6 +119,19 @@ describe('step views', () => {
     expect(described).toEqual([en['method.wallet.line'], en['method.bank.line']]);
   });
 
+  // The theming can change how a chosen method looks, so selection must not
+  // rest on colour. It does not: the choice is a native radio, and its
+  // checked state is drawn by the browser and read by assistive technology
+  // whatever our properties say. The text coloured border is reinforcement
+  // on top of that, which is why the coupling is documented rather than
+  // given a property of its own.
+  it('marks a chosen method with the control state, not with colour alone', () => {
+    draw(methodStep(context({ methods: withOpen(['wallet', 'bank']) })));
+    const radios = [...host.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    expect(radios.map((radio) => radio.checked)).toEqual([true, false]);
+    expect(radios.map((radio) => radio.getAttribute('type'))).toEqual(['radio', 'radio']);
+  });
+
   it('tells a person when no method is open at all', () => {
     draw(methodStep(context({ methods: withOpen([]) })));
     expect(host.querySelector('.alert')?.textContent.trim()).toBe(en['method.missing']);

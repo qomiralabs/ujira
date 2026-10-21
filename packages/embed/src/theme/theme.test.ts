@@ -10,6 +10,47 @@ import { themeBase, themeModes, themeType } from './defaults.generated.js';
 import { widgetStyles } from './styles.js';
 import { declarations, hostTheme, typeStep } from './theme.js';
 
+/**
+ * The CSS declarations each property is spent in. A property used in more
+ * than one declaration has more than one effect, and its row in the README
+ * describes one of them.
+ */
+function effects(): Map<string, Set<string>> {
+  const css = widgetStyles.map((sheet) => sheet.cssText).join('\n');
+  const found = new Map<string, Set<string>>();
+  for (const chunk of css.split(/[;{}]/)) {
+    const colon = chunk.indexOf(':');
+    if (colon === -1) continue;
+    const property = (chunk.slice(0, colon).trim().split('\n').pop() ?? '').trim();
+    for (const use of chunk.slice(colon + 1).matchAll(/var\((--ujira-embed-[a-z-]+)/g)) {
+      const name = use[1] ?? '';
+      found.set(name, (found.get(name) ?? new Set()).add(property));
+    }
+  }
+  return found;
+}
+
+/**
+ * Properties known to do more than one thing, each with the reason. This is
+ * an acknowledgement list, not a ban: one of these is three declarations
+ * doing a single job, so outlawing multiple uses would be wrong and would
+ * get suppressed, which is worse than no rule.
+ *
+ * What it buys is narrower than it looks and worth having for that: it
+ * cannot check whether a description is accurate, only whether someone
+ * noticed there were two effects to describe. The sentence they then write
+ * stays prose, and stays a convention.
+ */
+const KNOWN_MULTI_EFFECT: Readonly<Record<string, string>> = {
+  // The problem message and its border: one job, two declarations.
+  '--ujira-embed-error': 'border, color',
+  // Every hair line in the card: one job, three declarations.
+  '--ujira-embed-rule': 'border, border-bottom, border-top',
+  // Headings and answers, and the three marks on a chosen payout method:
+  // the dot, the border and the inner ring.
+  '--ujira-embed-text': 'accent-color, border-color, box-shadow, color',
+};
+
 /** Every custom property the stylesheet actually reads. */
 function painted(): Set<string> {
   const css = widgetStyles.map((sheet) => sheet.cssText).join('\n');
@@ -41,6 +82,7 @@ const MODES = ['light', 'dark'] as const;
 describe('theme', () => {
   it('ships both modes with the same property names', () => {
     expect(Object.keys(themeModes.light)).toEqual(Object.keys(themeModes.dark));
+    expect(Object.keys(themeModes.light).length).toBe(10);
   });
 
   it('puts every default on the host element', () => {
@@ -60,12 +102,18 @@ describe('theme', () => {
   // the integrator's page.
   it('paints with every property the contract offers', () => {
     const uses = painted();
-    const declared = [...Object.keys(themeBase), ...Object.keys(themeModes.light)];
+    // Dark as well as light: the two carry the same keys, which the test
+    // above pins, but a property added to one and not the other would
+    // otherwise be offered, undocumented and invisible to this.
+    const declared = [
+      ...Object.keys(themeBase),
+      ...new Set([...Object.keys(themeModes.light), ...Object.keys(themeModes.dark)]),
+    ];
     // Names the offender first, then pins the count so a derivation that
     // found nothing cannot pass in silence.
     expect(declared.filter((name) => !uses.has(name))).toEqual([]);
-    expect(declared.length).toBe(19);
-    expect(uses.size).toBe(19);
+    expect(declared.length).toBe(20);
+    expect(uses.size).toBe(20);
   });
 
   // The painted test checks code against code. This checks the code against
@@ -78,12 +126,42 @@ describe('theme', () => {
     const documented = [...readme.matchAll(/^\| `(--ujira-embed-[a-z-]+)`/gm)].map((m) => m[1]);
     const declared = [...Object.keys(themeBase), ...Object.keys(themeModes.light)];
     expect([...documented].sort()).toEqual([...declared].sort());
-    expect(documented.length).toBe(19);
+    expect(documented.length).toBe(20);
   });
 
   it('offers every property the stylesheet reads', () => {
     const declared = new Set([...Object.keys(themeBase), ...Object.keys(themeModes.light)]);
     expect([...painted()].filter((name) => !declared.has(name))).toEqual([]);
+  });
+
+  it('knows which properties do more than one thing', () => {
+    const multi = [...effects()]
+      .filter(([, declarations]) => declarations.size > 1)
+      .map(([name, declarations]) => [name, [...declarations].sort().join(', ')] as const);
+    expect(Object.fromEntries(multi)).toEqual(KNOWN_MULTI_EFFECT);
+  });
+
+  /*
+   * A stand in, and a blunt one. What protects the chosen method's shape
+   * signal is that the control keeps its native appearance: the appearance
+   * property is not inherited, so a host page cannot reach it through the
+   * shadow boundary, which puts the empty circle becoming a filled one
+   * outside the theming surface entirely. That protection lasts exactly as
+   * long as nobody writes `appearance: none` on this rule to restyle the
+   * radio, and nothing would catch that, because appearance is not a custom
+   * property and so never appears in the effects derivation.
+   *
+   * The assertion that belongs here reads the computed appearance of the
+   * rendered control in a browser. It cannot be written yet, because the
+   * choices block renders only when more than one payout method is open.
+   * Replace this with that one when they open, rather than keeping a
+   * strange negative test.
+   */
+  it('leaves the choice control its native appearance', () => {
+    const css = widgetStyles.map((sheet) => sheet.cssText).join('\n');
+    const rule = css.slice(css.indexOf('.choice input'));
+    const body = rule.slice(0, rule.indexOf('}'));
+    expect(body).not.toMatch(/\bappearance\s*:/);
   });
 
   it('refuses a property that is not ours', () => {
@@ -113,6 +191,26 @@ describe('theme', () => {
 
   it('keeps body line height at 1.6 or more for stacked diacritics', () => {
     expect(Number(themeType.body.lineHeight)).toBeGreaterThanOrEqual(1.6);
+  });
+
+  // Two layers so the ring survives any ground: saffron carries it on the
+  // dark surface, the ink band carries it on the light one, and on the
+  // action's own saffron fill the band is the only one that can. The
+  // property is that one of the pair reaches 3:1 on every ground, never
+  // that both do.
+  it('keeps the focus ring visible on every ground it lands on', () => {
+    for (const mode of MODES) {
+      const tokens = themeModes[mode];
+      const ring = themeBase['--ujira-embed-focus'];
+      const band = themeBase['--ujira-embed-focus-inner'];
+      for (const ground of [tokens['--ujira-embed-surface'], tokens['--ujira-embed-accent']]) {
+        const best = Math.max(contrast(ring, ground), contrast(band, ground));
+        expect(
+          best,
+          `neither ring layer is visible on ${ground} in ${mode}`,
+        ).toBeGreaterThanOrEqual(3);
+      }
+    }
   });
 
   it('holds every colour pair the widget draws to WCAG AA', () => {

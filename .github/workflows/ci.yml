@@ -198,12 +198,14 @@ jobs:
       #   headroom, on this runner: V8 printed a total heap of about 2,057
       #   MB as the ceiling it died against, with roughly 2,018 MB live.
       #
-      #   the runner's own peak, which the step below now reads: 2.89 GiB.
-      #   That is the figure that matters, and it is 22 percent above the
-      #   2.37 GiB measured locally, so everyone reasoning from the local
-      #   number was working with about half a member more margin than
-      #   actually existed. The instrument disagreed with the belief on its
-      #   first run, which is why it exists.
+      #   the runner's own peak, which is the figure that matters and the
+      #   only one not written down here, because the step below prints it
+      #   on every run and a number in a comment goes stale against an
+      #   instrument that re-measures it. For the record, its first reading
+      #   was 3,030,596 kB at a27b10f, about 22 percent above the local
+      #   figure, so everyone reasoning from the developer machine had
+      #   roughly half a member less margin than they believed. Read the
+      #   current one from the step, not from here.
       #
       # The first says how fast it grows, the second says how little room
       # was left, the third says where we actually are. Not one of them is

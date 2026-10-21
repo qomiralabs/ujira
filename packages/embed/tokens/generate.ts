@@ -42,6 +42,12 @@ export function baseProperties(): Record<string, string> {
     '--ujira-embed-radius-card': radius.card,
     '--ujira-embed-focus-width': focus.width,
     '--ujira-embed-focus-offset': focus.offset,
+    // The band drawn in the offset gap, which is what carries the ring's
+    // contrast on a light ground. It defaults to the offset so the gap is
+    // filled, but it is its own property: an integrator who wants the ring
+    // tighter against the control should not silently delete the band by
+    // setting the gap to zero.
+    '--ujira-embed-focus-inner-width': focus.offset,
     '--ujira-embed-focus': focus.color,
     '--ujira-embed-focus-inner': focus.inner,
     '--ujira-embed-ease': motion['ease-out'],

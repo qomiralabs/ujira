@@ -41,11 +41,12 @@ export function licenceNotices(code: string): string[] {
  * obligation, because the obligation is per component rather than per file,
  * and because a single match can be satisfied by the wrong notice entirely.
  *
- * This is a set of copyright lines read out of the built file, deliberately
- * not a copy of the notice text. The notices in the bundle are upstream's
- * own bytes, preserved by the bundler, and nothing in this repository holds
- * a copy of them, so nothing here can drift from upstream. Committing the
- * text to compare against would introduce the copy that drift needs.
+ * These are keys asserting that upstream's text is present, not a copy of
+ * it: the lines below are two short identifiers, while the notice text
+ * itself exists here nowhere. The notices in the bundle are upstream's own
+ * bytes, preserved by the bundler, so there is no second copy of that text
+ * to drift from it. Committing the text to compare against would create
+ * exactly the copy that drift needs.
  */
 export const EXPECTED_NOTICES: readonly string[] = [
   'Copyright 2017 Google LLC',

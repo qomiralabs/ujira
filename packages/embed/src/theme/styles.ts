@@ -34,10 +34,21 @@ const widget = css`
     }
   }
 
+  /*
+   * Clamped where the values are spent, not where they are declared. Of all
+   * the themeable properties these are the only ones whose value space holds
+   * a value that removes an accessibility affordance rather than changing an
+   * appearance: a zero width ring is no keyboard focus indicator at all, on
+   * a flow where someone is typing the address their money goes to. Thicker
+   * is an integrator's business; absent is not. The band has a floor for the
+   * same reason, since it is what carries the ring's contrast on a light
+   * ground, and the gap is held to a sane range so a negative value cannot
+   * pull the ring inside the control.
+   */
   :focus-visible {
-    outline: var(--ujira-embed-focus-width) solid var(--ujira-embed-focus);
-    outline-offset: var(--ujira-embed-focus-offset);
-    box-shadow: 0 0 0 var(--ujira-embed-focus-offset) var(--ujira-embed-focus-inner);
+    outline: max(2px, var(--ujira-embed-focus-width)) solid var(--ujira-embed-focus);
+    outline-offset: clamp(0px, var(--ujira-embed-focus-offset), 8px);
+    box-shadow: 0 0 0 max(1px, var(--ujira-embed-focus-inner-width)) var(--ujira-embed-focus-inner);
   }
 
   .chrome {
@@ -132,11 +143,21 @@ const widget = css`
     box-shadow: inset 0 0 0 1px var(--ujira-embed-text);
   }
 
+  /*
+   * The dot takes the ink the chosen row's border and ring already use,
+   * not the accent. Saffron is the mark, the amount, the one action and the
+   * focus ring, never a status, and a selection marker is none of those. It
+   * would also put a second saffron on the method step once the list is
+   * real, on a screen whose one saffron thing is meant to be the action.
+   * The control stays native: the empty circle becoming a filled one is a
+   * shape change, so the selection survives greyscale, colour vision
+   * deficiency and a flattened palette.
+   */
   .choice input {
     width: 20px;
     height: 20px;
     margin: 2px 0 0;
-    accent-color: var(--ujira-embed-accent);
+    accent-color: var(--ujira-embed-text);
   }
 
   .choice-name {
