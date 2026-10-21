@@ -15,9 +15,10 @@ import { isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
 
 import { resolvePnpmCommand } from './pnpm-command.ts';
-import { listMembers, readWorkspaceGlobs, SCANNED_DIRS } from './workspace.ts';
+import { isNextApp, listMembers, readWorkspaceGlobs, SCANNED_DIRS } from './workspace.ts';
 
-const SKIPPED_DIRS = new Set(['node_modules', 'dist', 'coverage', '.turbo']);
+// .next is the Next.js build output; it holds its own package.json.
+const SKIPPED_DIRS = new Set(['node_modules', 'dist', 'coverage', '.turbo', '.next']);
 // Finder metadata on macOS; ignored by git and never source.
 const IGNORED_FILES = new Set(['.DS_Store']);
 const REQUIRED_SCRIPTS = ['build', 'lint', 'typecheck', 'test'];
@@ -115,15 +116,15 @@ export const LIFECYCLE_SCRIPTS: readonly string[] = [
   'prepublish',
   'pnpm:devPreinstall',
 ];
-const DEPENDENCY_FIELDS = [
-  'dependencies',
-  'devDependencies',
-  'peerDependencies',
-  'optionalDependencies',
-];
 const MEMBER_TSCONFIGS = ['tsconfig.json', 'tsconfig.build.json'];
 const BASE_TSCONFIG = '../../tsconfig.base.json';
-const NEXT_CONFIG = /^next\.config\.(?:js|mjs|cjs|ts|mts)$/;
+// A Next.js app is bundled, so it may set exactly these two module options and
+// nothing else beyond MEMBER_COMPILER_OPTIONS. Node style resolution cannot
+// find next/link and friends, which ship without an exports map.
+export const NEXT_COMPILER_OPTIONS: Readonly<Record<string, string>> = {
+  module: 'ESNext',
+  moduleResolution: 'Bundler',
+};
 
 function readJsonc(file: string): { value?: unknown; error?: string } {
   const result = ts.parseConfigFileTextToJson(file, readFileSync(file, 'utf8'));
@@ -166,18 +167,14 @@ function lifecycleProblems(scripts: Record<string, unknown>, label: string): str
     );
 }
 
-// A member is a Next.js app when it depends on next or has a next.config.
-function usesNext(manifest: Record<string, unknown>, dir: string): boolean {
-  const declared = DEPENDENCY_FIELDS.some((field) => {
-    const deps = manifest[field];
-    return isObject(deps) && Object.hasOwn(deps, 'next');
-  });
-  return declared || readdirSync(dir).some((entry) => NEXT_CONFIG.test(entry));
-}
-
-function tsconfigProblems(memberDir: string, label: string): string[] {
+function tsconfigProblems(memberDir: string, label: string, next: boolean): string[] {
   const problems: string[] = [];
-  for (const name of MEMBER_TSCONFIGS) {
+  if (next && existsSync(join(memberDir, 'tsconfig.build.json'))) {
+    problems.push(
+      `${label}: tsconfig.build.json must not exist in a Next.js app; the gate builds it with next build`,
+    );
+  }
+  for (const name of next ? ['tsconfig.json'] : MEMBER_TSCONFIGS) {
     const file = join(memberDir, name);
     const where = `${label}: ${name}`;
     if (!existsSync(file)) {
@@ -214,6 +211,15 @@ function tsconfigProblems(memberDir: string, label: string): string[] {
       continue;
     }
     for (const key of Object.keys(options)) {
+      const nextValue = next ? NEXT_COMPILER_OPTIONS[key] : undefined;
+      if (nextValue !== undefined) {
+        if (options[key] !== nextValue) {
+          problems.push(
+            `${where} compilerOptions.${key} may only be "${nextValue}" in a Next.js app, found "${show(options[key])}"`,
+          );
+        }
+        continue;
+      }
       if (!MEMBER_COMPILER_OPTIONS.includes(key)) {
         problems.push(
           `${where} must not set compilerOptions.${key}; shared options live in tsconfig.base.json`,
@@ -337,7 +343,7 @@ export function trackedFiles(root: string): string[] {
 // Output folders at a member root. Lint and format skip them and the build
 // replaces dist, so nothing may be committed there, whatever any ignore file
 // says.
-const MEMBER_OUTPUT = /^(?:packages|apps)\/[^/]+\/(?:dist|coverage|\.turbo|build|out)\//i;
+const MEMBER_OUTPUT = /^(?:packages|apps)\/[^/]+\/(?:dist|coverage|\.turbo|\.next|build|out)\//i;
 const GITIGNORE_NAME = /^\.gitignore$/i;
 
 // Every tracked file that an ignore rule also matches. Lint and format skip
@@ -467,13 +473,9 @@ export function checkWorkspace(root: string, options: CheckOptions = {}): string
         `${label}: package.json must not set "prettier"; formatter configuration lives only in the root .prettierrc.json`,
       );
     }
-    if (usesNext(pkg as Record<string, unknown>, manifestDir)) {
-      problems.push(
-        `${label}: Next.js apps are not built by the root gate yet; extend scripts/gate.ts first`,
-      );
-    }
+    const next = isNextApp(pkg as Record<string, unknown>, manifestDir);
     problems.push(...scriptsProblems(manifestDir, label));
-    problems.push(...tsconfigProblems(manifestDir, label));
+    problems.push(...tsconfigProblems(manifestDir, label, next));
   }
   for (const path of options.trackedFiles ?? []) {
     if (MEMBER_OUTPUT.test(path)) {

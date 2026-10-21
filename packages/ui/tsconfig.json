@@ -10,5 +10,14 @@
     // keeps .js so the build output resolves.
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "tokens", "vitest.config.ts"]
+  "include": [
+    "src",
+    "tokens",
+    "stories",
+    "e2e",
+    ".storybook/*.ts",
+    ".storybook/*.tsx",
+    "vitest.config.ts",
+    "playwright.config.ts"
+  ]
 }

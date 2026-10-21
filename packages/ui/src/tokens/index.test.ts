@@ -16,10 +16,36 @@ describe('token exports', () => {
     expectTypeOf<ModeToken>().toEqualTypeOf<keyof typeof ui.modes.dark>();
   });
 
-  it('exposes tokens and icons from the package entry', () => {
+  it('exposes the tokens, icons and primitives from the package entry', () => {
     expect(Object.keys(ui).sort()).toEqual([
       'BrandIcon',
+      'Button',
+      'Checkbox',
+      'FOCUS_RING',
+      'Field',
+      'Input',
+      'Label',
+      'RadioGroup',
+      'RadioGroupItem',
+      'Select',
+      'SelectContent',
+      'SelectGroup',
+      'SelectItem',
+      'SelectLabel',
+      'SelectSeparator',
+      'SelectTrigger',
+      'SelectValue',
+      'Separator',
+      'Skeleton',
+      'Switch',
+      'Textarea',
+      'Tooltip',
+      'TooltipContent',
+      'TooltipProvider',
+      'TooltipTrigger',
       'brandIconNames',
+      'buttonVariants',
+      'cn',
       'cssVar',
       'density',
       'focus',
@@ -31,6 +57,7 @@ describe('token exports', () => {
       'shadow',
       'status',
       'typeScale',
+      'useFieldControl',
       'viz',
     ]);
   });

@@ -4,6 +4,12 @@ packages:
 
 engineStrict: true
 
+# Next.js lists sharp as optional for image optimisation, which the dashboard
+# turns off. Its libvips binaries are LGPL, outside the license allowlist, so
+# it is never installed.
+ignoredOptionalDependencies:
+  - sharp
+
 # Install scripts stay off unless reviewed. These come in through the Docker
 # client used by testcontainers and work without their scripts: cpu-features
 # is an optional native speedup for ssh2, and the protobufjs script only
@@ -12,6 +18,9 @@ engineStrict: true
 # file itself with `msw init`.
 allowBuilds:
   cpu-features: false
+  # Storybook bundles with esbuild. Its script only checks that the platform
+  # binary from the matching optional package is in place.
+  esbuild: false
   msw: false
   protobufjs: false
   ssh2: false
@@ -26,6 +35,12 @@ overrides:
   bare-url: 2.5.4
   readable-stream@4: 4.7.0
   testcontainers: 12.2.0
+  # The WebAssembly builds of these native tools only matter on platforms
+  # without a native binary, which nothing here runs on. Dropping them keeps
+  # their bundled runtimes out of the lockfile.
+  '@oxc-parser/binding-wasm32-wasi': '-'
+  '@oxc-resolver/binding-wasm32-wasi': '-'
+  '@tailwindcss/oxide-wasm32-wasi': '-'
 
 # Supply chain: a version must be 14 days old (in minutes) before it can be
 # installed or locked. `pnpm install --frozen-lockfile` re-checks every

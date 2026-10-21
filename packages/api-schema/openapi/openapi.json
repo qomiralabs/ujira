@@ -547,6 +547,78 @@
         }
       }
     },
+    "/v1/stats/overview": {
+      "get": {
+        "operationId": "getOverviewStats",
+        "summary": "The overview numbers for a period, with the previous period for deltas",
+        "security": [{ "bearer": [] }],
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["day", "week", "month"] }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/OverviewStats" } }
+            }
+          },
+          "400": {
+            "description": "The query is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "403": {
+            "description": "Not allowed",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
     "/v1/approvals": {
       "get": {
         "operationId": "listApprovals",
@@ -2452,6 +2524,214 @@
           }
         },
         "required": ["items", "nextCursor"],
+        "additionalProperties": false
+      },
+      "StatsWindow": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": ["from", "to"],
+        "additionalProperties": false
+      },
+      "OverviewKpis": {
+        "type": "object",
+        "properties": {
+          "paid": {
+            "maxItems": 24,
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Money" }
+          },
+          "completedCount": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "medianSecondsToPaid": {
+            "anyOf": [
+              { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              { "type": "null" }
+            ]
+          },
+          "blockedCount": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+        },
+        "required": ["paid", "completedCount", "medianSecondsToPaid", "blockedCount"],
+        "additionalProperties": false
+      },
+      "StatsSeries": {
+        "type": "object",
+        "properties": {
+          "key": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "points": {
+            "maxItems": 400,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "amount": { "$ref": "#/components/schemas/Money" },
+                "count": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+              },
+              "required": ["amount", "count"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["key", "label", "points"],
+        "additionalProperties": false
+      },
+      "MandateRunway": {
+        "type": "object",
+        "properties": {
+          "mandateId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "instanceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "network": { "type": "string", "enum": ["stellar:pubnet", "stellar:testnet"] },
+          "balance": { "$ref": "#/components/schemas/TokenAmount" },
+          "committed": { "$ref": "#/components/schemas/TokenAmount" },
+          "averageDailySpend": { "$ref": "#/components/schemas/TokenAmount" },
+          "runwayDays": {
+            "anyOf": [
+              { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              { "type": "null" }
+            ]
+          }
+        },
+        "required": [
+          "mandateId",
+          "instanceId",
+          "network",
+          "balance",
+          "committed",
+          "averageDailySpend",
+          "runwayDays"
+        ],
+        "additionalProperties": false
+      },
+      "CorridorBreakdown": {
+        "type": "object",
+        "properties": {
+          "country": { "type": "string", "pattern": "^[A-Z]{2}$" },
+          "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "paid": {
+            "maxItems": 24,
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Money" }
+          },
+          "count": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+        },
+        "required": ["country", "label", "paid", "count"],
+        "additionalProperties": false
+      },
+      "OverviewStats": {
+        "type": "object",
+        "properties": {
+          "principalId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "period": { "type": "string", "enum": ["day", "week", "month"] },
+          "timeZone": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "current": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "to": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "kpis": { "$ref": "#/components/schemas/OverviewKpis" }
+            },
+            "required": ["from", "to", "kpis"],
+            "additionalProperties": false
+          },
+          "previous": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  "to": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  "kpis": { "$ref": "#/components/schemas/OverviewKpis" }
+                },
+                "required": ["from", "to", "kpis"],
+                "additionalProperties": false
+              },
+              { "type": "null" }
+            ]
+          },
+          "buckets": {
+            "maxItems": 400,
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/StatsWindow" }
+          },
+          "volumeByCorridor": {
+            "maxItems": 5,
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/StatsSeries" }
+          },
+          "volumeByStatus": {
+            "maxItems": 5,
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/StatsSeries" }
+          },
+          "mandates": {
+            "maxItems": 500,
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/MandateRunway" }
+          },
+          "corridors": {
+            "maxItems": 250,
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/CorridorBreakdown" }
+          },
+          "approvalsWaiting": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+        },
+        "required": [
+          "principalId",
+          "projectId",
+          "period",
+          "timeZone",
+          "current",
+          "previous",
+          "buckets",
+          "volumeByCorridor",
+          "volumeByStatus",
+          "mandates",
+          "corridors",
+          "approvalsWaiting"
+        ],
         "additionalProperties": false
       }
     },

@@ -267,8 +267,114 @@ jobs:
           if-no-files-found: ${{ job.status == 'success' && 'error' || 'ignore' }}
           retention-days: 14
 
-  # Fails on any em dash or en dash in a tracked file. The same scripts run
-  # in every UJIRA repository.
+  # The dashboard's browser checks: the route bundle budget, Playwright flows,
+  # visual snapshots and axe in light and dark, and Lighthouse CI. Its own job
+  # so the browsers it downloads never touch the verify job's read-only test
+  # step, and so it runs alongside it.
+  dashboard:
+    name: Dashboard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        run: |
+          curl -fsSLo pnpm.tgz "https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-${PNPM_VERSION}.tgz"
+          echo "${PNPM_EXE_SHA512}  pnpm.tgz" | sha512sum --check --strict
+          mkdir -p "${RUNNER_TEMP}/pnpm"
+          tar -xzf pnpm.tgz -C "${RUNNER_TEMP}/pnpm" --strip-components 1 package/pnpm
+          rm pnpm.tgz
+          echo "${RUNNER_TEMP}/pnpm" >> "${GITHUB_PATH}"
+          PATH="${RUNNER_TEMP}/pnpm:${PATH}" scripts/assert-pnpm.sh
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm build
+
+      # Fails when any route loads more than 250 kB of JavaScript, gzipped.
+      - name: Route bundle budget
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm budget:check
+
+      - name: Install Playwright Chromium
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/dashboard exec playwright install --with-deps chromium
+
+      # Flows, visual snapshots at 375, 768 and 1440 wide in light and dark,
+      # and axe with zero violations in both modes.
+      - name: Playwright
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/dashboard exec playwright test
+
+      - name: Upload Playwright report
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report
+          path: |
+            apps/dashboard/playwright-report/
+            apps/dashboard/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # Reports stay on the runner and in the artifact; nothing is uploaded to
+      # a public Lighthouse server.
+      - name: Lighthouse CI
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/dashboard exec lhci autorun
+
+      - name: Upload Lighthouse reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lighthouse
+          path: apps/dashboard/.lighthouseci/reports/
+          if-no-files-found: ${{ job.status == 'success' && 'error' || 'ignore' }}
+          retention-days: 14
+
+      # Proves the budget check can fail: a build with the fixture route, which
+      # imports every Lucide icon, must be rejected and the route named. Runs
+      # last because it replaces the build the steps above used.
+      - name: Route bundle budget fails a route over budget
+        env:
+          UJIRA_BUDGET_FIXTURE: '1'
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/dashboard exec next build
+          if pnpm budget:check > "${RUNNER_TEMP}/budget.txt"; then
+            cat "${RUNNER_TEMP}/budget.txt"
+            echo "the budget check passed a route over budget" >&2
+            exit 1
+          fi
+          cat "${RUNNER_TEMP}/budget.txt"
+          grep -E '^  /budget-fixture +[0-9.]+ kB  over budget$' "${RUNNER_TEMP}/budget.txt"
+  # Fails on any em dash or en dash in a tracked file's content or its path.
+  # The same scripts run in every UJIRA repository. The self test runs first,
+  # so the check's result is only trusted once the check is known to fail when
+  # it should, and the second step reports even when the first fails.
   dashes:
     name: dashes
     runs-on: ubuntu-24.04
@@ -286,4 +392,62 @@ jobs:
         run: scripts/test-check-dashes.sh
 
       - name: Check for dashes
+        if: ${{ !cancelled() }}
         run: scripts/check-dashes.sh
+
+  # The component catalogue: it builds, every story passes axe in light and
+  # dark, the keyboard focus ring shows, and the screenshots still match.
+  # Runs in the Playwright image so the snapshots are compared against the
+  # same fonts and renderer they were taken with.
+  catalogue:
+    name: Catalogue
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        run: |
+          curl -fsSLo pnpm.tgz "https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-${PNPM_VERSION}.tgz"
+          echo "${PNPM_EXE_SHA512}  pnpm.tgz" | sha512sum --check --strict
+          mkdir -p "${RUNNER_TEMP}/pnpm"
+          tar -xzf pnpm.tgz -C "${RUNNER_TEMP}/pnpm" --strip-components 1 package/pnpm
+          rm pnpm.tgz
+          echo "${RUNNER_TEMP}/pnpm" >> "${GITHUB_PATH}"
+          PATH="${RUNNER_TEMP}/pnpm:${PATH}" scripts/assert-pnpm.sh
+
+      - name: Install
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build the catalogue
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/ui build-storybook
+
+      # Every story in light and dark: axe with no violations, the saffron
+      # focus ring on keyboard focus, and the committed screenshots.
+      - name: Test the catalogue
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/ui test-storybook
+
+      - name: Upload the catalogue report
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: catalogue-report
+          path: |
+            packages/ui/playwright-report/
+            packages/ui/test-results/
+          if-no-files-found: ignore
+          retention-days: 14

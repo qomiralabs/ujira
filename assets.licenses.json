@@ -1,6 +1,38 @@
 {
   "assets": [
     {
+      "path": "apps/dashboard/e2e/__screenshots__/**/*.png",
+      "kind": "image",
+      "source": "https://github.com/qomiralabs/ujira",
+      "license": "LicenseRef-QomiraLabs-Proprietary",
+      "copyright": "Qomira Labs",
+      "added": "2026-10-20"
+    },
+    {
+      "path": "apps/dashboard/public/brand/*.svg",
+      "kind": "image",
+      "source": "https://github.com/qomiralabs/ujira",
+      "license": "LicenseRef-QomiraLabs-Proprietary",
+      "copyright": "Qomira Labs",
+      "added": "2026-10-20"
+    },
+    {
+      "path": "apps/dashboard/src/app/apple-icon.png",
+      "kind": "image",
+      "source": "https://github.com/qomiralabs/ujira",
+      "license": "LicenseRef-QomiraLabs-Proprietary",
+      "copyright": "Qomira Labs",
+      "added": "2026-10-20"
+    },
+    {
+      "path": "apps/dashboard/src/app/icon.png",
+      "kind": "image",
+      "source": "https://github.com/qomiralabs/ujira",
+      "license": "LicenseRef-QomiraLabs-Proprietary",
+      "copyright": "Qomira Labs",
+      "added": "2026-10-20"
+    },
+    {
       "path": "packages/ui/assets/brand/*.svg",
       "kind": "image",
       "source": "https://github.com/qomiralabs/ujira",
@@ -17,7 +49,15 @@
       "added": "2026-10-17"
     },
     {
-      "path": "packages/ui/fonts/noto-sans-mono-currency-signs.woff2",
+      "path": "packages/ui/e2e/__snapshots__/*.png",
+      "kind": "image",
+      "source": "https://github.com/qomiralabs/ujira",
+      "license": "LicenseRef-QomiraLabs-Proprietary",
+      "copyright": "Qomira Labs",
+      "added": "2026-10-20"
+    },
+    {
+      "path": "packages/ui/fonts/OFL.txt",
       "kind": "font",
       "source": "https://github.com/google/fonts/tree/097bc1b8c04c3224087c2ae95f7a923859b778cf/ofl/notosansmono",
       "license": "OFL-1.1",
@@ -25,7 +65,7 @@
       "added": "2026-10-20"
     },
     {
-      "path": "packages/ui/fonts/OFL.txt",
+      "path": "packages/ui/fonts/noto-sans-mono-currency-signs.woff2",
       "kind": "font",
       "source": "https://github.com/google/fonts/tree/097bc1b8c04c3224087c2ae95f7a923859b778cf/ofl/notosansmono",
       "license": "OFL-1.1",

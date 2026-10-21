@@ -76,6 +76,29 @@ describe('mock handlers', () => {
     expect(body.view).toBe('recipient');
   });
 
+  it('the overview handler response parses with its route schema', async () => {
+    const response = await get('/v1/stats/overview?period=week');
+    expect(response.status).toBe(200);
+    const body = (await assertResponseMatchesSchema('getOverviewStats', response)) as {
+      principalId: string;
+      projectId: string;
+      period: string;
+    };
+    expect(body.period).toBe('week');
+    expect(body.principalId).toBe(home.principalId);
+    expect(body.projectId).toBe(home.projectId);
+    // Another project gets its own numbers, never this one's.
+    const other = (await assertResponseMatchesSchema(
+      'getOverviewStats',
+      await get('/v1/stats/overview', 'sibling'),
+    )) as { projectId: string };
+    expect(other.projectId).toBe(sibling.projectId);
+    // A time zone cannot be asked for, so one offered is refused.
+    const refused = await get('/v1/stats/overview?tz=Africa/Lagos');
+    expect(refused.status).toBe(400);
+    expect((await problemOf(refused)).errors).toEqual([{ field: 'tz', code: 'unknown_field' }]);
+  });
+
   it('walks every payout of a tenant once through the keyset pages', async () => {
     const expected = fixtures.payouts
       .filter((p) => p.projectId === home.projectId)
