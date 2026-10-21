@@ -8,7 +8,7 @@
 export const themeBase = {
   '--ujira-embed-font': "var(--ujira-font-inter, 'Inter'), ui-sans-serif, system-ui, sans-serif",
   '--ujira-embed-font-mono':
-    "var(--ujira-font-jetbrains-mono, 'JetBrains Mono'), ui-monospace, SFMono-Regular, Menlo, monospace",
+    "'Noto Sans Mono', var(--ujira-font-jetbrains-mono, 'JetBrains Mono'), ui-monospace, SFMono-Regular, Menlo, monospace",
   '--ujira-embed-radius-control': '6px',
   '--ujira-embed-radius-card': '10px',
   '--ujira-embed-focus-width': '2px',

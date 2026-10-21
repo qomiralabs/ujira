@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { modes, palette, radius } from '@ujira/ui';
+import { fonts, modes, palette, radius } from '@ujira/ui';
 import { describe, expect, it } from 'vitest';
 
 import { themeBase, themeModes } from '../src/theme/defaults.generated.js';
@@ -40,6 +40,17 @@ describe('generated brand files', () => {
     expect(themeBase['--ujira-embed-radius-card']).toBe(radius.card);
     expect(modeProperties('light')).toEqual(themeModes.light);
     expect(baseProperties()).toEqual(themeBase);
+  });
+
+  it('takes both font stacks from the shared tokens, verbatim', () => {
+    expect(themeBase['--ujira-embed-font']).toBe(fonts.sans.stack);
+    // The mono stack names the second face that draws the naira, cedi, peso
+    // and rupee signs. The widget never draws an amount, so it never needs
+    // those glyphs, and it loads no font of its own: the stack falls through
+    // to whatever the host page has. It is taken as it comes rather than
+    // trimmed here, so the widget cannot drift from the shared token.
+    expect(themeBase['--ujira-embed-font-mono']).toBe(fonts.mono.stack);
+    expect(fonts.mono.stack).toContain(fonts.mono.signs.face);
   });
 
   it('name every custom property with the embed prefix', () => {
