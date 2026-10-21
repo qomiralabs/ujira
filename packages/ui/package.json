@@ -14,11 +14,14 @@
     },
     "./styles/tokens.css": "./styles/tokens.css",
     "./styles/theme.css": "./styles/theme.css",
+    "./styles/fonts.css": "./styles/fonts.css",
+    "./fonts/noto-sans-mono-currency-signs.woff2": "./fonts/noto-sans-mono-currency-signs.woff2",
     "./assets/brand-icons.svg": "./assets/brand/ujira_icon-sprite_all_currentcolor.svg"
   },
   "files": [
     "dist",
     "styles",
+    "fonts",
     "assets"
   ],
   "scripts": {

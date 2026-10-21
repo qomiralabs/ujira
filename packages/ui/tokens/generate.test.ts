@@ -17,6 +17,7 @@ import {
   parseBrandTokens,
   parseSprite,
   parseSystemTokens,
+  renderFontsCss,
   renderTokensCss,
   resolveTokens,
 } from './generate.ts';
@@ -118,6 +119,7 @@ describe('committed outputs', () => {
     expect([...OUTPUT_FILES].sort()).toEqual([
       'src/icons/brand-icons.generated.ts',
       'src/tokens/tokens.generated.ts',
+      'styles/fonts.css',
       'styles/theme.css',
       'styles/tokens.css',
     ]);
@@ -198,6 +200,88 @@ describe('design system source', () => {
     const broken = structuredClone(systemJson) as { viz: { dark: { categorical: string[] } } };
     broken.viz.dark.categorical.push('#5C8F9A');
     expect(() => parseSystemTokens(broken)).toThrow();
+  });
+});
+
+// The second mono face is self hosted in this package and limited to the
+// signs the brand mono face does not draw, so the source cannot widen its
+// range, point outside the package or name a file that is not a woff2.
+describe('the second mono face', () => {
+  interface Signs {
+    face: string;
+    file: string;
+    weight: string;
+    unicodeRange: string[];
+  }
+  function withSigns(change: (signs: Signs) => void): unknown {
+    const changed = structuredClone(systemJson) as { font: { mono: { signs: Signs } } };
+    change(changed.font.mono.signs);
+    return changed;
+  }
+
+  it('rejects a range instead of single code points', () => {
+    expect(() =>
+      parseSystemTokens(
+        withSigns((signs) => {
+          signs.unicodeRange = ['U+2000-20FF'];
+        }),
+      ),
+    ).toThrow();
+  });
+
+  it('rejects a wildcard range', () => {
+    expect(() =>
+      parseSystemTokens(
+        withSigns((signs) => {
+          signs.unicodeRange = ['U+20??'];
+        }),
+      ),
+    ).toThrow();
+  });
+
+  it('rejects an empty range, which would claim every character', () => {
+    expect(() =>
+      parseSystemTokens(
+        withSigns((signs) => {
+          signs.unicodeRange = [];
+        }),
+      ),
+    ).toThrow();
+  });
+
+  it.each([
+    ['a path out of the package', '../../../etc/passwd.woff2'],
+    ['a folder', 'subset/noto.woff2'],
+    ['a remote file', 'https://example.invalid/noto.woff2'],
+    ['another format', 'noto-sans-mono.ttf'],
+  ])('rejects %s as the font file', (_name, file) => {
+    expect(() =>
+      parseSystemTokens(
+        withSigns((signs) => {
+          signs.file = file;
+        }),
+      ),
+    ).toThrow();
+  });
+
+  it('escapes the face in the stylesheet even if validation is bypassed', () => {
+    const system = parseSystemTokens(systemJson);
+    const crafted = "Noto'); } body { display: none";
+    const css = renderFontsCss(
+      resolveTokens(brand, {
+        ...system,
+        font: {
+          ...system.font,
+          mono: { ...system.font.mono, signs: { ...system.font.mono.signs, face: crafted } },
+        },
+      }),
+    );
+    expect(css).toContain("font-family: 'Noto\\27 ); } body { display: none';");
+    expect(css).not.toContain('body { display: none;');
+  });
+
+  it('is loaded by the stylesheet the tokens import', () => {
+    expect(read('styles/tokens.css')).toContain("@import './fonts.css';");
   });
 });
 

@@ -11,8 +11,10 @@ The UJIRA design system, shared by the dashboard and the website. It holds the d
 | `tokens/system.json`                 | Design system tokens on top of the brand: density, radius, focus, shadow, motion, fonts, type scale and data visualisation colours |
 | `tokens/generate.ts`                 | Turns the three sources into the generated files below                                                                             |
 | `tokens/build.ts`                    | Writes the generated files                                                                                                         |
-| `styles/tokens.css`                  | Generated. CSS custom properties, light and dark                                                                                   |
+| `styles/tokens.css`                  | Generated. CSS custom properties, light and dark, imports `fonts.css`                                                              |
 | `styles/theme.css`                   | Generated. Tailwind CSS v4 `@theme` block, imports `tokens.css`                                                                    |
+| `styles/fonts.css`                   | Generated. The `@font-face` for the second mono face                                                                               |
+| `fonts/`                             | The self hosted subset of that face and its licence                                                                                |
 | `src/tokens/tokens.generated.ts`     | Generated. Typed constants with the same values                                                                                    |
 | `src/icons/brand-icons.generated.ts` | Generated. The nine icon names and their shapes, read from the sprite                                                              |
 | `src/icons/brand-icon.tsx`           | `<BrandIcon name="payout" />`                                                                                                      |
@@ -188,7 +190,7 @@ import { BrandIcon } from '@ujira/ui';
 
 ## Fonts
 
-Fonts are self-hosted with `next/font` in each app; nothing is loaded from a font CDN. All three faces are under the SIL Open Font License 1.1.
+Fonts are self-hosted; no page loads a font from a font CDN at runtime. The three faces below are set up with `next/font` in each app. The second mono face, further down, ships inside this package. All four are under the SIL Open Font License 1.1.
 
 | Role                                   | Face           | Weights       | CSS variable the app sets     |
 | -------------------------------------- | -------------- | ------------- | ----------------------------- |
@@ -199,6 +201,55 @@ Fonts are self-hosted with `next/font` in each app; nothing is loaded from a fon
 In each app, load the faces with `next/font/google` (it downloads at build time and serves the files from the app), pass `variable` with the names above and `subsets: ['latin', 'latin-ext']` so Hausa, Yoruba and Igbo diacritics render, and put the three `variable` class names on `<html>`. The token stacks (`--ujira-font-display`, `--ujira-font-sans`, `--ujira-font-mono`) fall back to system faces until then.
 
 Rules the components will enforce: Nunito never below 20px and never in the product interface; every amount in JetBrains Mono with `tabular-nums`; body line height 1.6 or more wherever diacritics appear; the `label` step is set in capitals.
+
+### The second mono face: the naira, cedi, peso and rupee signs
+
+JetBrains Mono draws no naira, cedi, peso or rupee sign, so an amount in one of those currencies would fall through to whatever monospaced face the device happens to have, at whatever width it happens to use. Noto Sans Mono carries those four and only those four:
+
+| Sign | Currencies      | Code point |
+| ---- | --------------- | ---------- |
+| ₦    | Nigerian naira  | U+20A6     |
+| ₱    | Philippine peso | U+20B1     |
+| ₵    | Ghanaian cedi   | U+20B5     |
+| ₹    | Indian rupee    | U+20B9     |
+
+Unlike the three faces above, this one needs nothing from the app. The subset lives in `fonts/`, `styles/fonts.css` declares it with a `unicode-range` holding exactly those four code points, and `styles/tokens.css` imports that stylesheet, so importing `@ujira/ui/styles/theme.css` (or `tokens.css`) is all it takes. Set the three variables above as described and do nothing else. In particular, do not add Noto Sans Mono to an app's `next/font` call: that fetches a whole family from a font service at build time, and the point of the subset is that nothing is fetched at all.
+
+What makes "nothing from the app" true is the order of `--ujira-font-mono`, which puts this face **first**, ahead of `--ujira-font-jetbrains-mono`:
+
+```css
+--ujira-font-mono:
+  'Noto Sans Mono', var(--ujira-font-jetbrains-mono, 'JetBrains Mono'), ui-monospace,
+  SFMono-Regular, Menlo, monospace;
+```
+
+`next/font` does not put one family in that variable. It emits the real face plus a metric compatible fallback family, declared from a local system font so that text does not shift while the real face loads, and sets the variable to both. That fallback carries no `unicode-range`, so it claims every code point, the four signs included. With the signs face second, an amount in naira, peso or cedi is drawn by the local system font at its own width, which is a visibly ragged column next to the digits, and the subset is never reached. The rupee usually slips through only because the local font happens to lack it. Measured in Chrome on macOS with Arial installed: naira 72.22px, peso 66.70px and cedi 72.22px against a 60.00px column, with the signs face second; all four at 60.00px with it first.
+
+Putting it first costs nothing, because its `unicode-range` confines it to the four signs: every other character fails to match it and falls straight through to the brand face. That holds even on a machine with a full Noto Sans Mono installed, since an `@font-face` rule shadows an installed family of the same name for the document (measured, not assumed).
+
+Both faces advance 0.6 em per character, so once the subset has loaded a column of amounts keeps one width whichever face draws the sign. Before that it does not: a range limited face is not fetched until a character in its range is needed, and `font-display: swap` paints the first amount with the next face in the stack, at that face's width. So the first naira on a cold page can sit a few pixels wide of the column for a frame. Keeping the amount visible is the right trade, and a blocking `font-display` would hide it instead; a page that always shows one of these currencies can preload `@ujira/ui/fonts/noto-sans-mono-currency-signs.woff2` itself.
+
+The subset and its `unicode-range` come from the `font.mono.signs` tokens in `tokens/system.json`; run `pnpm --filter @ujira/ui tokens` after changing them. `src/fonts/fonts.test.ts` fails if the range stops being those four code points, if the file grows past 10 KB, if the subset draws anything else, if a sign loses the mono advance, if the licence text goes missing, or if the signs face stops coming before the app variable in the stack, in the typed constants and in `tokens.css` alike. Those last two are what stop the ordering regressing: a test that only looked for the family in the stack passed while the bug was live.
+
+The stack order is a package level guarantee, but only an app can prove it end to end, because the metric fallback family only exists once a font loader has run. That check belongs with the dashboard font tests in #305, which already load a real page and watch what it fetches.
+
+#### Rebuilding the subset
+
+The committed file is Noto Sans Mono 2.014, `NotoSansMono[wdth,wght].ttf` from `google/fonts` at commit `097bc1b8c04c3224087c2ae95f7a923859b778cf` (git blob `07ecc66508b893f34f09d20951039ac9c136f3b5`), with the width axis pinned at its default and the weight axis kept, so one file covers every weight. `fonts/OFL.txt` is that directory's licence file, copied byte for byte.
+
+With fontTools 4.60.1 and Brotli 1.1.0:
+
+```sh
+python -m fontTools.varLib.instancer -o pinned.ttf "NotoSansMono[wdth,wght].ttf" wdth=100
+SOURCE_DATE_EPOCH=1774573941 python -m fontTools.subset pinned.ttf \
+  --output-file=fonts/noto-sans-mono-currency-signs.woff2 \
+  --flavor=woff2 \
+  --unicodes=U+20A6,U+20B1,U+20B5,U+20B9 \
+  --layout-features= \
+  --name-IDs=0,1,2,3,4,5,6,13,14
+```
+
+`SOURCE_DATE_EPOCH` is the upstream commit date; it fixes the timestamps the font records, so the build repeats byte for byte. The result is 2,264 bytes, SHA-256 `0f30474e0565b456f7ed08867bf2d6a2d7a025c8910654d08e1d6d006944358c`. The name records keep the copyright and the licence, so the file says what it is on its own.
 
 ## Brand material
 
