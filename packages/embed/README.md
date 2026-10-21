@@ -128,4 +128,8 @@ pnpm --filter @ujira/embed e2e           # theming, axe, 320px, 3G
 pnpm --filter @ujira/embed screenshots <folder>
 ```
 
-The browser tests run against the built file on a plain HTML page. Visual baselines are kept per platform and only the Linux ones are committed, because those are the ones CI compares against.
+The browser tests run against the built file on a plain HTML page.
+
+The visual baseline is rendered on Linux and only the Linux one is committed, because that is the platform CI compares on. CI is the only thing that renders it: the `embed` job writes the image when it is missing or changed, and uploads it in the `embed-playwright-report` artifact. To refresh it after an intended change, let CI run, download that artifact, look at the image, and commit it with what changed and why. A run on macOS or Windows writes its own baseline next to it, which git ignores.
+
+The baseline is Linux only, so it cannot show a difference that appears solely with a font the CI image does not carry. Seeing that class of defect needs rendering on the platforms people actually use, which is tracked separately and not solved here.

@@ -18,11 +18,16 @@ export default defineConfig({
   retries: 0,
   ...(inCi ? { workers: 1 } : {}),
   reporter: inCi ? [['list'], ['html', { open: 'never' }]] : [['list']],
-  // Screenshots are compared per platform: the baselines in the repository are
-  // the ones the Linux container in CI produces.
+  // Screenshots are compared per platform. Only the Linux baseline is
+  // committed, and CI is the only thing that renders it: the job that
+  // compares the image is the one that wrote it, so there is no second
+  // source of truth for the same file. A run on any other platform writes
+  // its own and is ignored.
   snapshotPathTemplate: '{testDir}/__screenshots__/{platform}/{arg}{ext}',
-  // A layout that breaks at 320px moves thousands of pixels; this leaves
-  // room only for the antialiasing noise between two machines.
+  // Deliberately not an exact match. A layout that breaks at 320px moves
+  // thousands of pixels, so one percent is far tighter than any real break
+  // while absorbing the antialiasing noise between two machines. The
+  // dashboard's suite takes exact match; that is its own call.
   expect: { toHaveScreenshot: { maxDiffPixelRatio: 0.01 } },
   use: {
     baseURL: BASE_URL,

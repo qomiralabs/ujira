@@ -842,6 +842,7 @@ Files that do not come from npm, from `assets.licenses.json`.
 | apps/dashboard/src/app/apple-icon.png | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-20 |
 | apps/dashboard/src/app/icon.png | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-20 |
 | packages/embed/assets/brand/*.svg | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-20 |
+| packages/embed/e2e/__screenshots__/**/*.png | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-21 |
 | packages/ui/assets/brand/*.svg | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-17 |
 | packages/ui/assets/brand/Tokens.json | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-17 |
 | scripts/fixtures/embedded-metadata/clean.* | 3 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-17 |

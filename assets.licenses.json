@@ -49,6 +49,14 @@
       "added": "2026-10-17"
     },
     {
+      "path": "packages/embed/e2e/__screenshots__/**/*.png",
+      "kind": "image",
+      "source": "https://github.com/qomiralabs/ujira",
+      "license": "LicenseRef-QomiraLabs-Proprietary",
+      "copyright": "Qomira Labs",
+      "added": "2026-10-21"
+    },
+    {
       "path": "packages/embed/assets/brand/*.svg",
       "kind": "image",
       "source": "https://github.com/qomiralabs/ujira",
