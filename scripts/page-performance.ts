@@ -191,6 +191,19 @@ export const OBSERVED_AUDITS: readonly { readonly audit: string; readonly unit: 
   { audit: 'dom-size', unit: 'elements' },
 ];
 
+// The performance category is a composite score, and these four audits are
+// scored only inside it: nothing in the config asserts any of them on its
+// own. So the one line that demotes the category takes the only guard off
+// all four, which a diff of that line does not show. Named here and printed
+// beside the demotion, because an entry that says performance is answerable
+// for more than performance.
+export const PERFORMANCE_CATEGORY_AUDITS: readonly string[] = [
+  'largest-contentful-paint',
+  'first-contentful-paint',
+  'speed-index',
+  'interactive',
+];
+
 export interface LoadedSample {
   readonly file: string;
   readonly url: string;
@@ -365,6 +378,11 @@ export function formatReport(report: Report): string {
         `    median ${round(metric.median)}, spread ${round(metric.spread)}, bar ${comparison} ${round(bar.value)} (${bar.severity})`,
         `    ${verdict}`,
       );
+      if (bar.metric === 'categories:performance' && bar.severity !== 'error') {
+        lines.push(
+          `    reported with it, and asserted nowhere else: ${PERFORMANCE_CATEGORY_AUDITS.join(', ')}`,
+        );
+      }
     }
     for (const entry of route.observed) {
       lines.push(`  ${entry.audit}`);

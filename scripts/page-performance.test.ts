@@ -24,6 +24,7 @@ import {
   PagePerformanceError,
   parseGateConfig,
   parseSample,
+  PERFORMANCE_CATEGORY_AUDITS,
   summarise,
   type Bar,
 } from './page-performance.ts';
@@ -204,6 +205,39 @@ describe('replaying the recorded samples', () => {
     expect(text).toContain('cumulative-layout-shift');
     expect(text).toContain('bar <= 0.05 (error)');
     expect(text).toContain('bar >= 0.95 (error)');
+  });
+});
+
+describe('the four metrics that only the performance category held', () => {
+  // Demoting one line took the only guard off four audits that are scored
+  // inside that category and asserted nowhere else. The report says so, so
+  // the next reader does not assume they are still held.
+  it('names them beside the demotion', () => {
+    const text = formatReport(
+      buildReport(CONFIG_TEXT, 'lighthouserc.json', RECORDED, { allowMissingRoutes: true }),
+    );
+    expect(text).toContain(
+      'reported with it, and asserted nowhere else: largest-contentful-paint, first-contentful-paint, speed-index, interactive',
+    );
+  });
+
+  it('says nothing of the sort while that category still fails the build', () => {
+    const armed = CONFIG_TEXT.replace(
+      '"categories:performance": ["warn"',
+      '"categories:performance": ["error"',
+    );
+    const text = formatReport(
+      buildReport(armed, 'lighthouserc.json', RECORDED, { allowMissingRoutes: true }),
+    );
+    expect(text).toContain('fails the build');
+    expect(text).not.toContain('asserted nowhere else');
+  });
+
+  it('is the list the dashboard README names, so the two cannot drift apart', () => {
+    const readme = readFileSync(join(ROOT, 'apps', 'dashboard', 'README.md'), 'utf8');
+    for (const audit of PERFORMANCE_CATEGORY_AUDITS) {
+      expect(readme, `the README should name ${audit}`).toContain(audit);
+    }
   });
 });
 
