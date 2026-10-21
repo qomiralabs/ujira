@@ -3,6 +3,9 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { themeBase, themeModes, themeType } from './defaults.generated.js';
 import { widgetStyles } from './styles.js';
 import { declarations, hostTheme, typeStep } from './theme.js';
@@ -63,6 +66,19 @@ describe('theme', () => {
     expect(declared.filter((name) => !uses.has(name))).toEqual([]);
     expect(declared.length).toBe(19);
     expect(uses.size).toBe(19);
+  });
+
+  // The painted test checks code against code. This checks the code against
+  // what an integrator is told, which is the other half of the same promise:
+  // a property they can set and cannot find, or find and cannot set, is the
+  // documentation misleading them. It was added because the property that
+  // introduced the painted rule was itself left undocumented.
+  it('documents every property it offers, and offers every one it documents', () => {
+    const readme = readFileSync(join(import.meta.dirname, '..', '..', 'README.md'), 'utf8');
+    const documented = [...readme.matchAll(/^\| `(--ujira-embed-[a-z-]+)`/gm)].map((m) => m[1]);
+    const declared = [...Object.keys(themeBase), ...Object.keys(themeModes.light)];
+    expect([...documented].sort()).toEqual([...declared].sort());
+    expect(documented.length).toBe(19);
   });
 
   it('offers every property the stylesheet reads', () => {

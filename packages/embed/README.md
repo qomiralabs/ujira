@@ -55,17 +55,23 @@ The integrator owns the look. Every colour, radius and font is a custom property
 | `--ujira-embed-text`           | Headings and answers                                                                                                    |
 | `--ujira-embed-text-secondary` | Hints, labels and the footer line                                                                                       |
 | `--ujira-embed-accent`         | The fill of the one action on each step                                                                                 |
+| `--ujira-embed-accent-hover`   | The fill of that action under the pointer. A brand value, never mixed from your text colour                             |
 | `--ujira-embed-link`           | Text links, back and change. The body text colour, not the accent: saffron marks the one thing to do, and these go back |
 | `--ujira-embed-on-accent`      | The label on the action                                                                                                 |
 | `--ujira-embed-error`          | The problem message and its border                                                                                      |
-| `--ujira-embed-focus`          | The focus ring, with `--ujira-embed-focus-inner` behind it                                                              |
+| `--ujira-embed-focus`          | The focus ring                                                                                                          |
+| `--ujira-embed-focus-inner`    | The ring drawn behind it, which carries the contrast on a light ground                                                  |
+| `--ujira-embed-focus-width`    | How thick that ring is                                                                                                  |
+| `--ujira-embed-focus-offset`   | How far it sits from the control                                                                                        |
 | `--ujira-embed-radius-card`    | The card                                                                                                                |
 | `--ujira-embed-radius-control` | Inputs, choices and the action                                                                                          |
 | `--ujira-embed-font`           | Everything except codes                                                                                                 |
 | `--ujira-embed-font-mono`      | Codes, addresses and small capital labels                                                                               |
 | `--ujira-embed-ease`           | The one easing curve                                                                                                    |
 
-Every property above is painted by something, and a test fails if one stops being: a property you can set that changes nothing is a promise the widget cannot keep. `--ujira-embed-bg` was removed for that reason, since the ground behind the card belongs to your page and the widget never touches it.
+Every property above is painted by something, and a test fails if one stops being: a property you can set that changes nothing is a promise the widget cannot keep. One was removed for that reason, the ground behind the card, since that ground belongs to your page and the widget never touches it.
+
+That table is checked against the code too, both ways, so a property cannot be added without being documented or documented without existing. The undocumented property that found worth adding this check was one added in the same change that introduced the rule.
 
 Defaults are the UJIRA light tokens. `mode="dark"` switches to the dark set, and `mode="system"` follows the reader's setting. Set the properties yourself and the mode stops mattering.
 
