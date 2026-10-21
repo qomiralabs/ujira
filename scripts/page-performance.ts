@@ -191,17 +191,25 @@ export const OBSERVED_AUDITS: readonly { readonly audit: string; readonly unit: 
   { audit: 'dom-size', unit: 'elements' },
 ];
 
-// The performance category is a composite score, and these four audits are
-// scored only inside it: nothing in the config asserts any of them on its
-// own. So the one line that demotes the category takes the only guard off
-// all four, which a diff of that line does not show. Named here and printed
-// beside the demotion, because an entry that says performance is answerable
-// for more than performance.
+// The audits that lose their only guard when the performance category is
+// reported rather than failed. The category is a composite: five of its
+// audits carry weight in the score and the rest carry zero, so only the
+// weighted ones were ever being held by that bar. Two of the five are
+// asserted in their own right, blocking time and layout shift, and both are
+// named in the diff that demotes the category. These three are not, which
+// is why they are named here and in the job output.
+//
+// Time to interactive is deliberately absent: the installed Lighthouse
+// gives it weight zero in the hidden group, so the category score never
+// reflected it and this bar never held it. Interaction to next paint is
+// weight zero for the same reason. The list is derived from the installed
+// package's own weights in the test beside this file rather than trusted
+// here, because a list restated in code and in a document can be wrong in
+// both places at once and the pair will still agree.
 export const PERFORMANCE_CATEGORY_AUDITS: readonly string[] = [
   'largest-contentful-paint',
   'first-contentful-paint',
   'speed-index',
-  'interactive',
 ];
 
 export interface LoadedSample {

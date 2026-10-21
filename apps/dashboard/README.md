@@ -69,7 +69,19 @@ Lighthouse CI collects three runs of three routes and judges the median of each 
 | `categories:performance`    | 0.9    | reported only   |
 | `total-blocking-time`       | 200 ms | reported only   |
 
-The performance category is a composite, and four audits are scored only inside it: `largest-contentful-paint`, `first-contentful-paint`, `speed-index` and `interactive`. Nothing asserts any of them on its own, so the one line that reports the category rather than failing on it takes the only guard off all four. The report prints that list beside the demotion rather than leaving it to be inferred from a diff.
+The performance category is a composite score, and only five of its audits carry any weight in it. Two of those five are asserted in their own right and are named in the diff that demotes the category: blocking time, which is also reported now, and layout shift, which still fails the build. The remaining three are named nowhere a diff would show, and reporting the category rather than failing on it takes their only guard away.
+
+### What the demotion stops guarding
+
+- `largest-contentful-paint`
+- `first-contentful-paint`
+- `speed-index`
+
+Those three carried weight in the category score and are asserted nowhere else, so nothing fails the build on them now. The report prints them beside the demotion, at the moment they are relevant, rather than leaving a reader to find this section.
+
+Time to interactive and interaction to next paint are not in that list. The installed Lighthouse gives both weight zero, so the category score never reflected either and this bar never held them, which is also why a count of the category's audits is the wrong way to work out what was being guarded.
+
+The list above is checked against the installed package's own weights by a test, and against this section as a set rather than by containment. A list written down in a document and in code can be wrong in both places and still agree, and a check that merely looks for each name somewhere in the file is satisfied by ordinary prose that happens to use the words.
 
 Those last two are reported because the instrument is noisier than its own margin. Three runs of one route in one job, from bytes proved identical to the branch it was compared against, scored 0.79, 0.75 and 0.91 with 512.5, 651.2 and 136.5 ms of blocking time. The spread of 0.16 is wider than the 0.11 between the failing median and the bar, so a failure said nothing about whether the page had regressed, while teaching everyone to re-run the job until it passed. Those three runs are kept in `scripts/fixtures/page-performance/recorded-samples`, and `scripts/replay-page-samples.sh` replays them through the real assert command in both directions: the committed config must not fail them, and the same samples with both bars set to error must fail, so the first result means something. CI runs it before the measurement.
 

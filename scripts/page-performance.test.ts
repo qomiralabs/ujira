@@ -13,6 +13,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -53,6 +54,50 @@ function installedLighthouseVersion(): string {
   return manifest.version;
 }
 
+interface AuditRef {
+  readonly id: string;
+  readonly weight: number;
+}
+
+// The performance category's audit list out of the installed package's
+// default configuration. Shape checked rather than assumed, so a change
+// upstream fails here instead of quietly yielding an empty list, which
+// would make the comparison below pass against nothing.
+function readPerformanceAuditRefs(module: unknown): readonly AuditRef[] {
+  const config: unknown =
+    typeof module === 'object' && module !== null && 'default' in module
+      ? module.default
+      : undefined;
+  const categories: unknown =
+    typeof config === 'object' && config !== null && 'categories' in config
+      ? config.categories
+      : undefined;
+  const performance: unknown =
+    typeof categories === 'object' && categories !== null && 'performance' in categories
+      ? categories.performance
+      : undefined;
+  const refs: unknown =
+    typeof performance === 'object' && performance !== null && 'auditRefs' in performance
+      ? performance.auditRefs
+      : undefined;
+  if (!Array.isArray(refs) || refs.length === 0) {
+    throw new Error('the installed lighthouse has no performance auditRefs');
+  }
+  return refs.map((ref: unknown, index) => {
+    if (
+      typeof ref !== 'object' ||
+      ref === null ||
+      !('id' in ref) ||
+      typeof ref.id !== 'string' ||
+      !('weight' in ref) ||
+      typeof ref.weight !== 'number'
+    ) {
+      throw new Error(`performance auditRef ${String(index)} has no id and weight`);
+    }
+    return { id: ref.id, weight: ref.weight };
+  });
+}
+
 const temporary: string[] = [];
 
 afterEach(() => {
@@ -83,6 +128,13 @@ const PERFORMANCE_BAR: Bar = {
   metric: 'categories:performance',
   kind: 'minScore',
   value: 0.9,
+  severity: 'warn',
+};
+
+const BLOCKING_TIME_BAR: Bar = {
+  metric: 'total-blocking-time',
+  kind: 'maxNumericValue',
+  value: 200,
   severity: 'warn',
 };
 
@@ -144,6 +196,35 @@ describe('the recorded samples name the version that produced them', () => {
       expect(version).toBe(installed);
     },
   );
+
+  // The folder README tabulates the six measured values, which makes it the
+  // document in the tree a reader trusts most: it sits beside the files.
+  // Nothing compared it with them until now, so the defect class this test
+  // file closes for the audit list was open for the document introduced
+  // alongside it. Re-record the samples and that table would go on
+  // describing the old numbers.
+  it('is the table the folder README prints, file by file', () => {
+    const readme = readFileSync(join(RECORDED, 'README.md'), 'utf8');
+    const rows = [
+      ...readme.matchAll(/^\| `(lhr-\d+\.json)` *\| ([0-9.]+) *\| ([0-9.]+) ms *\|/gm),
+    ].map((match) => ({
+      file: match[1] ?? '',
+      score: Number(match[2]),
+      blocking: Number(match[3]),
+    }));
+    const measured = ['lhr-1.json', 'lhr-2.json', 'lhr-3.json'].map((file) => {
+      const sample = parseSample(readFileSync(join(RECORDED, file), 'utf8'), file, [
+        PERFORMANCE_BAR,
+        BLOCKING_TIME_BAR,
+      ]);
+      return {
+        file,
+        score: sample.values.get(PERFORMANCE_BAR.metric),
+        blocking: sample.values.get(BLOCKING_TIME_BAR.metric),
+      };
+    });
+    expect(rows).toEqual(measured);
+  });
 
   it('carries a note saying which of its fields are a measurement', () => {
     for (const file of ['lhr-1.json', 'lhr-2.json', 'lhr-3.json']) {
@@ -208,16 +289,43 @@ describe('replaying the recorded samples', () => {
   });
 });
 
-describe('the four metrics that only the performance category held', () => {
-  // Demoting one line took the only guard off four audits that are scored
-  // inside that category and asserted nowhere else. The report says so, so
-  // the next reader does not assume they are still held.
+describe('the metrics that only the performance category held', () => {
+  // The list is derived from the installed Lighthouse rather than compared
+  // with a literal. A test that checks the code and the document agree is
+  // watching the wrong pair: both can say the same wrong thing, which is
+  // how this list was wrong by one entry in the first place. The fact lives
+  // upstream, in the weights the installed package ships.
+  it('is exactly the weighted audits the config does not assert separately', async () => {
+    const fromDashboard = createRequire(join(ROOT, 'apps', 'dashboard', 'package.json'));
+    const fromCli = createRequire(fromDashboard.resolve('@lhci/cli/package.json'));
+    const configPath = fromCli.resolve('lighthouse/core/config/default-config.js');
+    const module: unknown = await import(pathToFileURL(configPath).href);
+    const auditRefs = readPerformanceAuditRefs(module);
+    const weighted = auditRefs.filter((ref) => ref.weight > 0).map((ref) => ref.id);
+    // Blocking time and layout shift are asserted in their own right, and
+    // both are named in the diff that demotes the category.
+    const assertedSeparately = parseGateConfig(CONFIG_TEXT, 'lighthouserc.json')
+      .bars.map((bar) => bar.metric)
+      .filter((metric) => !metric.startsWith('categories:'));
+    const unguarded = weighted.filter((id) => !assertedSeparately.includes(id));
+    expect([...weighted].sort()).toEqual(
+      [
+        'cumulative-layout-shift',
+        'first-contentful-paint',
+        'largest-contentful-paint',
+        'speed-index',
+        'total-blocking-time',
+      ].sort(),
+    );
+    expect([...unguarded].sort()).toEqual([...PERFORMANCE_CATEGORY_AUDITS].sort());
+  });
+
   it('names them beside the demotion', () => {
     const text = formatReport(
       buildReport(CONFIG_TEXT, 'lighthouserc.json', RECORDED, { allowMissingRoutes: true }),
     );
     expect(text).toContain(
-      'reported with it, and asserted nowhere else: largest-contentful-paint, first-contentful-paint, speed-index, interactive',
+      'reported with it, and asserted nowhere else: largest-contentful-paint, first-contentful-paint, speed-index',
     );
   });
 
@@ -229,15 +337,41 @@ describe('the four metrics that only the performance category held', () => {
     const text = formatReport(
       buildReport(armed, 'lighthouserc.json', RECORDED, { allowMissingRoutes: true }),
     );
-    expect(text).toContain('fails the build');
+    // The positive control names the bar under test rather than the phrase
+    // about failing the build. The phrase is specific here only because no
+    // other error severity metric fails in these samples, and a later
+    // fixture with a failing layout shift would satisfy it through that
+    // metric: the absence below would then mean nothing, because the
+    // performance bar could be gone altogether.
+    expect(text).toContain(
+      [
+        '  categories:performance',
+        '    samples 0.79, 0.75, 0.91',
+        '    median 0.79, spread 0.16, bar >= 0.9 (error)',
+        '    outside the bar, and this one fails the build',
+      ].join('\n'),
+    );
     expect(text).not.toContain('asserted nowhere else');
   });
 
-  it('is the list the dashboard README names, so the two cannot drift apart', () => {
+  // Compared as a set against one section, not looked for anywhere in the
+  // file. Containment over the whole README is satisfied by a name in the
+  // metrics table above, or by prose that happens to use the word: three of
+  // these names are hyphenated and unlikely to arrive by accident, but one
+  // of them used to be an ordinary English word that the repository's own
+  // budget language already uses. Matching the backticked form pins a code
+  // span rather than a word, and comparing both directions catches a name
+  // the code does not hold as well as one it does.
+  it('is the list the dashboard README documents, in both directions', () => {
     const readme = readFileSync(join(ROOT, 'apps', 'dashboard', 'README.md'), 'utf8');
-    for (const audit of PERFORMANCE_CATEGORY_AUDITS) {
-      expect(readme, `the README should name ${audit}`).toContain(audit);
-    }
+    const heading = '### What the demotion stops guarding';
+    const start = readme.indexOf(heading);
+    expect(start, `the dashboard README should carry a ${heading} section`).toBeGreaterThan(-1);
+    const after = readme.slice(start + heading.length);
+    const next = after.indexOf('\n#');
+    const section = next === -1 ? after : after.slice(0, next);
+    const documented = [...section.matchAll(/^- `([a-z-]+)`$/gm)].map((match) => match[1]);
+    expect(documented.sort()).toEqual([...PERFORMANCE_CATEGORY_AUDITS].sort());
   });
 });
 

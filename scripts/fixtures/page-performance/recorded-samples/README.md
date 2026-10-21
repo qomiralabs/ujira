@@ -12,7 +12,7 @@ Six numbers in these files are a measurement. Everything else is scaffolding.
 | `lhr-2.json` | 0.75                           | 651.2 ms                           |
 | `lhr-3.json` | 0.91                           | 136.5 ms                           |
 
-The spread of 0.16 between the first and third is wider than the 0.11 between the failing median, 0.79, and the 0.9 bar those runs were judged against. That is the whole argument for reporting those two metrics rather than failing on them: the instrument moved further on identical bytes than the distance it was being asked to measure.
+The spread of the set is 0.16, between the second and third samples, and the first and third differ by 0.12. Either figure is wider than the 0.11 between the failing median, 0.79, and the 0.9 bar those runs were judged against. That is the whole argument for reporting those two metrics rather than failing on them: the instrument moved further on identical bytes than the distance it was being asked to measure.
 
 `lighthouseVersion` names the release the pinned toolchain installs, and the suite asserts it against the installed package. Nothing in the replay reads that field, which is the reason to pin it: a change to the report shape fails loudly on its own, while a version move would leave these files working and quietly no longer representative. A bump now has to be noticed, and whoever makes it has to decide whether the recorded spread still describes the runner. The audits carry no display strings, because a rendered string that nothing reads is one more claim to keep true.
 
