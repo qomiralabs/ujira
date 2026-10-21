@@ -394,3 +394,60 @@ jobs:
       - name: Check for dashes
         if: ${{ !cancelled() }}
         run: scripts/check-dashes.sh
+
+  # The component catalogue: it builds, every story passes axe in light and
+  # dark, the keyboard focus ring shows, and the screenshots still match.
+  # Runs in the Playwright image so the snapshots are compared against the
+  # same fonts and renderer they were taken with.
+  catalogue:
+    name: Catalogue
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        run: |
+          curl -fsSLo pnpm.tgz "https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-${PNPM_VERSION}.tgz"
+          echo "${PNPM_EXE_SHA512}  pnpm.tgz" | sha512sum --check --strict
+          mkdir -p "${RUNNER_TEMP}/pnpm"
+          tar -xzf pnpm.tgz -C "${RUNNER_TEMP}/pnpm" --strip-components 1 package/pnpm
+          rm pnpm.tgz
+          echo "${RUNNER_TEMP}/pnpm" >> "${GITHUB_PATH}"
+          PATH="${RUNNER_TEMP}/pnpm:${PATH}" scripts/assert-pnpm.sh
+
+      - name: Install
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build the catalogue
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/ui build-storybook
+
+      # Every story in light and dark: axe with no violations, the saffron
+      # focus ring on keyboard focus, and the committed screenshots.
+      - name: Test the catalogue
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/ui test-storybook
+
+      - name: Upload the catalogue report
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: catalogue-report
+          path: |
+            packages/ui/playwright-report/
+            packages/ui/test-results/
+          if-no-files-found: ignore
+          retention-days: 14

@@ -719,6 +719,10 @@ export default defineConfig(
       'packages/*/dist/**',
       'packages/*/coverage/**',
       'packages/*/.turbo/**',
+      // Storybook and Playwright output inside a member.
+      'packages/*/storybook-static/**',
+      'packages/*/playwright-report/**',
+      'packages/*/test-results/**',
       'apps/*/dist/**',
       'apps/*/coverage/**',
       'apps/*/.turbo/**',
