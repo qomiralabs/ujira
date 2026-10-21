@@ -178,7 +178,17 @@ jobs:
             exit 1
           fi
 
+      # The type aware lint builds one TypeScript program per workspace
+      # member and holds them all at once, so its peak memory grows with the
+      # workspace. Measured peak resident size on one machine: 2.00 GiB at
+      # e3f6990, 2.37 GiB with the embed package added. Node's default heap
+      # on this runner is about 2 GiB, which the lint had already reached, so
+      # the next member of any kind would have run it out of memory. Raising
+      # the ceiling is the stopgap; building the programs lazily is the fix,
+      # and that is a change to the shared ESLint configuration.
       - name: Lint
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: |
           scripts/assert-pnpm.sh
           pnpm lint
