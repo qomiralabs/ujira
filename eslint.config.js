@@ -577,6 +577,137 @@ const noChainBranching = {
   },
 };
 
+// The driver and the query builder are importable only inside packages/db.
+// Every query goes through that package, under a tenant context, inside one
+// transaction; an import elsewhere would be a query with no context on a
+// pooled connection.
+const DB_DRIVER_PATHS = [
+  {
+    name: 'pg',
+    message: 'The Postgres driver loads only in packages/db. Use the repository layer it exports.',
+  },
+  {
+    name: 'pg-pool',
+    message: 'The Postgres driver loads only in packages/db. Use the repository layer it exports.',
+  },
+  {
+    name: 'kysely',
+    message: 'The query builder loads only in packages/db. Use the repository layer it exports.',
+  },
+  {
+    name: 'node-pg-migrate',
+    message: 'Migrations run from packages/db, which owns the migration tool.',
+  },
+];
+
+const DB_DRIVER_PATTERNS = [
+  {
+    group: ['pg/*', 'kysely/*', '@ujira/db/src/*', '@ujira/db/dist/*'],
+    message: 'Import the public entry of packages/db, not its internals or its driver.',
+  },
+];
+
+// A type parser changes how every value of a Postgres type is read in the
+// process, including inside the driver's own bookkeeping, so changing one is
+// a repository wide decision rather than a local choice.
+const SET_TYPE_PARSER_PROPERTIES = [
+  {
+    object: 'types',
+    property: 'setTypeParser',
+    message:
+      'Type parsers stay as pg ships them: changing one changes every value of that type in the process.',
+  },
+  {
+    object: 'pg',
+    property: 'setTypeParser',
+    message:
+      'Type parsers stay as pg ships them: changing one changes every value of that type in the process.',
+  },
+];
+
+// The import fence's own lists, hoisted so each scope below can compose the
+// set it needs. A later flat config entry replaces a rule rather than adding
+// to it, so a scope that needs a different set must restate the whole thing.
+const RUNTIME_LOADER_PATHS = [
+  { name: 'node:module', message: CREATE_REQUIRE_MESSAGE },
+  { name: 'module', message: CREATE_REQUIRE_MESSAGE },
+  { name: 'node:vm', message: RUNTIME_LOADERS_MESSAGE },
+  { name: 'vm', message: RUNTIME_LOADERS_MESSAGE },
+  { name: 'node:worker_threads', message: RUNTIME_LOADERS_MESSAGE },
+  { name: 'worker_threads', message: RUNTIME_LOADERS_MESSAGE },
+];
+
+const MONEY_INTERNALS_PATTERNS = [
+  {
+    regex: MONEY_INTERNALS_PATH.source,
+    importNames: ['build', 'buildToken', 'snapshot', 'snapshotFiat', 'snapshotToken', 'withAmount'],
+    message:
+      'build, buildToken, snapshot, snapshotFiat, snapshotToken and withAmount are internal to the money module. Use money(), moneyAt() or tokenAmount().',
+  },
+];
+
+const FENCE_SYNTAX_SELECTORS = [
+  {
+    selector: `ImportExpression[source.value=/${MONEY_INTERNALS_SELECTOR}/i]`,
+    message: 'A dynamic import of money.ts exposes build and snapshot. Import money() statically.',
+  },
+  {
+    // A computed path cannot be checked against the fence at all.
+    selector: 'ImportExpression[source.type!="Literal"]',
+    message: 'Dynamic imports need a plain string path so the import fence can check them.',
+  },
+  {
+    // The paths option only sees static imports.
+    selector: `ImportExpression[source.value=/${RUNTIME_LOADERS_SELECTOR}/]`,
+    message: RUNTIME_LOADERS_MESSAGE,
+  },
+];
+
+const FENCE_PROPERTY_RESTRICTIONS = [
+  { object: 'process', property: 'getBuiltinModule', message: CREATE_REQUIRE_MESSAGE },
+  // Reaching process through the global object would skip the entry above.
+  { object: 'globalThis', property: 'process', message: CREATE_REQUIRE_MESSAGE },
+  { object: 'global', property: 'process', message: CREATE_REQUIRE_MESSAGE },
+];
+
+// Changing a type parser changes how every value of that Postgres type is
+// read in the process. These selectors are shared by the blocks below,
+// because a later flat config entry replaces a rule rather than adding to
+// it, so any entry that sets no-restricted-syntax must carry them too.
+const SET_TYPE_PARSER_SELECTORS = [
+  {
+    selector: "CallExpression[callee.property.name='setTypeParser']",
+    message:
+      'Type parsers stay as pg ships them: changing one changes every value of that type in the process.',
+  },
+  {
+    selector: "CallExpression[callee.name='setTypeParser']",
+    message:
+      'Type parsers stay as pg ships them: changing one changes every value of that type in the process.',
+  },
+];
+
+// Tenant context is transaction local. A session level SET of a tenant key
+// reaches the next client on a pooled backend, which the spike measured.
+const TENANT_SESSION_SELECTORS = [
+  {
+    selector: 'Literal[value=/(?:^|[^a-z_])(?:set|reset)\\s+(?:session\\s+)?ujira\\./i]',
+    message:
+      'Tenant context is transaction local: send it with set_config(key, value, true), never a session level SET.',
+  },
+  {
+    selector:
+      'TemplateElement[value.raw=/(?:^|[^a-z_])(?:set|reset)\\s+(?:session\\s+)?ujira\\./i]',
+    message:
+      'Tenant context is transaction local: send it with set_config(key, value, true), never a session level SET.',
+  },
+  {
+    selector: "Literal[value=/set_config\\s*\\([^)]*,\\s*(?:false|'f')\\s*\\)/i]",
+    message:
+      'set_config with a false third argument is session level and reaches the next client on a pooled connection.',
+  },
+];
+
 export default defineConfig(
   {
     // Output folders only where the tools write them, at the root and at each
@@ -663,62 +794,60 @@ export default defineConfig(
         {
           // A require made at runtime loads any file by path and no import
           // rule sees what it loads.
-          paths: [
-            { name: 'node:module', message: CREATE_REQUIRE_MESSAGE },
-            { name: 'module', message: CREATE_REQUIRE_MESSAGE },
-            { name: 'node:vm', message: RUNTIME_LOADERS_MESSAGE },
-            { name: 'vm', message: RUNTIME_LOADERS_MESSAGE },
-            { name: 'node:worker_threads', message: RUNTIME_LOADERS_MESSAGE },
-            { name: 'worker_threads', message: RUNTIME_LOADERS_MESSAGE },
-          ],
-          patterns: [
-            {
-              regex: MONEY_INTERNALS_PATH.source,
-              importNames: [
-                'build',
-                'buildToken',
-                'snapshot',
-                'snapshotFiat',
-                'snapshotToken',
-                'withAmount',
-              ],
-              message:
-                'build, buildToken, snapshot, snapshotFiat, snapshotToken and withAmount are internal to the money module. Use money(), moneyAt() or tokenAmount().',
-            },
-          ],
+          paths: [...RUNTIME_LOADER_PATHS, ...DB_DRIVER_PATHS],
+          patterns: [...MONEY_INTERNALS_PATTERNS, ...DB_DRIVER_PATTERNS],
         },
       ],
       'no-restricted-syntax': [
         'error',
-        {
-          selector: `ImportExpression[source.value=/${MONEY_INTERNALS_SELECTOR}/i]`,
-          message:
-            'A dynamic import of money.ts exposes build and snapshot. Import money() statically.',
-        },
-        {
-          // A computed path cannot be checked against the fence at all. This
-          // applies to every fenced file, so a future app loading messages by
-          // locale with a template path will need a static map instead.
-          selector: 'ImportExpression[source.type!="Literal"]',
-          message: 'Dynamic imports need a plain string path so the import fence can check them.',
-        },
-        {
-          // The paths option above only sees static imports.
-          selector: `ImportExpression[source.value=/${RUNTIME_LOADERS_SELECTOR}/]`,
-          message: RUNTIME_LOADERS_MESSAGE,
-        },
+        ...FENCE_SYNTAX_SELECTORS,
+        ...SET_TYPE_PARSER_SELECTORS,
+        ...TENANT_SESSION_SELECTORS,
       ],
       'no-restricted-properties': [
         'error',
-        {
-          object: 'process',
-          property: 'getBuiltinModule',
-          message: CREATE_REQUIRE_MESSAGE,
-        },
-        // Reaching process through the global object would skip the entry above.
-        { object: 'globalThis', property: 'process', message: CREATE_REQUIRE_MESSAGE },
-        { object: 'global', property: 'process', message: CREATE_REQUIRE_MESSAGE },
+        ...FENCE_PROPERTY_RESTRICTIONS,
+        ...SET_TYPE_PARSER_PROPERTIES,
       ],
+    },
+  },
+  {
+    // Inside packages/db the driver and the query builder are the point, so
+    // only their ban is lifted. Every other fence rule is restated here,
+    // because a flat config entry replaces a rule rather than adding to it,
+    // and dropping one by omission is the kind of hole this file exists to
+    // prevent. Code review proved that hole was open: all four restated
+    // groups could be deleted and the repository still linted clean.
+    // db-lint.test.ts now pins each of them, the money fence, the runtime
+    // loaders, the dynamic import rule and the process.getBuiltinModule
+    // ban, as well as the driver being allowed here and refused elsewhere.
+    files: ['packages/db/**/*.{ts,tsx,mts,cts}'],
+    linterOptions: { noInlineConfig: true },
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { paths: RUNTIME_LOADER_PATHS, patterns: MONEY_INTERNALS_PATTERNS },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        ...FENCE_SYNTAX_SELECTORS,
+        ...SET_TYPE_PARSER_SELECTORS,
+        ...TENANT_SESSION_SELECTORS,
+      ],
+      'no-restricted-properties': [
+        'error',
+        ...FENCE_PROPERTY_RESTRICTIONS,
+        ...SET_TYPE_PARSER_PROPERTIES,
+      ],
+    },
+  },
+  {
+    // Tests write the statements the bans refuse in order to prove they are
+    // refused, so the tenant context selectors are dropped for them. The
+    // driver ban and the type parser ban still apply.
+    files: ['packages/db/**/*.{test,spec}.{ts,tsx,mts,cts}'],
+    rules: {
+      'no-restricted-syntax': ['error', ...FENCE_SYNTAX_SELECTORS, ...SET_TYPE_PARSER_SELECTORS],
     },
   },
   {
