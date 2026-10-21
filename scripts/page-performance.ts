@@ -175,12 +175,16 @@ export function parseGateConfig(text: string, where: string): GateConfig {
   return { urls, runs, bars };
 }
 
-// Audits that describe the page rather than time it: bytes and element
-// counts do not change between runs on identical bytes, so they are the
-// candidates to gate on in place of the two metrics that do. They carry no
-// bar yet, because a bar set without values measured on the runner is the
-// guess this arrangement exists to avoid. The report prints them so the
-// values accumulate run by run.
+// Audits that describe the page rather than time it, which makes them the
+// candidates to gate on in place of the two metrics that move on their own.
+// Measured across two runs of one commit on a CI runner: dom-size was
+// identical every time, and total-byte-weight moved by one to three bytes
+// in about 388 kB, while the median blocking time of the same bytes moved
+// by more than three times. So they are steady rather than exact, and a
+// bar on either needs a tolerance rather than equality. They carry no bar
+// yet, because two runs are a start and not a basis, and a bar set without
+// measured spread is the guess this arrangement exists to remove. The
+// report prints them so the values accumulate run by run.
 export const OBSERVED_AUDITS: readonly { readonly audit: string; readonly unit: string }[] = [
   { audit: 'total-byte-weight', unit: 'bytes' },
   { audit: 'dom-size', unit: 'elements' },
