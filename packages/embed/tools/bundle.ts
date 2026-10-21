@@ -19,12 +19,41 @@ export const TAG_NAME = 'ujira-onboarding';
 export const DEV_MARKER = 'dev mode';
 
 /**
- * A licence notice from a dependency. The renderer's licence asks for its
- * notice in binary redistributions, and this file is redistributed: it loads
- * into someone else's page. Bundlers keep legal comments by default, and this
- * fails if a future build option stops.
+ * The copyright line of every licence block the bundle carries, in the order
+ * they appear. Only blocks that declare themselves a licence count, so our
+ * own proprietary header could never stand in for a dependency's notice.
  */
-export const LICENCE_NOTICE = /@license|SPDX-License-Identifier|Copyright \(c\)/;
+export function licenceNotices(code: string): string[] {
+  return [...code.matchAll(/\/\*[\s\S]*?\*\//g)]
+    .map((match) => match[0])
+    .filter((block) => block.includes('@license'))
+    .map((block) => (/Copyright [^\n*]+/.exec(block) ?? [''])[0].trim())
+    .filter((line) => line !== '');
+}
+
+/**
+ * The notices this bundle is expected to carry, pinned so the check fails in
+ * both directions: fewer, and a dependency's notice has been dropped from a
+ * file we redistribute into other people's pages, which is what its licence
+ * asks us to reproduce; more, and a dependency arrived without review.
+ *
+ * Asserting that some notice exists would be the wrong shape for a legal
+ * obligation, because the obligation is per component rather than per file,
+ * and because a single match can be satisfied by the wrong notice entirely.
+ *
+ * This is a set of copyright lines read out of the built file, deliberately
+ * not a copy of the notice text. The notices in the bundle are upstream's
+ * own bytes, preserved by the bundler, and nothing in this repository holds
+ * a copy of them, so nothing here can drift from upstream. Committing the
+ * text to compare against would introduce the copy that drift needs.
+ */
+export const EXPECTED_NOTICES: readonly string[] = [
+  'Copyright 2017 Google LLC',
+  'Copyright 2019 Google LLC',
+];
+
+/** How many licence blocks carry those notices. Pinned for the same reason. */
+export const EXPECTED_NOTICE_BLOCKS = 4;
 
 /** The budget for the widget: 60 KB gzipped, on the wire. */
 export const BUDGET_BYTES = 60 * 1024;

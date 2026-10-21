@@ -65,5 +65,8 @@ test('every control is big enough to hit with a thumb', async ({ page }) => {
   for (let index = 0; index < count; index++) {
     const box = await controls.nth(index).boundingBox();
     expect(box?.height ?? 0, `control ${String(index)} is too short`).toBeGreaterThanOrEqual(44);
+    // Width as well as height: back was 32px of word before it was padded,
+    // which the height assertion could never have caught.
+    expect(box?.width ?? 0, `control ${String(index)} is too narrow`).toBeGreaterThanOrEqual(44);
   }
 });

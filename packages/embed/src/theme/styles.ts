@@ -223,7 +223,7 @@ const widget = css`
   }
 
   .primary:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--ujira-embed-accent) 88%, var(--ujira-embed-text));
+    background: var(--ujira-embed-accent-hover);
   }
 
   .primary:disabled {

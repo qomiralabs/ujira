@@ -68,6 +68,12 @@ export function modeProperties(mode: 'light' | 'dark'): Record<string, string> {
     '--ujira-embed-text': tokens.text,
     '--ujira-embed-text-secondary': tokens['text-secondary'],
     '--ujira-embed-accent': tokens.accent,
+    // The hover fill is the brand's saffron lift, not a mix. A runtime mix
+    // toward the text colour lands outside the palette, lands differently in
+    // each mode, and moves when an integrator sets their own text colour,
+    // which is a property they are invited to set and have no reason to
+    // connect to the hover of an accent they never touched.
+    '--ujira-embed-accent-hover': palette['saffron-lift'],
     // The colour of text links, back and change. It takes the body text
     // colour, not the brand's saffron text colour: saffron marks the one
     // thing to do, and these controls go backwards. Measured against the

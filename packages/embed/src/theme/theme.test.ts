@@ -61,8 +61,8 @@ describe('theme', () => {
     // Names the offender first, then pins the count so a derivation that
     // found nothing cannot pass in silence.
     expect(declared.filter((name) => !uses.has(name))).toEqual([]);
-    expect(declared.length).toBe(18);
-    expect(uses.size).toBe(18);
+    expect(declared.length).toBe(19);
+    expect(uses.size).toBe(19);
   });
 
   it('offers every property the stylesheet reads', () => {
@@ -114,6 +114,11 @@ describe('theme', () => {
       // Links are the body text colour, not saffron: saffron marks the one
       // thing to do and these go backwards. Measured, not asserted loosely.
       expect(contrast(tokens['--ujira-embed-link'], surface)).toBe(mode === 'light' ? 15.07 : 8.9);
+      // The hover fill is a brand value, not a runtime mix, so it holds its
+      // contrast with the label and does not move with the text colour.
+      expect(
+        contrast(tokens['--ujira-embed-on-accent'], tokens['--ujira-embed-accent-hover']),
+      ).toBeGreaterThanOrEqual(4.5);
       // Non text contrast: the edge of an input or a choice.
       expect(contrast(tokens['--ujira-embed-field-border'], surface)).toBeGreaterThanOrEqual(3);
     }

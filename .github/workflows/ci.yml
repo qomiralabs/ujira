@@ -198,8 +198,16 @@ jobs:
       #   headroom, on this runner: V8 printed a total heap of about 2,057
       #   MB as the ceiling it died against, with roughly 2,018 MB live.
       #
+      #   the runner's own peak, which the step below now reads: 2.89 GiB.
+      #   That is the figure that matters, and it is 22 percent above the
+      #   2.37 GiB measured locally, so everyone reasoning from the local
+      #   number was working with about half a member more margin than
+      #   actually existed. The instrument disagreed with the belief on its
+      #   first run, which is why it exists.
+      #
       # The first says how fast it grows, the second says how little room
-      # was left. Neither is the other.
+      # was left, the third says where we actually are. Not one of them is
+      # the other.
       #
       # Raising the ceiling is a stopgap. The fix is to build the programs
       # lazily rather than eagerly, which changes the shared ESLint
@@ -224,11 +232,18 @@ jobs:
             pnpm lint
           fi
 
+      # A resident size budget in its own right, not a reading of the heap
+      # the flag above constrains: the tool reports maximum resident set
+      # size, which includes the binary, compiled code and everything off
+      # heap, so it runs above V8's old space usage rather than tracking it.
+      # The two are not comparable, and this errs safe, because resident size
+      # reaches the budget before the heap reaches the ceiling.
       - name: Lint memory headroom
         if: ${{ !cancelled() }}
         env:
-          # Well under the 6 GB ceiling, so the trend is reported with room
-          # to act rather than at the moment it runs out.
+          # 4 GiB, which is 1.38 times the 2.89 GiB measured on this runner:
+          # one more member of the current size passes, a second trips it,
+          # which leaves room to act rather than firing at the outage.
           LINT_PEAK_LIMIT_KB: '4194304'
         run: |
           if [ ! -f "${RUNNER_TEMP}/lint-peak-kb" ]; then
@@ -238,7 +253,7 @@ jobs:
           peak=$(cat "${RUNNER_TEMP}/lint-peak-kb")
           echo "lint peak resident size: ${peak} kB, limit ${LINT_PEAK_LIMIT_KB} kB"
           if [ "$peak" -gt "${LINT_PEAK_LIMIT_KB}" ]; then
-            echo "The type aware lint is within a third of its ceiling. See #343." >&2
+            echo "The type aware lint is over its resident size budget. See #343." >&2
             exit 1
           fi
 

@@ -75,7 +75,7 @@ The widget carries no UJIRA branding beyond one footer line, "Payouts by UJIRA",
 
 ## What the shadow root does and does not do
 
-The widget runs in your page's realm, not in a sandbox. Its shadow root is open, which keeps styles from leaking in either direction and lets events cross the boundary, and that is all it does: your page can reach into the root, read what a recipient types as they type it, and observe every event the widget fires. Nothing is hidden from you, which is the point, since the answers are yours to save.
+The widget runs in your page's realm, not in a sandbox. Its shadow root is open. It scopes our rules so they do not land on your page, and it stops your page's selectors reaching our elements, but it is not a wall: inherited properties and custom properties cross into it by design, which is exactly how the theming above works. And it hides nothing: your page can reach into the root, read what a recipient types as they type it, and observe every event the widget fires. Nothing is hidden from you, which is the point, since the answers are yours to save.
 
 If you need a recipient's answers kept from your own page, a shadow root is not the mechanism and no option here provides one. Load the widget in a cross origin iframe instead.
 

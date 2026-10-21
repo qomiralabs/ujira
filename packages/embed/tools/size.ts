@@ -7,7 +7,15 @@
 
 import { join } from 'node:path';
 
-import { BUDGET_BYTES, bundleWidget, DEV_MARKER, LICENCE_NOTICE, TAG_NAME } from './bundle.ts';
+import {
+  BUDGET_BYTES,
+  bundleWidget,
+  DEV_MARKER,
+  EXPECTED_NOTICES,
+  EXPECTED_NOTICE_BLOCKS,
+  licenceNotices,
+  TAG_NAME,
+} from './bundle.ts';
 
 const root = join(import.meta.dirname, '..');
 const bundle = await bundleWidget(root);
@@ -40,10 +48,31 @@ if (!bundle.code.includes(TAG_NAME) || !bundle.code.includes('customElements.def
   process.exitCode = 1;
 }
 
-// The renderer's licence asks for its notice in binary redistributions, and
-// this file is redistributed: it loads into other people's pages.
-if (!LICENCE_NOTICE.test(bundle.code)) {
-  process.stderr.write('the bundle carries no licence notice for its dependencies\n');
+// These notices, not any notice. The dependencies' licences ask for their
+// notices in binary redistributions, and this file is redistributed into
+// other people's pages, so both a dropped notice and an unreviewed arrival
+// have to fail.
+const notices = licenceNotices(bundle.code);
+const distinct = [...new Set(notices)].sort();
+const expected = [...EXPECTED_NOTICES].sort();
+const missing = expected.filter((line) => !distinct.includes(line));
+const extra = distinct.filter((line) => !expected.includes(line));
+if (missing.length > 0) {
+  process.stderr.write(`the bundle has stopped carrying: ${missing.join('; ')}\n`);
+  process.exitCode = 1;
+}
+if (extra.length > 0) {
+  process.stderr.write(
+    `the bundle carries a notice nobody reviewed: ${extra.join('; ')}\n` +
+      'Add it to EXPECTED_NOTICES once its licence has been checked.\n',
+  );
+  process.exitCode = 1;
+}
+if (notices.length !== EXPECTED_NOTICE_BLOCKS) {
+  process.stderr.write(
+    `the bundle carries ${String(notices.length)} licence blocks, expected ` +
+      `${String(EXPECTED_NOTICE_BLOCKS)}: a notice has been dropped or added\n`,
+  );
   process.exitCode = 1;
 }
 
