@@ -1,5 +1,17 @@
 # Spike: Graphile Worker fit (issue #50)
 
+> **The live test files that produced these numbers were removed** by #52
+> (`spikes/harness.ts` and `spikes/worker.test.ts`). Two reasons, recorded so
+> the gap is visible rather than quiet. They were the last code outside
+> `packages/db` importing `pg`, and the import fence that keeps the driver in
+> one package allows no exceptions. They had also begun failing the gate
+> intermittently on an uncaught Postgres error while every test passed, and a
+> flake that fails the gate teaches people to rerun rather than read. The
+> decision this spike produced is in this file, the evidence is in its pull
+> request, and the SQL it ran is still in `spikes/sql/`. Reproducing a number
+> here now means writing a test inside `packages/db`, which has a Postgres
+> harness of its own.
+
 Graphile Worker 0.18.0 fits, with five changes to how we use it. All results below were measured on local Postgres 17.6 in Docker on an Apple M3 Pro laptop (11 cores, 18 GiB). The free Supabase spike project was not used in this pass, so everything about the hosted pooler is inferred from a local PgBouncer and still needs a run there.
 
 ## Versions

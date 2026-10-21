@@ -41,13 +41,19 @@ export default defineConfig({
           environment: 'jsdom',
           setupFiles: ['./src/test-setup.ts'],
         },
-        // The spike tests start a Postgres container and real worker pools.
         // The Supabase spike runs against the staging project only when its
-        // pooler URLs are in the environment, and skips everywhere else.
+        // pooler URLs are in the environment, and skips everywhere else,
+        // including in CI. The src tests start a Postgres container through
+        // the global setup below, which needs a docker daemon: they fail
+        // without one rather than skipping, so an empty run cannot look
+        // like a passing one.
         '@ujira/db': {
           include: ['src/**/*.test.ts', 'spikes/**/*.test.ts'],
           hookTimeout: 180_000,
           testTimeout: 300_000,
+          // One container for the whole run, migrated once into a template
+          // database, with a fresh database cloned from it per test file.
+          globalSetup: ['src/testing/global-setup.ts'],
         },
         '@ujira/payouts': {
           include: ['src/**/*.test.ts', 'spikes/**/*.test.ts'],
@@ -86,6 +92,22 @@ export default defineConfig({
         '**/*.d.ts',
         // Built only to prove the bundle budget fails; see the dashboard README.
         '**/*.fixture.tsx',
+        // Generated from the migrations by scripts/db-types.ts, and types
+        // only, so there is nothing in it to execute.
+        'packages/db/src/schema.generated.ts',
+        // These two are the only code here that runs in the vitest global
+        // setup, in the main process, where the workers' coverage
+        // instrumentation cannot see them: they report zero statements and
+        // zero functions however well they work. The rest of the harness
+        // runs in the workers and is measured, which is why the container
+        // start was moved into its own file rather than excluding the whole
+        // folder. Their behaviour is covered by harness.test.ts against a
+        // real container. Named one by one on purpose: a pattern over the
+        // folder would silently exclude the next file put there, which QA
+        // confirmed by dropping an uncovered file in and watching it report
+        // zero.
+        'packages/db/src/testing/global-setup.ts',
+        'packages/db/src/testing/container.ts',
       ],
       reporter: ['text', 'json-summary', 'lcov'],
       thresholds: {
@@ -100,6 +122,19 @@ export default defineConfig({
           functions: 95,
           branches: 95,
           statements: 95,
+        },
+        // Every row of every tenant passes through the database package, so
+        // it carries 90 rather than the repository's 85. That is above the
+        // default and below the 95 that core and the chain adapter carry,
+        // because those two are the money and chain primitives. Three files
+        // are left out of the measurement by the exclude list above: the
+        // generated schema types, which are types only, and the two that
+        // run in the global setup.
+        'packages/db/src/**': {
+          lines: 90,
+          functions: 90,
+          branches: 90,
+          statements: 90,
         },
         // The chain adapter is the only code that touches a chain, so it
         // carries the same bar.

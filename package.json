@@ -9,20 +9,23 @@
     "node": ">=24"
   },
   "scripts": {
+    "budget:check": "node scripts/check-bundle-budget.ts apps/dashboard 250",
     "build": "node scripts/check-workspace-scripts.ts && node scripts/gate.ts build",
-    "typecheck": "node scripts/check-workspace-scripts.ts && node scripts/gate.ts typecheck",
-    "lint": "node scripts/check-workspace-scripts.ts && eslint --config eslint.config.js --max-warnings 0 .",
-    "test": "vitest run --coverage --configLoader native",
+    "db:migrate": "node scripts/db-migrate.ts",
+    "db:types": "node scripts/db-types.ts",
     "format": "prettier --config .prettierrc.json --no-editorconfig --ignore-path .prettierignore --write .",
     "format:check": "prettier --config .prettierrc.json --no-editorconfig --ignore-path .prettierignore --check .",
+    "invisible:check": "node scripts/check-invisible-characters.ts",
     "licenses:check": "node scripts/check-licenses.ts",
+    "lint": "node scripts/check-workspace-scripts.ts && eslint --config eslint.config.js --max-warnings 0 .",
     "metadata:check": "node scripts/check-embedded-metadata.ts",
     "metadata:strip": "node scripts/strip-embedded-metadata.ts",
-    "invisible:check": "node scripts/check-invisible-characters.ts",
-    "budget:check": "node scripts/check-bundle-budget.ts apps/dashboard 250"
+    "test": "vitest run --coverage --configLoader native",
+    "typecheck": "node scripts/check-workspace-scripts.ts && node scripts/gate.ts typecheck"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@testcontainers/postgresql": "12.2.0",
     "@types/node": "24.19.2",
     "@vitest/coverage-v8": "5.0.5",
     "eslint": "10.12.0",
