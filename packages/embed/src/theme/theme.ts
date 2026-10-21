@@ -26,9 +26,18 @@ export function declarations(properties: Readonly<Record<string, string>>): CSSR
   return unsafeCSS(lines.join('\n  '));
 }
 
-/** One step of the type scale, with the family, size, line height and weight. */
+/**
+ * One step of the type scale, with the family, size, line height and weight.
+ * Guarded like declarations(): both read the same generated module and both
+ * end in the same unsafe call, so both check what they are handed.
+ */
 export function typeStep(step: ThemeStep): CSSResult {
   const { family, size, lineHeight, tracking, weight } = themeType[step];
+  for (const [part, value] of Object.entries(themeType[step])) {
+    if (UNSAFE_VALUE.test(value)) {
+      throw new Error(`${step} ${part} has a value CSS cannot take: ${value}`);
+    }
+  }
   return unsafeCSS(
     [
       `font-family: ${family};`,

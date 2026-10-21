@@ -64,6 +64,13 @@ export interface TextButtonOptions {
    * What it says to a screen reader, when the row it sits in supplies the
    * rest of the meaning. It always starts with the visible label, so the two
    * never contradict each other.
+   *
+   * This is why "Change" and "Back" can be one word on screen: the label
+   * they act on sits beside them on the same row, so a person reads the
+   * setting and the action together. The condition is adjacency. If one of
+   * these controls is ever moved away from its label, into a menu or a
+   * footer, the visible word has to grow to carry the meaning on its own,
+   * and nothing here will fail to tell you.
    */
   name?: string;
   press: () => void;

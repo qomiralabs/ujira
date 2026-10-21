@@ -4,7 +4,14 @@
 import { describe, expect, it } from 'vitest';
 
 import { themeBase, themeModes, themeType } from './defaults.generated.js';
+import { widgetStyles } from './styles.js';
 import { declarations, hostTheme, typeStep } from './theme.js';
+
+/** Every custom property the stylesheet actually reads. */
+function painted(): Set<string> {
+  const css = widgetStyles.map((sheet) => sheet.cssText).join('\n');
+  return new Set([...css.matchAll(/var\((--ujira-embed-[a-z-]+)/g)].map((m) => m[1] ?? ''));
+}
 
 function channel(value: number): number {
   const srgb = value / 255;
@@ -40,7 +47,27 @@ describe('theme', () => {
     }
     expect(text).toContain(":host([mode='dark'])");
     expect(text).toContain('prefers-color-scheme: dark');
-    expect(text).toContain(themeModes.dark['--ujira-embed-bg']);
+    expect(text).toContain(themeModes.dark['--ujira-embed-surface']);
+  });
+
+  // A property an integrator can set that changes nothing is a promise the
+  // widget cannot keep, and the README documents every one of them. This is
+  // the test that found --ujira-embed-bg, which was documented as the ground
+  // behind the card and painted by nothing, because that ground belongs to
+  // the integrator's page.
+  it('paints with every property the contract offers', () => {
+    const uses = painted();
+    const declared = [...Object.keys(themeBase), ...Object.keys(themeModes.light)];
+    // Names the offender first, then pins the count so a derivation that
+    // found nothing cannot pass in silence.
+    expect(declared.filter((name) => !uses.has(name))).toEqual([]);
+    expect(declared.length).toBe(18);
+    expect(uses.size).toBe(18);
+  });
+
+  it('offers every property the stylesheet reads', () => {
+    const declared = new Set([...Object.keys(themeBase), ...Object.keys(themeModes.light)]);
+    expect([...painted()].filter((name) => !declared.has(name))).toEqual([]);
   });
 
   it('refuses a property that is not ours', () => {
@@ -48,10 +75,10 @@ describe('theme', () => {
   });
 
   it('refuses a value that could close the declaration', () => {
-    expect(() => declarations({ '--ujira-embed-bg': 'red; display: none' })).toThrow(
+    expect(() => declarations({ '--ujira-embed-surface': 'red; display: none' })).toThrow(
       'a value CSS cannot take',
     );
-    expect(() => declarations({ '--ujira-embed-bg': 'red /* comment' })).toThrow(
+    expect(() => declarations({ '--ujira-embed-surface': 'red /* comment' })).toThrow(
       'a value CSS cannot take',
     );
   });
@@ -78,12 +105,15 @@ describe('theme', () => {
       const surface = tokens['--ujira-embed-surface'];
       expect(contrast(tokens['--ujira-embed-text'], surface)).toBeGreaterThanOrEqual(4.5);
       expect(contrast(tokens['--ujira-embed-text-secondary'], surface)).toBeGreaterThanOrEqual(4.5);
-      expect(contrast(tokens['--ujira-embed-accent-text'], surface)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(tokens['--ujira-embed-link'], surface)).toBeGreaterThanOrEqual(4.5);
       expect(contrast(tokens['--ujira-embed-error'], surface)).toBeGreaterThanOrEqual(4.5);
       // The action's label on the saffron fill.
       expect(
         contrast(tokens['--ujira-embed-on-accent'], tokens['--ujira-embed-accent']),
       ).toBeGreaterThanOrEqual(4.5);
+      // Links are the body text colour, not saffron: saffron marks the one
+      // thing to do and these go backwards. Measured, not asserted loosely.
+      expect(contrast(tokens['--ujira-embed-link'], surface)).toBe(mode === 'light' ? 15.07 : 8.9);
       // Non text contrast: the edge of an input or a choice.
       expect(contrast(tokens['--ujira-embed-field-border'], surface)).toBeGreaterThanOrEqual(3);
     }

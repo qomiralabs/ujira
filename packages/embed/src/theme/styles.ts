@@ -8,7 +8,7 @@
 // Built for a 320px screen on a low end phone: one column, 48px controls,
 // no shadows, no images, no web font of our own.
 
-import { css, type CSSResultGroup } from 'lit';
+import { css, type CSSResult } from 'lit';
 
 import { hostTheme, typeStep } from './theme.js';
 
@@ -231,13 +231,21 @@ const widget = css`
     opacity: 0.7;
   }
 
+  /*
+   * The padding widens the target without moving the text: the negative
+   * margin pulls the box back so the label still sits flush with the edge
+   * of the card's content. Back is 32px of word on its own row, which is a
+   * small thing to hit on a cheap phone, and it is the control a person
+   * reaches for after a mistake.
+   */
   .text-button {
     ${typeStep('body-s')}
     display: inline-flex;
     align-items: center;
     min-height: 44px;
-    padding: 0;
-    color: var(--ujira-embed-accent-text);
+    padding: 0 8px;
+    margin-inline: -8px;
+    color: var(--ujira-embed-link);
     background: none;
     border: 0;
     cursor: pointer;
@@ -315,4 +323,6 @@ const widget = css`
   }
 `;
 
-export const widgetStyles: CSSResultGroup = [hostTheme, widget];
+// Typed as the array it is, not as the wider group, so a test can read the
+// stylesheet text without casting its way through a union.
+export const widgetStyles: CSSResult[] = [hostTheme, widget];

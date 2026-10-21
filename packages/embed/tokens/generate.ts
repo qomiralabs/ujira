@@ -52,11 +52,14 @@ export function baseProperties(): Record<string, string> {
  * Colour properties per mode. Light leads: the widget sits on a recipient
  * screen. Text on the accent fill is teal ink in both modes, because the
  * accent fill is light in both.
+ *
+ * Every property here must be painted by something in the stylesheet. A
+ * property an integrator can set that changes nothing is a promise the
+ * widget cannot keep, and theme.test.ts fails if one stops being painted.
  */
 export function modeProperties(mode: 'light' | 'dark'): Record<string, string> {
   const tokens = modes[mode];
   return {
-    '--ujira-embed-bg': tokens.bg,
     '--ujira-embed-surface': tokens.surface,
     '--ujira-embed-rule': tokens.rule,
     // Inputs and choices need a 3:1 edge against the surface, which the hair
@@ -65,7 +68,12 @@ export function modeProperties(mode: 'light' | 'dark'): Record<string, string> {
     '--ujira-embed-text': tokens.text,
     '--ujira-embed-text-secondary': tokens['text-secondary'],
     '--ujira-embed-accent': tokens.accent,
-    '--ujira-embed-accent-text': tokens['accent-text'],
+    // The colour of text links, back and change. It takes the body text
+    // colour, not the brand's saffron text colour: saffron marks the one
+    // thing to do, and these controls go backwards. Measured against the
+    // surface, this is 15.07 in light and 8.90 in dark, against 5.78 and
+    // 5.88 for the saffron it replaced.
+    '--ujira-embed-link': tokens.text,
     '--ujira-embed-on-accent': palette['teal-ink'],
     '--ujira-embed-error': tokens.blocked,
   };

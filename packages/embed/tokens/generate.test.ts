@@ -33,9 +33,10 @@ describe('generated brand files', () => {
   });
 
   it('take every colour from the shared tokens, never a typed in hex', () => {
-    expect(themeModes.light['--ujira-embed-bg']).toBe(modes.light.bg);
+    expect(themeModes.light['--ujira-embed-surface']).toBe(modes.light.surface);
     expect(themeModes.dark['--ujira-embed-surface']).toBe(modes.dark.surface);
-    expect(themeModes.light['--ujira-embed-accent-text']).toBe(modes.light['accent-text']);
+    expect(themeModes.light['--ujira-embed-link']).toBe(modes.light.text);
+    expect(themeModes.dark['--ujira-embed-link']).toBe(modes.dark.text);
     expect(themeModes.dark['--ujira-embed-on-accent']).toBe(palette['teal-ink']);
     expect(themeBase['--ujira-embed-radius-card']).toBe(radius.card);
     expect(modeProperties('light')).toEqual(themeModes.light);

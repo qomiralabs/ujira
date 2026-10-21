@@ -47,30 +47,37 @@ The integrator owns the look. Every colour, radius and font is a custom property
 }
 ```
 
-| Property                       | What it paints                                               |
-| ------------------------------ | ------------------------------------------------------------ |
-| `--ujira-embed-bg`             | The ground behind the card                                   |
-| `--ujira-embed-surface`        | The card and the inputs                                      |
-| `--ujira-embed-rule`           | Hair lines between parts of the card                         |
-| `--ujira-embed-field-border`   | The edge of an input or a choice, kept at 3:1 on the surface |
-| `--ujira-embed-text`           | Headings and answers                                         |
-| `--ujira-embed-text-secondary` | Hints, labels and the footer line                            |
-| `--ujira-embed-accent`         | The fill of the one action on each step                      |
-| `--ujira-embed-accent-text`    | Text links, such as back and change                          |
-| `--ujira-embed-on-accent`      | The label on the action                                      |
-| `--ujira-embed-error`          | The problem message and its border                           |
-| `--ujira-embed-focus`          | The focus ring, with `--ujira-embed-focus-inner` behind it   |
-| `--ujira-embed-radius-card`    | The card                                                     |
-| `--ujira-embed-radius-control` | Inputs, choices and the action                               |
-| `--ujira-embed-font`           | Everything except codes                                      |
-| `--ujira-embed-font-mono`      | Codes, addresses and small capital labels                    |
-| `--ujira-embed-ease`           | The one easing curve                                         |
+| Property                       | What it paints                                                                                                          |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `--ujira-embed-surface`        | The card and the inputs                                                                                                 |
+| `--ujira-embed-rule`           | Hair lines between parts of the card                                                                                    |
+| `--ujira-embed-field-border`   | The edge of an input or a choice, kept at 3:1 on the surface                                                            |
+| `--ujira-embed-text`           | Headings and answers                                                                                                    |
+| `--ujira-embed-text-secondary` | Hints, labels and the footer line                                                                                       |
+| `--ujira-embed-accent`         | The fill of the one action on each step                                                                                 |
+| `--ujira-embed-link`           | Text links, back and change. The body text colour, not the accent: saffron marks the one thing to do, and these go back |
+| `--ujira-embed-on-accent`      | The label on the action                                                                                                 |
+| `--ujira-embed-error`          | The problem message and its border                                                                                      |
+| `--ujira-embed-focus`          | The focus ring, with `--ujira-embed-focus-inner` behind it                                                              |
+| `--ujira-embed-radius-card`    | The card                                                                                                                |
+| `--ujira-embed-radius-control` | Inputs, choices and the action                                                                                          |
+| `--ujira-embed-font`           | Everything except codes                                                                                                 |
+| `--ujira-embed-font-mono`      | Codes, addresses and small capital labels                                                                               |
+| `--ujira-embed-ease`           | The one easing curve                                                                                                    |
+
+Every property above is painted by something, and a test fails if one stops being: a property you can set that changes nothing is a promise the widget cannot keep. `--ujira-embed-bg` was removed for that reason, since the ground behind the card belongs to your page and the widget never touches it.
 
 Defaults are the UJIRA light tokens. `mode="dark"` switches to the dark set, and `mode="system"` follows the reader's setting. Set the properties yourself and the mode stops mattering.
 
 Parts are exposed for anything the properties do not cover: `widget`, `chrome`, `progress`.
 
 The widget carries no UJIRA branding beyond one footer line, "Payouts by UJIRA", with the mark at 16px in the surrounding text colour.
+
+## What the shadow root does and does not do
+
+The widget runs in your page's realm, not in a sandbox. Its shadow root is open, which keeps styles from leaking in either direction and lets events cross the boundary, and that is all it does: your page can reach into the root, read what a recipient types as they type it, and observe every event the widget fires. Nothing is hidden from you, which is the point, since the answers are yours to save.
+
+If you need a recipient's answers kept from your own page, a shadow root is not the mechanism and no option here provides one. Load the widget in a cross origin iframe instead.
 
 ## Attributes and properties
 

@@ -21,26 +21,24 @@ export const themeBase = {
 /** Colour properties per mode. The light mode is the default. */
 export const themeModes = {
   light: {
-    '--ujira-embed-bg': '#FBF7F0',
     '--ujira-embed-surface': '#FFFFFF',
     '--ujira-embed-rule': '#E8E0D2',
     '--ujira-embed-field-border': '#6B6358',
     '--ujira-embed-text': '#0B2A33',
     '--ujira-embed-text-secondary': '#4A5A60',
     '--ujira-embed-accent': '#F4A300',
-    '--ujira-embed-accent-text': '#8F5A00',
+    '--ujira-embed-link': '#0B2A33',
     '--ujira-embed-on-accent': '#0B2A33',
     '--ujira-embed-error': '#DC2626',
   },
   dark: {
-    '--ujira-embed-bg': '#0A3540',
     '--ujira-embed-surface': '#0F4C5C',
     '--ujira-embed-rule': '#155C6E',
     '--ujira-embed-field-border': '#A9BCC1',
     '--ujira-embed-text': '#FBF7F0',
     '--ujira-embed-text-secondary': '#A9BCC1',
     '--ujira-embed-accent': '#F4A300',
-    '--ujira-embed-accent-text': '#FFC14D',
+    '--ujira-embed-link': '#FBF7F0',
     '--ujira-embed-on-accent': '#0B2A33',
     '--ujira-embed-error': '#FCA5A5',
   },
