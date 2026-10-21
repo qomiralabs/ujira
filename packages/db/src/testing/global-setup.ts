@@ -10,7 +10,8 @@
 // environment here.
 
 import { runMigrations } from '../migrate.js';
-import { ADMIN_URL_KEY, startHarness } from './harness.js';
+import { startHarness } from './container.js';
+import { ADMIN_URL_KEY } from './harness.js';
 
 // vitest 5 does not export the global setup context type, so the one method
 // used here is declared rather than imported.

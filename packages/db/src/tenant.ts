@@ -16,6 +16,12 @@
 // that is not exactly a lower case UUID, or one of the two known scopes, is
 // refused rather than escaped. Escaping would make a malformed value
 // someone else's problem later; refusing it ends there.
+//
+// The checks take unknown and return the string they read, and the statement
+// is built from that return value. A value is therefore read once: an object
+// whose string conversion differs between the check and the statement cannot
+// pass one and reach the other, which is a hole a type signature alone would
+// leave open for an untyped caller.
 
 import { TenantContextError } from './errors.js';
 
@@ -47,32 +53,50 @@ const SCOPES: ReadonlySet<string> = new Set<TenantScope>(['project', 'all']);
 // ways; one spelling keeps a tenant comparison exact.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-function assertUuid(value: string, field: string): void {
+// Returns the checked value rather than only checking it, so the caller
+// interpolates the string this function read. Reading the property twice
+// would let an object whose string conversion changes between the two reads
+// pass the check and then inject something else, and a type check alone
+// would still leave two reads.
+function checkedUuid(value: unknown, field: string): string {
+  if (typeof value !== 'string') {
+    throw new TenantContextError(
+      `refused: ${field} must be a string, not ${value === null ? 'null' : typeof value}`,
+    );
+  }
   if (!UUID.test(value)) {
     throw new TenantContextError(
       `refused: ${field} must be a lower case canonical UUID, 36 characters with four hyphens`,
     );
   }
+  return value;
 }
 
-function assertScope(value: string): void {
+function checkedScope(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new TenantContextError(
+      `refused: scope must be a string, not ${value === null ? 'null' : typeof value}`,
+    );
+  }
   if (!SCOPES.has(value)) {
     throw new TenantContextError(`refused: scope must be one of ${[...SCOPES].sort().join(', ')}`);
   }
+  return value;
 }
 
 // `begin` and the context in one statement. Every value in it has passed the
 // checks above, so nothing here is escaped: there is nothing left to escape.
 export function beginWithTenant(context: TenantContext): string {
-  assertUuid(context.principalId, 'principalId');
-  assertUuid(context.projectId, 'projectId');
-  assertScope(context.scope);
+  const principalId = checkedUuid(context.principalId, 'principalId');
+  const projectId = checkedUuid(context.projectId, 'projectId');
+  const scope = checkedScope(context.scope);
+  // Only the values the checks returned reach the statement.
   return [
     'begin;',
     'select',
-    `set_config('ujira.principal_id', '${context.principalId}', true),`,
-    `set_config('ujira.project_id', '${context.projectId}', true),`,
-    `set_config('ujira.scope', '${context.scope}', true),`,
+    `set_config('ujira.principal_id', '${principalId}', true),`,
+    `set_config('ujira.project_id', '${projectId}', true),`,
+    `set_config('ujira.scope', '${scope}', true),`,
     `set_config('ujira.txid', txid_current()::text, true)`,
   ].join(' ');
 }

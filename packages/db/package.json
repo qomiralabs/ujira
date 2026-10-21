@@ -18,8 +18,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint --max-warnings 0 .",
     "test": "vitest run",
-    "migrate:up": "node-pg-migrate up",
-    "migrate:down": "node-pg-migrate down",
+    "migrate:up": "node ../../scripts/db-migrate.ts up",
+    "migrate:down": "node ../../scripts/db-migrate.ts down",
     "db:types": "node ../../scripts/db-types.ts"
   },
   "devDependencies": {

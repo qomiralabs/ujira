@@ -5,6 +5,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
 import { MIGRATIONS_TABLE, runMigrations } from '../migrate.js';
+import { POSTGRES_IMAGE } from './image.js';
 import {
   createTestDatabase,
   databaseNameFor,
@@ -69,6 +70,17 @@ describe('harness', () => {
     // proves the clone arrived already migrated.
     const applied = await runMigrations({ databaseUrl: database.url, direction: 'up' });
     expect(applied.names).toEqual([]);
+  });
+
+  it('runs the server the image pins, not whatever is newest', async () => {
+    // The tag is the whole reason this harness behaves the same on a
+    // developer machine as in CI, which is the failure mode of #337 in
+    // reverse. Reading the server version proves the pin is what started,
+    // rather than only that a constant says so.
+    const [, version] = /^postgres:(\d+\.\d+)$/.exec(POSTGRES_IMAGE) ?? [];
+    expect(version).toBeDefined();
+    const reported = await client.query<{ version: string }>('select version() as version');
+    expect(reported.rows[0]?.version).toContain(`PostgreSQL ${String(version)}`);
   });
 
   it('refuses an identifier that is not a plain lower case name', () => {

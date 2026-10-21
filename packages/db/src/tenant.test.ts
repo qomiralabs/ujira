@@ -97,3 +97,45 @@ describe('beginWithTenant', () => {
     expect(beginWithTenant(context())).toBe(beginWithTenant(context()));
   });
 });
+
+describe('input that is not a string', () => {
+  // Measured by security review. TypeScript blocks the ordinary path, but
+  // an object whose string conversion differs between the check and the
+  // template passed validation and then injected a session level setting
+  // and a second tenant. The type check makes the argument unconditional
+  // rather than conditional on every caller being well typed.
+  it('refuses an object whose string conversion changes between reads', () => {
+    let reads = 0;
+    const shifty = {
+      toString: () => {
+        reads += 1;
+        return reads === 1
+          ? PRINCIPAL
+          : `${PRINCIPAL}', 'x', false), set_config('ujira.principal_id', 'other`;
+      },
+    };
+    expect(() => beginWithTenant(context({ principalId: shifty as unknown as string }))).toThrow(
+      TenantContextError,
+    );
+  });
+
+  it.each([
+    ['a number', 1],
+    ['a boolean', true],
+    ['null', null],
+    ['undefined', undefined],
+    ['an array of one uuid', [PRINCIPAL]],
+    ['an object with a valueOf', { valueOf: () => PRINCIPAL }],
+    ['a String object', new String(PRINCIPAL)],
+  ])('refuses %s', (_name, value) => {
+    expect(() => beginWithTenant(context({ principalId: value as unknown as string }))).toThrow(
+      TenantContextError,
+    );
+  });
+
+  it('refuses a non-string scope', () => {
+    expect(() => beginWithTenant(context({ scope: 1 as unknown as 'project' }))).toThrow(
+      TenantContextError,
+    );
+  });
+});

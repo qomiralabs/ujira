@@ -18,7 +18,11 @@ export {
   type DatabaseConfig,
   type DatabaseEnvironment,
   type RoleConnection,
+  type TlsMode,
 } from './config.js';
+// Exported so a deployment can check which certificate it is pinning
+// without importing the driver.
+export { PINNED_TLS, SUPABASE_ROOT_2021_CA_FINGERPRINT } from './tls.js';
 export {
   runMigrations,
   type LockMode,

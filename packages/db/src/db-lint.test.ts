@@ -157,3 +157,48 @@ describe('no-session-set-of-tenant-keys', () => {
     expect(errors.filter((error) => error.startsWith('no-restricted-syntax'))).toEqual([]);
   });
 });
+
+describe('the database block restates the rest of the fence', () => {
+  // Code review stripped all four restated groups out of the narrow
+  // packages/db block at once and the repository still linted clean, so
+  // nothing held them there. These four cases pin them: the block lifts the
+  // driver ban only, and every other fence rule still applies inside this
+  // package.
+  it('keeps the money import fence', async () => {
+    const errors = await errorsFor(
+      "import { build } from '../core/src/money/money.js';\nexport const b = build;\n",
+      INSIDE_DB,
+    );
+    expect(
+      errors.filter((error) => error.includes('internal to the money module')),
+    ).not.toHaveLength(0);
+  });
+
+  it('keeps the runtime loader ban', async () => {
+    const errors = await errorsFor(
+      "import vm from 'node:vm';\nexport const v: unknown = vm;\n",
+      INSIDE_DB,
+    );
+    expect(errors.filter((error) => error.startsWith('no-restricted-imports'))).not.toHaveLength(0);
+  });
+
+  it('keeps the dynamic import rule', async () => {
+    const errors = await errorsFor(
+      'export const load = async (name: string): Promise<unknown> => import(name);\n',
+      INSIDE_DB,
+    );
+    expect(
+      errors.filter((error) => error.includes('plain string path so the import fence')),
+    ).not.toHaveLength(0);
+  });
+
+  it('keeps the process.getBuiltinModule ban', async () => {
+    const errors = await errorsFor(
+      "export const m: unknown = globalThis.process.getBuiltinModule('node:module');\n",
+      INSIDE_DB,
+    );
+    expect(errors.filter((error) => error.startsWith('no-restricted-properties'))).not.toHaveLength(
+      0,
+    );
+  });
+});

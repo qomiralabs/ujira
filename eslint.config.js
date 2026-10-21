@@ -816,8 +816,11 @@ export default defineConfig(
     // only their ban is lifted. Every other fence rule is restated here,
     // because a flat config entry replaces a rule rather than adding to it,
     // and dropping one by omission is the kind of hole this file exists to
-    // prevent. db-lint.test.ts checks both halves: the driver is allowed
-    // here and refused elsewhere.
+    // prevent. Code review proved that hole was open: all four restated
+    // groups could be deleted and the repository still linted clean.
+    // db-lint.test.ts now pins each of them, the money fence, the runtime
+    // loaders, the dynamic import rule and the process.getBuiltinModule
+    // ban, as well as the driver being allowed here and refused elsewhere.
     files: ['packages/db/**/*.{ts,tsx,mts,cts}'],
     linterOptions: { noInlineConfig: true },
     rules: {

@@ -120,6 +120,11 @@ function poolFor(role: RoleConnection, config: DatabaseConfig): pg.Pool {
     connectionString: role.url,
     max: role.poolSize,
     connectionTimeoutMillis: config.acquireTimeoutMs,
+    // The pinned trust from tls.ts, or nothing at all for a loopback host
+    // with UJIRA_DB_TLS=off. Passing the object here is what makes the
+    // claim in config.ts true: without it pg falls back to PGSSLMODE or to
+    // its own default, which is no TLS.
+    ...(config.tlsOptions === undefined ? {} : { ssl: config.tlsOptions }),
     // Type parsers are left exactly as pg ships them. Changing one would
     // change every value of that type everywhere, so the lint rules ban
     // setTypeParser across the repository.

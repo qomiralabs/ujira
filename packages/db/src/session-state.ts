@@ -9,10 +9,13 @@
 // refused before it is sent.
 //
 // This is a guard, not a parser. Statement forms are matched with string
-// literals, dollar quoted bodies and comments removed, so a banned word
-// inside a literal stays text and cannot trip it. set_config is read with
-// literals kept, because its third argument decides the scope and is
-// usually a literal.
+// literals and comments removed, so a banned word inside a literal stays
+// text and cannot trip it. Double quoted identifiers keep their text,
+// because the identifier is what the patterns need to read after the
+// keyword, and dollar quoted bodies are scanned rather than blanked,
+// because such a body can be executed. set_config is read with literals
+// kept, because its third argument decides the scope and is usually a
+// literal.
 
 import { SessionStateError } from './errors.js';
 
@@ -21,8 +24,8 @@ import { SessionStateError } from './errors.js';
 // here travels through set_config, and a second spelling would be a second
 // thing to keep right.
 const BANNED: readonly RegExp[] = [
-  /\bset\s+(?:session\s+authorization\b|session\b|local\b|role\b|time\s+zone\b|[a-z_][a-z0-9_$]*(?:\.[a-z_][a-z0-9_$]*)?\s*(?:=|\bto\b))/,
-  /\breset\s+(?:all\b|[a-z_][a-z0-9_$]*)/,
+  /\bset\s+(?:session\s+authorization\b|session_authorization\b|session\b|local\b|role\b|time\s+zone\b|[a-z_][a-z0-9_$]*(?:\.[a-z_][a-z0-9_$]*)?\s*(?:=|\bto\b))/,
+  /\breset\s+(?:all\b|[a-z_][a-z0-9_$]*(?:\.[a-z_][a-z0-9_$]*)?)/,
   /\bdiscard\s+[a-z]+/,
   /\balter\s+(?:role|user|database)\b[\s\S]*?\bset\b/,
 ];
@@ -45,12 +48,21 @@ function blank(sql: string, { literals }: Replace): string {
   let at = 0;
   while (at < sql.length) {
     const char = sql[at] ?? '';
+    // A dollar quoted body is not inert. DO runs it, CREATE FUNCTION stores
+    // it to run later, and code review proved a tenant key set inside one
+    // survived the transaction. Nothing here can tell an executed body from
+    // a string that merely looks like one, so the content is scanned and a
+    // body holding a banned statement is refused. That refuses a literal
+    // that only quotes such a statement too, which is the direction to err
+    // in: a false refusal is a review conversation, a false pass is a
+    // tenant leak.
     const dollar = /^\$([a-z_][a-z0-9_]*)?\$/i.exec(sql.slice(at));
     if (dollar !== null) {
       const tag = dollar[0];
       const close = sql.indexOf(tag, at + tag.length);
+      const body = sql.slice(at + tag.length, close === -1 ? sql.length : close);
       at = close === -1 ? sql.length : close + tag.length;
-      out += ' ';
+      out += ` ${blank(body, { literals })} `;
       continue;
     }
     if (char === '-' && sql[at + 1] === '-') {
@@ -76,18 +88,46 @@ function blank(sql: string, { literals }: Replace): string {
       out += ' ';
       continue;
     }
-    if (literals && (char === "'" || char === '"')) {
+    // A double quote delimits an identifier, not a string, and the
+    // identifier is what the patterns below need to read: `set
+    // "ujira.principal_id" = ...` is a session level SET of a tenant key.
+    // The quotes are dropped and the name is kept.
+    if (char === '"') {
       at += 1;
       while (at < sql.length) {
-        if (sql[at] === char) {
-          if (sql[at + 1] === char) {
+        if (sql[at] === '"') {
+          // Two in a row are an escaped quote inside the identifier.
+          if (sql[at + 1] === '"') {
+            out += '"';
             at += 2;
             continue;
           }
           at += 1;
           break;
         }
-        if (char === "'" && sql[at] === '\\') {
+        out += sql[at] ?? '';
+        at += 1;
+      }
+      continue;
+    }
+    if (literals && char === "'") {
+      // Backslashes escape only in an E string. With
+      // standard_conforming_strings on, which is the default, a plain
+      // literal ends at its closing quote even if a backslash precedes it,
+      // so treating one as an escape would run the scan past the end of the
+      // statement and miss whatever follows.
+      const escapes = /[eE]$/.test(out.trimEnd()) && /[^a-z0-9_$]?[eE]$/i.test(out);
+      at += 1;
+      while (at < sql.length) {
+        if (sql[at] === "'") {
+          if (sql[at + 1] === "'") {
+            at += 2;
+            continue;
+          }
+          at += 1;
+          break;
+        }
+        if (escapes && sql[at] === '\\') {
           at += 2;
           continue;
         }
@@ -107,7 +147,7 @@ export function stripLiteralsAndComments(sql: string): string {
 }
 
 // Reads one quoted literal starting at `from`, returning it with its quotes.
-function readQuoted(sql: string, from: number): { text: string; next: number } {
+function readQuoted(sql: string, from: number, escapes = false): { text: string; next: number } {
   const quote = sql[from] ?? "'";
   let text = quote;
   let at = from + 1;
@@ -123,7 +163,8 @@ function readQuoted(sql: string, from: number): { text: string; next: number } {
       at += 1;
       break;
     }
-    if (quote === "'" && char === '\\') {
+    // Backslash escapes exist only in an E string; see blank() above.
+    if (quote === "'" && char === '\\' && escapes) {
       text += sql[at + 1] ?? '';
       at += 2;
       continue;
@@ -147,7 +188,10 @@ export function setConfigArguments(sql: string): string[][] {
     while (at < sql.length && depth > 0) {
       const char = sql[at] ?? '';
       if (char === "'" || char === '"') {
-        const quoted = readQuoted(sql, at);
+        // An E immediately before the quote makes backslashes escape, which
+        // changes where the literal ends. blank() applies the same rule.
+        const escapes = char === "'" && /(?:^|[^a-z0-9_$])[eE]$/i.test(current.trimEnd());
+        const quoted = readQuoted(sql, at, escapes);
         current += quoted.text;
         at = quoted.next;
         continue;

@@ -10,6 +10,7 @@ import {
   type DatabaseEnvironment,
 } from './config.js';
 import { DatabaseConfigError } from './errors.js';
+import { PINNED_TLS } from './tls.js';
 
 const URLS: DatabaseEnvironment = {
   UJIRA_DB_APP_URL: 'postgresql://app:secret@pooler.example:6543/postgres',
@@ -168,4 +169,103 @@ describe('loadDatabaseConfig', () => {
     expect(Object.isFrozen(config)).toBe(true);
     expect(Object.isFrozen(config.app)).toBe(true);
   });
+});
+
+describe('TLS', () => {
+  // Security review blocked an earlier version of this file: it refused the
+  // one parameter an operator would use to ask for verified TLS, told them
+  // trust was pinned in the package, and pinned nothing, so a server that
+  // permits plaintext got tenant identifiers in the clear.
+  it('pins the trust by default, and hands the driver the pinned object', () => {
+    const config = loadDatabaseConfig(URLS);
+    expect(config.tls).toBe('pinned');
+    expect(config.tlsOptions).toBe(PINNED_TLS);
+    expect(config.tlsOptions?.rejectUnauthorized).toBe(true);
+  });
+
+  it('refuses an ssl parameter and says where the trust lives', () => {
+    let message = '';
+    try {
+      loadDatabaseConfig({
+        ...URLS,
+        UJIRA_DB_APP_URL: 'postgresql://app:s@pooler.example:6543/postgres?sslmode=require',
+      });
+    } catch (error) {
+      message = error instanceof Error ? error.message : '';
+    }
+    // The message must point at the mechanism that exists.
+    expect(message).toContain('src/tls.ts');
+  });
+
+  it('allows TLS to be turned off for a loopback host, which is how a container is reached', () => {
+    for (const host of ['localhost', '127.0.0.1', '[::1]']) {
+      const url = `postgresql://app:s@${host}:55432/postgres`;
+      const config = loadDatabaseConfig({
+        UJIRA_DB_TLS: 'off',
+        UJIRA_DB_APP_URL: url,
+        UJIRA_DB_WORKER_URL: url,
+        UJIRA_DB_READER_URL: url,
+        UJIRA_DB_MIGRATION_URL: url,
+      });
+      expect(config.tls, host).toBe('off');
+      expect(config.tlsOptions, host).toBeUndefined();
+    }
+  });
+
+  it('refuses TLS off for any host that is not loopback', () => {
+    expect(() => loadDatabaseConfig({ ...URLS, UJIRA_DB_TLS: 'off' })).toThrow(DatabaseConfigError);
+    // Including one that merely looks local.
+    expect(() =>
+      loadDatabaseConfig({
+        ...URLS,
+        UJIRA_DB_TLS: 'off',
+        UJIRA_DB_APP_URL: 'postgresql://app:s@localhost.attacker.example:6543/postgres',
+      }),
+    ).toThrow(DatabaseConfigError);
+  });
+
+  it.each(['no', 'disable', 'PINNED', 'true', ''])('refuses the TLS mode %s', (mode) => {
+    if (mode === '') {
+      // Empty is treated as unset, which means pinned.
+      expect(loadDatabaseConfig({ ...URLS, UJIRA_DB_TLS: mode }).tls).toBe('pinned');
+      return;
+    }
+    expect(() => loadDatabaseConfig({ ...URLS, UJIRA_DB_TLS: mode })).toThrow(DatabaseConfigError);
+  });
+});
+
+describe('URL query parameters', () => {
+  it('refuses options, which pg forwards as a startup parameter', () => {
+    // Security verified this is not cosmetic: the parameter reaches the
+    // server and can set a session level tenant key on a pooled connection
+    // before any statement exists for the guard to see.
+    expect(() =>
+      loadDatabaseConfig({
+        ...URLS,
+        UJIRA_DB_APP_URL:
+          'postgresql://app:s@pooler.example:6543/postgres?options=-c%20ujira.principal_id%3Dattacker',
+      }),
+    ).toThrow(DatabaseConfigError);
+  });
+
+  it.each(['application_name=ujira-api', 'connect_timeout=5'])('allows %s', (query) => {
+    expect(() =>
+      loadDatabaseConfig({
+        ...URLS,
+        UJIRA_DB_APP_URL: `postgresql://app:s@pooler.example:6543/postgres?${query}`,
+      }),
+    ).not.toThrow();
+  });
+
+  it.each(['target_session_attrs=any', 'passfile=/tmp/p', 'service=prod', 'krbsrvname=x'])(
+    'refuses %s, because the allowlist is the policy',
+    (query) => {
+      expect(() =>
+        loadDatabaseConfig({
+          ...URLS,
+          UJIRA_DB_APP_URL: `postgresql://app:s@pooler.example:6543/postgres?${query}`,
+        }),
+      ).toThrow(DatabaseConfigError);
+    },
+  );
 });

@@ -1,9 +1,17 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-// Runs the plain SQL migrations in packages/db/migrations. The same function
-// serves the CLI scripts, the test harness and the type generator, so all
-// three run exactly the same migrations the same way.
+// Runs the plain SQL migrations in packages/db/migrations. One function, and
+// one ledger: the migrate:up and migrate:down scripts call
+// scripts/db-migrate.ts, which calls this, so the command line, the test
+// harness and the type generator all record into MIGRATIONS_TABLE.
+//
+// They did not always. The scripts used to call the migration tool's own
+// command line, which records into its default table, pgmigrations, while
+// this function records into ours. QA measured both tables on one server,
+// one per path, which is how a migration gets applied twice or reported as
+// pending after it ran. migrate.test.ts fails if the scripts stop going
+// through here, or if the other table ever appears.
 //
 // Migrations run over a session connection, never the transaction pooler:
 // the tool takes a session level advisory lock so two runs cannot overlap,
@@ -20,6 +28,10 @@ export const MIGRATIONS_DIR = fileURLToPath(new URL('../migrations', import.meta
 // One table, in the schema migrations themselves create, so a migration and
 // its record of having run live together.
 export const MIGRATIONS_TABLE = 'ujira_migrations';
+
+// The table the migration tool would use if anything called its command
+// line directly. Nothing may, and a test checks for it.
+export const TOOL_DEFAULT_MIGRATIONS_TABLE = 'pgmigrations';
 
 export type MigrationDirection = 'up' | 'down';
 

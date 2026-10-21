@@ -21,7 +21,7 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { format, resolveConfig } from 'prettier';
 
 import { runMigrations } from '../packages/db/src/migrate.ts';
-import { POSTGRES_IMAGE } from '../packages/db/src/testing/harness.ts';
+import { POSTGRES_IMAGE } from '../packages/db/src/testing/image.ts';
 
 const OUT_FILE = fileURLToPath(new URL('../packages/db/src/schema.generated.ts', import.meta.url));
 const PACKAGE_DIR = fileURLToPath(new URL('../packages/db', import.meta.url));

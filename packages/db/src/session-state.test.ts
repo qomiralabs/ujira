@@ -96,7 +96,14 @@ describe('session state guard', () => {
     // escape, a double quoted identifier and an unterminated literal, each
     // of which could otherwise end a scan in the wrong place.
     expect(holdsSessionState("select set_config('ujira.x', 'it''s fine', true)")).toBe(false);
-    expect(holdsSessionState("select set_config('ujira.x', 'a\\'b', true)")).toBe(false);
+    // Under standard_conforming_strings this literal ends at the second
+    // quote, so what follows is not the argument list it looks like and the
+    // call cannot be verified. The guard fails closed on that rather than
+    // guessing.
+    expect(holdsSessionState("select set_config('ujira.x', 'a\\'b', true)")).toBe(true);
+    // Written as an E string, the quote really is escaped and the call reads
+    // as intended.
+    expect(holdsSessionState("select set_config('ujira.x', E'a\\'b', true)")).toBe(false);
     expect(holdsSessionState('select set_config("ujira.x", \'v\', true)')).toBe(false);
     expect(holdsSessionState("select set_config('ujira.x', 'unterminated")).toBe(true);
     // A doubled quote inside the third argument still has to be a local flag.
@@ -124,10 +131,85 @@ describe('session state guard', () => {
     expect(holdsSessionState('/* unterminated set ujira.principal_id = 1')).toBe(false);
   });
 
-  it('refuses a set hidden behind a dollar quoted body', () => {
-    const sql = '$$ set ujira.principal_id = 1 $$';
-    // Inside a dollar quoted string it is text, so the guard allows it, and
-    // the function that would execute it is reviewed like any other DDL.
-    expect(holdsSessionState(sql)).toBe(false);
+  it('refuses a set inside a dollar quoted body, even as a bare literal', () => {
+    // This expectation changed direction after code review proved a tenant
+    // key set inside a dollar quoted body survived the transaction. Nothing
+    // here can tell an executed body from a string that looks like one, so
+    // both are refused: a false refusal is a review conversation, a false
+    // pass is a tenant leak.
+    expect(holdsSessionState('$$ set ujira.principal_id = 1 $$')).toBe(true);
+  });
+});
+
+describe('spellings that got past the first version of this guard', () => {
+  // Measured by security review. Each one changes session state, and each
+  // failed in the miss direction: the guard said it was safe.
+  it.each([
+    ['a quoted tenant key', 'set "ujira.principal_id" = \'p\''],
+    ['a quoted tenant key with session', 'set session "ujira.principal_id" = \'p\''],
+    ['a quoted role', 'set "role" = \'app\''],
+    ['a quoted session authorization', 'set "session_authorization" = \'app\''],
+    ['a reset of a quoted tenant key', 'reset "ujira.principal_id"'],
+  ])('refuses %s, because a double quote delimits an identifier, not a string', (_name, sql) => {
+    expect(holdsSessionState(sql)).toBe(true);
+  });
+
+  it('refuses a statement after a literal that ends in a backslash', () => {
+    // With standard_conforming_strings on, which is the default, Postgres
+    // ends this literal at the second quote. Treating the backslash as an
+    // escape ran the scan past the end of the statement and missed what
+    // followed.
+    expect(holdsSessionState("select 'a\\'; set ujira.principal_id = 'p'")).toBe(true);
+    expect(holdsSessionState("insert into t (c) values ('x\\'); reset all")).toBe(true);
+  });
+
+  it('still reads a backslash escape inside an E string, where Postgres does', () => {
+    // E'...' keeps backslash escapes, so there the quote really is escaped
+    // and the literal continues.
+    expect(holdsSessionState("select E'a\\'' as escaped")).toBe(false);
+    expect(holdsSessionState("select e'a\\'' as escaped")).toBe(false);
+  });
+
+  it('keeps an identifier readable rather than blanking it', () => {
+    expect(stripLiteralsAndComments('select "ujira.principal_id" from t')).toContain(
+      'ujira.principal_id',
+    );
+    // A string literal is still blanked, so a banned word inside one is text.
+    expect(stripLiteralsAndComments("select 'set role app' from t")).not.toContain('set role');
+  });
+});
+
+describe('the three forms code review proved against a live server', () => {
+  // Each left the tenant key set after the transaction committed, with the
+  // guard allowing the statement. Each gets its own case so a later rewrite
+  // of the scanner cannot quietly drop one.
+  it('refuses a quoted tenant key assignment', () => {
+    expect(holdsSessionState('set "ujira.principal_id" = \'attacker\'')).toBe(true);
+  });
+
+  it('refuses a quoted function name', () => {
+    expect(holdsSessionState("select \"set_config\"('ujira.principal_id','attacker',false)")).toBe(
+      true,
+    );
+  });
+
+  it('refuses a dollar quoted body that sets a tenant key', () => {
+    expect(
+      holdsSessionState(
+        "do $$ begin perform set_config('ujira.principal_id','attacker',false); end $$",
+      ),
+    ).toBe(true);
+  });
+
+  it('refuses a tagged dollar quoted body too', () => {
+    expect(
+      holdsSessionState(
+        "do $body$ begin perform set_config('ujira.principal_id','attacker',false); end $body$",
+      ),
+    ).toBe(true);
+  });
+
+  it('refuses a session level set inside a dollar quoted body', () => {
+    expect(holdsSessionState('do $$ begin set role app; end $$')).toBe(true);
   });
 });

@@ -13,6 +13,11 @@ import { createTestDatabase, withDatabase, type TestDatabase } from './testing/h
 const adminUrl = inject('dbAdminUrl');
 
 const PRINCIPAL = '0199a1f6-1e3f-7c21-9b8a-2d4e6f8a0b12';
+const CONTEXT_FOR_PIN = {
+  principalId: '0199a1f6-1e3f-7c21-9b8a-2d4e6f8a0b12',
+  projectId: '0199a1f6-4c7d-7a55-8e21-5b9c7d3e1f04',
+  scope: 'project',
+} as const;
 const OTHER_PRINCIPAL = '0199a1f6-9999-7c21-9b8a-2d4e6f8a0b12';
 const PROJECT = '0199a1f6-4c7d-7a55-8e21-5b9c7d3e1f04';
 
@@ -30,6 +35,10 @@ function environmentFor(url: string): DatabaseEnvironment {
     // migrator may use it: the config refuses port 6543, not every port.
     UJIRA_DB_WORKER_URL: url,
     UJIRA_DB_MIGRATION_URL: url,
+    // The container is a plain Postgres on a loopback host with no TLS, so
+    // the pin is turned off here. config.test.ts checks that this is
+    // refused for any host that is not loopback.
+    UJIRA_DB_TLS: 'off',
     UJIRA_DB_APP_POOL_SIZE: '2',
     UJIRA_DB_STATEMENT_TIMEOUT_MS: '4000',
     UJIRA_DB_LOCK_TIMEOUT_MS: '2000',
@@ -224,6 +233,23 @@ describe('withTenant', () => {
     );
     expect(new Set(seen).size).toBe(1);
     expect(seen[0]).toBe(database.name);
+  });
+
+  it('really hands the pinned TLS to the driver, not just to the config', async () => {
+    // The container speaks no TLS, so a pinned connection to it must fail
+    // at the handshake. If this ever passes, the ssl object has stopped
+    // reaching pg and the claim in config.ts is false again, which is the
+    // state security blocked this package for.
+    const pinned = createDatabase(
+      loadDatabaseConfig({ ...environmentFor(database.url), UJIRA_DB_TLS: 'pinned' }),
+    );
+    try {
+      await expect(
+        pinned.withTenant('app', CONTEXT_FOR_PIN, () => Promise.resolve()),
+      ).rejects.toThrow();
+    } finally {
+      await pinned.close();
+    }
   });
 
   it('keeps the database name out of the admin url it was given', () => {

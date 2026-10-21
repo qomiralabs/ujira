@@ -1,10 +1,13 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
-import { MIGRATIONS_TABLE, runMigrations } from './migrate.js';
+import { MIGRATIONS_TABLE, runMigrations, TOOL_DEFAULT_MIGRATIONS_TABLE } from './migrate.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
 
 const adminUrl = inject('dbAdminUrl');
@@ -167,6 +170,47 @@ describe('migrations', () => {
       await watcher.query('select pg_advisory_unlock(hashtext($1))', [MIGRATIONS_TABLE]);
     } finally {
       await watcher.end();
+    }
+  });
+});
+
+describe('one ledger', () => {
+  // QA measured two ledgers on one server: the package scripts called the
+  // migration tool's command line, which records into its own default
+  // table, while this function records into ours. A migration run through
+  // one path then looks pending to the other.
+  it('records into our table and never creates the tool default', async () => {
+    const fresh = await createTestDatabase(adminUrl, `${import.meta.url}#ledger`);
+    try {
+      await runMigrations({ databaseUrl: fresh.url, direction: 'down' });
+      await runMigrations({ databaseUrl: fresh.url, direction: 'up' });
+      const client = new pg.Client({ connectionString: fresh.url });
+      await client.connect();
+      try {
+        const tables = await client.query<{ table_name: string }>(
+          `select table_name from information_schema.tables where table_name in ($1, $2)`,
+          [MIGRATIONS_TABLE, TOOL_DEFAULT_MIGRATIONS_TABLE],
+        );
+        expect(tables.rows.map((row) => row.table_name)).toEqual([MIGRATIONS_TABLE]);
+      } finally {
+        await client.end();
+      }
+    } finally {
+      await fresh.drop();
+    }
+  });
+
+  it('has the package scripts go through the shared entry, not the tool command line', () => {
+    // The scripts are the other half of the fix: if one goes back to calling
+    // node-pg-migrate directly, it gets the tool's default table again and
+    // the two ledgers come back.
+    const manifest = JSON.parse(
+      readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
+    ) as { scripts: Record<string, string> };
+    for (const name of ['migrate:up', 'migrate:down']) {
+      const script = manifest.scripts[name] ?? '';
+      expect(script, name).toContain('scripts/db-migrate.ts');
+      expect(script, name).not.toContain('node-pg-migrate');
     }
   });
 });
