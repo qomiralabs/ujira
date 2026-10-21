@@ -227,11 +227,11 @@ What makes "nothing from the app" true is the order of `--ujira-font-mono`, whic
 
 Putting it first costs nothing, because its `unicode-range` confines it to the four signs: every other character fails to match it and falls straight through to the brand face. That holds even on a machine with a full Noto Sans Mono installed, since an `@font-face` rule shadows an installed family of the same name for the document (measured, not assumed).
 
-Both faces advance 0.6 em per character, so a column of amounts keeps one width whichever face draws the sign. `font-display: swap` keeps the amount readable while the 2 KB file arrives.
+Both faces advance 0.6 em per character, so once the subset has loaded a column of amounts keeps one width whichever face draws the sign. Before that it does not: a range limited face is not fetched until a character in its range is needed, and `font-display: swap` paints the first amount with the next face in the stack, at that face's width. So the first naira on a cold page can sit a few pixels wide of the column for a frame. Keeping the amount visible is the right trade, and a blocking `font-display` would hide it instead; a page that always shows one of these currencies can preload `@ujira/ui/fonts/noto-sans-mono-currency-signs.woff2` itself.
 
 The subset and its `unicode-range` come from the `font.mono.signs` tokens in `tokens/system.json`; run `pnpm --filter @ujira/ui tokens` after changing them. `src/fonts/fonts.test.ts` fails if the range stops being those four code points, if the file grows past 10 KB, if the subset draws anything else, if a sign loses the mono advance, if the licence text goes missing, or if the signs face stops coming before the app variable in the stack, in the typed constants and in `tokens.css` alike. Those last two are what stop the ordering regressing: a test that only looked for the family in the stack passed while the bug was live.
 
-The stack order is a package level guarantee, but only an app can prove it end to end, because the metric fallback family only exists once a font loader has run. The dashboard suite owns that check.
+The stack order is a package level guarantee, but only an app can prove it end to end, because the metric fallback family only exists once a font loader has run. That check belongs with the dashboard font tests in #305, which already load a real page and watch what it fetches.
 
 #### Rebuilding the subset
 
