@@ -502,12 +502,33 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      # The self test for the page measurement, before the measurement itself,
+      # so its result is only trusted once the arrangement is known to behave
+      # in both directions: the recorded samples from a quiet runner do not
+      # fail, and the same samples do fail when those two bars are errors.
+      - name: Replay the recorded page samples
+        run: scripts/replay-page-samples.sh
+
       # Reports stay on the runner and in the artifact; nothing is uploaded to
-      # a public Lighthouse server.
+      # a public Lighthouse server. Two of the five assertions are warnings
+      # rather than errors; the step below prints every sample and fails if
+      # the measurement itself is missing or short.
       - name: Lighthouse CI
         run: |
           scripts/assert-pnpm.sh
           pnpm --filter @ujira/dashboard exec lhci autorun
+
+      # Prints every sample of every asserted metric with its median and
+      # spread, and fails when a route, a run or a metric is missing. The
+      # assert command above exits 0 against an empty report folder, so
+      # without this the page measurement could pass having measured nothing.
+      # Runs even when the assert command failed, so a failure is read beside
+      # the numbers that caused it.
+      - name: Page measurement report
+        if: ${{ !cancelled() }}
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm page:report
 
       - name: Upload Lighthouse reports
         if: ${{ !cancelled() }}
