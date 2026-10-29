@@ -116,3 +116,21 @@ minimumReleaseAgeExclude:
   - 'vitest@5.0.5'
   - 'whatwg-url@17.3.0'
   - 'zod@4.6.7'
+  # 2026-10-29, #350, urgent security patch: next 16.3.8 carries two critical
+  # unauthenticated remote code execution advisories (GHSA-2464-fhr4-w9xw,
+  # GHSA-673q-mjm6-r5xr) and one high (GHSA-p3m5-59mp-jv5r). 16.4.1 is the
+  # first patched release and old enough, but it fails the dashboard build on
+  # its next/font/google handling; 16.4.3 carries the upstream fix
+  # (vercel/next.js#100277). These are the ten packages of that one release,
+  # published 2026-10-23, all MIT. Remove them once it is 14 days old on
+  # 2026-11-06, or sooner if the lockfile moves past 16.4.3.
+  - 'next@16.4.3'
+  - '@next/env@16.4.3'
+  - '@next/swc-darwin-arm64@16.4.3'
+  - '@next/swc-darwin-x64@16.4.3'
+  - '@next/swc-linux-arm64-gnu@16.4.3'
+  - '@next/swc-linux-arm64-musl@16.4.3'
+  - '@next/swc-linux-x64-gnu@16.4.3'
+  - '@next/swc-linux-x64-musl@16.4.3'
+  - '@next/swc-win32-arm64-msvc@16.4.3'
+  - '@next/swc-win32-x64-msvc@16.4.3'
