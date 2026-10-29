@@ -169,3 +169,54 @@ test('the focus ring survives both spellings of zero', async ({ page }) => {
     );
   }
 });
+
+/** The ring's colour, width and style, and the band, on the focused control. */
+async function focusPaint(page: Page): Promise<{ outline: string; band: string }> {
+  return page.evaluate(() => {
+    const element = document.querySelector('ujira-onboarding')?.shadowRoot?.activeElement;
+    if (element === null || element === undefined) return { outline: '', band: '' };
+    const style = getComputedStyle(element);
+    return {
+      outline: `${style.outlineWidth} ${style.outlineStyle} ${style.outlineColor}`,
+      band: style.boxShadow,
+    };
+  });
+}
+
+test('a focus colour the page cannot parse leaves the default ring standing', async ({ page }) => {
+  // The likeliest thing a real integrator does is point a colour at one of
+  // their own tokens and get the name wrong. An unregistered property then
+  // makes the declaration it is spent in invalid at computed value time, the
+  // outline falls to its initial style of none, and the ring vanishes on the
+  // step where someone types the address their money goes to.
+  const defaults = /^2px solid rgb\(244, 163, 0\)$/;
+  for (const value of ['var(--their-missing-token)', 'not-a-colour', '12px']) {
+    await open(page);
+    await page.keyboard.press('Tab');
+    await setProperty(page, '--ujira-embed-focus', value);
+    await setProperty(page, '--ujira-embed-focus-inner', value);
+    const { outline, band } = await focusPaint(page);
+    expect(outline, `the ring went missing with a colour of ${value}`).toMatch(defaults);
+    expect(band, `the band went missing with a colour of ${value}`).toBe(
+      'rgb(11, 42, 51) 0px 0px 0px 2px',
+    );
+  }
+});
+
+test('a focus colour the page can parse is the one that paints', async ({ page }) => {
+  // Registration must reject only what cannot be a colour. Transparent is a
+  // colour, so an integrator who asks for an invisible ring gets one: that is
+  // their choice to make, and refusing it would be the widget overruling them.
+  for (const [value, painted] of [
+    ['rgb(1, 2, 3)', 'rgb(1, 2, 3)'],
+    ['transparent', 'rgba(0, 0, 0, 0)'],
+  ] as const) {
+    await open(page);
+    await page.keyboard.press('Tab');
+    await setProperty(page, '--ujira-embed-focus', value);
+    await setProperty(page, '--ujira-embed-focus-inner', value);
+    const { outline, band } = await focusPaint(page);
+    expect(outline).toBe(`2px solid ${painted}`);
+    expect(band).toBe(`${painted} 0px 0px 0px 2px`);
+  }
+});

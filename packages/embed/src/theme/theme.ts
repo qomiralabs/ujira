@@ -50,25 +50,29 @@ export function typeStep(step: ThemeStep): CSSResult {
 }
 
 /**
- * The three focus lengths, typed.
+ * Every property the focus ring is drawn from, typed.
  *
- * Without this a value CSS cannot parse as a length, which includes the
- * unitless zero anyone would reach for first, makes the whole declaration
- * invalid at computed value time. The longhands then fall back to their
- * initial values, and the initial value of outline includes a style of
- * none, so the clamps in the rule are bypassed and the focus indicator
- * disappears entirely rather than being held at its floor.
+ * Unregistered, a value CSS cannot use, such as a unitless zero for a width
+ * or a var() naming a token the page never defined for a colour, makes the
+ * whole declaration it is spent in invalid at computed value time. The
+ * longhands then fall back to their initial values, and the initial value of
+ * outline includes a style of none, so the clamps in the rule are bypassed
+ * and the focus indicator disappears entirely.
  *
- * Registering a syntax moves the rejection earlier, to declaration time,
- * where a bad value is dropped and the previous good one stands. The same
- * treatment would make the colours reject nonsense rather than silently
- * blanking the rule they are spent in, which is worth doing separately.
+ * Registered, a literal that does not match the syntax is dropped at
+ * declaration time and the previous good one stands, and a var() that cannot
+ * resolve falls to the initial value given here, which is the generated
+ * default. Either way the rule always has something valid to draw with. A
+ * valid colour still paints, transparent included: an invisible ring the
+ * integrator asked for is their choice, not a value we failed to parse.
  */
-const LENGTHS = [
-  '--ujira-embed-focus-width',
-  '--ujira-embed-focus-offset',
-  '--ujira-embed-focus-inner-width',
-] as const;
+const FOCUS_SYNTAX = {
+  '--ujira-embed-focus-width': '<length>',
+  '--ujira-embed-focus-offset': '<length>',
+  '--ujira-embed-focus-inner-width': '<length>',
+  '--ujira-embed-focus': '<color>',
+  '--ujira-embed-focus-inner': '<color>',
+} as const;
 
 interface PropertyRegistry {
   registerProperty?: (definition: {
@@ -80,7 +84,7 @@ interface PropertyRegistry {
 }
 
 /**
- * Registers the three. It has to happen through the API rather than an
+ * Registers the five. It has to happen through the API rather than an
  * at-rule in our own stylesheet, because an at-rule inside a shadow root
  * does not register: measured, the same rule in the document works and in
  * the shadow root does nothing. Registration is global to the page, which
@@ -89,11 +93,11 @@ interface PropertyRegistry {
  * Already registered throws, which happens when a page loads the widget
  * twice, and is nothing to do about.
  */
-export function registerLengths(registry: PropertyRegistry = CSS): void {
-  for (const name of LENGTHS) {
-    const initialValue = themeBase[name];
+export function registerFocusProperties(registry: PropertyRegistry = CSS): void {
+  for (const [name, syntax] of Object.entries(FOCUS_SYNTAX)) {
+    const initialValue = themeBase[name as keyof typeof FOCUS_SYNTAX];
     try {
-      registry.registerProperty?.({ name, syntax: '<length>', inherits: true, initialValue });
+      registry.registerProperty?.({ name, syntax, inherits: true, initialValue });
     } catch {
       // Registered already, by another copy of the widget on this page.
     }
