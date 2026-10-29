@@ -44,9 +44,16 @@ const widget = css`
    * same reason, since it is what carries the ring's contrast on a light
    * ground, and the gap is held to a sane range so a negative value cannot
    * pull the ring inside the control.
+   *
+   * The outline is written as longhands so the style stands alone. In a
+   * browser that cannot register custom properties, an unusable width or
+   * colour still invalidates its own longhand, but that one falls to a
+   * visible initial value, and solid is never at risk.
    */
   :focus-visible {
-    outline: max(2px, var(--ujira-embed-focus-width)) solid var(--ujira-embed-focus);
+    outline-width: max(2px, var(--ujira-embed-focus-width));
+    outline-style: solid;
+    outline-color: var(--ujira-embed-focus);
     outline-offset: clamp(0px, var(--ujira-embed-focus-offset), 8px);
     box-shadow: 0 0 0 max(1px, var(--ujira-embed-focus-inner-width)) var(--ujira-embed-focus-inner);
   }

@@ -8,7 +8,7 @@ import { join } from 'node:path';
 
 import { themeBase, themeModes, themeType } from './defaults.generated.js';
 import { widgetStyles } from './styles.js';
-import { declarations, hostTheme, typeStep } from './theme.js';
+import { declarations, hostTheme, registerFocusProperties, typeStep } from './theme.js';
 
 /**
  * The CSS declarations each property is spent in. A property used in more
@@ -245,5 +245,84 @@ describe('theme', () => {
       // Non text contrast: the edge of an input or a choice.
       expect(contrast(tokens['--ujira-embed-field-border'], surface)).toBeGreaterThanOrEqual(3);
     }
+  });
+});
+
+interface Definition {
+  name: string;
+  syntax: string;
+  inherits: boolean;
+  initialValue: string;
+}
+
+/** A registry that records what it is given and can be told to throw. */
+function fakeRegistry(fail?: (name: string) => Error | undefined): {
+  registry: { registerProperty: (definition: Definition) => void };
+  registered: Definition[];
+} {
+  const registered: Definition[] = [];
+  return {
+    registered,
+    registry: {
+      registerProperty(definition) {
+        const error = fail?.(definition.name);
+        if (error !== undefined) throw error;
+        registered.push(definition);
+      },
+    },
+  };
+}
+
+/** Every custom property the :focus-visible rule reads. */
+function focusRuleProperties(): Set<string> {
+  const css = widgetStyles.map((sheet) => sheet.cssText).join('\n');
+  const rule = /:focus-visible\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  return new Set([...rule.matchAll(/var\((--ujira-embed-[a-z-]+)/g)].map((m) => m[1] ?? ''));
+}
+
+describe('registerFocusProperties', () => {
+  it('registers every property the focus rule reads, and nothing else', () => {
+    const { registry, registered } = fakeRegistry();
+    registerFocusProperties(registry);
+    const names = registered.map(({ name }) => name).sort();
+    expect(names).toEqual([...focusRuleProperties()].sort());
+    expect(names).toHaveLength(5);
+  });
+
+  it('types each one, inherits it, and starts it at the generated default', () => {
+    const { registry, registered } = fakeRegistry();
+    registerFocusProperties(registry);
+    for (const { name, syntax, inherits, initialValue } of registered) {
+      expect(syntax).toBe(
+        name.endsWith('-width') || name.endsWith('-offset') ? '<length>' : '<color>',
+      );
+      expect(inherits).toBe(true);
+      expect(initialValue).toBe(themeBase[name as keyof typeof themeBase]);
+    }
+  });
+
+  it('carries on past a name that is registered already', () => {
+    const taken = '--ujira-embed-focus';
+    const { registry, registered } = fakeRegistry((name) =>
+      name === taken ? new DOMException('registered', 'InvalidModificationError') : undefined,
+    );
+    expect(() => {
+      registerFocusProperties(registry);
+    }).not.toThrow();
+    expect(registered.map(({ name }) => name)).not.toContain(taken);
+    expect(registered).toHaveLength(4);
+  });
+
+  it('rethrows anything else, so a bad definition is not hidden', () => {
+    const { registry } = fakeRegistry(() => new DOMException('bad initial value', 'SyntaxError'));
+    expect(() => {
+      registerFocusProperties(registry);
+    }).toThrow('bad initial value');
+  });
+
+  it('does nothing where the browser cannot register properties', () => {
+    expect(() => {
+      registerFocusProperties({});
+    }).not.toThrow();
   });
 });

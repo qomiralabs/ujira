@@ -59,12 +59,19 @@ export function typeStep(step: ThemeStep): CSSResult {
  * outline includes a style of none, so the clamps in the rule are bypassed
  * and the focus indicator disappears entirely.
  *
- * Registered, a literal that does not match the syntax is dropped at
- * declaration time and the previous good one stands, and a var() that cannot
- * resolve falls to the initial value given here, which is the generated
- * default. Either way the rule always has something valid to draw with. A
- * valid colour still paints, transparent included: an invisible ring the
- * integrator asked for is their choice, not a value we failed to parse.
+ * Registered, a value that does not match the syntax, whether a literal or a
+ * var() that cannot resolve, makes the custom property itself invalid at
+ * computed value time instead of the rule that spends it. The property then
+ * behaves as unset, and since it inherits it takes its parent's value: one an
+ * ancestor set, or failing that the initial value given here, which is the
+ * generated default. Either way the focus rule always receives something it
+ * can draw with. A valid colour still paints, transparent included: an
+ * invisible ring the integrator asked for is their choice, not a value we
+ * failed to parse.
+ *
+ * Where the browser cannot register properties at all, the colours are
+ * unprotected, which is why the focus rule keeps outline-style in a
+ * declaration of its own that no custom property can invalidate.
  */
 const FOCUS_SYNTAX = {
   '--ujira-embed-focus-width': '<length>',
@@ -90,24 +97,31 @@ interface PropertyRegistry {
  * the shadow root does nothing. Registration is global to the page, which
  * is why every name here is prefixed.
  *
- * Already registered throws, which happens when a page loads the widget
- * twice, and is nothing to do about.
+ * Already registered throws InvalidModificationError, which happens when a
+ * page loads the widget twice, or registers one of these names itself first,
+ * and is nothing to do about. Anything else is a bug in what we passed, such
+ * as an initial value the syntax rejects, and is rethrown.
  */
 export function registerFocusProperties(registry: PropertyRegistry = CSS): void {
   for (const [name, syntax] of Object.entries(FOCUS_SYNTAX)) {
     const initialValue = themeBase[name as keyof typeof FOCUS_SYNTAX];
     try {
       registry.registerProperty?.({ name, syntax, inherits: true, initialValue });
-    } catch {
-      // Registered already, by another copy of the widget on this page.
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'InvalidModificationError')) {
+        throw error;
+      }
     }
   }
 }
 
 /**
- * Defaults on the host element. Rules on the integrator's page beat these, so
- * setting any of the properties on the element, or on an ancestor of it,
- * changes the widget.
+ * Defaults on the host element. A rule on the integrator's page that targets
+ * the element beats these, so the element is where a property is set. A value
+ * on an ancestor does not reach the widget: these defaults sit on the element
+ * itself, and a value declared on an element always wins over an inherited
+ * one. The one place an ancestor shows through is the focus colours' fallback,
+ * when the value on the element cannot be used.
  */
 export const hostTheme = css`
   :host {

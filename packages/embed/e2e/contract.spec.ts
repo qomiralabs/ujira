@@ -111,6 +111,9 @@ test('every property an integrator is offered changes something from their page'
   page,
   browser,
 }) => {
+  // Twenty properties, several states and a full digest of the rendering for
+  // each candidate value: this is slow by design, not stuck.
+  test.slow();
   // Declared, spent and documented are all checked inside the package. This
   // is the only check made from where an integrator sits, and a property
   // that silently does nothing is worse than an undocumented one, because
@@ -183,24 +186,64 @@ async function focusPaint(page: Page): Promise<{ outline: string; band: string }
   });
 }
 
+/** A generated #RRGGBB default as the browser reports a computed colour. */
+function rgb(hex: string): string {
+  const [r, g, b] = [1, 3, 5].map((start) => Number.parseInt(hex.slice(start, start + 2), 16));
+  return `rgb(${String(r)}, ${String(g)}, ${String(b)})`;
+}
+
+const DEFAULT_RING = `2px solid ${rgb(themeBase['--ujira-embed-focus'])}`;
+const DEFAULT_BAND = `${rgb(themeBase['--ujira-embed-focus-inner'])} 0px 0px 0px 2px`;
+
 test('a focus colour the page cannot parse leaves the default ring standing', async ({ page }) => {
   // The likeliest thing a real integrator does is point a colour at one of
   // their own tokens and get the name wrong. An unregistered property then
   // makes the declaration it is spent in invalid at computed value time, the
   // outline falls to its initial style of none, and the ring vanishes on the
   // step where someone types the address their money goes to.
-  const defaults = /^2px solid rgb\(244, 163, 0\)$/;
   for (const value of ['var(--their-missing-token)', 'not-a-colour', '12px']) {
     await open(page);
     await page.keyboard.press('Tab');
     await setProperty(page, '--ujira-embed-focus', value);
     await setProperty(page, '--ujira-embed-focus-inner', value);
     const { outline, band } = await focusPaint(page);
-    expect(outline, `the ring went missing with a colour of ${value}`).toMatch(defaults);
-    expect(band, `the band went missing with a colour of ${value}`).toBe(
-      'rgb(11, 42, 51) 0px 0px 0px 2px',
-    );
+    expect(outline, `the ring went missing with a colour of ${value}`).toBe(DEFAULT_RING);
+    expect(band, `the band went missing with a colour of ${value}`).toBe(DEFAULT_BAND);
   }
+});
+
+test('a focus colour on an ancestor does not reach the widget', async ({ page }) => {
+  // The defaults are declared on the element, and a declared value beats an
+  // inherited one, so the element is the only place a property is set.
+  await open(page);
+  await page.keyboard.press('Tab');
+  await page.addStyleTag({ content: 'main { --ujira-embed-focus: rgb(1, 2, 3); }' });
+  expect((await focusPaint(page)).outline).toBe(DEFAULT_RING);
+});
+
+test('an unusable focus colour falls back to what an ancestor set', async ({ page }) => {
+  // The one place an ancestor shows through: the value on the element is
+  // invalid, the property behaves as unset, and it inherits.
+  await open(page);
+  await page.keyboard.press('Tab');
+  await page.addStyleTag({ content: 'main { --ujira-embed-focus: rgb(1, 2, 3); }' });
+  await setProperty(page, '--ujira-embed-focus', 'var(--their-missing-token)');
+  expect((await focusPaint(page)).outline).toBe('2px solid rgb(1, 2, 3)');
+});
+
+test('the ring stays solid where properties cannot be registered', async ({ page }) => {
+  // Older browsers have no CSS.registerProperty, so the colours are left
+  // unprotected there. The style is its own declaration, so an unusable
+  // colour can cost the ring its colour but never its existence.
+  await page.addInitScript(() => {
+    Object.defineProperty(CSS, 'registerProperty', { value: undefined });
+  });
+  await open(page);
+  await page.keyboard.press('Tab');
+  await setProperty(page, '--ujira-embed-focus', 'var(--their-missing-token)');
+  await setProperty(page, '--ujira-embed-focus-inner', 'var(--their-missing-token)');
+  const { outline } = await focusPaint(page);
+  expect(outline).toMatch(/^2px solid rgb\(/);
 });
 
 test('a focus colour the page can parse is the one that paints', async ({ page }) => {

@@ -243,9 +243,10 @@ jobs:
       - name: Lint memory headroom
         if: ${{ !cancelled() }}
         env:
-          # 4 GiB, which is 1.38 times the 2.89 GiB measured on this runner:
-          # one more member of the current size passes, a second trips it,
-          # which leaves room to act rather than firing at the outage.
+          # 4 GiB, set so that one more member of the current size passes and
+          # a second trips it, which leaves room to act rather than firing at
+          # the outage. The current reading is printed by this step on every
+          # run; read it there rather than from a figure written here.
           LINT_PEAK_LIMIT_KB: '4194304'
         run: |
           if [ ! -f "${RUNNER_TEMP}/lint-peak-kb" ]; then
