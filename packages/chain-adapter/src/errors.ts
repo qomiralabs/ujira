@@ -39,6 +39,25 @@ export const CHAIN_ADAPTER_ERROR_CODES = Object.freeze([
 
 export type ChainAdapterErrorCode = (typeof CHAIN_ADAPTER_ERROR_CODES)[number];
 
+/**
+ * Why a destination was refused. The set is the same on every chain, and a
+ * chain need not produce every reason: Stellar addresses name no network,
+ * so Stellar never gives WRONG_NETWORK.
+ */
+export const DESTINATION_PARSE_REASONS = Object.freeze([
+  'MALFORMED',
+  'CHECKSUM',
+  'ZERO_ADDRESS',
+  'MEMO_NOT_ID',
+  'TAG_NOT_SUPPORTED',
+  'TAG_OUT_OF_RANGE',
+  'WRONG_NETWORK',
+] as const);
+
+export type DestinationParseReason = (typeof DESTINATION_PARSE_REASONS)[number];
+
+const PARSE_REASONS: ReadonlySet<unknown> = new Set<unknown>(DESTINATION_PARSE_REASONS);
+
 /** Whether anything reached the chain. 'unknown' means reconcile before any retry. */
 export type Landed = 'no' | 'yes' | 'unknown';
 
@@ -66,6 +85,7 @@ export interface ChainAdapterErrorJson {
   readonly specCode?: number;
   readonly specName?: string;
   readonly issues?: readonly string[];
+  readonly reason?: DestinationParseReason;
 }
 
 interface Defaults {
@@ -336,6 +356,8 @@ const MAX_ISSUES = 10;
 export interface InvalidInputErrorOptions extends ChainAdapterErrorOptions {
   /** What was wrong and where, as "path (code)". Never the value itself. */
   readonly issues?: readonly string[];
+  /** Set when a destination was refused, so a caller can say why without reading the issues. */
+  readonly reason?: DestinationParseReason;
 }
 
 function readIssues(read: Record<string, unknown>): readonly string[] | undefined {
@@ -350,8 +372,13 @@ function readIssues(read: Record<string, unknown>): readonly string[] | undefine
   return Object.freeze([...list]);
 }
 
-function withoutIssues(read: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(read).filter(([key]) => key !== 'issues'));
+// The options only InvalidInputError takes; the base class reads the rest.
+const INVALID_INPUT_OPTIONS: ReadonlySet<string> = new Set(['issues', 'reason']);
+
+function withoutOwnOptions(read: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(read).filter(([key]) => !INVALID_INPUT_OPTIONS.has(key)),
+  );
 }
 
 // Each class spells its name, because minifiers rename classes and the name
@@ -360,6 +387,8 @@ function withoutIssues(read: Record<string, unknown>): Record<string, unknown> {
 export class InvalidInputError extends ChainAdapterError {
   override readonly name = 'InvalidInputError';
   readonly issues: readonly string[];
+  /** Why a destination was refused, or null for any other invalid input. */
+  readonly reason: DestinationParseReason | null;
 
   constructor(options?: InvalidInputErrorOptions) {
     // Options that are not plain data go to the base constructor as they
@@ -371,12 +400,18 @@ export class InvalidInputError extends ChainAdapterError {
       // whatever it held out of the error.
       throw new InvalidInputError({ issues: ['errorOptions.issues (invalid)'] });
     }
-    super('INVALID_INPUT', read === undefined ? options : withoutIssues(read));
+    const reason = read?.['reason'];
+    if (reason !== undefined && !PARSE_REASONS.has(reason)) {
+      throw new InvalidInputError({ issues: ['errorOptions.reason (invalid)'] });
+    }
+    super('INVALID_INPUT', read === undefined ? options : withoutOwnOptions(read));
     this.issues = issues;
+    this.reason = (reason as DestinationParseReason | undefined) ?? null;
   }
 
   override toJSON(): ChainAdapterErrorJson {
-    return { ...super.toJSON(), issues: this.issues };
+    const json = { ...super.toJSON(), issues: this.issues };
+    return this.reason === null ? json : { ...json, reason: this.reason };
   }
 }
 

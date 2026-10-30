@@ -8,6 +8,7 @@ export type { KeyRef, NetworksConfig, StellarNetworkConfig } from './config.js';
 export {
   CHAIN_ADAPTER_ERROR_CODES,
   CHAIN_ADAPTER_ERROR_MESSAGES,
+  DESTINATION_PARSE_REASONS,
   ChainAdapterError,
   ChainUnavailableError,
   CrossChainLiveError,
@@ -45,6 +46,7 @@ export type {
   ChainAdapterErrorCode,
   ChainAdapterErrorJson,
   ChainAdapterErrorOptions,
+  DestinationParseReason,
   InvalidInputErrorOptions,
   Landed,
   WaitFor,

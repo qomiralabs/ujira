@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-// Stellar strkeys: a version byte, a 32 byte payload and a CRC16 checksum,
-// in base32. Written out here rather than taken from a Stellar library, so
+// Stellar strkeys: a version byte, a payload and a CRC16 checksum, in
+// base32. Written out here rather than taken from a Stellar library, so
 // configuration and the signer can read and write addresses with no chain
 // dependency at all.
 
@@ -14,13 +14,15 @@ const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 export const STRKEY_VERSION = Object.freeze({
   account: 6 << 3,
   contract: 2 << 3,
+  muxed: 12 << 3,
   seed: 18 << 3,
 });
 
-const PAYLOAD_BYTES = 32;
-// The version byte and the payload, which the checksum covers.
-const BODY_BYTES = 1 + PAYLOAD_BYTES;
-const RAW_BYTES = BODY_BYTES + 2;
+/** The payload of a G, C or S strkey: an ed25519 key or a contract ID. */
+export const KEY_BYTES = 32;
+/** The payload of an M address: the account key, then the id as a big endian u64. */
+export const MUXED_BYTES = KEY_BYTES + 8;
+const U64_MAX = (1n << 64n) - 1n;
 
 function crc16Xmodem(bytes: Uint8Array): number {
   let crc = 0;
@@ -33,13 +35,37 @@ function crc16Xmodem(bytes: Uint8Array): number {
   return crc;
 }
 
-function readBase32(text: string): Uint8Array | undefined {
-  if (!/^[A-Z2-7]{56}$/.test(text)) return undefined;
-  const bytes = new Uint8Array(RAW_BYTES);
+/**
+ * Why a text is not a strkey of the kind asked for. A checksum fault is
+ * kept apart because it is what a typo looks like: the right shape with one
+ * character wrong.
+ */
+export type StrkeyFault = 'malformed' | 'checksum';
+
+/**
+ * The payload of a strkey of this version and payload length, or its fault.
+ * The checksum is checked before the version byte, so a typo anywhere, the
+ * version included, reads as a checksum fault. A typo in an address would
+ * otherwise surface only at the first RPC call, or worse, name a different
+ * account that happens to exist.
+ */
+export function readStrkey(
+  text: string,
+  version: number,
+  payloadBytes: number,
+): Uint8Array | StrkeyFault {
+  const input: unknown = text;
+  const body = 1 + payloadBytes;
+  const bytes = new Uint8Array(body + 2);
+  // Five bits a character, with the last one padded.
+  const length = Math.ceil((bytes.length * 8) / 5);
+  if (typeof input !== 'string' || input.length !== length || !/^[A-Z2-7]+$/.test(input)) {
+    return 'malformed';
+  }
   let buffer = 0;
   let bits = 0;
   let at = 0;
-  for (const char of text) {
+  for (const char of input) {
     // Only the low bits not yet emitted matter, so the buffer stays small.
     buffer = ((buffer << 5) | BASE32.indexOf(char)) & 0xffff;
     bits += 5;
@@ -49,28 +75,22 @@ function readBase32(text: string): Uint8Array | undefined {
       at += 1;
     }
   }
-  // 56 characters carry 280 bits, exactly 35 bytes, so nothing is left over.
-  return bytes;
+  const crc = crc16Xmodem(bytes.subarray(0, body));
+  if (bytes[body] !== (crc & 0xff) || bytes[body + 1] !== crc >> 8) return 'checksum';
+  // A valid checksum over another version byte is another kind of strkey,
+  // and padding bits must be zero, or two texts would read as one address.
+  if (bytes[0] !== version || (buffer & ((1 << bits) - 1)) !== 0) return 'malformed';
+  return bytes.slice(1, body);
 }
 
-// The payload of a strkey of this version, or undefined unless the version
-// byte and the checksum both hold. A typo in an address would otherwise
-// surface only at the first RPC call, or worse, name a different account
-// that happens to exist.
-function readStrkey(text: string, version: number): Uint8Array | undefined {
-  const bytes = typeof text === 'string' ? readBase32(text) : undefined;
-  if (bytes === undefined) return undefined;
-  const crc = crc16Xmodem(bytes.subarray(0, BODY_BYTES));
-  const valid =
-    bytes[0] === version &&
-    bytes[BODY_BYTES] === (crc & 0xff) &&
-    bytes[BODY_BYTES + 1] === crc >> 8;
-  return valid ? bytes.slice(1, BODY_BYTES) : undefined;
+function readKey(text: string, version: number): Uint8Array | undefined {
+  const payload = readStrkey(text, version, KEY_BYTES);
+  return typeof payload === 'string' ? undefined : payload;
 }
 
 /** Whether `text` is a strkey of this version with a valid checksum. */
 export function isStrkey(text: string, version: number): boolean {
-  return readStrkey(text, version) !== undefined;
+  return readKey(text, version) !== undefined;
 }
 
 /** Whether `text` is a G account address. */
@@ -85,7 +105,7 @@ export function isContractAddress(text: string): boolean {
 
 /** The 32 byte ed25519 public key a G address carries. */
 export function decodeAccountAddress(address: string): Uint8Array {
-  const key = readStrkey(address, STRKEY_VERSION.account);
+  const key = readKey(address, STRKEY_VERSION.account);
   if (key === undefined) throw new InvalidInputError({ issues: ['address (invalid)'] });
   return key;
 }
@@ -95,17 +115,47 @@ export function encodeAccountAddress(publicKey: Uint8Array): string {
   return encodeStrkey(STRKEY_VERSION.account, publicKey);
 }
 
+/** The account key and the id an M address payload carries. */
+export function splitMuxed(payload: Uint8Array): {
+  readonly publicKey: Uint8Array;
+  readonly id: bigint;
+} {
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  return { publicKey: payload.slice(0, KEY_BYTES), id: view.getBigUint64(KEY_BYTES) };
+}
+
+/** The M address of an account key and an id. */
+export function encodeMuxedAddress(publicKey: Uint8Array, id: bigint): string {
+  const input: unknown = id;
+  if (typeof input !== 'bigint' || input < 0n || input > U64_MAX) {
+    throw new InvalidInputError({ issues: ['id (out_of_range)'] });
+  }
+  const payload = new Uint8Array(MUXED_BYTES);
+  payload.set(checkKey(publicKey));
+  new DataView(payload.buffer).setBigUint64(KEY_BYTES, input);
+  return writeStrkey(STRKEY_VERSION.muxed, payload);
+}
+
 /** A strkey of any version over a 32 byte payload. */
 export function encodeStrkey(version: number, payload: Uint8Array): string {
-  if (!(payload instanceof Uint8Array) || payload.length !== PAYLOAD_BYTES) {
+  return writeStrkey(version, checkKey(payload));
+}
+
+function checkKey(key: Uint8Array): Uint8Array {
+  if (!(key instanceof Uint8Array) || key.length !== KEY_BYTES) {
     throw new InvalidInputError({ issues: ['publicKey (invalid_length)'] });
   }
-  const bytes = new Uint8Array(RAW_BYTES);
+  return key;
+}
+
+function writeStrkey(version: number, payload: Uint8Array): string {
+  const body = 1 + payload.length;
+  const bytes = new Uint8Array(body + 2);
   bytes[0] = version;
   bytes.set(payload, 1);
-  const crc = crc16Xmodem(bytes.subarray(0, BODY_BYTES));
-  bytes[BODY_BYTES] = crc & 0xff;
-  bytes[BODY_BYTES + 1] = crc >> 8;
+  const crc = crc16Xmodem(bytes.subarray(0, body));
+  bytes[body] = crc & 0xff;
+  bytes[body + 1] = crc >> 8;
   let text = '';
   let buffer = 0;
   let bits = 0;
@@ -118,5 +168,7 @@ export function encodeStrkey(version: number, payload: Uint8Array): string {
       text += BASE32.charAt((buffer >> bits) & 31);
     }
   }
+  // An M address ends part way through a character, padded with zero bits.
+  if (bits > 0) text += BASE32.charAt((buffer << (5 - bits)) & 31);
   return text;
 }
