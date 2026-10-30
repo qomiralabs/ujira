@@ -40,7 +40,7 @@ the package declares for itself.
 | @jridgewell/trace-mapping | 0.3.31 | MIT | https://github.com/jridgewell/sourcemaps |
 | @lit-labs/ssr-dom-shim | 1.6.0 | BSD-3-Clause | https://github.com/lit/lit |
 | @lit/reactive-element | 2.1.2 | BSD-3-Clause | https://github.com/lit/lit |
-| @next/env | 16.3.8 | MIT | https://github.com/vercel/next.js |
+| @next/env | 16.4.3 | MIT | https://github.com/vercel/next.js |
 | @playwright/test | 1.63.0 | Apache-2.0 | https://github.com/microsoft/playwright |
 | @radix-ui/number | 1.1.3 | MIT | https://github.com/radix-ui/primitives |
 | @radix-ui/primitive | 1.1.7 | MIT | https://github.com/radix-ui/primitives |
@@ -114,7 +114,7 @@ the package declares for itself.
 | lucide-react | 1.50.0 | ISC | https://github.com/lucide-icons/lucide |
 | ms | 2.1.3 | MIT | https://github.com/vercel/ms |
 | nanoid | 3.3.20 | MIT | https://github.com/ai/nanoid |
-| next | 16.3.8 | MIT | https://github.com/vercel/next.js |
+| next | 16.4.3 | MIT | https://github.com/vercel/next.js |
 | node-releases | 2.0.57 | MIT | https://github.com/chicoxyzzy/node-releases |
 | nuqs | 2.10.1 | MIT | https://github.com/47ng/nuqs |
 | pg | 8.23.1 | MIT | https://github.com/brianc/node-postgres |
@@ -151,7 +151,7 @@ the package declares for itself.
 | use-sidecar | 1.1.3 | MIT | https://github.com/theKashey/use-sidecar |
 | xtend | 4.0.2 | MIT | https://github.com/Raynos/xtend |
 | yallist | 3.1.1 | ISC | https://github.com/isaacs/yallist |
-| zod | 4.6.5 | MIT | https://github.com/colinhacks/zod |
+| zod | 4.6.7 | MIT | https://github.com/colinhacks/zod |
 
 ## Production platform specific packages
 
@@ -161,14 +161,14 @@ on every platform.
 
 | Package | Version | License | Repository |
 | --- | --- | --- | --- |
-| @next/swc-darwin-arm64 | 16.3.8 | MIT | https://github.com/vercel/next.js |
-| @next/swc-darwin-x64 | 16.3.8 | MIT | https://github.com/vercel/next.js |
-| @next/swc-linux-arm64-gnu | 16.3.8 | MIT | https://github.com/vercel/next.js |
-| @next/swc-linux-arm64-musl | 16.3.8 | MIT | https://github.com/vercel/next.js |
-| @next/swc-linux-x64-gnu | 16.3.8 | MIT | https://github.com/vercel/next.js |
-| @next/swc-linux-x64-musl | 16.3.8 | MIT | https://github.com/vercel/next.js |
-| @next/swc-win32-arm64-msvc | 16.3.8 | MIT | https://github.com/vercel/next.js |
-| @next/swc-win32-x64-msvc | 16.3.8 | MIT | https://github.com/vercel/next.js |
+| @next/swc-darwin-arm64 | 16.4.3 | MIT | https://github.com/vercel/next.js |
+| @next/swc-darwin-x64 | 16.4.3 | MIT | https://github.com/vercel/next.js |
+| @next/swc-linux-arm64-gnu | 16.4.3 | MIT | https://github.com/vercel/next.js |
+| @next/swc-linux-arm64-musl | 16.4.3 | MIT | https://github.com/vercel/next.js |
+| @next/swc-linux-x64-gnu | 16.4.3 | MIT | https://github.com/vercel/next.js |
+| @next/swc-linux-x64-musl | 16.4.3 | MIT | https://github.com/vercel/next.js |
+| @next/swc-win32-arm64-msvc | 16.4.3 | MIT | https://github.com/vercel/next.js |
+| @next/swc-win32-x64-msvc | 16.4.3 | MIT | https://github.com/vercel/next.js |
 
 ## Development dependencies
 
@@ -890,7 +890,6 @@ Used to build and test UJIRA. They are not shipped.
 | yocto-queue | 0.1.0 | MIT | https://github.com/sindresorhus/yocto-queue |
 | zip-stream | 6.0.1 | MIT | https://github.com/archiverjs/node-zip-stream |
 | zod | 3.25.76 | MIT | https://github.com/colinhacks/zod |
-| zod | 4.6.7 | MIT | https://github.com/colinhacks/zod |
 
 ## Development platform specific packages
 
