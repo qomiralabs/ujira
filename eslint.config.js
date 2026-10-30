@@ -708,6 +708,29 @@ const TENANT_SESSION_SELECTORS = [
   },
 ];
 
+// The chain adapter's codecs subpath is the only part of it the signer may
+// import, so anything reachable from there is reachable from the process
+// that holds signing permission. Codecs are pure: they may import their own
+// folder, node:crypto, core, the Stellar base library (XDR and keys, with
+// none of the SDK's RPC or Horizon clients) and the adapter's pure modules,
+// and nothing else. A `./` path may not climb back out with `..`.
+const CODECS_IMPORTS = String.raw`^(?!(?:\./(?!.*\.\.)|\.\./(?:errors|networks|types)\.js$|node:crypto$|@ujira/core$|@stellar/stellar-base(?:/|$)))`;
+const CODECS_MESSAGE =
+  'Codecs are pure and reach no network. Import only their own folder, node:crypto, @ujira/core, @stellar/stellar-base or the adapter errors, networks and types.';
+
+const NETWORK_GLOBALS = ['fetch', 'WebSocket', 'XMLHttpRequest', 'EventSource'].map((name) => ({
+  name,
+  message: CODECS_MESSAGE,
+}));
+
+const NETWORK_GLOBAL_PROPERTIES = ['globalThis', 'global'].flatMap((object) =>
+  ['fetch', 'WebSocket', 'XMLHttpRequest', 'EventSource'].map((property) => ({
+    object,
+    property,
+    message: CODECS_MESSAGE,
+  })),
+);
+
 export default defineConfig(
   {
     // Output folders only where the tools write them, at the root and at each
@@ -848,6 +871,42 @@ export default defineConfig(
     files: ['packages/db/**/*.{test,spec}.{ts,tsx,mts,cts}'],
     rules: {
       'no-restricted-syntax': ['error', ...FENCE_SYNTAX_SELECTORS, ...SET_TYPE_PARSER_SELECTORS],
+    },
+  },
+  {
+    // The codecs allowlist above. The fence groups are restated in full,
+    // because a later entry replaces a rule rather than adding to it.
+    // Tests never ship and import vitest, so they are left out.
+    files: ['packages/chain-adapter/src/codecs/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'],
+    ignores: ['**/*.{test,spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}', '**/*.test-d.ts'],
+    linterOptions: { noInlineConfig: true },
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [...RUNTIME_LOADER_PATHS, ...DB_DRIVER_PATHS],
+          patterns: [
+            ...MONEY_INTERNALS_PATTERNS,
+            ...DB_DRIVER_PATTERNS,
+            { regex: CODECS_IMPORTS, message: CODECS_MESSAGE },
+          ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        ...FENCE_SYNTAX_SELECTORS,
+        ...SET_TYPE_PARSER_SELECTORS,
+        ...TENANT_SESSION_SELECTORS,
+        // A dynamic import is a load at run time the allowlist cannot see.
+        { selector: 'ImportExpression', message: CODECS_MESSAGE },
+      ],
+      'no-restricted-properties': [
+        'error',
+        ...FENCE_PROPERTY_RESTRICTIONS,
+        ...SET_TYPE_PARSER_PROPERTIES,
+        ...NETWORK_GLOBAL_PROPERTIES,
+      ],
+      'no-restricted-globals': ['error', ...NETWORK_GLOBALS],
     },
   },
   {

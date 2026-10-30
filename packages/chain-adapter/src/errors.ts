@@ -18,6 +18,9 @@ export const CHAIN_ADAPTER_ERROR_CODES = Object.freeze([
   'SUBMISSION_UNKNOWN',
   'SIGNED_PAYLOAD_MISMATCH',
   'SIGNING_REQUEST_EXPIRED',
+  'SIGNER_UNAVAILABLE',
+  'SIGNER_DENIED',
+  'SIGNER_ADDRESS_MISMATCH',
   'SPONSOR_DENIED',
   'SPONSOR_UNFUNDED',
   'EXECUTOR_UNFUNDED',
@@ -105,6 +108,16 @@ const DEFAULTS: Readonly<Record<ChainAdapterErrorCode, Defaults>> = {
     message: 'Signed payload differs from the request',
   },
   SIGNING_REQUEST_EXPIRED: { retryable: false, landed: 'no', message: 'Signing request expired' },
+  // A signer failure always comes before broadcast, so nothing has landed.
+  // An outage is worth waiting out; a refusal or a key that controls the
+  // wrong account is a security event and never retried.
+  SIGNER_UNAVAILABLE: { retryable: true, landed: 'no', message: 'Signer unavailable' },
+  SIGNER_DENIED: { retryable: false, landed: 'no', message: 'Signer refused the payload' },
+  SIGNER_ADDRESS_MISMATCH: {
+    retryable: false,
+    landed: 'no',
+    message: 'Signer key does not control the pinned address',
+  },
   SPONSOR_DENIED: { retryable: false, landed: 'no', message: 'Fee sponsorship denied' },
   SPONSOR_UNFUNDED: { retryable: false, landed: 'no', message: 'Fee sponsor is underfunded' },
   EXECUTOR_UNFUNDED: { retryable: false, landed: 'no', message: 'Executor is underfunded' },
@@ -208,6 +221,9 @@ const ADAPTER_ERROR_NAMES = [
   'SubmissionUnknownError',
   'SignedPayloadMismatchError',
   'SigningRequestExpiredError',
+  'SignerUnavailableError',
+  'SignerDeniedError',
+  'SignerAddressMismatchError',
   'SponsorDeniedError',
   'SponsorUnfundedError',
   'ExecutorUnfundedError',
@@ -447,6 +463,30 @@ export class SigningRequestExpiredError extends ChainAdapterError {
   override readonly name = 'SigningRequestExpiredError';
   constructor(options?: ChainAdapterErrorOptions) {
     super('SIGNING_REQUEST_EXPIRED', options);
+  }
+}
+
+/** The signer could not be reached or did not answer in time. Retried with backoff. */
+export class SignerUnavailableError extends ChainAdapterError {
+  override readonly name = 'SignerUnavailableError';
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('SIGNER_UNAVAILABLE', options);
+  }
+}
+
+/** The signer's policy or the key manager refused. Never retried. */
+export class SignerDeniedError extends ChainAdapterError {
+  override readonly name = 'SignerDeniedError';
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('SIGNER_DENIED', options);
+  }
+}
+
+/** A key controls an account other than its pinned one. Stops the service at startup. */
+export class SignerAddressMismatchError extends ChainAdapterError {
+  override readonly name = 'SignerAddressMismatchError';
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('SIGNER_ADDRESS_MISMATCH', options);
   }
 }
 

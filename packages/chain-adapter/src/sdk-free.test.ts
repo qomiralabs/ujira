@@ -41,7 +41,9 @@ describe('the scaffold is SDK free', () => {
   it('imports nothing but core, zod, node and its own modules', () => {
     const files = sourceFiles(path.join(PACKAGE_DIR, 'src'));
     expect(files.length).toBeGreaterThan(5);
-    const allowed = /^(\.\/|@ujira\/core$|zod$|node:|vitest$|fast-check$|eslint$)/;
+    // Relative paths stay inside the package: the codecs folder reaches its
+    // parent, and nothing climbs higher.
+    const allowed = /^(\.\/|\.\.\/(?!\.\.)|@ujira\/core$|zod$|node:|vitest$|fast-check$|eslint$)/;
     const bad: string[] = [];
     for (const file of files) {
       const text = readFileSync(file, 'utf8');

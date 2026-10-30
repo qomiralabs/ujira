@@ -4,7 +4,7 @@
 export { networksConfigSchema, parseNetworksConfig } from './config.js';
 export { CHAIN_NAMESPACES, CHAIN_SDK_PACKAGES } from './chain-modules.js';
 export type { ChainNamespace } from './chain-modules.js';
-export type { NetworksConfig, StellarNetworkConfig } from './config.js';
+export type { KeyRef, NetworksConfig, StellarNetworkConfig } from './config.js';
 export {
   CHAIN_ADAPTER_ERROR_CODES,
   CHAIN_ADAPTER_ERROR_MESSAGES,
@@ -29,6 +29,9 @@ export {
   RpcRateLimitedError,
   RpcTimeoutError,
   SignedPayloadMismatchError,
+  SignerAddressMismatchError,
+  SignerDeniedError,
+  SignerUnavailableError,
   SigningRequestExpiredError,
   SponsorDeniedError,
   SponsorUnfundedError,
@@ -46,11 +49,22 @@ export type {
   Landed,
   WaitFor,
 } from './errors.js';
+export { SIGNER_DOWN, withSignerHealth } from './health.js';
+export { pinnedKeys, verifyPinnedAddresses } from './key-ref.js';
+export type { PinnedKey } from './key-ref.js';
 export { NETWORK_IDS, chainOf, isNetworkId } from './networks.js';
 export type { NetworkId, StellarNetworkId } from './networks.js';
 export { RECEIPT_HASH_FORMATS, formatReceiptRef, parseReceiptRef } from './receipt-ref.js';
 export type { ReceiptRefParts } from './receipt-ref.js';
 export { createChainAdapterRegistry } from './registry.js';
 export type { ChainAdapterRegistryOptions } from './registry.js';
+export {
+  SIGNER_ERROR_CODES,
+  SIGNER_RETRY_RULES,
+  isSignerErrorCode,
+  signerRetryDecision,
+} from './retry.js';
+export type { AlertKind, RetryDecision, RetryRule, SignerErrorCode } from './retry.js';
+export type * from './signer.js';
 export { CHAIN_ADAPTER_INTERFACE_VERSION } from './types.js';
 export type * from './types.js';
