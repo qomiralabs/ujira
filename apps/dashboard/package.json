@@ -19,7 +19,7 @@
     "@ujira/ui": "workspace:*",
     "cmdk": "1.1.1",
     "lucide-react": "1.50.0",
-    "next": "16.3.8",
+    "next": "16.4.3",
     "nuqs": "2.10.1",
     "react": "19.3.1",
     "react-dom": "19.3.1"
