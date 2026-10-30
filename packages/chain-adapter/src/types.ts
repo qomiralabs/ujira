@@ -7,14 +7,15 @@
 // grow a dependency on one chain.
 //
 // Signing is a separate port with its own types (signer references,
-// payloads and results). It is added next to this file when the signer
-// service lands, together with the fields that carry a signer below.
+// payloads and results) in signer.ts. The adapter is given the port, and
+// requests name who signs with a SignerRef.
 
 import type { Chain, FiatCurrencyCode, Money, TokenAmount, TokenAsset } from '@ujira/core';
 
 import type { ChainAdapterErrorCode, ChainAdapterErrorJson } from './errors.js';
 import type { NetworkId } from './networks.js';
 import type { NetworksConfig } from './config.js';
+import type { SignerProvider, SignerRef } from './signer.js';
 
 export const CHAIN_ADAPTER_INTERFACE_VERSION = 1 as const;
 
@@ -127,6 +128,8 @@ export interface ChainAdapterRegistry {
 export interface AdapterPorts {
   /** Implemented in the db repository layer. */
   readonly store: AdapterStore;
+  /** Every key UJIRA holds signs through it; the adapter never sees key material. */
+  readonly signer: SignerProvider;
   /** Implemented in payouts, with counters in the database. */
   readonly sponsorship: SponsorshipPolicy;
   readonly alerts: AdapterAlerts;
@@ -417,12 +420,14 @@ export interface ChainHealth {
   readonly submitSuccessRate5m: number | null;
   readonly sponsorFunded: boolean;
   readonly executorFunded: boolean;
+  /** False while the signer is down; the network is then degraded at best. */
+  readonly signerHealthy: boolean;
   readonly rails: readonly {
     readonly rail: RailId;
     readonly state: HealthState;
     readonly reason?: string;
   }[];
-  /** Machine codes such as HEAD_LAG, RPC_ERRORS or SPONSOR_LOW. */
+  /** Machine codes such as HEAD_LAG, RPC_ERRORS, SPONSOR_LOW or SIGNER_DOWN. */
   readonly reasons: readonly string[];
 }
 
@@ -453,7 +458,7 @@ export interface MandateConfigInput {
   readonly recovery: readonly ChainAddress[];
   readonly recoveryThreshold: number;
   readonly limits: LimitsInput;
-  /** Uncompressed secp256k1 key, 65 bytes starting 0x04; null in allowlist mode. */
+  /** The attester's 32 byte ed25519 public key; null in allowlist mode. */
   readonly attester: Uint8Array | null;
   readonly countryPolicyHash: Bytes32;
   /** The fee cap in basis points. The fee address comes from the factory. */
@@ -476,7 +481,7 @@ export interface AllowEntryInput {
 export interface AttestationInput {
   readonly legIndex: number;
   readonly validUntil: UnixSeconds;
-  /** r, s and v: 65 bytes, low s, v of 27 or 28. */
+  /** The attester's 64 byte ed25519 signature over the attestation message. */
   readonly signature: Uint8Array;
 }
 
@@ -538,6 +543,12 @@ export interface MandateActionRequest {
   /** Null only for op 'create'. */
   readonly mandate: MandateRef | null;
   readonly action: MandateAction;
+  /**
+   * Who authorizes the action: a member's own wallet, which gets a
+   * SigningRequest back, or a key UJIRA holds, which the adapter signs with
+   * through the port.
+   */
+  readonly signer: SignerRef;
 }
 
 /** Human readable and chain neutral, shown before signing. Amounts are core values. */
@@ -764,6 +775,12 @@ export interface PayRequest {
   readonly attestations: readonly AttestationInput[];
   /** hold: approved but not executed yet, for anchor or schedule timing. */
   readonly execute: 'auto' | 'hold';
+  /**
+   * The agent that requests the payout: a managed agent key, or the agent's
+   * own wallet, which gets a signature_required step back. The executor
+   * that executes it comes from a lease, not from here.
+   */
+  readonly signer: SignerRef;
 }
 
 export interface ApprovalCount {

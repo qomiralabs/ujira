@@ -29,6 +29,18 @@
  * plain property read checks.
  * Inside packages/chain-adapter the same code passes. Snippets are linted
  * in memory under real file paths so the scoped config applies.
+ *
+ * Lint fixture codecs-no-network, the contract for the codecs fence, shares
+ * this file so it reuses the warm linter below. Source under
+ * packages/chain-adapter/src/codecs (tests aside) may import only its own
+ * folder (a ./ path that never climbs back out), node:crypto, @ujira/core,
+ * @stellar/stellar-base and the adapter's errors, networks and types
+ * modules. Anything else fails, so an RPC client, the full Stellar SDK, a
+ * node network module, an HTTP client or another adapter module cannot be
+ * imported or re-exported. Dynamic import fails outright, and so do the
+ * network globals fetch, WebSocket, XMLHttpRequest and EventSource, bare or
+ * through globalThis or global. The repository's other fences still apply
+ * there. Elsewhere in the adapter the same code passes this fence.
  */
 
 import path from 'node:path';
@@ -43,6 +55,7 @@ const PAYOUTS_FILE = path.join(REPO_ROOT, 'packages/payouts/src/index.ts');
 const CORE_FILE = path.join(REPO_ROOT, 'packages/core/src/index.ts');
 const MONEY_FILE = path.join(REPO_ROOT, 'packages/core/src/money/currencies.ts');
 const ADAPTER_FILE = path.join(REPO_ROOT, 'packages/chain-adapter/src/index.ts');
+const CODECS_FILE = path.join(REPO_ROOT, 'packages/chain-adapter/src/codecs/index.ts');
 
 const HEADER = [
   '// Copyright (c) 2026 Qomira Labs. All rights reserved.',
@@ -83,6 +96,7 @@ beforeAll(async () => {
   });
   await eslint.lintText(`${HEADER}export {};\n`, { filePath: PAYOUTS_FILE });
   await eslint.lintText(`${HEADER}export {};\n`, { filePath: ADAPTER_FILE });
+  await eslint.lintText(`${HEADER}export {};\n`, { filePath: CODECS_FILE });
   await eslintWithSecondChain.lintText(`${HEADER}export {};\n`, { filePath: PAYOUTS_FILE });
 }, 120_000);
 
@@ -383,4 +397,101 @@ describe('the chain branching rule', () => {
   ])('ignores %s outside the adapter', async (_label, code) => {
     expect(await ruleHits(code, PAYOUTS_FILE)).toBe(0);
   });
+});
+
+// The rules the codecs fence is built from.
+const FENCE_RULES: ReadonlySet<string> = new Set([
+  'no-restricted-imports',
+  'no-restricted-syntax',
+  'no-restricted-properties',
+  'no-restricted-globals',
+]);
+
+async function fenceHits(code: string, filePath: string): Promise<number> {
+  const [result] = await eslint.lintText(HEADER + code, { filePath });
+  if (result === undefined) throw new Error('ESLint returned no result');
+  expect(result.messages.filter((msg) => msg.fatal === true)).toEqual([]);
+  return result.messages.filter(
+    (msg) => msg.ruleId !== null && FENCE_RULES.has(msg.ruleId) && msg.severity === 2,
+  ).length;
+}
+
+const NETWORK_CODE: [string, string][] = [
+  [
+    'an RPC import',
+    "import { Server } from '@stellar/stellar-sdk/rpc';\nexport const s: unknown = Server;\n",
+  ],
+  [
+    'the Stellar SDK, which carries the RPC and Horizon clients',
+    "import { rpc } from '@stellar/stellar-sdk';\nexport const r: unknown = rpc;\n",
+  ],
+  [
+    'a Horizon import',
+    "import { Horizon } from '@stellar/stellar-sdk';\nexport const h: unknown = Horizon;\n",
+  ],
+  ['a re-export of the RPC client', "export { Server } from '@stellar/stellar-sdk/rpc';\n"],
+  ['a star re-export of the RPC client', "export * from '@stellar/stellar-sdk/rpc';\n"],
+  ['node:https', "import https from 'node:https';\nexport const h: unknown = https;\n"],
+  ['http without the node prefix', "import http from 'http';\nexport const h: unknown = http;\n"],
+  ['node:net', "import net from 'node:net';\nexport const n: unknown = net;\n"],
+  ['node:dns', "import dns from 'node:dns';\nexport const d: unknown = dns;\n"],
+  ['an HTTP client', "import { request } from 'undici';\nexport const r: unknown = request;\n"],
+  [
+    'another adapter module',
+    "import { createChainAdapterRegistry } from '../registry.js';\nexport const r: unknown = createChainAdapterRegistry;\n",
+  ],
+  [
+    'a path that climbs out of the folder',
+    "import { createChainAdapterRegistry } from './../registry.js';\nexport const r: unknown = createChainAdapterRegistry;\n",
+  ],
+  ['a dynamic import', "export const load = () => import('node:https');\n"],
+  ['a dynamic import of an allowed module', "export const load = () => import('node:crypto');\n"],
+  ['fetch', "export const f = () => fetch('https://rpc.example');\n"],
+  ['globalThis.fetch', "export const f = () => globalThis.fetch('https://rpc.example');\n"],
+  ['global.fetch', "export const f = () => global.fetch('https://rpc.example');\n"],
+  ['a WebSocket', "export const w = () => new WebSocket('wss://rpc.example');\n"],
+  [
+    'the runtime loader the repository fence bans',
+    "import { createRequire } from 'node:module';\nexport const r: unknown = createRequire;\n",
+  ],
+];
+
+const PURE_CODE: [string, string][] = [
+  [
+    'node:crypto',
+    "import { createHash } from 'node:crypto';\nexport const h: unknown = createHash;\n",
+  ],
+  [
+    'the Stellar base library',
+    "import { xdr } from '@stellar/stellar-base';\nexport const x: unknown = xdr;\n",
+  ],
+  ['core', "import { money } from '@ujira/core';\nexport const m: unknown = money;\n"],
+  [
+    'the adapter errors',
+    "import { InvalidInputError } from '../errors.js';\nexport const e: unknown = InvalidInputError;\n",
+  ],
+  ['the adapter types', "import type { Uuid } from '../types.js';\nexport type U = Uuid;\n"],
+  [
+    'its own folder',
+    "import { isAccountAddress } from './strkey.js';\nexport const a: unknown = isAccountAddress;\n",
+  ],
+];
+
+describe('codecs-no-network', () => {
+  it.each(NETWORK_CODE)('fails on %s inside codecs', async (_label, code) => {
+    expect(await fenceHits(code, CODECS_FILE)).toBeGreaterThan(0);
+  });
+
+  it.each(PURE_CODE)('passes on %s inside codecs', async (_label, code) => {
+    expect(await fenceHits(code, CODECS_FILE)).toBe(0);
+  });
+
+  // The adapter proper talks to RPC endpoints; only codecs are fenced. The
+  // runtime loader is banned in every package, so it is left out here.
+  it.each(NETWORK_CODE.filter(([label]) => !label.includes('loader')))(
+    'passes on %s elsewhere in the adapter',
+    async (_label, code) => {
+      expect(await fenceHits(code, ADAPTER_FILE)).toBe(0);
+    },
+  );
 });

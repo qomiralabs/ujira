@@ -3,12 +3,12 @@
 
 import { z } from 'zod';
 
+import { STRKEY_VERSION, isAccountAddress, isContractAddress, isStrkey } from './codecs/strkey.js';
 import { InvalidInputError } from './errors.js';
 
 // The networks section of the routing configuration. Only this package
 // reads it; the router validates the chain agnostic sections itself.
-// Signing keys join this schema with the signer port, as pinned key
-// references rather than secrets.
+// Signing keys appear as pinned key references, never as secrets.
 
 const STROOPS_MAX = 2n ** 63n - 1n;
 const SECONDS_PER_HOUR = 3600;
@@ -37,52 +37,41 @@ const stroops = decimalAmount(STROOPS_MAX);
 
 const bps = z.int().min(0).max(10_000);
 
-const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-const STRKEY_ACCOUNT = 6 << 3;
-const STRKEY_CONTRACT = 2 << 3;
-
-function crc16Xmodem(bytes: Uint8Array): number {
-  let crc = 0;
-  for (const byte of bytes) {
-    crc ^= byte << 8;
-    for (let bit = 0; bit < 8; bit += 1) {
-      crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
-    }
-  }
-  return crc;
-}
-
 // A typo in a factory or issuer would make every mandate look untrusted, or
 // worse, trust the wrong contract, so the checksum is verified here rather
 // than left to the first RPC call.
-function isStrkey(text: string, version: number): boolean {
-  if (!/^[A-Z2-7]{56}$/.test(text)) return false;
-  const bytes = new Uint8Array(35);
-  let buffer = 0;
-  let bits = 0;
-  let at = 0;
-  for (const char of text) {
-    // Only the low bits not yet emitted matter, so the buffer stays small.
-    buffer = ((buffer << 5) | BASE32.indexOf(char)) & 0xffff;
-    bits += 5;
-    if (bits >= 8) {
-      bits -= 8;
-      bytes[at] = (buffer >> bits) & 0xff;
-      at += 1;
-    }
-  }
-  // 56 characters carry 280 bits, exactly 35 bytes, so nothing is left over.
-  const body = bytes.subarray(0, 33);
-  const crc = crc16Xmodem(body);
-  return bytes[0] === version && bytes[33] === (crc & 0xff) && bytes[34] === crc >> 8;
-}
-
-const stellarAccount = z.string().refine((s) => isStrkey(s, STRKEY_ACCOUNT), {
+const stellarAccount = z.string().refine(isAccountAddress, {
   message: 'not a Stellar account',
 });
-const stellarContract = z.string().refine((s) => isStrkey(s, STRKEY_CONTRACT), {
+const stellarContract = z.string().refine(isContractAddress, {
   message: 'not a Stellar contract',
 });
+
+// A signing key as configuration names it: the key manager it lives in,
+// its ID there, and the account it must control. The address is pinned so
+// the signer's own answer can be checked against it before any work starts.
+// Key IDs are names, so anything shaped like a URL or a Stellar secret seed
+// is refused: either would put a credential in the document.
+const keyRef = z.strictObject({
+  provider: z.string().regex(/^[a-z][a-z0-9_]{0,31}$/),
+  keyId: z
+    .string()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}$/)
+    .refine((id) => !id.includes('//') && !isStrkey(id, STRKEY_VERSION.seed), {
+      message: 'not a key name',
+    }),
+  address: stellarAccount,
+});
+
+const anchorId = z.string().regex(/^[a-z0-9][a-z0-9_.-]{0,63}$/);
+
+const sep10Keys = z
+  .array(z.strictObject({ anchorId, key: keyRef }))
+  .max(64)
+  .refine((list) => new Set(list.map((e) => e.anchorId)).size === list.length, {
+    message: 'duplicate anchor',
+  });
+
 function uniqueList<T extends z.ZodType<string>>(item: T) {
   return z
     .array(item)
@@ -163,6 +152,7 @@ const feeSponsor = z
     globalDailyFeeStroops: stroops,
     lowBalanceStroops: stroops,
     minBalanceStroops: stroops,
+    key: keyRef,
   })
   .refine((f) => f.maxFeePerTxStroops <= f.perPrincipalDailyFeeStroops, {
     message: 'per transaction fee above the daily fee',
@@ -177,22 +167,49 @@ const feeSponsor = z
     path: ['lowBalanceStroops'],
   });
 
-const stellarNetwork = z.strictObject({
-  ...common,
-  trustedFactories: z.strictObject({ '1': uniqueList(stellarContract) }),
-  assets: z.strictObject({
-    USDC: z.strictObject({ sac: stellarContract, issuer: stellarAccount }),
-  }),
-  deposits: z.strictObject({
-    startLedger: z.int().min(0).max(4_294_967_295),
-    // Stellar has no reorgs, so inclusion is final; both spellings are allowed.
-    availableAt: z.enum(['included', 'final']),
-    pageEvents: z.int().min(1).max(1000),
-  }),
-  executor: z.strictObject({ txValiditySeconds: z.int().min(10).max(300) }),
-  feeSponsor,
-  signingWindowSeconds: z.int().min(30).max(SECONDS_PER_HOUR),
-});
+const stellarNetwork = z
+  .strictObject({
+    ...common,
+    trustedFactories: z.strictObject({ '1': uniqueList(stellarContract) }),
+    assets: z.strictObject({
+      USDC: z.strictObject({ sac: stellarContract, issuer: stellarAccount }),
+    }),
+    deposits: z.strictObject({
+      startLedger: z.int().min(0).max(4_294_967_295),
+      // Stellar has no reorgs, so inclusion is final; both spellings are allowed.
+      availableAt: z.enum(['included', 'final']),
+      pageEvents: z.int().min(1).max(1000),
+    }),
+    executor: z.strictObject({
+      txValiditySeconds: z.int().min(10).max(300),
+      // The channel account pool. Jobs lease one key at a time from it.
+      keys: z.array(keyRef).min(1).max(256),
+    }),
+    feeSponsor,
+    // UJIRA's login key for each anchor it pays out through.
+    sep10: sep10Keys,
+    signingWindowSeconds: z.int().min(30).max(SECONDS_PER_HOUR),
+  })
+  .superRefine((network, ctx) => {
+    // One key, one role. The signer picks its policy from the ref it is
+    // asked under, so a key that served two roles could be asked to sign
+    // one role's payload under the other role's looser policy.
+    const placed: { path: (string | number)[]; key: z.output<typeof keyRef> }[] = [
+      ...network.executor.keys.map((key, index) => ({ path: ['executor', 'keys', index], key })),
+      { path: ['feeSponsor', 'key'], key: network.feeSponsor.key },
+      ...network.sep10.map((entry, index) => ({ path: ['sep10', index, 'key'], key: entry.key })),
+    ];
+    const addresses = new Set<string>();
+    const ids = new Set<string>();
+    for (const { path, key } of placed) {
+      const id = JSON.stringify([key.provider, key.keyId]);
+      if (addresses.has(key.address) || ids.has(id)) {
+        ctx.addIssue({ code: 'custom', message: 'key used twice', path });
+      }
+      addresses.add(key.address);
+      ids.add(id);
+    }
+  });
 
 /** zod schema for the networks section, for the routing document to compose. */
 export const networksConfigSchema = z.strictObject({
@@ -208,6 +225,8 @@ type DeepReadonly<T> = T extends bigint | string | number | boolean | null | und
 
 export type NetworksConfig = DeepReadonly<z.output<typeof networksConfigSchema>>;
 export type StellarNetworkConfig = NonNullable<NetworksConfig['stellar:pubnet']>;
+/** A pinned signing key: provider, the key's ID there, and the account it controls. */
+export type KeyRef = StellarNetworkConfig['feeSponsor']['key'];
 
 const MAX_LISTED_ISSUES = 10;
 

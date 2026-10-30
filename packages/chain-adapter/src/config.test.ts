@@ -21,16 +21,23 @@
  * - Cross field rules: downErrorBps >= degradedErrorBps, low balance alert
  *   >= minimum balance, per transaction fee <= per principal daily fee <=
  *   global daily fee.
+ * - Signing keys for executors (a pool of at least one), the fee sponsor
+ *   and each SEP-10 anchor are key references { provider, keyId, address }:
+ *   the provider a lower snake case name, the key ID a name that is not a
+ *   URL and not a Stellar secret seed, and the address a checked G account
+ *   that the signer's own answer is compared with at startup. One key
+ *   serves one role: no address and no provider and key ID pair appears
+ *   twice in a network, and no anchor has two keys.
  *
  * A bad document throws InvalidInputError with a fixed message whose issues
  * name the paths and issue codes only. Values never appear, because a misplaced secret is
  * exactly the kind of mistake this check exists to catch.
- * Signing key references for executors, the fee sponsor and SEP-10 arrive
- * with the signer port and are not part of this schema yet.
  */
 
 import { describe, expect, it } from 'vitest';
 
+import { encodeAccountAddress } from './codecs/index.js';
+import { STRKEY_VERSION, encodeStrkey } from './codecs/strkey.js';
 import { InvalidInputError, networksConfigSchema, parseNetworksConfig } from './index.js';
 
 const FACTORY = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
@@ -38,6 +45,17 @@ const SAC = 'CABAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAFNSZ';
 const ISSUER = 'GABQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQHGPC';
 // Circle's testnet USDC issuer, so the strkey check is proven on a real key.
 const CIRCLE_TESTNET = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
+
+const account = (fill: number): string => encodeAccountAddress(new Uint8Array(32).fill(fill));
+const EXECUTOR_0 = account(1);
+const EXECUTOR_1 = account(2);
+const SPONSOR = account(3);
+const SEP10 = account(4);
+
+function key(keyId: string, address: string): Record<string, unknown> {
+  return { provider: 'aws_kms', keyId, address };
+}
+
 function stellar(): Record<string, unknown> {
   return {
     enabled: true,
@@ -49,7 +67,16 @@ function stellar(): Record<string, unknown> {
     trustedFactories: { '1': [FACTORY] },
     assets: { USDC: { sac: SAC, issuer: ISSUER } },
     deposits: { startLedger: 0, availableAt: 'included', pageEvents: 500 },
-    executor: { txValiditySeconds: 60 },
+    executor: {
+      txValiditySeconds: 60,
+      keys: [
+        key('alias/ujira-executor-0', EXECUTOR_0),
+        key(
+          'arn:aws:kms:eu-central-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab',
+          EXECUTOR_1,
+        ),
+      ],
+    },
     feeSponsor: {
       perPrincipalFundingAccounts: 1,
       reserveSponsorshipDailyStroops: '500000000',
@@ -60,7 +87,9 @@ function stellar(): Record<string, unknown> {
       globalDailyFeeStroops: '5000000000',
       lowBalanceStroops: '1000000000',
       minBalanceStroops: '100000000',
+      key: key('alias/ujira-fee-sponsor', SPONSOR),
     },
+    sep10: [{ anchorId: 'anchor.example', key: key('alias/ujira-sep10-anchor', SEP10) }],
     signingWindowSeconds: 300,
     explorer: { tx: 'https://stellar.expert/explorer/public/tx/{hash}' },
     health: {
@@ -326,6 +355,61 @@ describe('parseNetworksConfig', () => {
       'two hash slots',
       withChange('stellar:testnet', 'explorer.tx', 'https://x.example/{hash}/{hash}'),
     ],
+    ['no executor key', withChange('stellar:pubnet', 'executor.keys', [])],
+    ['no fee sponsor key', withChange('stellar:pubnet', 'feeSponsor.key', undefined)],
+    ['no sep10 list', withChange('stellar:testnet', 'sep10', undefined)],
+    ['a key as a secret reference', withChange('stellar:pubnet', 'feeSponsor.key', 'secretRef:a')],
+    [
+      'a key ID that is a URL',
+      withChange('stellar:pubnet', 'feeSponsor.key.keyId', 'https://kms.example/k1'),
+    ],
+    [
+      'a key ID with a scheme and no host',
+      withChange('stellar:pubnet', 'executor.keys.0.keyId', 'file:///keys/executor'),
+    ],
+    [
+      'a secret seed as a key ID',
+      withChange(
+        'stellar:pubnet',
+        'executor.keys.1.keyId',
+        // Built at run time, so no seed shaped literal sits in the source.
+        encodeStrkey(STRKEY_VERSION.seed, new Uint8Array(32).fill(9)),
+      ),
+    ],
+    ['a key ID with a space', withChange('stellar:testnet', 'feeSponsor.key.keyId', 'my key')],
+    ['an empty key ID', withChange('stellar:testnet', 'feeSponsor.key.keyId', '')],
+    [
+      'a key ID past 256 characters',
+      withChange('stellar:testnet', 'feeSponsor.key.keyId', 'k'.repeat(257)),
+    ],
+    ['a provider in capitals', withChange('stellar:testnet', 'feeSponsor.key.provider', 'AWS')],
+    ['a contract as a key address', withChange('stellar:pubnet', 'feeSponsor.key.address', SAC)],
+    ['a key with an extra field', withChange('stellar:pubnet', 'feeSponsor.key.secret', 'x')],
+    [
+      'one key as executor and fee sponsor',
+      withChange('stellar:pubnet', 'feeSponsor.key', key('alias/ujira-executor-0', EXECUTOR_0)),
+    ],
+    [
+      'one address under two key IDs',
+      withChange('stellar:pubnet', 'sep10', [
+        { anchorId: 'anchor.example', key: key('alias/other', SPONSOR) },
+      ]),
+    ],
+    [
+      'one key ID for two addresses',
+      withChange('stellar:pubnet', 'executor.keys.1', key('alias/ujira-executor-0', EXECUTOR_1)),
+    ],
+    [
+      'two keys for one anchor',
+      withChange('stellar:testnet', 'sep10', [
+        { anchorId: 'anchor.example', key: key('alias/a', SEP10) },
+        { anchorId: 'anchor.example', key: key('alias/b', CIRCLE_TESTNET) },
+      ]),
+    ],
+    [
+      'an anchor ID in capitals',
+      withChange('stellar:testnet', 'sep10', [{ anchorId: 'Anchor', key: key('alias/a', SEP10) }]),
+    ],
     ['a negative start ledger', withChange('stellar:pubnet', 'deposits.startLedger', -1)],
     ['a page above 1000 events', withChange('stellar:pubnet', 'deposits.pageEvents', 1001)],
     ['enabled as a string', withChange('stellar:testnet', 'enabled', 'true')],
@@ -334,6 +418,50 @@ describe('parseNetworksConfig', () => {
     ['null', null],
   ])('refuses %s', (_label, input) => {
     expect(thrown(() => parseNetworksConfig(input))).toBeInstanceOf(InvalidInputError);
+  });
+
+  it('reads pinned key references for every signing role', () => {
+    const section = parseNetworksConfig({ 'stellar:testnet': stellar() })['stellar:testnet'];
+    expect(section?.executor.keys.map((k) => k.address)).toEqual([EXECUTOR_0, EXECUTOR_1]);
+    expect(section?.feeSponsor.key).toEqual({
+      provider: 'aws_kms',
+      keyId: 'alias/ujira-fee-sponsor',
+      address: SPONSOR,
+    });
+    expect(section?.sep10).toEqual([
+      { anchorId: 'anchor.example', key: key('alias/ujira-sep10-anchor', SEP10) },
+    ]);
+    expect(Object.isFrozen(section?.feeSponsor.key)).toBe(true);
+    // A deployment that pays no anchor needs no SEP-10 key.
+    const walletOnly = parseNetworksConfig(withChange('stellar:testnet', 'sep10', []));
+    expect(walletOnly['stellar:testnet']?.sep10).toEqual([]);
+    // A local key and the same key ID under another provider are both fine.
+    const local = withChange('stellar:testnet', 'sep10', [
+      {
+        anchorId: 'anchor.example',
+        key: { ...key('alias/ujira-fee-sponsor', SEP10), provider: 'local' },
+      },
+    ]);
+    expect(parseNetworksConfig(local)['stellar:testnet']?.sep10[0]?.key.provider).toBe('local');
+  });
+
+  it('names a key used twice by where it is, never by its value', () => {
+    const err = thrown(() =>
+      parseNetworksConfig(
+        withChange('stellar:pubnet', 'sep10', [
+          { anchorId: 'anchor.example', key: key('alias/ujira-executor-0', EXECUTOR_0) },
+        ]),
+      ),
+    ) as InvalidInputError;
+    expect(err.issues).toEqual(['networks.stellar:pubnet.sep10.0.key (custom)']);
+    const seed = encodeStrkey(STRKEY_VERSION.seed, new Uint8Array(32).fill(9));
+    const leaked = thrown(() =>
+      parseNetworksConfig(withChange('stellar:pubnet', 'feeSponsor.key.keyId', seed)),
+    ) as InvalidInputError;
+    expect(leaked.issues).toEqual(['networks.stellar:pubnet.feeSponsor.key.keyId (custom)']);
+    for (const text of [leaked.message, ...leaked.issues, JSON.stringify(leaked)]) {
+      expect(text).not.toContain(seed);
+    }
   });
 
   it('accepts ordinary explorer templates', () => {

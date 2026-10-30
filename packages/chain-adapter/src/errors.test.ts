@@ -23,7 +23,7 @@
  * strings included, and any option that could not be stored on a job,
  * throws InvalidInputError.
  *
- * Defaults: transport and rail outages, and an expired quote, are
+ * Defaults: transport, rail and signer outages, and an expired quote, are
  * retryable; everything else is final with landed 'no'. Two codes
  * default to landed 'unknown': SUBMISSION_UNKNOWN, and RPC_TIMEOUT, because
  * a timeout on a send may have landed. A read that sent nothing passes
@@ -39,8 +39,11 @@
  * mandate error is final. specCode must be a non negative safe integer and
  * specName a non empty upper snake case name, else InvalidInputError.
  *
+ * The signer errors (SIGNER_UNAVAILABLE, SIGNER_DENIED and
+ * SIGNER_ADDRESS_MISMATCH) are in the same set; how a job retries them is
+ * pinned in retry.test.ts.
+ *
  * toJSON() returns the serializable ChainAdapterErrorJson stored on jobs.
- * Signer errors arrive with the signer port and are not part of this set.
  */
 
 import { format, inspect } from 'node:util';
@@ -72,6 +75,9 @@ import {
   RpcRateLimitedError,
   RpcTimeoutError,
   SignedPayloadMismatchError,
+  SignerAddressMismatchError,
+  SignerDeniedError,
+  SignerUnavailableError,
   SigningRequestExpiredError,
   SponsorDeniedError,
   SponsorUnfundedError,
@@ -99,6 +105,9 @@ const TABLE: [ChainAdapterErrorCode, Ctor, boolean, 'no' | 'unknown'][] = [
   ['SUBMISSION_UNKNOWN', SubmissionUnknownError, true, 'unknown'],
   ['SIGNED_PAYLOAD_MISMATCH', SignedPayloadMismatchError, false, 'no'],
   ['SIGNING_REQUEST_EXPIRED', SigningRequestExpiredError, false, 'no'],
+  ['SIGNER_UNAVAILABLE', SignerUnavailableError, true, 'no'],
+  ['SIGNER_DENIED', SignerDeniedError, false, 'no'],
+  ['SIGNER_ADDRESS_MISMATCH', SignerAddressMismatchError, false, 'no'],
   ['SPONSOR_DENIED', SponsorDeniedError, false, 'no'],
   ['SPONSOR_UNFUNDED', SponsorUnfundedError, false, 'no'],
   ['EXECUTOR_UNFUNDED', ExecutorUnfundedError, false, 'no'],
