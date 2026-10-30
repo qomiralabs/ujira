@@ -38,6 +38,8 @@ the package declares for itself.
 | @jridgewell/resolve-uri | 3.1.2 | MIT | https://github.com/jridgewell/resolve-uri |
 | @jridgewell/sourcemap-codec | 1.6.0 | MIT | https://github.com/jridgewell/sourcemaps |
 | @jridgewell/trace-mapping | 0.3.31 | MIT | https://github.com/jridgewell/sourcemaps |
+| @lit-labs/ssr-dom-shim | 1.6.0 | BSD-3-Clause | https://github.com/lit/lit |
+| @lit/reactive-element | 2.1.2 | BSD-3-Clause | https://github.com/lit/lit |
 | @next/env | 16.4.3 | MIT | https://github.com/vercel/next.js |
 | @playwright/test | 1.63.0 | Apache-2.0 | https://github.com/microsoft/playwright |
 | @radix-ui/number | 1.1.3 | MIT | https://github.com/radix-ui/primitives |
@@ -83,6 +85,7 @@ the package declares for itself.
 | @swc/helpers | 0.5.23 | Apache-2.0 | https://github.com/swc-project/swc |
 | @types/react | 19.3.0 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/react-dom | 19.3.0 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
+| @types/trusted-types | 2.0.7 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | aria-hidden | 1.2.6 | MIT | https://github.com/theKashey/aria-hidden |
 | baseline-browser-mapping | 2.11.27 | Apache-2.0 | https://github.com/web-platform-dx/baseline-browser-mapping |
 | browserslist | 4.29.3 | MIT | https://github.com/browserslist/browserslist |
@@ -104,6 +107,9 @@ the package declares for itself.
 | jsesc | 3.1.0 | MIT | https://github.com/mathiasbynens/jsesc |
 | json5 | 2.2.3 | MIT | https://github.com/json5/json5 |
 | kysely | 0.29.6 | MIT | https://github.com/kysely-org/kysely |
+| lit | 3.3.3 | BSD-3-Clause | https://github.com/lit/lit |
+| lit-element | 4.2.2 | BSD-3-Clause | https://github.com/lit/lit |
+| lit-html | 3.3.3 | BSD-3-Clause | https://github.com/lit/lit |
 | lru-cache | 5.1.1 | ISC | https://github.com/isaacs/node-lru-cache |
 | lucide-react | 1.50.0 | ISC | https://github.com/lucide-icons/lucide |
 | ms | 2.1.3 | MIT | https://github.com/vercel/ms |
@@ -1018,6 +1024,8 @@ Files that do not come from npm, from `assets.licenses.json`.
 | apps/dashboard/public/brand/*.svg | 2 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-20 |
 | apps/dashboard/src/app/apple-icon.png | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-20 |
 | apps/dashboard/src/app/icon.png | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-20 |
+| packages/embed/assets/brand/*.svg | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-20 |
+| packages/embed/e2e/__screenshots__/**/*.png | 2 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-21 |
 | packages/ui/assets/brand/*.svg | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-17 |
 | packages/ui/assets/brand/Tokens.json | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-17 |
 | packages/ui/e2e/__snapshots__/*.png | 154 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-20 |

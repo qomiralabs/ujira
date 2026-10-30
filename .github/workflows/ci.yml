@@ -178,10 +178,87 @@ jobs:
             exit 1
           fi
 
+      # This ceiling has been raised once already, from the runner's default
+      # of about 2 GB to 6 GB, in #338. If you are here to raise it again,
+      # the growth is the problem rather than the number.
+      #
+      # The type aware lint builds one TypeScript program per workspace
+      # member and holds them all at once, so its peak memory grows with the
+      # workspace. Two different measurements on two different machines,
+      # which must not be blurred:
+      #
+      #   growth, peak resident size on one developer machine, same command:
+      #   2,099,462,144 bytes at e3f6990 to 2,543,484,928 bytes with the
+      #   embed package added, 21.1 percent for one member. The raw counts
+      #   are here on purpose: both are 1.96 and 2.37 when rounded to two
+      #   places, and a ratio of two rounded numbers cannot be trusted to a
+      #   tenth of a percent. Dividing the rounded pair gives 18.5, which is
+      #   arithmetically perfect and wrong.
+      #
+      #   headroom, on this runner: V8 printed a total heap of about 2,057
+      #   MB as the ceiling it died against, with roughly 2,018 MB live.
+      #
+      #   the runner's own peak, which is the figure that matters and the
+      #   only one not written down here, because the step below prints it
+      #   on every run and a number in a comment goes stale against an
+      #   instrument that re-measures it. For the record, its first reading
+      #   was 3,030,596 kB at a27b10f, about 22 percent above the local
+      #   figure, so everyone reasoning from the developer machine had
+      #   roughly half a member less margin than they believed. Read the
+      #   current one from the step, not from here.
+      #
+      # The first says how fast it grows, the second says how little room
+      # was left, the third says where we actually are. Not one of them is
+      # the other.
+      #
+      # Raising the ceiling is a stopgap. The fix is to build the programs
+      # lazily rather than eagerly, which changes the shared ESLint
+      # configuration and belongs in its own change, #343.
+      #
+      # The raise also removed the only thing reporting the growth: before
+      # it, the lint announced each step by dying. So the peak is recorded
+      # on every run and asserted well under the ceiling, and #343's trigger
+      # is a reading rather than an outage.
       - name: Lint
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: |
           scripts/assert-pnpm.sh
-          pnpm lint
+          # The lint's own result must not depend on the measuring tool, so a
+          # runner without it still lints; the missing reading fails below,
+          # on its own, where it cannot be mistaken for a lint failure.
+          if [ -x /usr/bin/time ]; then
+            /usr/bin/time -f '%M' -o "${RUNNER_TEMP}/lint-peak-kb" pnpm lint
+          else
+            rm -f "${RUNNER_TEMP}/lint-peak-kb"
+            pnpm lint
+          fi
+
+      # A resident size budget in its own right, not a reading of the heap
+      # the flag above constrains: the tool reports maximum resident set
+      # size, which includes the binary, compiled code and everything off
+      # heap, so it runs above V8's old space usage rather than tracking it.
+      # The two are not comparable, and this errs safe, because resident size
+      # reaches the budget before the heap reaches the ceiling.
+      - name: Lint memory headroom
+        if: ${{ !cancelled() }}
+        env:
+          # 4 GiB, set so that one more member of the current size passes and
+          # a second trips it, which leaves room to act rather than firing at
+          # the outage. The current reading is printed by this step on every
+          # run; read it there rather than from a figure written here.
+          LINT_PEAK_LIMIT_KB: '4194304'
+        run: |
+          if [ ! -f "${RUNNER_TEMP}/lint-peak-kb" ]; then
+            echo "the lint peak was not recorded, so the growth in #343 is unobserved" >&2
+            exit 1
+          fi
+          peak=$(cat "${RUNNER_TEMP}/lint-peak-kb")
+          echo "lint peak resident size: ${peak} kB, limit ${LINT_PEAK_LIMIT_KB} kB"
+          if [ "$peak" -gt "${LINT_PEAK_LIMIT_KB}" ]; then
+            echo "The type aware lint is over its resident size budget. See #343." >&2
+            exit 1
+          fi
 
       - name: Format check
         run: |
@@ -265,6 +342,93 @@ jobs:
           name: coverage
           path: ${{ runner.temp }}/coverage/
           if-no-files-found: ${{ job.status == 'success' && 'error' || 'ignore' }}
+          retention-days: 14
+
+  # The embed widget is the only surface that ships as a file on someone
+  # else's page, so its budget and its browser tests run on every change. A
+  # separate job because it needs a browser, which the verify job does not.
+  embed:
+    name: Embed widget
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The same hand installation and check as the verify job: the download
+      # is verified against a pinned hash before anything runs it.
+      - name: Set up pnpm
+        run: |
+          curl -fsSLo pnpm.tgz "https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-${PNPM_VERSION}.tgz"
+          echo "${PNPM_EXE_SHA512}  pnpm.tgz" | sha512sum --check --strict
+          mkdir -p "${RUNNER_TEMP}/pnpm"
+          tar -xzf pnpm.tgz -C "${RUNNER_TEMP}/pnpm" --strip-components 1 package/pnpm
+          rm pnpm.tgz
+          echo "${RUNNER_TEMP}/pnpm" >> "${GITHUB_PATH}"
+          PATH="${RUNNER_TEMP}/pnpm:${PATH}" scripts/assert-pnpm.sh
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm install --frozen-lockfile --ignore-scripts
+
+      # Fails above 60 KB gzipped. The widget is built in memory, so this
+      # writes nothing into the checkout.
+      - name: Size budget
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/embed size
+
+      - name: Install Chromium
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/embed exec playwright install --with-deps chromium
+
+      # Theming, accessibility in both modes, the 320px layout and the time to
+      # interactive on a throttled connection.
+      - name: Browser tests
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/embed e2e
+
+      # Light and dark at every review width, for the design review on the
+      # pull request.
+      - name: Screenshots
+        if: ${{ !cancelled() }}
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/embed screenshots "${RUNNER_TEMP}/embed-screenshots"
+
+      - name: Upload screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: embed-screenshots
+          path: ${{ runner.temp }}/embed-screenshots/
+          if-no-files-found: ${{ job.status == 'success' && 'error' || 'ignore' }}
+          retention-days: 14
+
+      # On a failure this carries the diff of the visual snapshot and the
+      # trace of every failed test.
+      - name: Upload the browser test report
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: embed-playwright-report
+          path: |
+            packages/embed/playwright-report/
+            packages/embed/test-results/
+            packages/embed/e2e/__screenshots__/
+          if-no-files-found: ignore
           retention-days: 14
 
   # The dashboard's browser checks: the route bundle budget, Playwright flows,

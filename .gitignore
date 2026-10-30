@@ -43,6 +43,10 @@ next-env.d.ts
 .vercel/
 
 # Playwright and Storybook
+# Only the Linux baselines are committed: they are the ones CI compares
+# against. A local run writes its own platform's folder next to them.
+packages/embed/e2e/__screenshots__/darwin/
+packages/embed/e2e/__screenshots__/win32/
 playwright-report/
 blob-report/
 test-results/

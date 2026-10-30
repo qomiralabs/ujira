@@ -1,0 +1,41 @@
+{
+  "name": "@ujira/embed",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": [
+    "./dist/index.js"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint --max-warnings 0 .",
+    "test": "vitest run",
+    "brand": "node tokens/build.ts",
+    "size": "node tools/size.ts",
+    "e2e": "playwright test",
+    "screenshots": "node tools/screenshots.ts"
+  },
+  "dependencies": {
+    "lit": "3.3.3"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.63.0",
+    "@types/node": "24.19.2",
+    "@ujira/ui": "workspace:*",
+    "jsdom": "30.1.3",
+    "typescript": "6.0.3",
+    "vite": "8.3.4"
+  }
+}

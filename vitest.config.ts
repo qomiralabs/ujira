@@ -30,6 +30,10 @@ export default defineConfig({
         // `@vitest-environment jsdom` comment. The token generator has its
         // own tests next to it.
         '@ujira/ui': { include: ['src/**/*.test.{ts,tsx}', 'tokens/**/*.test.ts'] },
+        // The widget's own tests, plus the generator that turns the shared
+        // tokens and the brand mark into the files it ships. The browser
+        // tests live in e2e/ and run under Playwright, not here.
+        '@ujira/embed': { include: ['src/**/*.test.ts', 'tokens/**/*.test.ts'] },
         // Component tests run in jsdom. The browser flows, visual snapshots
         // and accessibility checks are Playwright specs under e2e/.
         '@ujira/dashboard': {
