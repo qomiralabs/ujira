@@ -32,6 +32,9 @@
  * InvalidInputError also takes `issues`: at most ten strings of the form
  * "path (code)", where path is letters, digits, '_', '.' and ':' and code
  * is lower snake case. They say what was wrong without saying what it was.
+ * A refused destination also sets `reason`, one of
+ * DESTINATION_PARSE_REASONS, which toJSON carries; it is null otherwise and
+ * any other value throws InvalidInputError.
  *
  * MandateRuleError(specCode, specName, options?) carries the mandate contract's
  * error. INSUFFICIENT_FUNDS waits for funding, DAILY_CAP_EXCEEDED for the
@@ -54,6 +57,7 @@ import * as index from './index.js';
 import {
   CHAIN_ADAPTER_ERROR_CODES,
   CHAIN_ADAPTER_ERROR_MESSAGES,
+  DESTINATION_PARSE_REASONS,
   ChainAdapterError,
   ChainUnavailableError,
   CrossChainLiveError,
@@ -213,6 +217,30 @@ describe('chain adapter errors', () => {
         InvalidInputError,
       );
     }
+  });
+
+  it('carries a destination parse reason on InvalidInputError, and refuses any other', () => {
+    const err = new InvalidInputError({
+      network: 'stellar:testnet',
+      reason: 'CHECKSUM',
+      issues: ['destination.address (checksum)'],
+    });
+    expect(err.reason).toBe('CHECKSUM');
+    expect(err.network).toBe('stellar:testnet');
+    expect(err.toJSON()).toMatchObject({
+      code: 'INVALID_INPUT',
+      reason: 'CHECKSUM',
+      issues: ['destination.address (checksum)'],
+    });
+    expect(new InvalidInputError().reason).toBeNull();
+    expect(new InvalidInputError().toJSON()).not.toHaveProperty('reason');
+    for (const reason of ['checksum', 'NOT_A_REASON', 7, null]) {
+      const bad = thrown(() => new InvalidInputError({ reason } as never));
+      expect(bad).toBeInstanceOf(InvalidInputError);
+      expect((bad as InvalidInputError).issues).toEqual(['errorOptions.reason (invalid)']);
+    }
+    expect(DESTINATION_PARSE_REASONS).toHaveLength(7);
+    expect(Object.isFrozen(DESTINATION_PARSE_REASONS)).toBe(true);
   });
 
   it('lets options override the defaults', () => {

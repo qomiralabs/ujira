@@ -90,6 +90,13 @@ export interface ChainAdapter {
   health(opts: CallOptions): Promise<ChainHealth>;
   /** Throws InvalidInputError for anything that is not an address on this network. */
   parseAddress(raw: string): ChainAddress;
+  /**
+   * Reads a recipient's destination into the address and tag pair the
+   * mandate binds and the database stores. Nothing outside the adapter reads
+   * addresses, so nothing outside it learns a chain's address forms. Throws
+   * InvalidInputError carrying a DestinationParseReason.
+   */
+  parseDestination(raw: RawDestination): Destination;
 
   readMandate(
     req: { readonly scope: TenantScope; readonly mandate: MandateRef },
@@ -250,10 +257,24 @@ export interface ExecutorLease {
   readonly expiresAt: UnixSeconds;
 }
 
-/** An address plus an optional tag. Two destinations are equal only if both match. */
+/**
+ * An address plus an optional tag. Two destinations are equal only if both
+ * match. The address is a base account or a contract, never a muxed form:
+ * parseDestination reads an M address into its account and its id.
+ */
 export interface Destination {
   readonly address: ChainAddress;
   readonly tag: bigint | null;
+}
+
+/** A destination as a recipient or a provider gives it, before parsing. */
+export interface RawDestination {
+  readonly address: string;
+  /**
+   * A numeric memo id in decimal, for an address that needs one, such as an
+   * exchange's pooled account. Text and hash memos are refused.
+   */
+  readonly memoId?: string | undefined;
 }
 
 /** Off chain delivery record per leg, such as an anchor transaction. No KYC fields. */

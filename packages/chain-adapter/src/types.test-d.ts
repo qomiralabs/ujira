@@ -37,6 +37,10 @@ import type {
   ChainReceipt,
   DeadProof,
   Deposit,
+  Destination,
+  DestinationParseReason,
+  InvalidInputError,
+  RawDestination,
   DepositScanPage,
   FundingInstructions,
   MandateAction,
@@ -151,6 +155,23 @@ expectTypeOf<ReturnType<ChainAdapter['verifyReceipt']>>().toEqualTypeOf<
   Promise<ReceiptVerification>
 >();
 expectTypeOf<ReturnType<ChainAdapter['parseAddress']>>().toEqualTypeOf<ChainAddress>();
+// Destinations come back as the pair the mandate binds, with a u64 tag as bigint.
+expectTypeOf<ReturnType<ChainAdapter['parseDestination']>>().toEqualTypeOf<Destination>();
+expectTypeOf<Parameters<ChainAdapter['parseDestination']>[0]>().toEqualTypeOf<RawDestination>();
+expectTypeOf<RawDestination>().toEqualTypeOf<{
+  readonly address: string;
+  readonly memoId?: string | undefined;
+}>();
+expectTypeOf<DestinationParseReason>().toEqualTypeOf<
+  | 'MALFORMED'
+  | 'CHECKSUM'
+  | 'ZERO_ADDRESS'
+  | 'MEMO_NOT_ID'
+  | 'TAG_NOT_SUPPORTED'
+  | 'TAG_OUT_OF_RANGE'
+  | 'WRONG_NETWORK'
+>();
+expectTypeOf<InvalidInputError['reason']>().toEqualTypeOf<DestinationParseReason | null>();
 expectTypeOf<Parameters<ChainAdapter['verifyReceipt']>[0]>().toEqualTypeOf<ReceiptRef>();
 
 // The config snapshot keeps fee limits as bigint.
