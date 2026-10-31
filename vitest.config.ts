@@ -145,6 +145,14 @@ export default defineConfig({
           branches: 95,
           statements: 95,
         },
+        // The router decides where every payout goes and which configuration
+        // is live, so it carries the same bar as the adapter.
+        'packages/router/src/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
       },
     },
   },
