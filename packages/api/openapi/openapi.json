@@ -1,0 +1,188 @@
+{
+  "openapi": "3.1.1",
+  "info": { "title": "UJIRA API", "version": "v1" },
+  "paths": {
+    "/v1/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Whether the API is up",
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Health" } }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/openapi.json": {
+      "get": {
+        "operationId": "getOpenApi",
+        "summary": "This document",
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/OpenApiDocument" } }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Problem": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "format": "uri" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "status": { "type": "integer", "minimum": 400, "maximum": 599 },
+          "detail": { "type": "string", "maxLength": 1000 },
+          "code": {
+            "type": "string",
+            "enum": [
+              "INVALID_FILTER",
+              "INVALID_CURSOR",
+              "LIMIT_OUT_OF_RANGE",
+              "INVALID_AMOUNT",
+              "INVALID_REQUEST",
+              "TOKEN_MALFORMED",
+              "TOKEN_INVALID",
+              "TOKEN_ENVIRONMENT_MISMATCH",
+              "EMBED_TOKEN_INVALID",
+              "INSUFFICIENT_SCOPE",
+              "ORIGIN_NOT_ALLOWED",
+              "EMBED_SCOPE_VIOLATION",
+              "NOT_FOUND",
+              "METHOD_NOT_ALLOWED",
+              "PAYLOAD_TOO_LARGE",
+              "UNSUPPORTED_MEDIA_TYPE",
+              "DESTINATION_INVALID",
+              "MANDATE_REFUSED",
+              "QUOTE_UNAVAILABLE",
+              "RATE_LIMITED",
+              "INTERNAL",
+              "DB_UNAVAILABLE",
+              "CHAIN_UNAVAILABLE",
+              "REQUEST_TIMEOUT"
+            ]
+          },
+          "requestId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{8,128}$" },
+          "errors": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": { "type": "string", "minLength": 1, "maxLength": 200 },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "unknown_field",
+                    "invalid_value",
+                    "unsupported_operator",
+                    "range_inverted",
+                    "repeated_key",
+                    "currency_required"
+                  ]
+                }
+              },
+              "required": ["field", "code"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["type", "title", "status", "code", "requestId"],
+        "additionalProperties": false
+      },
+      "Health": {
+        "type": "object",
+        "properties": { "status": { "type": "string", "const": "ok" } },
+        "required": ["status"],
+        "additionalProperties": false
+      },
+      "OpenApiDocument": {
+        "type": "object",
+        "properties": {
+          "openapi": { "type": "string", "const": "3.1.1" },
+          "info": {
+            "type": "object",
+            "properties": { "title": { "type": "string" }, "version": { "type": "string" } },
+            "required": ["title", "version"],
+            "additionalProperties": {}
+          },
+          "paths": {
+            "type": "object",
+            "propertyNames": { "type": "string" },
+            "additionalProperties": {}
+          },
+          "components": {
+            "type": "object",
+            "propertyNames": { "type": "string" },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["openapi", "info", "paths", "components"],
+        "additionalProperties": {}
+      }
+    },
+    "securitySchemes": { "bearer": { "type": "http", "scheme": "bearer" } }
+  }
+}
