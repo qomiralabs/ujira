@@ -28,6 +28,7 @@ import type { DatabaseConfig, RoleConnection } from './config.js';
 import { assertNoSessionState } from './session-state.js';
 import { beginWithTenant, type TenantContext } from './tenant.js';
 import type { Schema } from './schema.generated.js';
+import { toUnavailable } from './unavailable.js';
 
 export type DatabaseRole = 'app' | 'worker' | 'reader' | 'migration';
 
@@ -157,7 +158,12 @@ export function createDatabase(config: DatabaseConfig): Database {
       // tenant fails with what was wrong rather than with whatever the
       // connection attempt happened to say, and never costs a connection.
       const begin = `${beginWithTenant(context)}, ${timeoutSettings(config)}`;
-      const client = await pools[role].connect();
+      let client: pg.PoolClient;
+      try {
+        client = await pools[role].connect();
+      } catch (error) {
+        throw toUnavailable(error) ?? error;
+      }
       let open = false;
       try {
         // One round trip: begin, the tenant context, and the timeouts.
@@ -173,7 +179,9 @@ export function createDatabase(config: DatabaseConfig): Database {
           // A rollback that fails must not hide the error that caused it.
           await client.query('rollback').catch(() => undefined);
         }
-        throw error;
+        // An outage leaves as one typed error, so the API can answer 503
+        // without knowing the driver; anything else stays the caller's.
+        throw toUnavailable(error) ?? error;
       } finally {
         client.release();
       }
