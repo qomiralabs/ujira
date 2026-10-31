@@ -29,6 +29,7 @@
     "test:vectors": "vitest run src/testing/vectors"
   },
   "dependencies": {
+    "@stellar/stellar-base": "15.0.0",
     "@ujira/core": "workspace:*",
     "zod": "4.6.7"
   },

@@ -192,12 +192,23 @@ describe('strkey codecs', () => {
     expect((err as InvalidInputError).issues).toEqual(['publicKey (invalid_length)']);
   });
 
-  it('exports only the four codecs from the subpath', () => {
+  // The subpath is everything the signer can reach, so a new export is a
+  // deliberate change to this list.
+  it('exports only the listed codecs from the subpath', () => {
     expect(Object.keys(codecs).sort()).toEqual([
+      'MAX_ENVELOPE_SIGNATURES',
+      'attachAuthEntrySignature',
+      'attachEnvelopeSignature',
       'decodeAccountAddress',
+      'decodeAuthEntry',
+      'decodeFeeBumpEnvelope',
+      'decodeTransactionEnvelope',
       'encodeAccountAddress',
+      'encodeMuxedAddress',
       'isAccountAddress',
       'isContractAddress',
+      'networkIdOf',
+      'networkPassphrase',
     ]);
   });
 });
