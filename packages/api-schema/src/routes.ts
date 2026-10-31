@@ -22,9 +22,10 @@ export const ApprovalPage = Page(ApprovalItem);
 
 const NoParams = z.strictObject({});
 
-// Statuses each kind of route can answer with besides 200.
-const LIST_ERRORS = [400, 401, 403, 429] as const;
-const DETAIL_ERRORS = [400, 401, 403, 404, 429] as const;
+// Statuses each kind of route can answer with besides 200. Every route can
+// fail on our side (500) or while the database or a network is down (503).
+const LIST_ERRORS = [400, 401, 403, 429, 500, 503] as const;
+const DETAIL_ERRORS = [400, 401, 403, 404, 429, 500, 503] as const;
 
 export interface RouteDefinition {
   readonly method: 'GET';

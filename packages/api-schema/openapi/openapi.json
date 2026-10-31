@@ -68,6 +68,20 @@
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
             }
+          },
+          "500": {
+            "description": "Failed on our side; quote the request id to support",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry after the Retry-After header",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
           }
         }
       }
@@ -127,6 +141,20 @@
           },
           "429": {
             "description": "Rate limited",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "Failed on our side; quote the request id to support",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry after the Retry-After header",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -279,6 +307,20 @@
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
             }
+          },
+          "500": {
+            "description": "Failed on our side; quote the request id to support",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry after the Retry-After header",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
           }
         }
       }
@@ -338,6 +380,20 @@
           },
           "429": {
             "description": "Rate limited",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "Failed on our side; quote the request id to support",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry after the Retry-After header",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -416,6 +472,20 @@
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
             }
+          },
+          "500": {
+            "description": "Failed on our side; quote the request id to support",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry after the Retry-After header",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
           }
         }
       }
@@ -475,6 +545,20 @@
           },
           "429": {
             "description": "Rate limited",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "Failed on our side; quote the request id to support",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry after the Retry-After header",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -539,6 +623,20 @@
           },
           "429": {
             "description": "Rate limited",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "Failed on our side; quote the request id to support",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry after the Retry-After header",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -615,6 +713,20 @@
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
             }
+          },
+          "500": {
+            "description": "Failed on our side; quote the request id to support",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry after the Retry-After header",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
           }
         }
       }
@@ -681,6 +793,20 @@
           },
           "429": {
             "description": "Rate limited",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "Failed on our side; quote the request id to support",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry after the Retry-After header",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -790,6 +916,7 @@
               "INVALID_CURSOR",
               "LIMIT_OUT_OF_RANGE",
               "INVALID_AMOUNT",
+              "INVALID_REQUEST",
               "TOKEN_MALFORMED",
               "TOKEN_INVALID",
               "TOKEN_ENVIRONMENT_MISMATCH",
@@ -798,7 +925,17 @@
               "ORIGIN_NOT_ALLOWED",
               "EMBED_SCOPE_VIOLATION",
               "NOT_FOUND",
-              "RATE_LIMITED"
+              "METHOD_NOT_ALLOWED",
+              "PAYLOAD_TOO_LARGE",
+              "UNSUPPORTED_MEDIA_TYPE",
+              "DESTINATION_INVALID",
+              "MANDATE_REFUSED",
+              "QUOTE_UNAVAILABLE",
+              "RATE_LIMITED",
+              "INTERNAL",
+              "DB_UNAVAILABLE",
+              "CHAIN_UNAVAILABLE",
+              "REQUEST_TIMEOUT"
             ]
           },
           "requestId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{8,128}$" },
@@ -2268,7 +2405,8 @@
               "committed": { "$ref": "#/components/schemas/TokenAmount" }
             },
             "required": ["total", "available", "pending", "committed"],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "description": "available depends on the account status. For deploying, active, paused and deploy_failed, it is total minus pending minus committed, never below zero. For revoked and expired, the reservations no longer hold anything, so it is the whole total. Read status together with available."
           },
           "lowBalance": { "$ref": "#/components/schemas/LowBalanceState" }
         },
