@@ -83,6 +83,7 @@ export default defineConfig({
         'scripts/license-policy.ts',
         'scripts/license-tree.ts',
         'scripts/lockfile.ts',
+        'scripts/migration-rules.ts',
         'scripts/pnpm-command.ts',
         'scripts/strict-json.ts',
       ],
