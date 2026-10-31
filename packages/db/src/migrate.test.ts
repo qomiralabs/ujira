@@ -72,15 +72,19 @@ describe('migrations', () => {
     const lines: string[] = [];
     const fresh = await createTestDatabase(adminUrl, `${import.meta.url}#logging`);
     try {
-      await runMigrations({ databaseUrl: fresh.url, direction: 'down' });
+      const down = await runMigrations({ databaseUrl: fresh.url, direction: 'down' });
       await runMigrations({
         databaseUrl: fresh.url,
         direction: 'up',
         log: (message) => lines.push(message),
       });
       // The tool names each migration it applies, so a deploy log says what
-      // ran rather than only that something did.
-      expect(lines.join('\n')).toContain('init');
+      // ran rather than only that something did. The name is whichever
+      // migration is last, not a fixed one: this file also runs, as the
+      // previous release's tests, against migrations added after it.
+      const [name] = down.names;
+      expect(name).toBeDefined();
+      expect(lines.join('\n')).toContain(name);
     } finally {
       await fresh.drop();
     }
