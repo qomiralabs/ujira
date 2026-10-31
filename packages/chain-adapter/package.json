@@ -12,6 +12,10 @@
     "./codecs": {
       "types": "./dist/codecs/index.d.ts",
       "default": "./dist/codecs/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
     }
   },
   "files": [
@@ -21,7 +25,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint --max-warnings 0 .",
-    "test": "vitest run --coverage"
+    "test": "vitest run --coverage",
+    "test:vectors": "vitest run src/testing/vectors"
   },
   "dependencies": {
     "@ujira/core": "workspace:*",
