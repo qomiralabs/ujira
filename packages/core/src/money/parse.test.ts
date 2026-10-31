@@ -634,7 +634,7 @@ describe('toDecimalString', () => {
     const reads = { kind: 0, amount: 0, currency: 0, scale: 0 };
     const answers = { kind: 'fiat', amount: [1230n, 9n], currency: ['USD', 'BTC'], scale: [2, 5] };
     const value = new Proxy(
-      {},
+      { kind: undefined, amount: undefined, currency: undefined, scale: undefined },
       {
         get(_target, key) {
           if (key === 'kind') {
