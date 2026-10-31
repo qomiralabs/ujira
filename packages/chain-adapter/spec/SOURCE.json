@@ -1,0 +1,135 @@
+{
+  "repository": "qomiralabs/ujira-contracts",
+  "commit": "2cd67bbea58f214039600206dcb6fef912aba6ca",
+  "note": "Copied byte for byte from spec/ at this commit. Moves to the spec-v1 tag once it is cut.",
+  "files": [
+    {
+      "path": "constants.json",
+      "sha256": "55e0cb75c3df9990a8cdc507a7358c65c557dfe51e4cf50076a706a08edaae56"
+    },
+    {
+      "path": "errors.json",
+      "sha256": "627e18a7fff3f01798fafca4f1c1613ccf3be8519a6c4930f753d3ec3af97826"
+    },
+    {
+      "path": "vectors/amounts.json",
+      "sha256": "40d56cde132d789d28b58cf7e511cedfa56963a5a959b39fdc87140c775458a1"
+    },
+    {
+      "path": "vectors/approval.json",
+      "sha256": "b938d363beedb5ff67a36b3bcc6aa8715d5596c55663a3f624d2ef10a788290b"
+    },
+    {
+      "path": "vectors/attestation.json",
+      "sha256": "a67725425b7c35e9c1f112e3742f05dbc2f198c360c70dc8b1e5078b7c036502"
+    },
+    {
+      "path": "vectors/batch.json",
+      "sha256": "632e4b30fe4fc4f0841af6e95b423e126ee8a18c585a1eb9b9bb92de8a2bc6cd"
+    },
+    {
+      "path": "vectors/budget.json",
+      "sha256": "4690a5706b84b99707a994d3167c5f65be8df403b7dcdd0799985b22aa8a3d39"
+    },
+    {
+      "path": "vectors/config.json",
+      "sha256": "699d2fd2c594225287623dbe75e5ab1000d1bd05c1b4d1fcbed0d7ad615efa89"
+    },
+    {
+      "path": "vectors/daily-cap.json",
+      "sha256": "5f073e4aea6a21da8260a7168d4fef79098d91458d005194ba3d251e2382c67c"
+    },
+    {
+      "path": "vectors/dust.json",
+      "sha256": "d7bf8e04f026a986669f0013a096614dac45df2f27559b882d73b5445c06cc18"
+    },
+    {
+      "path": "vectors/events.json",
+      "sha256": "df3f050e263c5c962efa7f8f4ac94717e380124524a1cb0b63ec49782243efee"
+    },
+    {
+      "path": "vectors/example.json",
+      "sha256": "eab338e4ef5e6ac28f2e8682139f2c3f46b9fbee23949a9307485ace389a0a28"
+    },
+    {
+      "path": "vectors/expiry.json",
+      "sha256": "362de761b578506a4b5ad06cd06201c506f43ca7ad28c0d6a3df671eeffdc7be"
+    },
+    {
+      "path": "vectors/fee.json",
+      "sha256": "56239c38c9b5ccb4fc930da0c07b204ce489cf7e85eae60d334ea20a0be853e3"
+    },
+    {
+      "path": "vectors/funding.json",
+      "sha256": "eec2981d0a0f35ee2cb2f2c1aa7948c17c59ea68f16069efc7215e184dee3196"
+    },
+    {
+      "path": "vectors/idempotency.json",
+      "sha256": "fef372fa2901caf6c71775e902cb9cb67579f4789e42b18bdf65229a7b2df0b6"
+    },
+    {
+      "path": "vectors/nested-calls.json",
+      "sha256": "c1cdcff5a08ce7eb6a86aabc881c0ea64b4ec339f9093e65d91c7e8aa9f3e3d2"
+    },
+    {
+      "path": "vectors/pause.json",
+      "sha256": "f91665f55c0a334a686a0730338c6d6c2a9d9d8ecd207e59e81aa76efcb87bdc"
+    },
+    {
+      "path": "vectors/payout-lifecycle.json",
+      "sha256": "98b93c23d38e50cb454b32aff5519312097c97cf536026388d49cbbc2c534f76"
+    },
+    {
+      "path": "vectors/per-payment-cap.json",
+      "sha256": "8a557391fb4845fa4b44872fef90fc14e805c56b442f8e0b03f1dc3c28ad6fd7"
+    },
+    {
+      "path": "vectors/precedence.json",
+      "sha256": "e4739a04b42d2a3a7361d9b2972e19165473844cea3022b76f4a9e6b1cac1d36"
+    },
+    {
+      "path": "vectors/principal.json",
+      "sha256": "a7beef073db2411231060a378795aa54df09e4983e0a258fd20cf440acc1d44d"
+    },
+    {
+      "path": "vectors/recipients.json",
+      "sha256": "873dd6d1f95ee09dc74ef996312c68a8c6e40f67a0903c125e16710544926b12"
+    },
+    {
+      "path": "vectors/recover-token.json",
+      "sha256": "dc2c22e1b60cf38e6e07ab7e40404c8906db269cbdc6dc1ee40aab16a168d30f"
+    },
+    {
+      "path": "vectors/recovery.json",
+      "sha256": "3ebe6357c449725dd7c0928ace56911c11488eb50907bb4615e33b861a3d0526"
+    },
+    {
+      "path": "vectors/revoke.json",
+      "sha256": "a8aaf14e203a3f612ddc4a3bd9cf0ff29469053f72b6485a30ab5e492d3d0423"
+    },
+    {
+      "path": "vectors/roles.json",
+      "sha256": "3d602d9a3cc8beae80e3366040bb7442965011fe4d456507757aaa8bb50a9153"
+    },
+    {
+      "path": "vectors/schema.json",
+      "sha256": "478ec2c2a6be8b92f7d5e87288929d4d2c2bee7c04989394434429498932e283"
+    },
+    {
+      "path": "vectors/split-totals.json",
+      "sha256": "c265b00c0372c7a95ded9c3da0eec766985aae748972bab823d04d73f3eb7ca5"
+    },
+    {
+      "path": "vectors/sweep.json",
+      "sha256": "ded37a0af100612348a4163fb6ea5b697af9691b1e6c0dd7337a2bf9d24ab4c2"
+    },
+    {
+      "path": "vectors/unexpected-asset.json",
+      "sha256": "b78efc807da5302fad01459a692dc30cab2e08bdac2cc347de994b486def848f"
+    },
+    {
+      "path": "vectors/withdrawal.json",
+      "sha256": "d1d5ff6761f8f60d2bae885026f92d0d936970cda6ca7edf634029ec8cb44793"
+    }
+  ]
+}
