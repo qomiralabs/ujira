@@ -17,7 +17,7 @@ import type { TokenAmount } from '@ujira/core';
 import { describe, expect, it } from 'vitest';
 
 import { ChainAdapterError } from '../errors.js';
-import type { ExternalSignerRole, SignerRef } from '../signer.js';
+import type { AttestationFields, ExternalSignerRole, SignerRef } from '../signer.js';
 import type {
   AdapterStore,
   Bytes32,
@@ -379,6 +379,59 @@ export function describeChainAdapter(
           ),
         );
         expect(bad.toJSON()).toMatchObject({ code: 'INVALID_INPUT', reason: 'MEMO_NOT_ID' });
+      });
+
+      it('builds the 47 byte attestation message from every field and refuses a non-contract mandate', async () => {
+        const h = await factory();
+        const { adapter } = h;
+        const network = adapter.network;
+        const principal = h.wallet('attested principal');
+        const fields: AttestationFields = {
+          mandate: {
+            network,
+            address: h.mandateAddress(principal, bytes32('attested salt')),
+            specVersion: 1,
+          },
+          recipientRef: bytes32('attested recipient'),
+          countryPolicyHash: bytes32('attested countries'),
+          policyEpoch: 0n,
+          validUntil: 1_800_000_000n as UnixSeconds,
+          destination: { address: h.wallet('attested payee'), tag: null },
+        };
+        const message = adapter.attestationMessage(fields);
+        expect(message).toHaveLength(47);
+        // Every scheme carries the UJIRA prefix with its own version, so no
+        // attestation can pass for another signature UJIRA makes.
+        expect(Buffer.from(message.subarray(0, 14)).toString('ascii')).toBe('UJIRA/ATTEST/V');
+        expect(adapter.attestationMessage(fields)).toEqual(message);
+        // Every signed field reaches the bytes, and no tag differs from tag 0.
+        const changed: AttestationFields[] = [
+          { ...fields, recipientRef: bytes32('another recipient') },
+          { ...fields, countryPolicyHash: bytes32('other countries') },
+          { ...fields, policyEpoch: 1n },
+          { ...fields, validUntil: 1_800_000_001n as UnixSeconds },
+          { ...fields, destination: { address: h.wallet('another payee'), tag: null } },
+          { ...fields, destination: { ...fields.destination, tag: 0n } },
+          {
+            ...fields,
+            mandate: {
+              ...fields.mandate,
+              address: h.mandateAddress(principal, bytes32('another salt')),
+            },
+          },
+        ];
+        const seen = new Set([Buffer.from(message).toString('hex')]);
+        for (const variant of changed) {
+          seen.add(Buffer.from(adapter.attestationMessage(variant)).toString('hex'));
+        }
+        expect(seen.size).toBe(changed.length + 1);
+        const walletAsMandate = { ...fields.mandate, address: principal };
+        const refused = await refusalOf(
+          Promise.resolve().then(() =>
+            adapter.attestationMessage({ ...fields, mandate: walletAsMandate }),
+          ),
+        );
+        expect(refused.code).toBe('INVALID_INPUT');
       });
     });
 

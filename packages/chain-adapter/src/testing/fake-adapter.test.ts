@@ -9,7 +9,10 @@
 import { money, tokenAmount } from '@ujira/core';
 import { describe, expect, it } from 'vitest';
 
+import type { AttestationFields } from '../signer.js';
+import { stellarAttestationMessage } from '../stellar/attestation-message.js';
 import type {
+  Bytes32,
   CallOptions,
   ChainAddress,
   CountryCode,
@@ -37,6 +40,40 @@ import {
 } from './index.js';
 
 describeChainAdapter('FakeChainAdapter', () => fakeAdapterHarness(), { faults: true });
+
+// The conformance suite checks the shape of the attestation message on any
+// chain. Here the fake is pinned to the exact bytes: the worked example in the
+// contracts' ENCODING.md, and the Stellar encoder for a tagged destination, so
+// a test attester can never sign something a real mandate would not check.
+describe('attestation message parity', () => {
+  it('builds the spec worked example and the Stellar encoder bytes', () => {
+    const { adapter } = fakeAdapterHarness();
+    const network = adapter.network;
+    expect(network).toBe('stellar:testnet');
+    const fields: AttestationFields = {
+      mandate: {
+        network,
+        address: { network, value: 'CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA' },
+        specVersion: 1,
+      },
+      recipientRef: '0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d' as Bytes32,
+      countryPolicyHash:
+        '0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415' as Bytes32,
+      policyEpoch: 0n,
+      validUntil: 1_767_229_200n as UnixSeconds,
+      destination: {
+        address: { network, value: 'GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4' },
+        tag: null,
+      },
+    };
+    expect(Buffer.from(adapter.attestationMessage(fields)).toString('hex')).toBe(
+      '554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e',
+    );
+    const tagged = { ...fields, destination: { ...fields.destination, tag: 42n } };
+    expect(adapter.attestationMessage(tagged)).toEqual(stellarAttestationMessage(tagged));
+    expect(adapter.attestationMessage(tagged)).not.toEqual(adapter.attestationMessage(fields));
+  });
+});
 
 const OPTS: CallOptions = { correlationId: 'fake-test' };
 const usdc = (amount: bigint) => tokenAmount(amount, 'USDC', 'stellar');
