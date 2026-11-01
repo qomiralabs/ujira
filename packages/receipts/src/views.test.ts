@@ -22,7 +22,8 @@ import type { NetworkPresentation } from './views.js';
 import { principalView, recipientView } from './views.js';
 
 const options = { locale: 'en-US', networks };
-const NBSP = ' ';
+// The core formatters put a no break space between amount and code.
+const NBSP = String.fromCharCode(0xa0);
 
 // Words that tell a local-currency recipient about the rail underneath.
 const RAIL_WORDS = /usdc|stellar|chain|network|hash|transaction|explorer|token|crypto|wallet/i;
