@@ -209,7 +209,7 @@ jobs:
           # the default heap runs out, so growth shows here first. The current
           # reading and the runner's memory are printed by this step on every
           # run; read them there rather than from a figure written here.
-          LINT_PEAK_LIMIT_KB: '3145728'
+          LINT_PEAK_LIMIT_KB: '2097152'
         run: |
           if [ ! -f "${RUNNER_TEMP}/lint-peak-kb" ]; then
             echo "the lint peak was not recorded, so its growth is unobserved" >&2
