@@ -324,6 +324,15 @@ jobs:
             exit 1
           fi
 
+      # The API's committed OpenAPI document must match its routes. The full
+      # test run checks this too; the named step makes a stale document show
+      # up as its own failure. It runs a test file, which is member code, so
+      # it comes after the checks above that rely on nothing having run yet.
+      - name: OpenAPI document is current
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/api openapi:check
+
       - name: Upload test report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

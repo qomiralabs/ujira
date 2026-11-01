@@ -25,12 +25,23 @@ import { TokenAmount, TokenAssetCode, amountOf } from './money.js';
  * from the other three and the instance state, so the rule lives on the
  * account below, which knows that state.
  */
-export const FundingBalance = z.strictObject({
-  total: TokenAmount,
-  available: TokenAmount,
-  pending: TokenAmount,
-  committed: TokenAmount,
-});
+// "Available" has two meanings depending on the instance state, so the rule
+// is written into the generated document next to the field, where a client
+// author reads it, and the status that selects it sits beside the balance.
+const AVAILABLE_RULE =
+  'available depends on the account status. For deploying, active, paused and ' +
+  'deploy_failed, it is total minus pending minus committed, never below zero. For ' +
+  'revoked and expired, the reservations no longer hold anything, so it is the whole ' +
+  'total. Read status together with available.';
+
+export const FundingBalance = z
+  .strictObject({
+    total: TokenAmount,
+    available: TokenAmount,
+    pending: TokenAmount,
+    committed: TokenAmount,
+  })
+  .describe(AVAILABLE_RULE);
 
 /**
  * Whether an instance in this state still has its balance held back by the
