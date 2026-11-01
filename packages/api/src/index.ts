@@ -21,6 +21,7 @@ export {
   ApiConfigError,
   ApiError,
   DATABASE_ERROR_CLASSES,
+  MANDATE_ERROR_MAP,
   RETRY_AFTER_SECONDS,
   RouteRegistryError,
   toApiError,

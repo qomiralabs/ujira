@@ -83,6 +83,7 @@ export default defineConfig({
         'scripts/license-policy.ts',
         'scripts/license-tree.ts',
         'scripts/lockfile.ts',
+        'scripts/migration-rules.ts',
         'scripts/pnpm-command.ts',
         'scripts/strict-json.ts',
       ],
@@ -156,6 +157,21 @@ export default defineConfig({
         // Identity decides who may be paid and what the attester signs, so it
         // carries the same bar as the money and chain primitives.
         'packages/identity/src/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
+        // The signer holds every key UJIRA signs with.
+        'packages/signer/src/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
+        // The mandate rules decide which mandates may be created and served,
+        // so a gap there is a gap in the custody guarantees.
+        'packages/mandates/src/**': {
           lines: 95,
           functions: 95,
           branches: 95,
