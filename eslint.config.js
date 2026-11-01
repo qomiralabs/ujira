@@ -973,6 +973,12 @@ export default defineConfig(
         // alias, a computed key or nesting such as globalThis.global.Math.
         { name: 'globalThis', message: 'The global object reaches banned globals by name.' },
         { name: 'global', message: 'The global object reaches banned globals by name.' },
+        // process.getBuiltinModule loads node:module and node:vm, and a
+        // property ban only sees that one spelling, not an alias or a
+        // destructure. Money code has no use for process, so it is banned
+        // as a name, which also covers globalThis.process through the bans
+        // above.
+        { name: 'process', message: 'process reaches module loaders. Money code never needs it.' },
       ],
       'no-restricted-properties': [
         'error',

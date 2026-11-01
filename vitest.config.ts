@@ -153,6 +153,14 @@ export default defineConfig({
           branches: 95,
           statements: 95,
         },
+        // Identity decides who may be paid and what the attester signs, so it
+        // carries the same bar as the money and chain primitives.
+        'packages/identity/src/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
       },
     },
   },

@@ -122,8 +122,10 @@ function sequenced(fields: {
   reads: { kind: number; amount: number; currency: number; scale: number };
 } {
   const reads = { kind: 0, amount: 0, currency: 0, scale: 0 };
+  // The target owns every key, because a field only the get trap answers is
+  // refused before it is read.
   const value = new Proxy(
-    {},
+    { kind: undefined, amount: undefined, currency: undefined, scale: undefined },
     {
       get(_target, key) {
         // Every operand says it is fiat; only the other fields vary per read.
@@ -635,8 +637,10 @@ function sequencedToken(fields: {
   scale: unknown[];
 }): { value: TokenAmount; reads: Record<string, number> } {
   const reads: Record<string, number> = { kind: 0, amount: 0, asset: 0, chain: 0, scale: 0 };
-  const value = new Proxy(
-    {},
+  // The target owns every key, because a field only the get trap answers is
+  // refused before it is read.
+  const value = new Proxy<object>(
+    { kind: undefined, amount: undefined, asset: undefined, chain: undefined, scale: undefined },
     {
       get(_target, key) {
         if (key === 'kind') {

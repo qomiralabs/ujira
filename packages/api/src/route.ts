@@ -1,0 +1,303 @@
+// Copyright (c) 2026 Qomira Labs. All rights reserved.
+// Proprietary and confidential. Unauthorized copying is prohibited.
+
+// How an endpoint is declared. A route is data (method, path, schemas, the
+// scope it needs) plus one handler, and the pipeline in app.ts does
+// everything else: authentication, validation, the deadline, response
+// checks, errors and logs. Handlers stay small and cannot skip a step.
+//
+// There are three ways in:
+// - contractRoute: a read route already described in @ujira/api-schema;
+//   its path, schemas and query rules come from there.
+// - defineTenantRoute: any other route that acts for a tenant.
+// - definePublicRoute: a route with no tenant, which must say why.
+
+import { OPENAPI_COMPONENTS, PROBLEM_CODES, ROUTES, parseQuery } from '@ujira/api-schema';
+import type { FieldError, ProblemCode, RouteId, RouteQuery } from '@ujira/api-schema';
+import { z } from 'zod';
+
+import type { ApiScope, CallOptions, Tenant } from './auth.js';
+import { ApiError, RouteRegistryError } from './errors.js';
+import type { RequestLog } from './log.js';
+
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+export type SuccessStatus = 200 | 201 | 202;
+
+export interface RequestContext {
+  readonly requestId: string;
+  /** Aborts at the request deadline. Pass it to anything that waits. */
+  readonly signal: AbortSignal;
+  /** Pass to every chain adapter call, so the request id travels with it. */
+  readonly call: CallOptions;
+  readonly log: RequestLog;
+}
+
+export interface TenantRequestContext extends RequestContext {
+  /** From the credential only. Hand it to every repository and adapter call. */
+  readonly tenant: Tenant;
+}
+
+export interface RouteInput<P, Q, B> {
+  readonly params: P;
+  readonly query: Q;
+  readonly body: B;
+}
+
+export type QueryParse =
+  | { readonly success: true; readonly data: unknown }
+  | { readonly success: false; readonly code: ProblemCode; readonly errors: readonly FieldError[] };
+
+export type Access =
+  | { readonly kind: 'public'; readonly reason: string }
+  | { readonly kind: 'tenant'; readonly scope: ApiScope };
+
+/** A route as the pipeline sees it, with its types erased. */
+export interface Route {
+  readonly id: string;
+  readonly method: HttpMethod;
+  readonly path: string;
+  readonly summary: string;
+  readonly access: Access;
+  readonly params: z.ZodObject;
+  readonly query: z.ZodType;
+  readonly parseQuery: (search: URLSearchParams) => QueryParse;
+  readonly body: z.ZodType | null;
+  readonly response: {
+    readonly status: SuccessStatus;
+    readonly name: string;
+    readonly schema: z.ZodType;
+  };
+  /** Statuses this route can answer with besides its success status. */
+  readonly errorStatuses: readonly number[];
+  /** tenant is null exactly when access is public. */
+  readonly handle: (
+    input: RouteInput<unknown, unknown, unknown>,
+    context: RequestContext,
+    tenant: Tenant | null,
+  ) => Promise<unknown>;
+}
+
+const NoInput = z.strictObject({});
+type NoInput = typeof NoInput;
+
+// Field errors from a zod failure, with paths only. The unknown key a client
+// sent is echoed as the field name, so it is cut to what the problem body
+// allows.
+export function fieldErrors(issues: readonly z.core.$ZodIssue[]): FieldError[] {
+  const errors: FieldError[] = [];
+  for (const issue of issues) {
+    const base = issue.path.map(String).join('.');
+    if (issue.code === 'unrecognized_keys') {
+      for (const key of issue.keys) {
+        const field = base === '' ? key : `${base}.${key}`;
+        errors.push({ field: field.slice(0, 200) || '(empty)', code: 'unknown_field' });
+      }
+    } else {
+      errors.push({ field: base.slice(0, 200) || '(root)', code: 'invalid_value' });
+    }
+  }
+  return errors.slice(0, 50);
+}
+
+/** Query parsing for routes outside the contract: a repeated key is refused. */
+export function queryParser(schema: z.ZodType): (search: URLSearchParams) => QueryParse {
+  return (search) => {
+    const record: Record<string, string> = {};
+    const errors: FieldError[] = [];
+    for (const [key, value] of search.entries()) {
+      if (Object.hasOwn(record, key))
+        errors.push({ field: key.slice(0, 200), code: 'repeated_key' });
+      record[key] = value;
+    }
+    const parsed = schema.safeParse(record);
+    if (parsed.success && errors.length === 0) return { success: true, data: parsed.data };
+    errors.push(...fieldErrors(parsed.error?.issues ?? []));
+    return { success: false, code: 'INVALID_FILTER', errors: errors.slice(0, 50) };
+  };
+}
+
+// The pipeline authenticates before it calls a tenant route, so a missing
+// tenant here is a bug in the pipeline, and it fails closed.
+function asTenant<T>(
+  context: RequestContext,
+  tenant: Tenant | null,
+  run: (context: TenantRequestContext) => Promise<T>,
+): Promise<T> {
+  if (tenant === null) return Promise.reject(new ApiError('INTERNAL'));
+  return run({ ...context, tenant });
+}
+
+function statusesOf(codes: readonly ProblemCode[]): number[] {
+  return codes.map((code) => PROBLEM_CODES[code]);
+}
+
+// What the pipeline itself can answer on any route of a kind, so a route
+// only lists what its handler adds.
+function errorStatuses(
+  access: Access,
+  hasParams: boolean,
+  hasBody: boolean,
+  extra: readonly ProblemCode[],
+): number[] {
+  const codes: ProblemCode[] = ['INVALID_FILTER', 'INTERNAL', 'DB_UNAVAILABLE', ...extra];
+  // A path id that does not parse cannot name anything.
+  if (hasParams) codes.push('NOT_FOUND');
+  if (access.kind === 'tenant') codes.push('TOKEN_INVALID', 'INSUFFICIENT_SCOPE', 'RATE_LIMITED');
+  if (hasBody) codes.push('INVALID_REQUEST', 'PAYLOAD_TOO_LARGE', 'UNSUPPORTED_MEDIA_TYPE');
+  return [...new Set(statusesOf(codes))].sort((a, b) => a - b);
+}
+
+interface RouteSpec<
+  P extends z.ZodObject,
+  Q extends z.ZodType,
+  B extends z.ZodType,
+  R extends z.ZodType,
+> {
+  /** The OpenAPI operationId, unique across the API. */
+  readonly id: string;
+  readonly method: HttpMethod;
+  /** OpenAPI style, with {name} for path parameters, under /v1/. */
+  readonly path: `/v1/${string}`;
+  readonly summary: string;
+  readonly params?: P;
+  readonly query?: Q;
+  /** A JSON body. Leave it out for a route that takes none. */
+  readonly body?: B;
+  readonly response: {
+    readonly status?: SuccessStatus;
+    /** The OpenAPI component name of the success body. */
+    readonly name: string;
+    readonly schema: R;
+  };
+  /** Codes the handler itself throws, such as NOT_FOUND. */
+  readonly errors?: readonly ProblemCode[];
+}
+
+type Input<P extends z.ZodObject, Q extends z.ZodType, B extends z.ZodType> = RouteInput<
+  z.output<P>,
+  z.output<Q>,
+  z.output<B>
+>;
+
+function build<
+  P extends z.ZodObject,
+  Q extends z.ZodType,
+  B extends z.ZodType,
+  R extends z.ZodType,
+>(spec: RouteSpec<P, Q, B, R>, access: Access, handle: Route['handle']): Route {
+  const query = spec.query ?? NoInput;
+  const params = spec.params ?? NoInput;
+  return Object.freeze({
+    id: spec.id,
+    method: spec.method,
+    path: spec.path,
+    summary: spec.summary,
+    access,
+    params,
+    query,
+    parseQuery: queryParser(query),
+    body: spec.body ?? null,
+    response: Object.freeze({
+      status: spec.response.status ?? 200,
+      name: spec.response.name,
+      schema: spec.response.schema,
+    }),
+    errorStatuses: errorStatuses(
+      access,
+      Object.keys(params.shape).length > 0,
+      spec.body !== undefined,
+      spec.errors ?? [],
+    ),
+    handle,
+  });
+}
+
+/** A route that acts for the tenant of the calling key, which must hold `scope`. */
+export function defineTenantRoute<
+  R extends z.ZodType,
+  P extends z.ZodObject = NoInput,
+  Q extends z.ZodType = NoInput,
+  B extends z.ZodType = z.ZodUndefined,
+>(
+  spec: RouteSpec<P, Q, B, R> & {
+    readonly scope: ApiScope;
+    readonly handler: (input: Input<P, Q, B>, context: TenantRequestContext) => Promise<z.input<R>>;
+  },
+): Route {
+  return build(spec, { kind: 'tenant', scope: spec.scope }, (input, context, tenant) =>
+    asTenant(context, tenant, (scoped) => spec.handler(input as Input<P, Q, B>, scoped)),
+  );
+}
+
+/**
+ * A route with no tenant. It gets no tenant in its context and must return
+ * no tenant data; `reason` says why it needs no key, for the reviewer.
+ */
+export function definePublicRoute<
+  R extends z.ZodType,
+  P extends z.ZodObject = NoInput,
+  Q extends z.ZodType = NoInput,
+  B extends z.ZodType = z.ZodUndefined,
+>(
+  spec: RouteSpec<P, Q, B, R> & {
+    readonly reason: string;
+    readonly handler: (input: Input<P, Q, B>, context: RequestContext) => Promise<z.input<R>>;
+  },
+): Route {
+  if (spec.reason.trim().length < 10) {
+    throw new RouteRegistryError(`public route ${spec.id} must say why it needs no key`);
+  }
+  return build(spec, { kind: 'public', reason: spec.reason }, (input, context) =>
+    spec.handler(input as Input<P, Q, B>, context),
+  );
+}
+
+function componentName(schema: z.ZodType, id: string): string {
+  const found = OPENAPI_COMPONENTS.find(([, candidate]) => candidate === schema);
+  if (found === undefined) {
+    throw new RouteRegistryError(`contract route ${id} has a response that is not a component`);
+  }
+  return found[0];
+}
+
+type ContractParams<I extends RouteId> = z.output<(typeof ROUTES)[I]['params']>;
+type ContractResponse<I extends RouteId> = z.input<(typeof ROUTES)[I]['response']>;
+
+/**
+ * A read route described in @ujira/api-schema. Method, path, summary,
+ * schemas, query rules and error statuses all come from the contract, so the
+ * API, the mocks and the dashboard cannot disagree about it.
+ */
+export function contractRoute<I extends RouteId>(
+  id: I,
+  spec: {
+    readonly scope: ApiScope;
+    readonly handler: (
+      input: RouteInput<ContractParams<I>, RouteQuery<I>, undefined>,
+      context: TenantRequestContext,
+    ) => Promise<ContractResponse<I>>;
+  },
+): Route {
+  const contract = ROUTES[id];
+  return Object.freeze({
+    id,
+    method: contract.method,
+    path: contract.path,
+    summary: contract.summary,
+    access: { kind: 'tenant', scope: spec.scope },
+    params: contract.params,
+    query: contract.query,
+    parseQuery: (search: URLSearchParams) => parseQuery(id, search),
+    body: null,
+    response: Object.freeze({
+      status: 200,
+      name: componentName(contract.response, id),
+      schema: contract.response,
+    }),
+    errorStatuses: [...contract.errors],
+    handle: (input, context, tenant) =>
+      asTenant(context, tenant, (scoped) =>
+        spec.handler(input as RouteInput<ContractParams<I>, RouteQuery<I>, undefined>, scoped),
+      ),
+  } satisfies Route);
+}

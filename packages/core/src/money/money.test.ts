@@ -682,6 +682,45 @@ describe('isZero and isNegative', () => {
   });
 });
 
+// A Proxy can claim any prototype it likes, so the plain record check alone
+// says nothing about where its fields come from. Only own fields count.
+describe('proxied operands', () => {
+  const fields = { kind: 'fiat', amount: 7n, currency: 'USD', scale: 2 };
+  const claimsPlain = (): object =>
+    new Proxy(Object.create(fields) as object, { getPrototypeOf: () => Object.prototype });
+  const operations: [string, (value: Money) => unknown][] = [
+    ['add', (v) => add(v, usd(1n))],
+    ['subtract', (v) => subtract(usd(1n), v)],
+    ['multiply', (v) => multiply(v, 2n)],
+    ['negate', (v) => negate(v)],
+    ['sum', (v) => sum([usd(1n), v])],
+    ['compare', (v) => compare(v, usd(1n))],
+    ['equals', (v) => equals(usd(1n), v)],
+    ['isZero', (v) => isZero(v)],
+    ['isNegative', (v) => isNegative(v)],
+  ];
+
+  it('a Proxy claiming Object.prototype with inherited fields is refused', () => {
+    const proxy = claimsPlain();
+    expect(Object.getPrototypeOf(proxy)).toBe(Object.prototype);
+    expect(() => negate(loose(proxy))).toThrow(InvalidAmountError);
+  });
+
+  it.each(operations)('%s refuses the same proxy', (_name, op) => {
+    expect(() => op(loose(claimsPlain()))).toThrow(InvalidAmountError);
+  });
+
+  it('refuses fields a get trap answers but the target does not own', () => {
+    const answers: Record<string, unknown> = fields;
+    const proxy = new Proxy({}, { get: (_target, key): unknown => answers[String(key)] });
+    expect(() => negate(loose(proxy))).toThrow(InvalidAmountError);
+  });
+
+  it('still accepts a proxy whose target owns every field', () => {
+    expect(negate(loose(new Proxy({ ...fields }, {})))).toEqual(usd(-7n));
+  });
+});
+
 describe('package root', () => {
   it('re-exports the money module', () => {
     expect(root.money).toBe(money);
