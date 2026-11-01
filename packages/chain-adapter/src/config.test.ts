@@ -471,7 +471,10 @@ describe('parseNetworksConfig', () => {
       'https://stellar.expert/explorer/testnet/tx/{hash}',
       'https://explorer.example/v2/tx/{hash}/details',
     ]) {
-      const doc = withChange('stellar:testnet', 'explorer.tx', tx);
+      const doc = withChange('stellar:testnet', 'explorer', {
+        tx,
+        allowedHosts: ['stellar.expert', 'explorer.example'],
+      });
       expect(parseNetworksConfig(doc)['stellar:testnet']?.explorer.tx).toBe(tx);
     }
   });
@@ -567,4 +570,146 @@ describe('parseNetworksConfig', () => {
     expect(err).toBeInstanceOf(InvalidInputError);
     expect((err as InvalidInputError).issues).toHaveLength(10);
   });
+});
+
+// Explorer templates are operator config, and a key hidden in one would be
+// published in every receipt link. Keys below are built at run time so no
+// key shaped literal sits in the source.
+
+function withExplorer(tx: string, allowedHosts?: readonly string[]): Record<string, unknown> {
+  return withChange(
+    'stellar:testnet',
+    'explorer',
+    allowedHosts === undefined ? { tx } : { tx, allowedHosts },
+  );
+}
+
+function issuesOf(input: unknown): readonly string[] {
+  const err = thrown(() => parseNetworksConfig(input));
+  expect(err).toBeInstanceOf(InvalidInputError);
+  return (err as InvalidInputError).issues;
+}
+
+const TX_REFUSED = 'networks.stellar:testnet.explorer.tx (custom)';
+// Allowed so that only the template rules decide these cases.
+const ANY_HOST = ['explorer.example', 'x.io'];
+
+it('explorer template with a percent escape in the path is refused', () => {
+  const key = 'bc12'.repeat(8);
+  for (const tx of [
+    `https://explorer.example/%61${key}/tx/{hash}`,
+    'https://explorer.example/tx/%7Bhash%7D/{hash}',
+    'https://explorer.example/tx/{hash}/%7Bhash%7D',
+    'https://explorer.example/a%2Fb/tx/{hash}',
+    // The parser escapes a raw space, which would put a % in the path.
+    'https://explorer.example/a b/tx/{hash}',
+  ]) {
+    expect(issuesOf(withExplorer(tx, ANY_HOST))).toEqual([TX_REFUSED]);
+  }
+});
+
+it('a long run inside a segment is refused', () => {
+  const half = 'a1'.repeat(8);
+  for (const tx of [
+    `https://explorer.example/${half}.${'b2'.repeat(7)}c/tx/{hash}`,
+    `https://explorer.example/${half}~${'b2'.repeat(7)}c/tx/{hash}`,
+    `https://explorer.example/tx/{hash}/${half}.${'b2'.repeat(7)}c`,
+    `https://explorer.example/${'abcdefghijkl'.repeat(3)}/tx/{hash}`,
+    `https://explorer.example/v1:${'k9'.repeat(10)}/tx/{hash}`,
+    `https://explorer.example/${'k9'.repeat(10)};v1/tx/{hash}`,
+  ]) {
+    expect(issuesOf(withExplorer(tx, ANY_HOST))).toEqual([TX_REFUSED]);
+  }
+});
+
+it('a long run in a host label is refused', () => {
+  const key = 'q9'.repeat(16);
+  const issues = issuesOf(withExplorer(`https://${key}.x.io/tx/{hash}`, ANY_HOST));
+  expect(issues).toEqual([TX_REFUSED]);
+  expect(issues.join(' ')).not.toContain(key);
+  // Listing the host does not let the key through either.
+  expect(issuesOf(withExplorer(`https://${key}.x.io/tx/{hash}`, [`${key}.x.io`]))).toEqual([
+    TX_REFUSED,
+    'networks.stellar:testnet.explorer.allowedHosts.0 (custom)',
+  ]);
+  const letters = 'abcdefghijkl'.repeat(3);
+  expect(issuesOf(withExplorer(`https://${letters}.x.io/tx/{hash}`, ANY_HOST))).toEqual([
+    TX_REFUSED,
+  ]);
+});
+
+it('a host outside the network allowlist is refused', () => {
+  const tx = 'https://explorer.example/explorer/public/tx/{hash}';
+  const err = thrown(() =>
+    parseNetworksConfig({
+      ...withChange('stellar:pubnet', 'explorer', { tx }),
+    }),
+  );
+  expect(err).toBeInstanceOf(InvalidInputError);
+  const { issues, message } = err as InvalidInputError;
+  expect(issues).toEqual(['networks.stellar:pubnet.explorer.host.explorer.example (not_allowed)']);
+  for (const text of [message, ...issues, JSON.stringify(err), String((err as Error).stack)]) {
+    expect(text).not.toContain(tx);
+    expect(text).not.toContain('/explorer/public/tx');
+  }
+  // A host with a hyphen is named as it is.
+  expect(issuesOf(withExplorer('https://other-explorer.example/tx/{hash}'))).toEqual([
+    'networks.stellar:testnet.explorer.host.other-explorer.example (not_allowed)',
+  ]);
+  // A host too long for an issue is still refused, by network only.
+  const longHost = `${'abcdefghij'.repeat(3)}.${'klmnopqrst'.repeat(3)}.example`;
+  expect(issuesOf(withExplorer(`https://${longHost}/tx/{hash}`))).toEqual([
+    'networks.stellar:testnet.explorer.host (not_allowed)',
+  ]);
+  // A network left out on purpose has no explorer to check.
+  expect(() =>
+    parseNetworksConfig({ 'stellar:pubnet': undefined, 'stellar:testnet': stellar() }),
+  ).not.toThrow();
+  // Each network has its own list.
+  expect(() =>
+    parseNetworksConfig({
+      ...withChange('stellar:testnet', 'explorer', { tx, allowedHosts: ['explorer.example'] }),
+      'stellar:pubnet': stellar(),
+    }),
+  ).not.toThrow();
+  expect(
+    issuesOf({
+      ...withChange('stellar:testnet', 'explorer', { tx, allowedHosts: ['explorer.example'] }),
+      ...withChange('stellar:pubnet', 'explorer', { tx }),
+    }),
+  ).toEqual(['networks.stellar:pubnet.explorer.host.explorer.example (not_allowed)']);
+});
+
+it('default Stellar explorer templates are accepted', () => {
+  for (const tx of [
+    'https://stellar.expert/explorer/public/tx/{hash}',
+    'https://stellar.expert/explorer/testnet/tx/{hash}',
+    'https://stellar.expert:443/explorer/public/tx/{hash}',
+    'https://stellar.expert:8443/explorer/public/tx/{hash}',
+    'https://stellarchain.io/transactions/{hash}',
+    'https://stellarchain.io:443/transactions/{hash}',
+    'https://stellarchain.io:8443/transactions/{hash}',
+  ]) {
+    expect(parseNetworksConfig(withExplorer(tx))['stellar:testnet']?.explorer.tx).toBe(tx);
+  }
+});
+
+it('an allowlist entry must be a plain lowercase host', () => {
+  for (const allowedHosts of [
+    [],
+    ['Explorer.example'],
+    ['explorer.example:443'],
+    ['https://explorer.example'],
+    ['explorer.example', 'explorer.example'],
+    ['-bad.example'],
+    ['localhost'],
+  ]) {
+    expect(
+      issuesOf(withExplorer('https://explorer.example/tx/{hash}', allowedHosts)).join(' '),
+    ).toContain('networks.stellar:testnet.explorer.allowedHosts');
+  }
+  const listed = parseNetworksConfig(
+    withExplorer('https://explorer.example/tx/{hash}', ['explorer.example']),
+  );
+  expect(listed['stellar:testnet']?.explorer.allowedHosts).toEqual(['explorer.example']);
 });
