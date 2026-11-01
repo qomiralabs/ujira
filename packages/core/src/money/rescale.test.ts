@@ -275,7 +275,7 @@ describe('rescale rejects bad input', () => {
       scale: [3, 18],
     };
     const value = new Proxy(
-      {},
+      { kind: undefined, amount: undefined, currency: undefined, scale: undefined },
       {
         get(_target, key) {
           if (key === 'kind') {
