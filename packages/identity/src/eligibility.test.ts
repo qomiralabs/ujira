@@ -372,6 +372,8 @@ describe('tenants', () => {
       payoutMethod: (scope, id) => w.store.payoutMethod(scope, id),
       mandateInstance: (scope, id) => w.store.mandateInstance(scope, id),
       projectSettings: (scope) => w.store.projectSettings(scope),
+      latestVerification: (scope, id) => w.store.latestVerification(scope, id),
+      verification: (scope, id) => w.store.verification(scope, id),
       identities: async (scope, id) => [
         ...(await w.store.identities(scope, id)),
         identityRow(newScope(), id),
