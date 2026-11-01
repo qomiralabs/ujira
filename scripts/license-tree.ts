@@ -113,54 +113,21 @@ export interface InstalledPackage {
 // A registry version, as opposed to a `file:`, `link:` or git specifier.
 const REGISTRY_VERSION = /^\d+\.\d+\.\d+(?:[-+][\w.+-]*)?$/;
 
-// pnpm lists a package's versions and the folders that hold them. With one
-// folder per version they pair in order, and the checks below confirm each
-// pairing. An optional peer present for some importers and not others gives
-// one version several folders, and then pnpm lists more paths than
-// versions; each folder's own package.json then says which version it
-// holds, and every listed version must turn up in at least one of them.
-// Anything else fails closed.
-function listingPairs(
-  entry: PnpmLicenseEntry,
-  inspector: ManifestInspector,
-  problems: string[],
-): (readonly [version: string, path: string])[] | undefined {
-  const { name, versions, paths } = entry;
-  if (versions.length > 0 && versions.length === paths.length) {
-    return versions.map((version, i) => [version, paths[i] ?? ''] as const);
+// Pairs each listed version with a folder. pnpm lists a release once even
+// when peer dependencies install it in several folders, so with more folders
+// than versions the order cannot be trusted, and each folder is paired with
+// the listed version its own package.json gives. A folder that gives none of
+// them is paired with the first, so the checks in resolveListing report it.
+function pairFolders(entry: PnpmLicenseEntry, inspector: ManifestInspector): [string, string][] {
+  if (entry.paths.length === entry.versions.length) {
+    return entry.versions.map((version, i) => [version, entry.paths[i] ?? '']);
   }
-  if (
-    versions.length === 0 ||
-    paths.length < versions.length ||
-    !versions.every((version) => REGISTRY_VERSION.test(version))
-  ) {
-    problems.push(
-      `${name}: pnpm listed ${String(versions.length)} version(s) and ${String(paths.length)} path(s); cannot tell which path holds which version`,
-    );
-    return undefined;
-  }
-  const listed = new Set(versions);
-  const found = new Set<string>();
-  const pairs: (readonly [string, string])[] = [];
-  for (const path of paths) {
-    const real = path === '' ? undefined : inspector.realpath(path);
-    const version = real === undefined ? undefined : inspector.manifest(real)?.['version'];
-    if (typeof version !== 'string') {
-      problems.push(`${name}: no package.json at "${real ?? path}"`);
-      continue;
-    }
-    if (!listed.has(version)) {
-      problems.push(`${name}: path "${path}" holds version "${version}", which pnpm did not list`);
-      continue;
-    }
-    found.add(version);
-    pairs.push([version, path]);
-  }
-  for (const version of versions) {
-    if (!found.has(version))
-      problems.push(`${name}@${version}: listed but found at none of its paths`);
-  }
-  return pairs;
+  return entry.paths.map((path) => {
+    const real = inspector.realpath(path);
+    const declared = real === undefined ? undefined : inspector.manifest(real)?.['version'];
+    const version = entry.versions.find((listed) => listed === declared) ?? entry.versions[0];
+    return [version ?? '', path];
+  });
 }
 
 // Resolves each listed version to the package folder that holds it and reads
@@ -178,8 +145,18 @@ export function resolveListing(
   const byDir = new Map(workspaces.map((project) => [project.dir, project]));
   for (const entry of entries) {
     const label = entry.name;
-    const pairs = listingPairs(entry, inspector, problems);
-    if (pairs === undefined) continue;
+    if (entry.versions.length === 0 || entry.paths.length < entry.versions.length) {
+      problems.push(
+        `${label}: pnpm listed ${String(entry.versions.length)} version(s) and ${String(entry.paths.length)} path(s); cannot tell which path holds which version`,
+      );
+      continue;
+    }
+    const pairs = pairFolders(entry, inspector);
+    for (const version of entry.versions) {
+      if (!pairs.some(([paired]) => paired === version)) {
+        problems.push(`${label}@${version}: listed by pnpm but held by none of its folders`);
+      }
+    }
     pairs.forEach(([version, path]) => {
       const where = `${label}@${version}`;
       const real = path === '' ? undefined : inspector.realpath(path);

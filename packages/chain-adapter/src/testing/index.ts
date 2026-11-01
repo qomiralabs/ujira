@@ -4,8 +4,9 @@
 // @ujira/chain-adapter/testing: the fake chain every service above the
 // adapter is tested against. An in-memory ledger with test tokens, the
 // mandate factory and the mandate itself, which behaves exactly as the
-// mandate spec says and passes the shared contract vectors. Test code only;
-// nothing here signs or reaches a network.
+// mandate spec says and passes the shared contract vectors, and unsigned
+// Stellar envelopes for any account a test names. Test code only; nothing
+// here reaches a network.
 
 export {
   accountAddress,
@@ -43,6 +44,21 @@ export { FakeLedger, TESTNET_PASSPHRASE } from './ledger.js';
 export type { FakeLedgerOptions, LedgerContract, NestedViews } from './ledger.js';
 export { feeCap } from './rules.js';
 export * from './spec.js';
+export {
+  TEST_CONTRACT,
+  TEST_DESTINATION,
+  TEST_INNER_SOURCE,
+  testAuthEntryXdr,
+  testFeeBumpXdr,
+  testSep10ChallengeXdr,
+  testTransactionXdr,
+} from './stellar.js';
+export type {
+  TestAuthEntryOptions,
+  TestFeeBumpOptions,
+  TestSep10Options,
+  TestTransactionOptions,
+} from './stellar.js';
 export { FakeToken } from './token.js';
 export type {
   FakeTokenOptions,

@@ -4,9 +4,9 @@
 // The Stellar SDK, with its RPC and Horizon clients, arrives with the
 // Stellar adapter. Until then the one chain package is the Stellar base
 // library (XDR and keys, no network code), pinned exactly, and only the
-// codecs and the Stellar transaction builder may load it. Everything else
-// imports nothing chain specific, so the public types cannot lean on a
-// chain library.
+// codecs, the Stellar transaction builder and the test fakes may load it.
+// Everything else imports nothing chain specific, so the public types
+// cannot lean on a chain library.
 
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
@@ -19,7 +19,7 @@ const PACKAGE_DIR = path.resolve(import.meta.dirname, '..');
 const SRC = path.join(PACKAGE_DIR, 'src');
 const BASE_LIBRARY = '@stellar/stellar-base';
 // Folders under src that may import the base library.
-const BASE_LIBRARY_FOLDERS = ['codecs', 'stellar'];
+const BASE_LIBRARY_FOLDERS = ['codecs', 'stellar', 'testing'];
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -48,7 +48,7 @@ describe('the package is SDK free', () => {
     expect(Object.keys(manifest['dependencies'] ?? {})).toContain('zod');
   });
 
-  it('imports nothing chain specific outside the codecs and the Stellar builder', () => {
+  it('imports nothing chain specific outside the codecs, the Stellar builder and the test fakes', () => {
     const files = sourceFiles(SRC);
     expect(files.length).toBeGreaterThan(5);
     // Relative paths stay inside the package: the codecs folder reaches its

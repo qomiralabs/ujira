@@ -11,7 +11,6 @@
 import {
   Account,
   Address,
-  Networks,
   Operation,
   SorobanDataBuilder,
   TransactionBuilder,
@@ -22,16 +21,12 @@ import type { Transaction } from '@stellar/stellar-base';
 import { I128_MAX } from '@ujira/core';
 import { z } from 'zod';
 
-import { checkEnvelopeMemo, checkNetwork, readTransactionEnvelope } from '../codecs/memo.js';
+import { checkEnvelopeMemo, readTransactionEnvelope } from '../codecs/memo.js';
+import { checkNetwork, networkPassphrase } from '../codecs/network.js';
 import { isAccountAddress, isContractAddress } from '../codecs/strkey.js';
 import { InvalidInputError } from '../errors.js';
 import { NETWORK_IDS } from '../networks.js';
 import type { NetworkId, StellarNetworkId } from '../networks.js';
-
-const PASSPHRASES: Readonly<Record<StellarNetworkId, string>> = Object.freeze({
-  'stellar:pubnet': Networks.PUBLIC,
-  'stellar:testnet': Networks.TESTNET,
-});
 
 /**
  * Every mandate function the adapter sends in a transaction, from the
@@ -300,7 +295,7 @@ export function buildContractCallTransaction(input: ContractCallTransactionInput
   }
   const tx = new TransactionBuilder(new Account(read.source, read.sequence.toString()), {
     fee: read.inclusionFee.toString(),
-    networkPassphrase: PASSPHRASES[read.network],
+    networkPassphrase: networkPassphrase(read.network),
     timebounds: {
       minTime: read.timeBounds.minTime.toString(),
       maxTime: read.timeBounds.maxTime.toString(),
@@ -325,7 +320,7 @@ export function wrapInFeeBump(input: FeeBumpInput): string {
   // A fee bump wraps a plain transaction only, never another fee bump.
   if (inner.switch().name !== 'envelopeTypeTx') throw invalid('inner', 'wrong_envelope_type');
   checkEnvelopeMemo(inner, network);
-  const passphrase = PASSPHRASES[read.network];
+  const passphrase = networkPassphrase(read.network);
   const innerTx = TransactionBuilder.fromXDR(inner, passphrase) as Transaction;
   const bump = TransactionBuilder.buildFeeBumpTransaction(
     read.feeSource,

@@ -6,11 +6,8 @@
 // through the builder: assembled by a wallet, returned by a signer or read
 // back from storage after a restart.
 
-import {
-  assertNoMemoOnContractCall,
-  checkNetwork,
-  readTransactionEnvelope,
-} from '../codecs/memo.js';
+import { assertNoMemoOnContractCall, readTransactionEnvelope } from '../codecs/memo.js';
+import { checkNetwork } from '../codecs/network.js';
 import {
   InvalidInputError,
   RpcTimeoutError,

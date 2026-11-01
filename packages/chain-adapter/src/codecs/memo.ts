@@ -9,9 +9,11 @@
 
 import { xdr } from '@stellar/stellar-base';
 
-import { InvalidInputError, MemoOnContractCallError } from '../errors.js';
-import { isNetworkId } from '../networks.js';
+import { MemoOnContractCallError } from '../errors.js';
 import type { NetworkId } from '../networks.js';
+
+import { checkNetwork } from './network.js';
+import { readXdr } from './xdr.js';
 
 /** The operations that run Soroban host code. */
 export const CONTRACT_OPERATION_TYPES = Object.freeze([
@@ -22,40 +24,13 @@ export const CONTRACT_OPERATION_TYPES = Object.freeze([
 
 const CONTRACT_OPERATIONS: ReadonlySet<string> = new Set(CONTRACT_OPERATION_TYPES);
 
-// Far above any transaction the network accepts. It only bounds the work
-// one call can be made to do before anything is decoded.
-const MAX_ENVELOPE_BASE64 = 349_528;
-const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
-
-function malformed(): InvalidInputError {
-  return new InvalidInputError({ issues: ['xdr (malformed)'] });
-}
-
-/** Throws unless `network` is one UJIRA runs on. */
-export function checkNetwork(network: unknown): NetworkId {
-  if (!isNetworkId(network)) throw new InvalidInputError({ issues: ['network (invalid)'] });
-  return network;
-}
-
 /**
  * A transaction envelope from base64 text, accepted only in its one
  * canonical encoding, so the text that was checked is exactly the text that
  * is signed or sent.
  */
 export function readTransactionEnvelope(text: unknown): xdr.TransactionEnvelope {
-  if (typeof text !== 'string' || text.length === 0 || text.length > MAX_ENVELOPE_BASE64) {
-    throw malformed();
-  }
-  if (!BASE64.test(text)) throw malformed();
-  let envelope: xdr.TransactionEnvelope;
-  try {
-    envelope = xdr.TransactionEnvelope.fromXDR(text, 'base64');
-  } catch {
-    // The library's message can quote the input, so only the fact is kept.
-    throw malformed();
-  }
-  if (envelope.toXDR('base64') !== text) throw malformed();
-  return envelope;
+  return readXdr(text, 'xdr', (input) => xdr.TransactionEnvelope.fromXDR(input, 'base64'));
 }
 
 // The transaction whose memo the network reads: a fee bump has no memo of
