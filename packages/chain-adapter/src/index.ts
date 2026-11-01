@@ -77,5 +77,14 @@ export {
 } from './retry.js';
 export type { AlertKind, RetryDecision, RetryRule, SignerErrorCode } from './retry.js';
 export type * from './signer.js';
+export { createRentWatch, utcDay } from './stellar/rent-watch.js';
+export type {
+  RentAlertKind,
+  RentAlerts,
+  RentMetrics,
+  RentSpendStore,
+  RentWatch,
+  RentWatchOptions,
+} from './stellar/rent-watch.js';
 export { CHAIN_ADAPTER_INTERFACE_VERSION } from './types.js';
 export type * from './types.js';
