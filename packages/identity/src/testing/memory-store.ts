@@ -10,6 +10,7 @@ import type { TenantScope, Uuid } from '@ujira/chain-adapter';
 
 import type { IdentityStore } from '../ports.js';
 import type {
+  DestinationVerificationRecord,
   IdentityRecord,
   MandateInstanceRecord,
   PayoutMethodRecord,
@@ -30,6 +31,8 @@ export class InMemoryIdentityStore implements IdentityStore {
   readonly #instances = new Map<string, MandateInstanceRecord>();
   readonly #identities = new Map<string, IdentityRecord>();
   readonly #settings = new Map<string, unknown>();
+  // Insertion order is recording order, as the append only table's is.
+  readonly #verifications = new Map<string, DestinationVerificationRecord>();
 
   putRecipient(row: RecipientRecord): this {
     this.#recipients.set(rowKey(row.scope, row.id), row);
@@ -71,6 +74,12 @@ export class InMemoryIdentityStore implements IdentityStore {
     return this;
   }
 
+  /** Appends; the last one put for a method is its latest. */
+  putVerification(row: DestinationVerificationRecord): this {
+    this.#verifications.set(rowKey(row.scope, row.id), row);
+    return this;
+  }
+
   recipient(scope: TenantScope, recipientId: Uuid): Promise<RecipientRecord | null> {
     return Promise.resolve(this.#recipients.get(rowKey(scope, recipientId)) ?? null);
   }
@@ -94,5 +103,23 @@ export class InMemoryIdentityStore implements IdentityStore {
 
   projectSettings(scope: TenantScope): Promise<unknown> {
     return Promise.resolve(this.#settings.get(tenantKey(scope)) ?? null);
+  }
+
+  latestVerification(
+    scope: TenantScope,
+    methodId: Uuid,
+  ): Promise<DestinationVerificationRecord | null> {
+    const tenant = tenantKey(scope);
+    const rows = [...this.#verifications.values()].filter(
+      (row) => tenantKey(row.scope) === tenant && row.methodId === methodId,
+    );
+    return Promise.resolve(rows.at(-1) ?? null);
+  }
+
+  verification(
+    scope: TenantScope,
+    verificationId: Uuid,
+  ): Promise<DestinationVerificationRecord | null> {
+    return Promise.resolve(this.#verifications.get(rowKey(scope, verificationId)) ?? null);
   }
 }

@@ -15,6 +15,13 @@ const providerSchema = z.strictObject({ enabled: z.boolean() });
 
 const OFF = { enabled: false } as const;
 
+/** The longest window the mandate accepts for an attestation, in seconds. */
+export const MAX_ATTESTATION_VALIDITY_SECONDS = 86_400;
+/** An attestation that would lapse sooner than this is refused rather than signed. */
+export const MIN_ATTESTATION_VALIDITY_SECONDS = 60;
+
+const ATTESTATION_DEFAULTS = { ttlSeconds: MAX_ATTESTATION_VALIDITY_SECONDS, callTimeoutMs: 5_000 };
+
 export const identityConfigSchema = z.strictObject({
   /** identity.providers.<name>.enabled */
   providers: z
@@ -24,6 +31,18 @@ export const identityConfigSchema = z.strictObject({
       principal: providerSchema.default(OFF),
     })
     .default({ self: OFF, sep12: OFF, principal: OFF }),
+  attestation: z
+    .strictObject({
+      /** How long a signed attestation lasts, before the identity expiry caps it. */
+      ttlSeconds: z
+        .int()
+        .min(MIN_ATTESTATION_VALIDITY_SECONDS)
+        .max(MAX_ATTESTATION_VALIDITY_SECONDS)
+        .default(ATTESTATION_DEFAULTS.ttlSeconds),
+      /** Per call limit on every chain and attester call. */
+      callTimeoutMs: z.int().min(100).max(60_000).default(ATTESTATION_DEFAULTS.callTimeoutMs),
+    })
+    .default(ATTESTATION_DEFAULTS),
 });
 
 export type IdentityConfig = z.output<typeof identityConfigSchema>;

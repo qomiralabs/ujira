@@ -41,5 +41,7 @@ cp "${root}/packages/db/src/migrate.ts" "${tree}/packages/db/src/migrate.ts"
 
 cd "$tree"
 pnpm install --frozen-lockfile --ignore-scripts
+# The packages the database package imports load from their built output.
+pnpm --filter '@ujira/db^...' run build
 pnpm exec vitest run --configLoader native --project @ujira/db
 echo "db-previous-release: the database tests of ${ref} pass against this checkout's migrations"
