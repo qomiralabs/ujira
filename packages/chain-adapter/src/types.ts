@@ -570,6 +570,13 @@ export interface MandateActionRequest {
    * through the port.
    */
   readonly signer: SignerRef;
+  /**
+   * The address the call names as its caller, where it takes one. It must be
+   * the signer's own address: the adapter refuses any other before it
+   * simulates, so an action can never be built for one member and signed by
+   * another. Defaults to the signer's address.
+   */
+  readonly caller?: ChainAddress;
 }
 
 /** Human readable and chain neutral, shown before signing. Amounts are core values. */
