@@ -5,6 +5,8 @@ import { PROBLEM_CODES, PROBLEM_TITLES, Problem, buildProblem } from '@ujira/api
 import type { ProblemCode } from '@ujira/api-schema';
 import {
   CHAIN_ADAPTER_ERROR_CODES,
+  MANDATE_ERRORS,
+  MANDATE_ERROR_NAMES,
   ChainUnavailableError,
   CrossChainLiveError,
   DestinationInvalidError,
@@ -48,6 +50,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ADAPTER_ERROR_MAP,
   ApiError,
+  MANDATE_ERROR_MAP,
   DATABASE_ERROR_CLASSES,
   RETRY_AFTER_SECONDS,
   toApiError,
@@ -60,7 +63,7 @@ const ADAPTER_ERRORS: readonly ChainAdapterError[] = [
   new UnsupportedError(),
   new TenantMismatchError(),
   new MandateUntrustedError(),
-  new MandateRuleError(3, 'DAILY_CAP_EXCEEDED'),
+  new MandateRuleError(42, 'DAILY_CAP_EXCEEDED'),
   new ChainUnavailableError(),
   new RpcTimeoutError(),
   new RpcLaggingError(),
@@ -116,7 +119,18 @@ describe('error model', () => {
     expect(ADAPTER_ERRORS.map((e) => e.code).sort()).toEqual([...CHAIN_ADAPTER_ERROR_CODES].sort());
     for (const adapterError of ADAPTER_ERRORS) {
       const mapped = toApiError(adapterError);
-      expect(mapped.code, adapterError.code).toBe(ADAPTER_ERROR_MAP[adapterError.code]);
+      const expected =
+        adapterError instanceof MandateRuleError
+          ? MANDATE_ERROR_MAP[adapterError.specName]
+          : ADAPTER_ERROR_MAP[adapterError.code];
+      expect(mapped.code, adapterError.code).toBe(expected);
+      expectWellFormed(mapped);
+    }
+    // Every rule in the vendored spec table, one by one.
+    expect(Object.keys(MANDATE_ERROR_MAP).sort()).toEqual([...MANDATE_ERROR_NAMES].sort());
+    for (const name of MANDATE_ERROR_NAMES) {
+      const mapped = toApiError(new MandateRuleError(MANDATE_ERRORS[name], name));
+      expect(mapped.code, name).toBe(MANDATE_ERROR_MAP[name]);
       expectWellFormed(mapped);
     }
     expect(DATABASE_ERRORS.map(([e]) => e.name).sort()).toEqual([...DATABASE_ERROR_CLASSES].sort());
@@ -128,6 +142,13 @@ describe('error model', () => {
     for (const code of Object.keys(PROBLEM_CODES) as ProblemCode[]) {
       expectWellFormed(new ApiError(code));
     }
+  });
+
+  it('answers a mandate limit as a refusal and our own failures as internal', () => {
+    expect(toApiError(new MandateRuleError(43, 'INSUFFICIENT_FUNDS')).code).toBe('MANDATE_REFUSED');
+    expect(toApiError(new MandateRuleError(61, 'PAYOUT_NOT_FOUND')).code).toBe('NOT_FOUND');
+    expect(toApiError(new MandateRuleError(30, 'AMOUNT_INVALID')).code).toBe('INVALID_AMOUNT');
+    expect(toApiError(new MandateRuleError(60, 'PAYOUT_ID_EXISTS')).code).toBe('INTERNAL');
   });
 
   it('maps a database outage to 503 with Retry-After', () => {

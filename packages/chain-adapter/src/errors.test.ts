@@ -88,8 +88,11 @@ import {
   SubmissionRejectedError,
   SubmissionUnknownError,
   TenantMismatchError,
+  MANDATE_ERRORS,
+  MANDATE_ERROR_NAMES,
   UnsupportedError,
   isChainAdapterError,
+  mandateRuleErrorOf,
 } from './index.js';
 import type { ChainAdapterErrorCode } from './index.js';
 
@@ -414,10 +417,10 @@ describe('chain adapter errors', () => {
 describe('MandateRuleError', () => {
   it.each([
     ['INSUFFICIENT_FUNDS', 43, true, 'funding'],
-    ['DAILY_CAP_EXCEEDED', 44, true, 'utc_day'],
-    ['MANDATE_PAUSED', 10, true, 'resume'],
-    ['TRANSFER_FAILED', 50, false, 'none'],
-    ['ROLE_CONFLICT', 7, false, 'none'],
+    ['DAILY_CAP_EXCEEDED', 42, true, 'utc_day'],
+    ['MANDATE_PAUSED', 22, true, 'resume'],
+    ['TRANSFER_FAILED', 72, false, 'none'],
+    ['ROLE_CONFLICT', 11, false, 'none'],
   ] as const)(
     'maps %s to retryable %s waiting for %s',
     (specName, specCode, retryable, waitFor) => {
@@ -434,16 +437,32 @@ describe('MandateRuleError', () => {
     },
   );
 
-  it('refuses a malformed spec code or name', () => {
+  it('refuses a name the spec table does not hold, or a code that is not its own', () => {
     for (const [code, name] of [
       [-1, 'X'],
       [1.5, 'X'],
       [1, ''],
       [1, 'lower_case'],
-      [1, 'HAS SPACE'],
+      [99, 'NOT_A_SPEC_RULE'],
+      [43, 'DAILY_CAP_EXCEEDED'],
+      [10, 'ROLE_CONFLICT'],
+      [43, 'toString'],
     ] as const) {
-      expect(thrown(() => new MandateRuleError(code, name))).toBeInstanceOf(InvalidInputError);
+      expect(thrown(() => new MandateRuleError(code, name as never))).toBeInstanceOf(
+        InvalidInputError,
+      );
     }
+  });
+
+  it('names a returned code from the table, and calls one it cannot name internal', () => {
+    for (const name of MANDATE_ERROR_NAMES) {
+      const err = mandateRuleErrorOf(MANDATE_ERRORS[name]);
+      expect(err).toBeInstanceOf(MandateRuleError);
+      expect(err).toMatchObject({ specName: name, specCode: MANDATE_ERRORS[name] });
+    }
+    const unknown = mandateRuleErrorOf(1, { network: 'stellar:testnet' });
+    expect(unknown).toBeInstanceOf(InternalError);
+    expect(unknown.network).toBe('stellar:testnet');
   });
 });
 
