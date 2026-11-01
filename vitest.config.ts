@@ -55,6 +55,8 @@ export default defineConfig({
           // database, with a fresh database cloned from it per test file.
           globalSetup: ['src/testing/global-setup.ts'],
         },
+        // The conformance suites sign and verify hundreds of times.
+        '@ujira/signer': { testTimeout: 60_000 },
         '@ujira/payouts': {
           include: ['src/**/*.test.ts', 'spikes/**/*.test.ts'],
           hookTimeout: 180_000,
