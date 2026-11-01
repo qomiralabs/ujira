@@ -154,6 +154,13 @@ export default defineConfig({
           branches: 95,
           statements: 95,
         },
+        // The signer holds every key UJIRA signs with.
+        'packages/signer/src/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
         // The mandate rules decide which mandates may be created and served,
         // so a gap there is a gap in the custody guarantees.
         'packages/mandates/src/**': {
