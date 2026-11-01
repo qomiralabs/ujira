@@ -11,7 +11,11 @@
   "scripts": {
     "budget:check": "node scripts/check-bundle-budget.ts apps/dashboard 250",
     "build": "node scripts/check-workspace-scripts.ts && node scripts/gate.ts build",
+    "db:check": "node scripts/check-migrations.ts",
     "db:migrate": "node scripts/db-migrate.ts",
+    "db:rehearse": "node scripts/db-rehearse.ts",
+    "db:roundtrip": "node scripts/db-schema.ts roundtrip",
+    "db:snapshot": "node scripts/db-schema.ts snapshot",
     "db:types": "node scripts/db-types.ts",
     "format": "prettier --config .prettierrc.json --no-editorconfig --ignore-path .prettierignore --write .",
     "format:check": "prettier --config .prettierrc.json --no-editorconfig --ignore-path .prettierignore --check .",

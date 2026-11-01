@@ -43,6 +43,7 @@ export {
   TenantMismatchError,
   UnsupportedError,
   isChainAdapterError,
+  mandateRuleErrorOf,
 } from './errors.js';
 export type {
   ChainAdapterErrorCode,
@@ -60,6 +61,14 @@ export {
 } from './destination.js';
 export type { BindableDestination, DestinationInput, DestinationMemoType } from './destination.js';
 export { SIGNER_DOWN, withSignerHealth } from './health.js';
+export {
+  MANDATE_ERRORS,
+  MANDATE_ERROR_NAMES,
+  MANDATE_ERROR_NAMES_BY_CODE,
+  isMandateErrorName,
+  mandateErrorName,
+} from './mandate-errors.js';
+export type { MandateErrorName } from './mandate-errors.js';
 export { pinnedKeys, verifyPinnedAddresses } from './key-ref.js';
 export type { PinnedKey } from './key-ref.js';
 export { NETWORK_IDS, chainOf, isNetworkId } from './networks.js';

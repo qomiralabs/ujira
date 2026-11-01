@@ -104,7 +104,8 @@ Every failure is an RFC 9457 problem body with a stable `code`, a fixed
   a dependency.
 - Let anything else escape. `toApiError` maps it: chain adapter errors by
   `ADAPTER_ERROR_MAP` (an outage is `CHAIN_UNAVAILABLE`, a mandate of another
-  tenant is `NOT_FOUND`), `DatabaseUnavailableError` from `@ujira/db` is
+  tenant is `NOT_FOUND`), mandate refusals by their spec name through
+  `MANDATE_ERROR_MAP`, which covers every rule in the vendored spec table, `DatabaseUnavailableError` from `@ujira/db` is
   `DB_UNAVAILABLE`, and anything unknown is `INTERNAL`, logged by class name
   only.
 - `DB_UNAVAILABLE`, `CHAIN_UNAVAILABLE`, `REQUEST_TIMEOUT` (503) and

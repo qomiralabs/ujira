@@ -1,0 +1,77 @@
+name: Database nightly
+
+# Rehearses every migration that is not yet released against a production
+# shaped dataset, and records how long each ran, which locks it held and how
+# long reads waited behind it. The pull request job rehearses at ten
+# thousand rows; this one runs at a million, where a lock that was instant
+# on a small table can turn into an outage.
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  # Same pins as the CI workflow; bump them together.
+  PNPM_VERSION: 12.14.0
+  PNPM_EXE_SHA512: '17a2bc7bf8d6c62b84609690b514541bdca70524c41dafadecb7fce8c2ae38ee5403b59554c6e2fa807c9d8ea2296fbe9dc592db21ba4fd7da5d91b1a8db1fa1'
+  PNPM_BINARY_SHA512: '31d634f13f80f983b91922b35388744a11f5a3909f14b104f2aabb71cbff135e6ffc4db68f1192641da41a52f9296fb8377cd6d66bc009b73d0e4d54fc87df3d'
+
+jobs:
+  rehearse:
+    name: Rehearse pending migrations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+    steps:
+      # The full history, so the released ref can be read.
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        run: |
+          curl -fsSLo pnpm.tgz "https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-${PNPM_VERSION}.tgz"
+          echo "${PNPM_EXE_SHA512}  pnpm.tgz" | sha512sum --check --strict
+          mkdir -p "${RUNNER_TEMP}/pnpm"
+          tar -xzf pnpm.tgz -C "${RUNNER_TEMP}/pnpm" --strip-components 1 package/pnpm
+          rm pnpm.tgz
+          echo "${RUNNER_TEMP}/pnpm" >> "${GITHUB_PATH}"
+          PATH="${RUNNER_TEMP}/pnpm:${PATH}" scripts/assert-pnpm.sh
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm install --frozen-lockfile --ignore-scripts
+
+      # Released means on main. Everything this branch has beyond that is
+      # pending and is what the next release would run in production.
+      - name: Rehearse
+        run: node scripts/db-rehearse.ts --released-ref origin/main --rows 1000000 --report "${RUNNER_TEMP}/rehearsal.json"
+
+      - name: Upload the rehearsal report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: migration-rehearsal
+          path: ${{ runner.temp }}/rehearsal.json
+          if-no-files-found: ${{ job.status == 'success' && 'error' || 'ignore' }}
+          retention-days: 30
