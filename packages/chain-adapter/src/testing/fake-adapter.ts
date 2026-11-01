@@ -43,7 +43,8 @@ import { withSignerHealth } from '../health.js';
 import { chainOf } from '../networks.js';
 import type { NetworkId } from '../networks.js';
 import { formatReceiptRef, parseReceiptRef } from '../receipt-ref.js';
-import type { SignerProvider, SignerRef } from '../signer.js';
+import type { AttestationFields, SignerProvider, SignerRef } from '../signer.js';
+import { stellarAttestationMessage } from '../stellar/attestation-message.js';
 import { parseStellarDestination } from '../stellar/parse-destination.js';
 import { CHAIN_ADAPTER_INTERFACE_VERSION } from '../types.js';
 import type {
@@ -354,6 +355,13 @@ export class FakeChainAdapter implements ChainAdapter {
 
   parseDestination(raw: RawDestination): Destination {
     return parseStellarDestination(this.network, raw);
+  }
+
+  attestationMessage(fields: AttestationFields): Uint8Array {
+    if (fields.mandate.network !== this.network) {
+      throw invalid('mandate.network (mismatch)', this.network);
+    }
+    return stellarAttestationMessage(fields);
   }
 
   // -------------------------------------------------------------------------
