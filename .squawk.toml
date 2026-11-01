@@ -1,0 +1,4 @@
+# squawk reads this from the repository root. Which files are linted, and
+# whether each is assumed to run inside a transaction, is decided per file by
+# scripts/squawk-migrations.ts.
+pg_version = "17.6"

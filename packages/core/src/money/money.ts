@@ -13,7 +13,7 @@ import {
   TokenMismatchError,
   UnknownCurrencyError,
 } from './errors.js';
-import { isPlainRecord, readOwnField } from './options.js';
+import { isPlainRecord, readOwnField, readOwnIndex } from './options.js';
 
 // Soroban stores amounts as i128, so anything wider could never settle there.
 export const I128_MIN: bigint = -(2n ** 127n);
@@ -70,10 +70,15 @@ export function isScaleNumber(scale: unknown): scale is number {
   );
 }
 
-/** 10 to the power of a scale. A scale outside 0 to MAX_SCALE throws InvalidScaleError. */
+/**
+ * 10 to the power of a scale. A scale outside 0 to MAX_SCALE throws
+ * InvalidScaleError. The table is read through its own entries as well as
+ * the scale check, so if the two ever disagree the missing entry throws
+ * instead of resolving through Array.prototype.
+ */
 export function powerOfTen(scale: number): bigint {
-  const power = isScaleNumber(scale) ? POWERS_OF_TEN[scale] : undefined;
-  if (power === undefined) throw new InvalidScaleError(SCALE_MESSAGE);
+  const power = isScaleNumber(scale) ? readOwnIndex(POWERS_OF_TEN, scale) : undefined;
+  if (typeof power !== 'bigint') throw new InvalidScaleError(SCALE_MESSAGE);
   return power;
 }
 

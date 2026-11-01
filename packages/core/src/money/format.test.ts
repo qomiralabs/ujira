@@ -303,18 +303,15 @@ describe('formatMoney rejects bad input', () => {
       rounding: ['half-even', 'bogus'],
     };
     const counted = (keys: (keyof typeof reads)[]): unknown =>
-      new Proxy(
-        {},
-        {
-          get(_target, key) {
-            const k = keys.find((name) => name === key);
-            if (k === undefined) return undefined;
-            reads[k] += 1;
-            const list = answers[k];
-            return list[Math.min(reads[k], list.length) - 1];
-          },
+      new Proxy(Object.fromEntries(keys.map((name) => [name, undefined])), {
+        get(_target, key) {
+          const k = keys.find((name) => name === key);
+          if (k === undefined) return undefined;
+          reads[k] += 1;
+          const list = answers[k];
+          return list[Math.min(reads[k], list.length) - 1];
         },
-      );
+      });
     const value = counted(['kind', 'amount', 'currency', 'scale']);
     const options = counted(['locale', 'rounding']);
     expect(formatMoney(loose(value), loose(options))).toBe(`KSh${NBSP}1,234.56`);
