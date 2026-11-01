@@ -66,11 +66,14 @@ export function listParam<T extends z.ZodType<string, string>>(item: T, max = 50
     );
 }
 
+// Codes are stable once published: clients branch on them, so a code is
+// added, never renamed or moved to another status.
 export const PROBLEM_CODES = Object.freeze({
   INVALID_FILTER: 400,
   INVALID_CURSOR: 400,
   LIMIT_OUT_OF_RANGE: 400,
   INVALID_AMOUNT: 400,
+  INVALID_REQUEST: 400,
   TOKEN_MALFORMED: 401,
   TOKEN_INVALID: 401,
   TOKEN_ENVIRONMENT_MISMATCH: 401,
@@ -79,7 +82,17 @@ export const PROBLEM_CODES = Object.freeze({
   ORIGIN_NOT_ALLOWED: 403,
   EMBED_SCOPE_VIOLATION: 403,
   NOT_FOUND: 404,
+  METHOD_NOT_ALLOWED: 405,
+  PAYLOAD_TOO_LARGE: 413,
+  UNSUPPORTED_MEDIA_TYPE: 415,
+  DESTINATION_INVALID: 422,
+  MANDATE_REFUSED: 422,
+  QUOTE_UNAVAILABLE: 422,
   RATE_LIMITED: 429,
+  INTERNAL: 500,
+  DB_UNAVAILABLE: 503,
+  CHAIN_UNAVAILABLE: 503,
+  REQUEST_TIMEOUT: 503,
 } as const);
 export type ProblemCode = keyof typeof PROBLEM_CODES;
 const CODES = Object.keys(PROBLEM_CODES) as [ProblemCode, ...ProblemCode[]];

@@ -9,7 +9,10 @@ the dashboard builds against the fixtures and mocks it ships.
 - `@ujira/api-schema`: the schemas and their types, the route table, the
   money wire helpers (`toWireMoney`, `fromWireMoney`, `toWireToken`,
   `fromWireToken`), `parseQuery`, `buildProblem`, `assertMatchesSchema`,
-  `assertResponseMatchesSchema` and `buildOpenApiDocument`.
+  `assertResponseMatchesSchema` and `buildOpenApiDocument`. The shared error
+  model is `PROBLEM_CODES` with `PROBLEM_TITLES`; `@ujira/api` builds its own
+  document with `OPENAPI_COMPONENTS` and `openApiParameters`, so a component
+  has the same name in both.
 - `@ujira/api-schema/fixtures`: `generateFixtures({ seed, payouts, edge })`,
   deterministic for a given seed, and `edgeFixtures()`, which covers every
   status and method, right to left and long names, several dollar currencies,
