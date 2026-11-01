@@ -128,6 +128,24 @@ describe('parseQuery', () => {
     expect(errorsOf(missing)).toEqual([{ field: 'amountCurrency', code: 'currency_required' }]);
   });
 
+  it('lets an out of range value decide the code for a repeated limit, in either order', () => {
+    for (const text of ['limit=5&limit=500', 'limit=500&limit=5']) {
+      const result = parseQuery('listPayouts', new URLSearchParams(text));
+      expect(codeOf(result), text).toBe('LIMIT_OUT_OF_RANGE');
+      expect(errorsOf(result), text).toEqual([
+        { field: 'limit', code: 'repeated_key' },
+        { field: 'limit', code: 'invalid_value' },
+      ]);
+    }
+    const valid = parseQuery('listPayouts', new URLSearchParams('limit=5&limit=6'));
+    expect(codeOf(valid)).toBe('INVALID_FILTER');
+    expect(errorsOf(valid)).toEqual([{ field: 'limit', code: 'repeated_key' }]);
+    const cursor = parseQuery('listPayouts', new URLSearchParams('cursor=abc&cursor=a%20b'));
+    expect(codeOf(cursor)).toBe('INVALID_CURSOR');
+    const twice = parseQuery('listPayouts', new URLSearchParams('method=bank&method=cash_pickup'));
+    expect(codeOf(twice)).toBe('INVALID_FILTER');
+  });
+
   it('refuses a route that is not in the table', () => {
     expect(() => parseQuery('nope' as RouteId, {})).toThrow(UnknownRouteError);
   });
