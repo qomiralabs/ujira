@@ -83,7 +83,23 @@ function operation(route: Route): JsonObject {
     parameters: [
       ...openApiParameters('path', route.params),
       ...openApiParameters('query', route.query),
+      ...(route.rawBody?.headers ?? []).map((name) => ({
+        name,
+        in: 'header',
+        required: true,
+        schema: { type: 'string' },
+      })),
     ],
+    // A webhook body is verified as bytes, so the document does not promise
+    // a shape UJIRA checks before the signature.
+    ...(route.rawBody === null
+      ? {}
+      : {
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: { type: 'object' } } },
+          },
+        }),
     ...(route.body === null
       ? {}
       : {

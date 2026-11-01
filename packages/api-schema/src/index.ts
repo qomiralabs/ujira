@@ -19,3 +19,4 @@ export * from './payouts.js';
 export * from './receipts.js';
 export * from './routes.js';
 export * from './stats.js';
+export * from './webhooks.js';
