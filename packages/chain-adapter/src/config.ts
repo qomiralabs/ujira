@@ -86,31 +86,67 @@ function uniqueList<T extends z.ZodType<string>>(item: T) {
 // never change when an explorer does.
 // These links go into public receipts, so a template may not carry
 // credentials: no userinfo, no query and no fragment, where explorer API
-// keys usually sit, and no path segment that looks like one (key=value, or
-// a long run of letters and digits). The hash belongs in the path, and the
-// template may hold no other placeholder. A short key in the path cannot
-// be told from an ordinary segment and is not detected.
+// keys usually sit, no percent escape (no explorer needs one, and an escape
+// hides a key from every check below), and nothing in the path or the host
+// that looks like a key. The hash belongs in the path, and the template may
+// hold no other placeholder. A short key cannot be told from an ordinary
+// word and is not detected, which is why the host is also allowlisted.
 const HASH_TOKEN = '{hash}';
-const KEY_LIKE_SEGMENT = /=|%3d|%3f|%26/i;
-const LONG_TOKEN = /^(?=[^/]*[0-9])(?=[^/]*[A-Za-z])[A-Za-z0-9_-]{20,}$/;
+// Keys hide inside a segment behind any separator, so every run is checked,
+// not the whole segment. Path runs take every unreserved URL character, so a
+// key split by one . or ~ (the shape of a JWT) is still one run.
+const PATH_RUN = /[A-Za-z0-9._~-]+/g;
+const LABEL_RUN = /[A-Za-z0-9_-]+/g;
+// Letters and digits together from 20 characters, or anything from 32: no
+// explorer path word or host label is that long, and a letters-only key is.
+const MIXED_KEY_LENGTH = 20;
+const ANY_KEY_LENGTH = 32;
+
+function isKeyLikeRun(run: string): boolean {
+  if (run.length >= ANY_KEY_LENGTH) return true;
+  return run.length >= MIXED_KEY_LENGTH && /[0-9]/.test(run) && /[A-Za-z]/.test(run);
+}
+
+function hasKeyLikeRun(text: string, runs: RegExp): boolean {
+  return (text.match(runs) ?? []).some(isKeyLikeRun);
+}
 
 function isExplorerTemplate(template: string): boolean {
   if (!template.startsWith('https://') || template.split(HASH_TOKEN).length !== 2) return false;
   const rest = template.replace(HASH_TOKEN, '');
-  if (/[{}]/.test(rest) || /hashslot/i.test(rest) || rest.includes('?') || rest.includes('#')) {
-    return false;
-  }
+  if (/[{}%?#=]/.test(rest) || /hashslot/i.test(rest)) return false;
   // The template may not contain the stand in itself, so the only HASHSLOT
   // in the filled URL is the hash, and it must be a whole path segment.
   const filled = template.replace(HASH_TOKEN, 'HASHSLOT');
   if (!URL.canParse(filled)) return false;
   const url = new URL(filled);
+  // The parser escapes characters such as a space on its own, so the path
+  // is checked again after parsing.
   const segments = url.pathname.split('/');
   return (
     url.username === '' &&
     url.password === '' &&
+    !url.pathname.includes('%') &&
     segments.includes('HASHSLOT') &&
-    !segments.some((segment) => KEY_LIKE_SEGMENT.test(segment) || LONG_TOKEN.test(segment))
+    !segments.some((segment) => segment !== 'HASHSLOT' && hasKeyLikeRun(segment, PATH_RUN)) &&
+    !url.hostname.split('.').some((label) => hasKeyLikeRun(label, LABEL_RUN))
+  );
+}
+
+// Explorers the Stellar networks link to unless a network lists its own.
+export const DEFAULT_STELLAR_EXPLORER_HOSTS: readonly string[] = Object.freeze([
+  'stellar.expert',
+  'stellarchain.io',
+]);
+
+const HOST_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+function isPlainHost(host: string): boolean {
+  const labels = host.split('.');
+  return (
+    host.length <= 253 &&
+    labels.length >= 2 &&
+    labels.every((label) => HOST_LABEL.test(label) && !isKeyLikeRun(label))
   );
 }
 
@@ -119,6 +155,12 @@ const explorer = z.strictObject({
     .string()
     .max(256)
     .refine(isExplorerTemplate, { message: 'https template with one {hash} in the path' }),
+  allowedHosts: z
+    .array(z.string().max(253).refine(isPlainHost, { message: 'a lowercase host name' }))
+    .min(1)
+    .max(16)
+    .refine((list) => new Set(list).size === list.length, { message: 'duplicate entry' })
+    .optional(),
 });
 
 const health = z
@@ -348,5 +390,28 @@ export function parseNetworksConfig(input: unknown): NetworksConfig {
       .map((issue) => `${issuePath(issue.path)} (${issue.code})`);
     throw new InvalidInputError({ issues });
   }
+  const hostIssues = explorerHostIssues(result.data);
+  if (hostIssues.length > 0) throw new InvalidInputError({ issues: hostIssues });
   return deepFreeze(result.data);
+}
+
+/**
+ * Each network links only to the explorers on its own list. The issue
+ * names the network and the host, so an operator can see what to fix, but
+ * never the template: by now the template has passed every key check, and
+ * the host on its own is the least it can say.
+ */
+function explorerHostIssues(config: z.output<typeof networksConfigSchema>): string[] {
+  const issues: string[] = [];
+  for (const [network, entry] of Object.entries(config)) {
+    if (entry === undefined) continue;
+    const allowed = entry.explorer.allowedHosts ?? DEFAULT_STELLAR_EXPLORER_HOSTS;
+    // The template parsed with the stand in during validation, so it parses here.
+    const { hostname } = new URL(entry.explorer.tx.replace(HASH_TOKEN, 'HASHSLOT'));
+    if (allowed.includes(hostname)) continue;
+    const named = `networks.${network}.explorer.host.${hostname}`;
+    const path = named.length <= MAX_PATH_LENGTH ? named : `networks.${network}.explorer.host`;
+    issues.push(`${path} (not_allowed)`);
+  }
+  return issues;
 }

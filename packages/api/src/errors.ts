@@ -8,8 +8,8 @@
 
 import { PROBLEM_CODES, PROBLEM_TITLES } from '@ujira/api-schema';
 import type { FieldError, ProblemCode } from '@ujira/api-schema';
-import { ChainAdapterError } from '@ujira/chain-adapter';
-import type { ChainAdapterErrorCode } from '@ujira/chain-adapter';
+import { ChainAdapterError, MandateRuleError } from '@ujira/chain-adapter';
+import type { ChainAdapterErrorCode, MandateErrorName } from '@ujira/chain-adapter';
 import {
   DatabaseConfigError,
   DatabaseUnavailableError,
@@ -78,6 +78,7 @@ export const ADAPTER_ERROR_MAP: Readonly<Record<ChainAdapterErrorCode, ProblemCo
     UNSUPPORTED: 'INVALID_REQUEST',
     TENANT_MISMATCH: 'NOT_FOUND',
     MANDATE_UNTRUSTED: 'MANDATE_REFUSED',
+    // Refined per rule by MANDATE_ERROR_MAP below.
     MANDATE_RULE: 'MANDATE_REFUSED',
     CHAIN_UNAVAILABLE: 'CHAIN_UNAVAILABLE',
     RPC_TIMEOUT: 'CHAIN_UNAVAILABLE',
@@ -106,6 +107,61 @@ export const ADAPTER_ERROR_MAP: Readonly<Record<ChainAdapterErrorCode, ProblemCo
     INTERNAL: 'INTERNAL',
   });
 
+/**
+ * What each mandate refusal means to an API client, by its spec name. A
+ * record over the generated spec table, so a rule added to the vendored
+ * spec does not compile until someone decides how the API answers it.
+ *
+ * - Limits, state and recipient rules the principal set are MANDATE_REFUSED.
+ * - Malformed amounts, legs, batches and configuration are the request's.
+ * - What only our own services can cause (a missing role, a reused payout
+ *   id, a bad attestation from our attester, a failed transfer, a broken
+ *   invariant) is INTERNAL.
+ */
+export const MANDATE_ERROR_MAP: Readonly<Record<MandateErrorName, ProblemCode>> = Object.freeze({
+  UNAUTHORIZED: 'INTERNAL',
+  ROLE_CONFLICT: 'INVALID_REQUEST',
+  ROLE_SET_FULL: 'INVALID_REQUEST',
+  MANDATE_REVOKED: 'MANDATE_REFUSED',
+  MANDATE_EXPIRED: 'MANDATE_REFUSED',
+  MANDATE_PAUSED: 'MANDATE_REFUSED',
+  ALREADY_PAUSED: 'MANDATE_REFUSED',
+  NOT_PAUSED: 'MANDATE_REFUSED',
+  MANDATE_ACTIVE: 'MANDATE_REFUSED',
+  PRINCIPAL_CHANGE_PENDING: 'MANDATE_REFUSED',
+  SWEEP_GRACE_PERIOD: 'MANDATE_REFUSED',
+  AMOUNT_INVALID: 'INVALID_AMOUNT',
+  LEGS_INVALID: 'INVALID_REQUEST',
+  LEGS_SUM_MISMATCH: 'INVALID_REQUEST',
+  BATCH_INVALID: 'INVALID_REQUEST',
+  CONFIG_INVALID: 'INVALID_REQUEST',
+  // The deadline is ours and the request reached the chain late; a retry
+  // gets a fresh one.
+  REQUEST_DEADLINE_PASSED: 'CHAIN_UNAVAILABLE',
+  BUDGET_EXCEEDED: 'MANDATE_REFUSED',
+  PAYMENT_CAP_EXCEEDED: 'MANDATE_REFUSED',
+  DAILY_CAP_EXCEEDED: 'MANDATE_REFUSED',
+  INSUFFICIENT_FUNDS: 'MANDATE_REFUSED',
+  BUDGET_BELOW_RESERVED: 'MANDATE_REFUSED',
+  NOTHING_TO_SWEEP: 'MANDATE_REFUSED',
+  FEE_EXCEEDS_CAP: 'MANDATE_REFUSED',
+  RECIPIENT_NOT_ALLOWED: 'MANDATE_REFUSED',
+  ATTESTATION_INVALID: 'INTERNAL',
+  ATTESTATION_EXPIRED: 'MANDATE_REFUSED',
+  POLICY_CHANGED: 'MANDATE_REFUSED',
+  WRONG_RECIPIENT_MODE: 'MANDATE_REFUSED',
+  PAYOUT_ID_EXISTS: 'INTERNAL',
+  PAYOUT_NOT_FOUND: 'NOT_FOUND',
+  PAYOUT_WRONG_STATUS: 'MANDATE_REFUSED',
+  PAYOUT_LAPSED: 'MANDATE_REFUSED',
+  ALREADY_APPROVED: 'MANDATE_REFUSED',
+  AGENT_REMOVED: 'MANDATE_REFUSED',
+  ASSET_NOT_SUPPORTED: 'INVALID_REQUEST',
+  WRONG_ASSET: 'INVALID_REQUEST',
+  TRANSFER_FAILED: 'INTERNAL',
+  INTERNAL_INVARIANT: 'INTERNAL',
+});
+
 // Errors of the database package and what they mean to a client. Only the
 // outage is the client's business; the rest are bugs on our side.
 const DATABASE_ERRORS: readonly (readonly [new (...args: never[]) => Error, ProblemCode])[] = [
@@ -132,10 +188,11 @@ export function toApiError(error: unknown): ApiError {
   if (error instanceof ApiError) return error;
   if (error instanceof ChainAdapterError) {
     const retryAfterSeconds = secondsFrom(error.retryAfterMs);
-    return new ApiError(
-      ADAPTER_ERROR_MAP[error.code],
-      retryAfterSeconds === undefined ? {} : { retryAfterSeconds },
-    );
+    const code =
+      error instanceof MandateRuleError
+        ? MANDATE_ERROR_MAP[error.specName]
+        : ADAPTER_ERROR_MAP[error.code];
+    return new ApiError(code, retryAfterSeconds === undefined ? {} : { retryAfterSeconds });
   }
   for (const [type, code] of DATABASE_ERRORS) {
     if (error instanceof type) return new ApiError(code);

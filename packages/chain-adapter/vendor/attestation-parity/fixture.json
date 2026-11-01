@@ -1,0 +1,2180 @@
+{
+  "warning": "TEST ONLY. Every key in this file is derived from a public label and must never hold funds, sign anything real or be configured as an attester outside tests.",
+  "format_version": 2,
+  "message_prefix": "UJIRA/ATTEST/V2",
+  "message_bytes": 47,
+  "signature_bytes": 64,
+  "max_attestation_validity": "86400",
+  "error_codes": {
+    "ATTESTATION_INVALID": 51,
+    "ATTESTATION_EXPIRED": 52,
+    "POLICY_CHANGED": 53
+  },
+  "fields_layout": [
+    "network_id: 32 bytes, SHA-256 of the network passphrase",
+    "mandate: u8 length, then Address::to_xdr of the mandate contract",
+    "recipient_ref: 32 bytes",
+    "country_policy_hash: 32 bytes",
+    "policy_epoch: u64 big-endian",
+    "valid_until: u64 big-endian",
+    "destination: u8 length, then Address::to_xdr of the base G or C address",
+    "has_tag: u8, 0 or 1",
+    "tag: u64 big-endian, 0 when absent"
+  ],
+  "message_layout": "message_prefix (15 ASCII bytes) || SHA-256(fields) (32 bytes)",
+  "keys": {
+    "attester": {
+      "seed": "sha256(\"UJIRA/TEST-ONLY/S18/attester-ed25519\")",
+      "public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48"
+    },
+    "other_signer": {
+      "seed": "sha256(\"UJIRA/TEST-ONLY/S18/other-signer-ed25519\")",
+      "public_key": "0xa51a56cfabe1fbb71d7172c52fd2bb9d715f75fb50e65b060961fb1690a59cab"
+    }
+  },
+  "cases": [
+    {
+      "name": "valid_untagged",
+      "tamper": null,
+      "expect": "ok",
+      "expect_code": 0,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "valid_tagged",
+      "tamper": null,
+      "expect": "ok",
+      "expect_code": 0,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "MDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SAAAAAAAAAAAA6AYY",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": true,
+          "tag": "7",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0xb43a1be7786c02d02f016ee33fd06824cf5fca704ce382d769795b742f5923485477052496486bb26c7764d9ac7fa351c66113d9808c2e143717761b6b23c40b",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9010000000000000007",
+            "fields_sha256": "0x7b367c753c00832ef7eaa4bc91cf2b7a32d30fd15ce481a1547ed6504f92b0d8",
+            "message": "0x554a4952412f4154544553542f56327b367c753c00832ef7eaa4bc91cf2b7a32d30fd15ce481a1547ed6504f92b0d8"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9010000000000000007",
+            "fields_sha256": "0x7b367c753c00832ef7eaa4bc91cf2b7a32d30fd15ce481a1547ed6504f92b0d8",
+            "message": "0x554a4952412f4154544553542f56327b367c753c00832ef7eaa4bc91cf2b7a32d30fd15ce481a1547ed6504f92b0d8"
+          }
+        }
+      ]
+    },
+    {
+      "name": "valid_tag_zero",
+      "tamper": null,
+      "expect": "ok",
+      "expect_code": 0,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "MDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SAAAAAAAAAAAABTPY",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": true,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0xa09b86e43f38bac509ff64318fca71ab6283a41ed646bb52480fcb37869cc57972455a3545b2a66afd47349fcf12d6e6432a75ea2546c03b0dcb0075be7c5303",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9010000000000000000",
+            "fields_sha256": "0x8c3fc201c2bf064ef713adda5a97a137cc014dd25ab51cec39b503b690b2c234",
+            "message": "0x554a4952412f4154544553542f56328c3fc201c2bf064ef713adda5a97a137cc014dd25ab51cec39b503b690b2c234"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9010000000000000000",
+            "fields_sha256": "0x8c3fc201c2bf064ef713adda5a97a137cc014dd25ab51cec39b503b690b2c234",
+            "message": "0x554a4952412f4154544553542f56328c3fc201c2bf064ef713adda5a97a137cc014dd25ab51cec39b503b690b2c234"
+          }
+        }
+      ]
+    },
+    {
+      "name": "valid_tag_u64_max",
+      "tamper": null,
+      "expect": "ok",
+      "expect_code": 0,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "MDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7T7777777777776DVU",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": true,
+          "tag": "18446744073709551615",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x1e81b3c2e6515d6cf033b445aeab331602fd412c68a9f4bc27e65274715386df0128f031db10986709ec9c89a15d35f71a65ad1e79134b5eadfc8e308ee0f206",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f901ffffffffffffffff",
+            "fields_sha256": "0xc4ad21c0ed2e2ba03f9292ac74bb8153158e1228f8c6a53a8c21f26fc27b1e83",
+            "message": "0x554a4952412f4154544553542f5632c4ad21c0ed2e2ba03f9292ac74bb8153158e1228f8c6a53a8c21f26fc27b1e83"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f901ffffffffffffffff",
+            "fields_sha256": "0xc4ad21c0ed2e2ba03f9292ac74bb8153158e1228f8c6a53a8c21f26fc27b1e83",
+            "message": "0x554a4952412f4154544553542f5632c4ad21c0ed2e2ba03f9292ac74bb8153158e1228f8c6a53a8c21f26fc27b1e83"
+          }
+        }
+      ]
+    },
+    {
+      "name": "valid_contract_destination",
+      "tamper": null,
+      "expect": "ok",
+      "expect_code": 0,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "CACWHBQABGKQOYWE347ZDOTMIO4C5YS7XGKI5SYJ5ZGHSIJ52PD67XLD",
+          "destination_xdr": "0x00000012000000010563860009950762c4df3f91ba6c43b82ee25fb9948ecb09ee4c79213dd3c7ef",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x1d2ac6a9e7d9bb58911746e03b9edb7240d56a77452ca329f59fc0b038ca2815925009c15219d4c85bbf5021ed535b6a0e2529517c81c1433b8ff8e853da6d0f",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102800000012000000010563860009950762c4df3f91ba6c43b82ee25fb9948ecb09ee4c79213dd3c7ef000000000000000000",
+            "fields_sha256": "0x0d4fb4472627d7881baf761b87ef8d01248c4c7730df095c31cfe2c2551a7ab0",
+            "message": "0x554a4952412f4154544553542f56320d4fb4472627d7881baf761b87ef8d01248c4c7730df095c31cfe2c2551a7ab0"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102800000012000000010563860009950762c4df3f91ba6c43b82ee25fb9948ecb09ee4c79213dd3c7ef000000000000000000",
+            "fields_sha256": "0x0d4fb4472627d7881baf761b87ef8d01248c4c7730df095c31cfe2c2551a7ab0",
+            "message": "0x554a4952412f4154544553542f56320d4fb4472627d7881baf761b87ef8d01248c4c7730df095c31cfe2c2551a7ab0"
+          }
+        }
+      ]
+    },
+    {
+      "name": "valid_two_legs_same_address_two_tags",
+      "tamper": null,
+      "expect": "ok",
+      "expect_code": 0,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "MDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SAAAAAAAAAAAAFD6Y",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": true,
+          "tag": "1",
+          "amount": "300"
+        },
+        {
+          "destination": "MDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SAAAAAAAAAAAAISNY",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": true,
+          "tag": "2",
+          "amount": "200"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x505546d86e5eea51e6e41906babf574c5610a3055b1c35a8aa82698d16431646aa9ef81e57825ba999ea7342a2ce6f94f1c303df309c7a780dee08ccb8bbce06",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9010000000000000001",
+            "fields_sha256": "0x993f3c50023ecc6648bcb6513e5c1366d6866030e59c3e6c9e336971a09bac70",
+            "message": "0x554a4952412f4154544553542f5632993f3c50023ecc6648bcb6513e5c1366d6866030e59c3e6c9e336971a09bac70"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9010000000000000001",
+            "fields_sha256": "0x993f3c50023ecc6648bcb6513e5c1366d6866030e59c3e6c9e336971a09bac70",
+            "message": "0x554a4952412f4154544553542f5632993f3c50023ecc6648bcb6513e5c1366d6866030e59c3e6c9e336971a09bac70"
+          }
+        },
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x6a5619e3734b5df620e8773a7638347fb2a107d99b7225a566efeceb5b02f42c4899b5c0029732946a6003b24cbafd078c3a780830b3d5849200e76f5942230d",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9010000000000000002",
+            "fields_sha256": "0xad087410efa3e270690e2352895a43efb00d018895ec176ff2ed9c0182ddf4d9",
+            "message": "0x554a4952412f4154544553542f5632ad087410efa3e270690e2352895a43efb00d018895ec176ff2ed9c0182ddf4d9"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9010000000000000002",
+            "fields_sha256": "0xad087410efa3e270690e2352895a43efb00d018895ec176ff2ed9c0182ddf4d9",
+            "message": "0x554a4952412f4154544553542f5632ad087410efa3e270690e2352895a43efb00d018895ec176ff2ed9c0182ddf4d9"
+          }
+        }
+      ]
+    },
+    {
+      "name": "valid_window_upper_bound",
+      "tamper": null,
+      "expect": "ok",
+      "expect_code": 0,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767312000",
+          "policy_epoch": "0",
+          "signature": "0x8c42dce32cec2b7d5785ebbe8406c2c4e6d59ede4c9a71eab6875ccdbd1771d8bd71e6d38a1bb884f34c16626c9948baab10dd95c1ef8ef185c0583c5d01fd03",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca83041500000000000000000000000069570a802c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0xe0dd0f2d7d74f3897707e59172ddad7ab1e1f820070b2a63f409e4ae06e92281",
+            "message": "0x554a4952412f4154544553542f5632e0dd0f2d7d74f3897707e59172ddad7ab1e1f820070b2a63f409e4ae06e92281"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca83041500000000000000000000000069570a802c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0xe0dd0f2d7d74f3897707e59172ddad7ab1e1f820070b2a63f409e4ae06e92281",
+            "message": "0x554a4952412f4154544553542f5632e0dd0f2d7d74f3897707e59172ddad7ab1e1f820070b2a63f409e4ae06e92281"
+          }
+        }
+      ]
+    },
+    {
+      "name": "valid_last_second",
+      "tamper": null,
+      "expect": "ok",
+      "expect_code": 0,
+      "calls": 1,
+      "now": "1767229199",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "valid_later_policy_epoch",
+      "tamper": null,
+      "expect": "ok",
+      "expect_code": 0,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "3",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "3",
+          "signature": "0x418b1f2074245a794ccd53cfca0df4d9f65c705a496e8d274d5ed2cec502757e000826e21b173c3371e6c64e5d5c734180004ac69cb048899ebecfb7ff6b050a",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000003000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x41b096df308649eed8a04454abd50e1e688318b24126a64c7bcf8fe955946da2",
+            "message": "0x554a4952412f4154544553542f563241b096df308649eed8a04454abd50e1e688318b24126a64c7bcf8fe955946da2"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000003000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x41b096df308649eed8a04454abd50e1e688318b24126a64c7bcf8fe955946da2",
+            "message": "0x554a4952412f4154544553542f563241b096df308649eed8a04454abd50e1e688318b24126a64c7bcf8fe955946da2"
+          }
+        }
+      ]
+    },
+    {
+      "name": "valid_policy_epoch_u64_max",
+      "tamper": null,
+      "expect": "ok",
+      "expect_code": 0,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "18446744073709551615",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "18446744073709551615",
+          "signature": "0xa91f24e6d00530cff4ce3997996d7b0262e3d5ef2927f19b0e5e9082e31241231e08c87c53b88a235e62c9dd9c968f65ce1be85122f96efa952974b11045f106",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415ffffffffffffffff000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0xb0231c5424d6aa1e98b79185f6bccfd4b4ce1819cfbfdb404366f1e4152e18ff",
+            "message": "0x554a4952412f4154544553542f5632b0231c5424d6aa1e98b79185f6bccfd4b4ce1819cfbfdb404366f1e4152e18ff"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415ffffffffffffffff000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0xb0231c5424d6aa1e98b79185f6bccfd4b4ce1819cfbfdb404366f1e4152e18ff",
+            "message": "0x554a4952412f4154544553542f5632b0231c5424d6aa1e98b79185f6bccfd4b4ce1819cfbfdb404366f1e4152e18ff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "amount_not_bound_one",
+      "tamper": "wrong_amount",
+      "expect": "ok",
+      "expect_code": 0,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "1"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "amount_not_bound_i128_max",
+      "tamper": "wrong_amount",
+      "expect": "ok",
+      "expect_code": 0,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "170141183460469231731687303715884105727"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "replay_same_attestation",
+      "tamper": "replayed",
+      "expect": "ok",
+      "expect_code": 0,
+      "calls": 2,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong_signer",
+      "tamper": "wrong_signer",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x03c8adb2cf10230930dbf8d9cb0590e065d951aa25c180342177cc206ebc505af14352d4fddf3a75c7c967f79dcf33b30e6d6e3adbaf9f8375c3cdbbfd62eb0d",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong_chain",
+      "tamper": "wrong_chain",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0xbb953d37008cf4c7c7d01d05944260fa8eefb2ac76a77d1b4823cedf6eef55b1a5d5ffa8957591359d820c57bb44721633b642c120a9c55d6d6b9b7383ee9d0a",
+          "signed": {
+            "fields": "0x7ac33997544e3175d266bd022439b22cdb16508c01163f26e5cb2a3e1045a979280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x52805c3667637b8974b2b127e7a6cf0688c7a912ab799f8fdb72b3382762a498",
+            "message": "0x554a4952412f4154544553542f563252805c3667637b8974b2b127e7a6cf0688c7a912ab799f8fdb72b3382762a498"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong_mandate",
+      "tamper": "wrong_mandate",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x7860d0bfb8eb30b3c54c5614422ca80ba307460c7ba4a17a7ccb9394ec3cfedeaf25b4841b42dc0bc585afa1613d369c77276624578aecd797b268a38bb10c02",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001cc7fd61790a53de8ea703fb545127040a043aeb5594128133f72acba68689fb8187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x47f3a1893280d9815ab77a3b0a32eac3db400002b2ec86f676206bfef43d1e63",
+            "message": "0x554a4952412f4154544553542f563247f3a1893280d9815ab77a3b0a32eac3db400002b2ec86f676206bfef43d1e63"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong_destination",
+      "tamper": "wrong_destination",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0xef91e584a6d459fcc4f4901d47719ef4f960472499e3ca765ead0ac5d527d19081d92f429438932df943bd41ee463690e6dbce3dddd930807fe1338ec31ac80f",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000fd680dbcd1aa2727d28a27d22c5d5fabdbca7aef9021771300353af6c76c952b000000000000000000",
+            "fields_sha256": "0x2357a2ce427200c14a8ad37f9a909e73010e01cde16bf8a443dbf4f991f554a1",
+            "message": "0x554a4952412f4154544553542f56322357a2ce427200c14a8ad37f9a909e73010e01cde16bf8a443dbf4f991f554a1"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong_tag_other_value",
+      "tamper": "wrong_tag",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "MDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SAAAAAAAAAAABBXH2",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": true,
+          "tag": "8",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0xb43a1be7786c02d02f016ee33fd06824cf5fca704ce382d769795b742f5923485477052496486bb26c7764d9ac7fa351c66113d9808c2e143717761b6b23c40b",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9010000000000000007",
+            "fields_sha256": "0x7b367c753c00832ef7eaa4bc91cf2b7a32d30fd15ce481a1547ed6504f92b0d8",
+            "message": "0x554a4952412f4154544553542f56327b367c753c00832ef7eaa4bc91cf2b7a32d30fd15ce481a1547ed6504f92b0d8"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9010000000000000008",
+            "fields_sha256": "0x9f00d8f799d9595457cbbfa03156ea474be24cefea2bcbe19b3112e61f5cb04c",
+            "message": "0x554a4952412f4154544553542f56329f00d8f799d9595457cbbfa03156ea474be24cefea2bcbe19b3112e61f5cb04c"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong_tag_dropped",
+      "tamper": "wrong_tag",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0xb43a1be7786c02d02f016ee33fd06824cf5fca704ce382d769795b742f5923485477052496486bb26c7764d9ac7fa351c66113d9808c2e143717761b6b23c40b",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9010000000000000007",
+            "fields_sha256": "0x7b367c753c00832ef7eaa4bc91cf2b7a32d30fd15ce481a1547ed6504f92b0d8",
+            "message": "0x554a4952412f4154544553542f56327b367c753c00832ef7eaa4bc91cf2b7a32d30fd15ce481a1547ed6504f92b0d8"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong_tag_zero_versus_none",
+      "tamper": "wrong_tag",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "MDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SAAAAAAAAAAAABTPY",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": true,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9010000000000000000",
+            "fields_sha256": "0x8c3fc201c2bf064ef713adda5a97a137cc014dd25ab51cec39b503b690b2c234",
+            "message": "0x554a4952412f4154544553542f56328c3fc201c2bf064ef713adda5a97a137cc014dd25ab51cec39b503b690b2c234"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong_policy",
+      "tamper": "wrong_policy",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0xef83f2eda6cfd015d9756a11e73741b81614fc0ed58d31d6477d3208c40835b835939e3ae754a5958513cd18940f1a5e46c496383fc108d64636db548095ad06",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d4d2c03cab385c3aa2f31c04db73630b4fba6ea549518b0b5bc9ca441586f70670000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6fa191558c0915e3aeb5014a6dec84f221d8b58ce3a493b0ac4da284e0f31c27",
+            "message": "0x554a4952412f4154544553542f56326fa191558c0915e3aeb5014a6dec84f221d8b58ce3a493b0ac4da284e0f31c27"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong_ref",
+      "tamper": "wrong_ref",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0xa97e4025781ac4634dbffecd0c7b3f410eaf318a5e1437d3802474b79ddd1fc20557a4f5cac09a310dc34aa3395f113b224b146fe6fc8af3cdb11790507dab06",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a3706b98a30477c4e32771d9925b40e22063b9504115443c3b9504a2de9d0bac0343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0xd8792f08219ebe17bcbc49f62297b3d2a21d6fd46f51df9034ac9fa12c709406",
+            "message": "0x554a4952412f4154544553542f5632d8792f08219ebe17bcbc49f62297b3d2a21d6fd46f51df9034ac9fa12c709406"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong_valid_until",
+      "tamper": "wrong_valid_until",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229260",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c74c2c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x919df27c9a6328f03e4669cd39565684edd338b048275aa9cc5b490a953b3639",
+            "message": "0x554a4952412f4154544553542f5632919df27c9a6328f03e4669cd39565684edd338b048275aa9cc5b490a953b3639"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong_policy_epoch_signed",
+      "tamper": "wrong_epoch",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "1",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "1",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000001000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x8416616758d7f3c322a70c8a48fecc3a779369be63a2e82aa5d6868f65803000",
+            "message": "0x554a4952412f4154544553542f56328416616758d7f3c322a70c8a48fecc3a779369be63a2e82aa5d6868f65803000"
+          }
+        }
+      ]
+    },
+    {
+      "name": "stale_policy_epoch",
+      "tamper": "stale_epoch",
+      "expect": "POLICY_CHANGED",
+      "expect_code": 53,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "1",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "future_policy_epoch",
+      "tamper": "stale_epoch",
+      "expect": "POLICY_CHANGED",
+      "expect_code": 53,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "1",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "2",
+          "signature": "0x14f3271de9a96fcd7c452bb4b7c6cfbf9db21d3a536d2bdee0f592ef0107836c536c9a8bc2708743a75162f0d5645fcb7f043848018c4ade0452037b21fdcd0f",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000002000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0xab4c167e7cd35a405423f98323eada5663ea22351336bc54618652c23e1b8275",
+            "message": "0x554a4952412f4154544553542f5632ab4c167e7cd35a405423f98323eada5663ea22351336bc54618652c23e1b8275"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000002000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0xab4c167e7cd35a405423f98323eada5663ea22351336bc54618652c23e1b8275",
+            "message": "0x554a4952412f4154544553542f5632ab4c167e7cd35a405423f98323eada5663ea22351336bc54618652c23e1b8275"
+          }
+        }
+      ]
+    },
+    {
+      "name": "stale_policy_epoch_wins_over_bad_signature",
+      "tamper": "stale_epoch",
+      "expect": "POLICY_CHANGED",
+      "expect_code": 53,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "1",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x03c8adb2cf10230930dbf8d9cb0590e065d951aa25c180342177cc206ebc505af14352d4fddf3a75c7c967f79dcf33b30e6d6e3adbaf9f8375c3cdbbfd62eb0d",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "signature_63_bytes",
+      "tamper": "truncated",
+      "expect": "ATTESTATION_INVALID",
+      "expect_code": 51,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae22",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "signature_65_bytes",
+      "tamper": "malformed",
+      "expect": "ATTESTATION_INVALID",
+      "expect_code": 51,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae220800",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "empty_signature",
+      "tamper": "malformed",
+      "expect": "ATTESTATION_INVALID",
+      "expect_code": 51,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "short_signature_wins_over_stale_epoch",
+      "tamper": "truncated",
+      "expect": "ATTESTATION_INVALID",
+      "expect_code": 51,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "1",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae22",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "flipped_r_bit",
+      "tamper": "bad_signature",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x053dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "flipped_s_bit",
+      "tamper": "bad_signature",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0496e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "non_canonical_s",
+      "tamper": "bad_signature",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0484ba3451598d20bcdabd79d4af07f0be030f954d9eb799ff92f0328e1cae2218",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "zero_signature",
+      "tamper": "bad_signature",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "identity_r_zero_s",
+      "tamper": "bad_signature",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "small_order_attester_key",
+      "tamper": "bad_signature",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x0100000000000000000000000000000000000000000000000000000000000000",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "expired_at_valid_until",
+      "tamper": "expired",
+      "expect": "ATTESTATION_EXPIRED",
+      "expect_code": 52,
+      "calls": 1,
+      "now": "1767229200",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "expired_after_valid_until",
+      "tamper": "expired",
+      "expect": "ATTESTATION_EXPIRED",
+      "expect_code": 52,
+      "calls": 1,
+      "now": "1767315600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "expired_wins_over_stale_epoch",
+      "tamper": "expired",
+      "expect": "ATTESTATION_EXPIRED",
+      "expect_code": 52,
+      "calls": 1,
+      "now": "1767229200",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "1",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "window_too_long",
+      "tamper": "window",
+      "expect": "ATTESTATION_INVALID",
+      "expect_code": 51,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767312001",
+          "policy_epoch": "0",
+          "signature": "0x96c1f6b36b0ff6f4702e113187a19ad90b876197955ac0ca9f3647982b8913ff0a3d75affe1a9f97f53f96ade5ec6a02fa31ff18462e9d8ebc52a6474653e90e",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca83041500000000000000000000000069570a812c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x7e114e09e493c43decbecaa1f44fc397a07a139ca4d9eaf9d5ba5b26575fb21e",
+            "message": "0x554a4952412f4154544553542f56327e114e09e493c43decbecaa1f44fc397a07a139ca4d9eaf9d5ba5b26575fb21e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca83041500000000000000000000000069570a812c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x7e114e09e493c43decbecaa1f44fc397a07a139ca4d9eaf9d5ba5b26575fb21e",
+            "message": "0x554a4952412f4154544553542f56327e114e09e493c43decbecaa1f44fc397a07a139ca4d9eaf9d5ba5b26575fb21e"
+          }
+        }
+      ]
+    },
+    {
+      "name": "missing_attestation",
+      "tamper": "count",
+      "expect": "ATTESTATION_INVALID",
+      "expect_code": 51,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": []
+    },
+    {
+      "name": "extra_attestation",
+      "tamper": "count",
+      "expect": "ATTESTATION_INVALID",
+      "expect_code": 51,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "500"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        },
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": null
+        }
+      ]
+    },
+    {
+      "name": "attestations_swapped_between_legs",
+      "tamper": "wrong_tag",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "MDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SAAAAAAAAAAAAFD6Y",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": true,
+          "tag": "1",
+          "amount": "300"
+        },
+        {
+          "destination": "MDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SAAAAAAAAAAAAISNY",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": true,
+          "tag": "2",
+          "amount": "200"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x6a5619e3734b5df620e8773a7638347fb2a107d99b7225a566efeceb5b02f42c4899b5c0029732946a6003b24cbafd078c3a780830b3d5849200e76f5942230d",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9010000000000000002",
+            "fields_sha256": "0xad087410efa3e270690e2352895a43efb00d018895ec176ff2ed9c0182ddf4d9",
+            "message": "0x554a4952412f4154544553542f5632ad087410efa3e270690e2352895a43efb00d018895ec176ff2ed9c0182ddf4d9"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9010000000000000001",
+            "fields_sha256": "0x993f3c50023ecc6648bcb6513e5c1366d6866030e59c3e6c9e336971a09bac70",
+            "message": "0x554a4952412f4154544553542f5632993f3c50023ecc6648bcb6513e5c1366d6866030e59c3e6c9e336971a09bac70"
+          }
+        },
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x505546d86e5eea51e6e41906babf574c5610a3055b1c35a8aa82698d16431646aa9ef81e57825ba999ea7342a2ce6f94f1c303df309c7a780dee08ccb8bbce06",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9010000000000000001",
+            "fields_sha256": "0x993f3c50023ecc6648bcb6513e5c1366d6866030e59c3e6c9e336971a09bac70",
+            "message": "0x554a4952412f4154544553542f5632993f3c50023ecc6648bcb6513e5c1366d6866030e59c3e6c9e336971a09bac70"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9010000000000000002",
+            "fields_sha256": "0xad087410efa3e270690e2352895a43efb00d018895ec176ff2ed9c0182ddf4d9",
+            "message": "0x554a4952412f4154544553542f5632ad087410efa3e270690e2352895a43efb00d018895ec176ff2ed9c0182ddf4d9"
+          }
+        }
+      ]
+    },
+    {
+      "name": "second_leg_wrong_destination",
+      "tamper": "wrong_destination",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "300"
+        },
+        {
+          "destination": "GD6WQDN42GVCOJ6SRIT5ELC5L6V5XST256ICC5YTAA2TV5WHNSKSXUBA",
+          "destination_xdr": "0x000000120000000000000000fd680dbcd1aa2727d28a27d22c5d5fabdbca7aef9021771300353af6c76c952b",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "200"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        },
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000fd680dbcd1aa2727d28a27d22c5d5fabdbca7aef9021771300353af6c76c952b000000000000000000",
+            "fields_sha256": "0x2357a2ce427200c14a8ad37f9a909e73010e01cde16bf8a443dbf4f991f554a1",
+            "message": "0x554a4952412f4154544553542f56322357a2ce427200c14a8ad37f9a909e73010e01cde16bf8a443dbf4f991f554a1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "second_leg_stale_policy_epoch",
+      "tamper": "stale_epoch",
+      "expect": "POLICY_CHANGED",
+      "expect_code": 53,
+      "calls": 1,
+      "now": "1767225600",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "1",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "300"
+        },
+        {
+          "destination": "GD6WQDN42GVCOJ6SRIT5ELC5L6V5XST256ICC5YTAA2TV5WHNSKSXUBA",
+          "destination_xdr": "0x000000120000000000000000fd680dbcd1aa2727d28a27d22c5d5fabdbca7aef9021771300353af6c76c952b",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "200"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "1",
+          "signature": "0x18f9bd04f82536ff58e89f631b4e63de61638c5149cee07941094d91c93088a7d4355e2e3ecd4f5c24f52e876fb16b4d1cd5b013349df52e53cabf2dfa593a0a",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000001000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x8416616758d7f3c322a70c8a48fecc3a779369be63a2e82aa5d6868f65803000",
+            "message": "0x554a4952412f4154544553542f56328416616758d7f3c322a70c8a48fecc3a779369be63a2e82aa5d6868f65803000"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000001000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x8416616758d7f3c322a70c8a48fecc3a779369be63a2e82aa5d6868f65803000",
+            "message": "0x554a4952412f4154544553542f56328416616758d7f3c322a70c8a48fecc3a779369be63a2e82aa5d6868f65803000"
+          }
+        },
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0xef91e584a6d459fcc4f4901d47719ef4f960472499e3ca765ead0ac5d527d19081d92f429438932df943bd41ee463690e6dbce3dddd930807fe1338ec31ac80f",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000fd680dbcd1aa2727d28a27d22c5d5fabdbca7aef9021771300353af6c76c952b000000000000000000",
+            "fields_sha256": "0x2357a2ce427200c14a8ad37f9a909e73010e01cde16bf8a443dbf4f991f554a1",
+            "message": "0x554a4952412f4154544553542f56322357a2ce427200c14a8ad37f9a909e73010e01cde16bf8a443dbf4f991f554a1"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000fd680dbcd1aa2727d28a27d22c5d5fabdbca7aef9021771300353af6c76c952b000000000000000000",
+            "fields_sha256": "0x2357a2ce427200c14a8ad37f9a909e73010e01cde16bf8a443dbf4f991f554a1",
+            "message": "0x554a4952412f4154544553542f56322357a2ce427200c14a8ad37f9a909e73010e01cde16bf8a443dbf4f991f554a1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "first_leg_expired_wins_over_second_bad_signature",
+      "tamper": "expired",
+      "expect": "ATTESTATION_EXPIRED",
+      "expect_code": 52,
+      "calls": 1,
+      "now": "1767229200",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "300"
+        },
+        {
+          "destination": "GD6WQDN42GVCOJ6SRIT5ELC5L6V5XST256ICC5YTAA2TV5WHNSKSXUBA",
+          "destination_xdr": "0x000000120000000000000000fd680dbcd1aa2727d28a27d22c5d5fabdbca7aef9021771300353af6c76c952b",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "200"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0x043dcca5e9a6dfd41320f9ecf7b4778bf00ff706ac26d865f4c1ff6366a49e0497e63ef43e2a0e6404218231d10d11aa030f954d9eb799ff92f0328e1cae2208",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x6786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e",
+            "message": "0x554a4952412f4154544553542f56326786dd0154eaa55fca26d77da8952c91df2fcc0927e381771667f4c37a7f115e"
+          }
+        },
+        {
+          "valid_until": "1767229260",
+          "policy_epoch": "0",
+          "signature": "0x069f9f052b8032978862356b48967c69094ab2cc0b1dde86fb59d213f88859748a507073c79a815d127c93b669ec6bac0ec488790ed602cb1f2b3d43d9f66108",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c74c2c000000120000000000000000fd680dbcd1aa2727d28a27d22c5d5fabdbca7aef9021771300353af6c76c952b000000000000000000",
+            "fields_sha256": "0x247299e89946f6c8c3d88252602b30c726eb87a2444de435344d429b5462a504",
+            "message": "0x554a4952412f4154544553542f5632247299e89946f6c8c3d88252602b30c726eb87a2444de435344d429b5462a504"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c74c2c000000120000000000000000fd680dbcd1aa2727d28a27d22c5d5fabdbca7aef9021771300353af6c76c952b000000000000000000",
+            "fields_sha256": "0x247299e89946f6c8c3d88252602b30c726eb87a2444de435344d429b5462a504",
+            "message": "0x554a4952412f4154544553542f5632247299e89946f6c8c3d88252602b30c726eb87a2444de435344d429b5462a504"
+          }
+        }
+      ]
+    },
+    {
+      "name": "first_leg_bad_signature_wins_over_second_expired",
+      "tamper": "wrong_signer",
+      "expect": "HOST_TRAP",
+      "expect_code": null,
+      "calls": 1,
+      "now": "1767229200",
+      "network_passphrase": "Test SDF Network ; September 2015",
+      "network_id": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472",
+      "mandate": "CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA",
+      "mandate_xdr": "0x0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a",
+      "attester_public_key": "0x421adb50c10fe73fb1fc0d4211a16911a188bb001eaf0391b479316026141d48",
+      "recipient_ref": "0x187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d",
+      "country_policy_hash": "0x343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca830415",
+      "policy_epoch": "0",
+      "legs": [
+        {
+          "destination": "GDTYAUMMX45E2SU2Q7JRJHCXDIYTEUAXVBHZ7DVCVXZGMAKMWFL7SOY4",
+          "destination_xdr": "0x000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "300"
+        },
+        {
+          "destination": "GD6WQDN42GVCOJ6SRIT5ELC5L6V5XST256ICC5YTAA2TV5WHNSKSXUBA",
+          "destination_xdr": "0x000000120000000000000000fd680dbcd1aa2727d28a27d22c5d5fabdbca7aef9021771300353af6c76c952b",
+          "has_tag": false,
+          "tag": "0",
+          "amount": "200"
+        }
+      ],
+      "attestations": [
+        {
+          "valid_until": "1767229260",
+          "policy_epoch": "0",
+          "signature": "0x8fa1cb1db714fa4bbcd7ec2d0d05719b19248f9f8bbc13d6248d56f910b995d0fd8cd818e3a6a23fad484aa1b8715968aaf37c6bc6dc23feb6dbd3702e0e5905",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c74c2c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x919df27c9a6328f03e4669cd39565684edd338b048275aa9cc5b490a953b3639",
+            "message": "0x554a4952412f4154544553542f5632919df27c9a6328f03e4669cd39565684edd338b048275aa9cc5b490a953b3639"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c74c2c000000120000000000000000e780518cbf3a4d4a9a87d3149c571a31325017a84f9f8ea2adf266014cb157f9000000000000000000",
+            "fields_sha256": "0x919df27c9a6328f03e4669cd39565684edd338b048275aa9cc5b490a953b3639",
+            "message": "0x554a4952412f4154544553542f5632919df27c9a6328f03e4669cd39565684edd338b048275aa9cc5b490a953b3639"
+          }
+        },
+        {
+          "valid_until": "1767229200",
+          "policy_epoch": "0",
+          "signature": "0xef91e584a6d459fcc4f4901d47719ef4f960472499e3ca765ead0ac5d527d19081d92f429438932df943bd41ee463690e6dbce3dddd930807fe1338ec31ac80f",
+          "signed": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000fd680dbcd1aa2727d28a27d22c5d5fabdbca7aef9021771300353af6c76c952b000000000000000000",
+            "fields_sha256": "0x2357a2ce427200c14a8ad37f9a909e73010e01cde16bf8a443dbf4f991f554a1",
+            "message": "0x554a4952412f4154544553542f56322357a2ce427200c14a8ad37f9a909e73010e01cde16bf8a443dbf4f991f554a1"
+          },
+          "checked": {
+            "fields": "0xcee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472280000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a187204dacf1b6ae9830406f0405b3710d69d86df034cf3fe3753e7b460c8e97d343fb1d75ee948735be1a836a29a40ecd0612986ab9bd1183f8271ccca8304150000000000000000000000006955c7102c000000120000000000000000fd680dbcd1aa2727d28a27d22c5d5fabdbca7aef9021771300353af6c76c952b000000000000000000",
+            "fields_sha256": "0x2357a2ce427200c14a8ad37f9a909e73010e01cde16bf8a443dbf4f991f554a1",
+            "message": "0x554a4952412f4154544553542f56322357a2ce427200c14a8ad37f9a909e73010e01cde16bf8a443dbf4f991f554a1"
+          }
+        }
+      ]
+    }
+  ]
+}
