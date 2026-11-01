@@ -1,13 +1,22 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
-import { MIGRATIONS_TABLE, runMigrations, TOOL_DEFAULT_MIGRATIONS_TABLE } from './migrate.js';
+import {
+  MIGRATIONS_DIR,
+  MIGRATIONS_TABLE,
+  MigrationFileError,
+  parseMigration,
+  runMigrations,
+  TOOL_DEFAULT_MIGRATIONS_TABLE,
+} from './migrate.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
 
 const adminUrl = inject('dbAdminUrl');
@@ -63,15 +72,19 @@ describe('migrations', () => {
     const lines: string[] = [];
     const fresh = await createTestDatabase(adminUrl, `${import.meta.url}#logging`);
     try {
-      await runMigrations({ databaseUrl: fresh.url, direction: 'down' });
+      const down = await runMigrations({ databaseUrl: fresh.url, direction: 'down' });
       await runMigrations({
         databaseUrl: fresh.url,
         direction: 'up',
         log: (message) => lines.push(message),
       });
       // The tool names each migration it applies, so a deploy log says what
-      // ran rather than only that something did.
-      expect(lines.join('\n')).toContain('init');
+      // ran rather than only that something did. The name is whichever
+      // migration is last, not a fixed one: this file also runs, as the
+      // previous release's tests, against migrations added after it.
+      const [name] = down.names;
+      expect(name).toBeDefined();
+      expect(lines.join('\n')).toContain(name);
     } finally {
       await fresh.drop();
     }
@@ -171,6 +184,100 @@ describe('migrations', () => {
     } finally {
       await watcher.end();
     }
+  });
+});
+
+describe('migration files', () => {
+  const FIXTURES = fileURLToPath(new URL('./testing/fixtures/migrations', import.meta.url));
+
+  it('runs a -- no-transaction migration on its own, so an index can be built concurrently', async () => {
+    // Postgres refuses CREATE INDEX CONCURRENTLY inside a transaction block,
+    // and the tool's own SQL loader puts every file inside one. The fixture
+    // folder ends with such a build, so this run only passes if the runner
+    // takes it out of the shared transaction.
+    const fresh = await createTestDatabase(adminUrl, `${import.meta.url}#concurrent-index`, {
+      empty: true,
+    });
+    try {
+      const up = await runMigrations({ databaseUrl: fresh.url, direction: 'up', dir: FIXTURES });
+      expect(up.names).toEqual([
+        '1700000000000_things',
+        '1700000000001_things_note',
+        '1700000000002_things_note_index',
+      ]);
+      const client = new pg.Client({ connectionString: fresh.url });
+      await client.connect();
+      try {
+        const index = await client.query<{ valid: boolean }>(
+          `select i.indisvalid as valid
+             from pg_index i join pg_class c on c.oid = i.indexrelid
+            where c.relname = 'things_note'`,
+        );
+        expect(index.rows).toEqual([{ valid: true }]);
+      } finally {
+        await client.end();
+      }
+      const down = await runMigrations({
+        databaseUrl: fresh.url,
+        direction: 'down',
+        count: 3,
+        dir: FIXTURES,
+      });
+      expect(down.names).toHaveLength(3);
+    } finally {
+      await fresh.drop();
+    }
+  });
+
+  it('refuses a file that does not say whether it expands or contracts', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ujira-undeclared-'));
+    const fresh = await createTestDatabase(adminUrl, `${import.meta.url}#undeclared`, {
+      empty: true,
+    });
+    try {
+      writeFileSync(
+        join(dir, '1700000000000_undeclared.sql'),
+        '-- Up Migration\nselect 1;\n-- Down Migration\nselect 1;\n',
+      );
+      // The tool wraps a loader's error in its own; the cause is ours.
+      const refused = await runMigrations({ databaseUrl: fresh.url, direction: 'up', dir }).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(refused).toBeInstanceOf(Error);
+      expect((refused as Error).cause).toBeInstanceOf(MigrationFileError);
+      expect((refused as Error).message).toContain(
+        'the first line must be "-- expand" or "-- contract"',
+      );
+    } finally {
+      await fresh.drop();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('every committed migration declares its kind and both sections', () => {
+    for (const name of readdirSync(MIGRATIONS_DIR).filter((file) => file.endsWith('.sql'))) {
+      const migration = parseMigration(name, readFileSync(join(MIGRATIONS_DIR, name), 'utf8'));
+      expect(['expand', 'contract']).toContain(migration.kind);
+      expect(migration.up.startsWith('-- Up Migration')).toBe(true);
+      expect(migration.down.startsWith('-- Down Migration')).toBe(true);
+    }
+  });
+
+  it('reads the sections and their line numbers, with Windows line endings too', () => {
+    const migration = parseMigration(
+      'x.sql',
+      '-- contract\r\n-- no-transaction\r\n-- Up Migration\r\nselect 1;\r\n-- Down Migration\r\nselect 2;\r\n',
+    );
+    expect(migration).toEqual({
+      name: 'x.sql',
+      kind: 'contract',
+      transactional: false,
+      up: '-- Up Migration\nselect 1;',
+      upLine: 3,
+      down: '-- Down Migration\nselect 2;',
+      downLine: 5,
+    });
   });
 });
 

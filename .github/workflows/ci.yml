@@ -645,3 +645,134 @@ jobs:
             packages/ui/test-results/
           if-no-files-found: ignore
           retention-days: 14
+
+  # Migrations must never take the service down. Every migration file is
+  # checked for its declaration and safe forms, linted by squawk, migrated
+  # from zero, compared with the committed schema and types, rolled back and
+  # forward when it is an expand, rehearsed against data, and the base
+  # commit's database tests run against the new schema. Each check after the
+  # install runs even when an earlier one failed, so one run reports all.
+  db-migrations:
+    name: db-migrations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      # squawk is Apache-2.0 licensed. Bump the version and its hash
+      # together, and only to a release at least 14 days old.
+      SQUAWK_VERSION: 2.70.0
+      SQUAWK_SHA256: 836ba2ab0c0ec30ae02c9f2cec065b341ff853765ceaa3965c22109c2f53eb1c
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+    steps:
+      # The full history, for the merge base and for the base commit's tests.
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        run: |
+          curl -fsSLo pnpm.tgz "https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-${PNPM_VERSION}.tgz"
+          echo "${PNPM_EXE_SHA512}  pnpm.tgz" | sha512sum --check --strict
+          mkdir -p "${RUNNER_TEMP}/pnpm"
+          tar -xzf pnpm.tgz -C "${RUNNER_TEMP}/pnpm" --strip-components 1 package/pnpm
+          rm pnpm.tgz
+          echo "${RUNNER_TEMP}/pnpm" >> "${GITHUB_PATH}"
+          PATH="${RUNNER_TEMP}/pnpm:${PATH}" scripts/assert-pnpm.sh
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Install squawk
+        run: |
+          curl -fsSLo "${RUNNER_TEMP}/squawk" "https://github.com/sbdchd/squawk/releases/download/v${SQUAWK_VERSION}/squawk-linux-x64"
+          echo "${SQUAWK_SHA256}  ${RUNNER_TEMP}/squawk" | sha256sum --check --strict
+          chmod +x "${RUNNER_TEMP}/squawk"
+          "${RUNNER_TEMP}/squawk" --version
+          echo "SQUAWK_BIN=${RUNNER_TEMP}/squawk" >> "${GITHUB_ENV}"
+
+      # On a pull request the base is the target branch's head; on a push it
+      # is the commit the branch held before. The migrations this change adds
+      # or edits are the ones squawk lints and the rollback check runs.
+      - name: Find the base and the changed migrations
+        id: base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = pull_request ]; then base="$PR_BASE_SHA"; else base="$PUSH_BEFORE_SHA"; fi
+          merge_base="$(git merge-base HEAD "$base")"
+          changed="$(git diff --name-only --diff-filter=AM "$merge_base" HEAD -- 'packages/db/migrations/*.sql' | tr '\n' ' ')"
+          echo "base: $base, changed migrations: ${changed:-none}"
+          echo "sha=$base" >> "${GITHUB_OUTPUT}"
+          echo "changed=$changed" >> "${GITHUB_OUTPUT}"
+
+      - name: Check migration files
+        run: node scripts/check-migrations.ts
+
+      # Proves squawk still fails an unsafe migration before trusting it to
+      # pass the real ones.
+      - name: Test squawk on an unsafe fixture
+        if: ${{ !cancelled() }}
+        run: |
+          if node scripts/squawk-migrations.ts scripts/fixtures/migrations/1700000000000_unsafe_index.sql > "${RUNNER_TEMP}/squawk-fixture.txt" 2>&1; then
+            cat "${RUNNER_TEMP}/squawk-fixture.txt"
+            echo "squawk passed a non-concurrent index on a live table" >&2
+            exit 1
+          fi
+          cat "${RUNNER_TEMP}/squawk-fixture.txt"
+          grep -q 'require-concurrent-index-creation' "${RUNNER_TEMP}/squawk-fixture.txt"
+
+      - name: Lint changed migrations with squawk
+        if: ${{ !cancelled() && steps.base.outputs.changed != '' }}
+        env:
+          CHANGED: ${{ steps.base.outputs.changed }}
+        run: |
+          read -ra files <<< "$CHANGED"
+          node scripts/squawk-migrations.ts "${files[@]}"
+
+      - name: Migrate from zero and compare the schema snapshot
+        if: ${{ !cancelled() }}
+        run: |
+          node scripts/db-schema.ts snapshot
+          git diff --exit-code packages/db/schema.snapshot.sql
+
+      - name: Compare the generated types
+        if: ${{ !cancelled() }}
+        run: |
+          node scripts/db-types.ts
+          git diff --exit-code packages/db/src/schema.generated.ts
+
+      - name: Roll changed expand migrations back and forward
+        if: ${{ !cancelled() && steps.base.outputs.changed != '' }}
+        env:
+          CHANGED: ${{ steps.base.outputs.changed }}
+        run: |
+          read -ra files <<< "$CHANGED"
+          node scripts/db-schema.ts roundtrip "${files[@]}"
+
+      - name: Rehearse the pending migrations against data
+        if: ${{ !cancelled() }}
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: node scripts/db-rehearse.ts --released-ref "$BASE_SHA" --rows 10000
+
+      - name: Run the base commit's database tests against the new schema
+        if: ${{ !cancelled() }}
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          scripts/assert-pnpm.sh
+          scripts/db-previous-release.sh "$BASE_SHA"
