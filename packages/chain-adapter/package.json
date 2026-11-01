@@ -26,7 +26,9 @@
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint --max-warnings 0 .",
     "test": "vitest run --coverage",
-    "test:vectors": "vitest run src/testing/vectors"
+    "test:vectors": "vitest run src/testing/vectors",
+    "errors:generate": "UJIRA_WRITE_GENERATED=1 vitest run src/mandate-errors.test.ts",
+    "errors:check": "vitest run src/mandate-errors.test.ts src/errors-vendor.test.ts"
   },
   "dependencies": {
     "@ujira/core": "workspace:*",
