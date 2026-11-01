@@ -196,9 +196,11 @@ describe('strkey codecs', () => {
   // deliberate change to this list.
   it('exports only the listed codecs from the subpath', () => {
     expect(Object.keys(codecs).sort()).toEqual([
+      'ATTESTATION_MESSAGE_BYTES',
       'MAX_ENVELOPE_SIGNATURES',
       'attachAuthEntrySignature',
       'attachEnvelopeSignature',
+      'attestationMessage',
       'decodeAccountAddress',
       'decodeAuthEntry',
       'decodeFeeBumpEnvelope',
