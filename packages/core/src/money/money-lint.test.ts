@@ -404,6 +404,62 @@ describe('float ban in packages/core/src/money', () => {
   }, 120_000);
 });
 
+// process reaches getBuiltinModule, and through it createRequire and vm. A
+// property ban on process.getBuiltinModule only sees that exact spelling, so
+// money source may not touch process at all, under any name.
+const PROCESS_FIXTURES: [string, string][] = [
+  [
+    'process-alias.ts',
+    "const p = process;\nexport const m: unknown = p.getBuiltinModule('node:module');\n",
+  ],
+  [
+    'a destructured getBuiltinModule',
+    "const { getBuiltinModule } = process;\nexport const m: unknown = getBuiltinModule('node:vm');\n",
+  ],
+  [
+    'process passed as a value',
+    'export const keep = (p: unknown): unknown => p;\nkeep(process);\n',
+  ],
+  [
+    'process.getBuiltinModule',
+    "export const m: unknown = process.getBuiltinModule('node:module');\n",
+  ],
+  [
+    'globalThis.process',
+    "export const m: unknown = globalThis.process.getBuiltinModule('node:vm');\n",
+  ],
+  ['global.process', "export const m: unknown = global.process.getBuiltinModule('node:vm');\n"],
+  [
+    'an alias of globalThis.process',
+    'const g = globalThis;\nexport const p: unknown = g.process;\n',
+  ],
+];
+
+describe('process is unreachable from money source', () => {
+  it.each(PROCESS_FIXTURES)(
+    'reports %s',
+    async (_label, code) => {
+      for (const file of [MONEY_FILE, SECOND_MONEY_FILE]) {
+        const messages = await errorsFor(code, file);
+        expect(banErrors(messages).length).toBeGreaterThan(0);
+      }
+    },
+    120_000,
+  );
+
+  it('names process in the restricted globals of every money source file', async () => {
+    for (const file of ['money.ts', 'nested/x.ts', 'x.mts'].map((f) => path.join(MONEY_DIR, f))) {
+      const config = (await eslint.calculateConfigForFile(file)) as {
+        rules: Record<string, unknown[] | undefined>;
+      };
+      const names = (config.rules['no-restricted-globals'] ?? [])
+        .slice(1)
+        .map((entry) => (entry as { name?: unknown }).name);
+      expect(names).toContain('process');
+    }
+  }, 120_000);
+});
+
 // eval runs code no rule can see, so it is banned in every file, not only in
 // money source.
 describe('eval is banned across the repo', () => {

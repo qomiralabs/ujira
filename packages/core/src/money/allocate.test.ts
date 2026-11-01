@@ -142,7 +142,7 @@ function sequenced(fields: {
 } {
   const reads = { kind: 0, amount: 0, currency: 0, scale: 0 };
   const value = new Proxy(
-    {},
+    { kind: undefined, amount: undefined, currency: undefined, scale: undefined },
     {
       get(_target, key) {
         if (key === 'kind') {
