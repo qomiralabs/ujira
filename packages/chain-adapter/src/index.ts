@@ -13,6 +13,8 @@ export {
   ChainUnavailableError,
   CrossChainLiveError,
   DestinationInvalidError,
+  UNSUPPORTED_MEMO_DESTINATION_MESSAGE,
+  UnsupportedMemoDestinationError,
   ExecutorUnfundedError,
   InternalError,
   InvalidInputError,
@@ -51,6 +53,12 @@ export type {
   Landed,
   WaitFor,
 } from './errors.js';
+export {
+  DESTINATION_MEMO_TYPES,
+  readBindableDestination,
+  readProviderDepositInstruction,
+} from './destination.js';
+export type { BindableDestination, DestinationInput, DestinationMemoType } from './destination.js';
 export { SIGNER_DOWN, withSignerHealth } from './health.js';
 export { pinnedKeys, verifyPinnedAddresses } from './key-ref.js';
 export type { PinnedKey } from './key-ref.js';
