@@ -17,6 +17,7 @@ import type {
   UnixSeconds,
   Uuid,
 } from '@ujira/chain-adapter';
+import type { TokenAmount } from '@ujira/core';
 
 /** Where a recipient's verification with one provider stands. */
 export const IDENTITY_STATUSES = Object.freeze([
@@ -144,12 +145,24 @@ export interface PayoutMethodRecord {
 
 export type MandateInstanceStatus = 'pending' | 'active' | 'paused' | 'revoked' | 'expired';
 
+/** Pay recipients in the listed countries only, or anywhere but them. */
+export type CountryPolicyMode = 'allow' | 'deny';
+
+export interface CountryPolicy {
+  readonly mode: CountryPolicyMode;
+  readonly countries: readonly CountryCode[];
+}
+
 export interface MandateInstanceRecord {
   readonly scope: TenantScope;
   readonly id: Uuid;
   readonly mandate: MandateRef;
   readonly status: MandateInstanceStatus;
   readonly recipientMode: RecipientMode;
+  /** The principal's country list. The chain only ever sees its hash. */
+  readonly countryPolicy: CountryPolicy;
+  /** The hash stored when the instance was created, of the list above. */
+  readonly countryPolicyHash: Bytes32;
 }
 
 /** One recipient's verification with one provider. The provider is the system of record. */
@@ -167,4 +180,138 @@ export interface IdentityRecord {
 
 export interface ProjectIdentitySettings {
   readonly recipientRequirement: RecipientRequirement;
+}
+
+// ---------------------------------------------------------------------------
+// Destination evidence and attestations
+
+/**
+ * How a destination was shown to be the recipient's. A wallet signature is
+ * a proof signed by the destination key; a session wallet was recorded in an
+ * embed session; a partner confirmed an anchor deposit address; a forwarder
+ * was derived from a wallet verified at one of the wallet levels; and in
+ * allowlist mode the principal asserted it themselves.
+ */
+export const VERIFICATION_LEVELS = Object.freeze([
+  'wallet_signature',
+  'wallet_session',
+  'partner_confirmed',
+  'forwarder_derived',
+  'principal_asserted',
+] as const);
+export type VerificationLevel = (typeof VERIFICATION_LEVELS)[number];
+
+/** Append only: the latest row for a method is its current evidence. */
+export interface DestinationVerificationRecord {
+  readonly scope: TenantScope;
+  readonly id: Uuid;
+  readonly methodId: Uuid;
+  readonly level: VerificationLevel;
+  readonly destination: Destination;
+  /** The key that signed a wallet signature proof, as the chain writes it; otherwise null. */
+  readonly signerKey: string | null;
+  /** For a forwarder: the wallet verification it was built on. Otherwise null. */
+  readonly derivedFrom: Uuid | null;
+  readonly recordedAt: UnixSeconds;
+}
+
+/** One leg of a payout attempt, as the payouts service recorded it. */
+export interface AttemptLegRecord {
+  readonly scope: TenantScope;
+  readonly attemptId: Uuid;
+  /** 0 to 255, the byte the leg key ends with. */
+  readonly legIndex: number;
+  readonly mandateInstanceId: Uuid;
+  readonly recipientId: Uuid;
+  readonly methodId: Uuid;
+  readonly amount: TokenAmount;
+}
+
+/**
+ * Every reason attest refuses with, in the order of the checks that give
+ * them. A closed list, so callers can switch on it.
+ */
+export const ATTESTATION_REFUSAL_REASONS = Object.freeze([
+  'MANDATE_INACTIVE',
+  'WRONG_RECIPIENT_MODE',
+  'ATTESTER_MISMATCH',
+  'RECIPIENT_INACTIVE',
+  'DESTINATION_NOT_BOUND',
+  'DESTINATION_UNVERIFIED',
+  'DESTINATION_NOT_RECEIVABLE',
+  'RAIL_UNAVAILABLE',
+  'IDENTITY_REQUIRED',
+  'COUNTRY_NOT_ALLOWED',
+  'POLICY_HASH_MISMATCH',
+  'VALIDITY_TOO_SHORT',
+  'PROVIDER_UNAVAILABLE',
+] as const);
+export type AttestationRefusalReason = (typeof ATTESTATION_REFUSAL_REASONS)[number];
+
+export interface AttestRequest {
+  readonly attemptId: Uuid;
+  readonly legIndex: number;
+  readonly mandateInstanceId: Uuid;
+  readonly methodId: Uuid;
+}
+
+export interface SignedAttestation {
+  /** The attestation row. */
+  readonly id: Uuid;
+  readonly legIndex: number;
+  readonly validUntil: UnixSeconds;
+  /** 64 bytes of ed25519 over the 47 byte attestation message. */
+  readonly signature: Uint8Array;
+  /** The attester's 32 byte public key that made it. */
+  readonly publicKey: Uint8Array;
+  /** SHA-256 of the signed message, the row's unique digest. */
+  readonly digest: Bytes32;
+}
+
+export type AttestResult =
+  | { readonly attested: true; readonly attestation: SignedAttestation }
+  | {
+      readonly attested: false;
+      readonly reason: AttestationRefusalReason;
+      /**
+       * The narrower cause where one exists: the receivability reason for
+       * DESTINATION_NOT_RECEIVABLE and the eligibility reason for
+       * IDENTITY_REQUIRED. Codes only, never personal data.
+       */
+      readonly detail: string | null;
+    };
+
+export interface AttestationService {
+  /**
+   * Internal only, never a public route. Runs the checks in a fixed order,
+   * records the attestation as pending, and only then asks the attester to
+   * sign. A refusal writes nothing and signs nothing.
+   */
+  attest(ctx: IdentityContext, req: AttestRequest): Promise<AttestResult>;
+}
+
+export type AttestationStatus = 'pending' | 'signed' | 'failed';
+
+/** Append only, except that status moves once from pending to signed or failed. */
+export interface AttestationRecord {
+  readonly scope: TenantScope;
+  readonly id: Uuid;
+  readonly attemptId: Uuid;
+  readonly legIndex: number;
+  readonly mandateInstanceId: Uuid;
+  readonly recipientId: Uuid;
+  readonly methodId: Uuid;
+  readonly destination: Destination;
+  readonly countryPolicyHash: Bytes32;
+  readonly policyEpoch: bigint;
+  readonly validUntil: UnixSeconds;
+  /** 0x and the attester's public key in hex. */
+  readonly attesterKeyId: string;
+  /** The 47 byte message the attester is about to sign. */
+  readonly message: Uint8Array;
+  readonly digest: Bytes32;
+  readonly status: AttestationStatus;
+  readonly signature: Uint8Array | null;
+  /** An error code when signing failed, never a message. */
+  readonly failureCode: string | null;
 }
