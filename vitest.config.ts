@@ -145,6 +145,13 @@ export default defineConfig({
           branches: 95,
           statements: 95,
         },
+        // The signer holds every key UJIRA signs with.
+        'packages/signer/src/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
       },
     },
   },
