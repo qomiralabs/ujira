@@ -13,12 +13,44 @@ export type Generated<T> =
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
+export interface UjiraChains {
+  code: string;
+}
+
+export interface UjiraCurrencies {
+  code: string;
+  minor_units: number;
+}
+
+export interface UjiraCurrencyScales {
+  currency: string;
+  scale: number;
+}
+
 export interface UjiraMigrations {
   id: Generated<number>;
   name: string;
   run_on: Timestamp;
 }
 
+export interface UjiraSettlementTokens {
+  asset: string;
+  chain: string;
+  display_scale: number;
+  token_scale: number;
+}
+
+export interface UjiraStatusTransitions {
+  from_status: string;
+  machine: string;
+  to_status: string;
+}
+
 export interface Schema {
   ujira_migrations: UjiraMigrations;
+  'ujira.chains': UjiraChains;
+  'ujira.currencies': UjiraCurrencies;
+  'ujira.currency_scales': UjiraCurrencyScales;
+  'ujira.settlement_tokens': UjiraSettlementTokens;
+  'ujira.status_transitions': UjiraStatusTransitions;
 }

@@ -411,9 +411,10 @@ export const ADAPTER_LOG_SERIALIZERS: Readonly<{
   error: (value: unknown) => AdapterErrorLog;
 }> = Object.freeze({ err: serializeAdapterError, error: serializeAdapterError });
 
-// "path (code)": the path is field names, indexes and network IDs, and the
-// code a lower snake case reason. Neither has room for a value.
-const ISSUE = /^[A-Za-z0-9_.:]{1,96} \([a-z_]{1,48}\)$/;
+// "path (code)": the path is field names, indexes, network IDs and, where an
+// operator needs it to fix a config, a host name; the code a lower snake
+// case reason. Neither has room for a value.
+const ISSUE = /^[A-Za-z0-9_.:-]{1,96} \([a-z_]{1,48}\)$/;
 const MAX_ISSUES = 10;
 
 export interface InvalidInputErrorOptions extends ChainAdapterErrorOptions {
