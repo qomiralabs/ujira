@@ -144,6 +144,20 @@ describe('OpenAPI document', () => {
     for (const f of found) expect(states(f.description), f.path).toBe(true);
   });
 
+  // Available means two things depending on the instance state, so the
+  // document must say which rule applies where the field is read.
+  it('states the available rule next to the funding balance', () => {
+    const doc = buildOpenApiDocument() as {
+      components: {
+        schemas: Record<string, { properties?: Record<string, { description?: string }> }>;
+      };
+    };
+    const balance = doc.components.schemas['FundingAccount']?.properties?.['balance'];
+    expect(balance?.description).toMatch(/revoked and expired/);
+    expect(balance?.description).toMatch(/total minus pending minus committed/);
+    expect(doc.components.schemas['FundingAccount']?.properties?.['status']).toBeDefined();
+  });
+
   it('describes query parameters as the text clients send', () => {
     const doc = buildOpenApiDocument() as {
       paths: Record<
