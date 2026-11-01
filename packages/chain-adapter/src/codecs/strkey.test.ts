@@ -192,8 +192,10 @@ describe('strkey codecs', () => {
     expect((err as InvalidInputError).issues).toEqual(['publicKey (invalid_length)']);
   });
 
-  it('exports only the four codecs from the subpath', () => {
+  it('exports only the strkey codecs and the memo check from the subpath', () => {
     expect(Object.keys(codecs).sort()).toEqual([
+      'CONTRACT_OPERATION_TYPES',
+      'assertNoMemoOnContractCall',
       'decodeAccountAddress',
       'encodeAccountAddress',
       'isAccountAddress',
