@@ -61,7 +61,8 @@ describe('contract value encoding', () => {
       () => address('who', 'GBAD'),
       () => address('who', 7 as unknown as string),
       () => destination('dest', { address: { network: 'stellar:testnet', value: C }, tag: 1n }),
-      () => destination('dest', { address: { network: 'stellar:testnet', value: G }, tag: 1n << 64n }),
+      () =>
+        destination('dest', { address: { network: 'stellar:testnet', value: G }, tag: 1n << 64n }),
     ];
     for (const f of bad) {
       expect(f).toThrow(InvalidInputError);
@@ -76,7 +77,10 @@ describe('contract value encoding', () => {
   it('writes a tagged destination as a muxed address and a plain one as its base', () => {
     const tagged = destination('d', { address: { network: 'stellar:testnet', value: G }, tag: 9n });
     expect(tagged.type === 'scvAddress' && tagged.address.type).toBe('scAddressTypeMuxedAccount');
-    const plain = destination('d', { address: { network: 'stellar:testnet', value: G }, tag: null });
+    const plain = destination('d', {
+      address: { network: 'stellar:testnet', value: G },
+      tag: null,
+    });
     expect(asAddress(plain)).toBe(G);
   });
 
@@ -164,7 +168,10 @@ describe('mandate views', () => {
 
   it('refuses an unknown recipient mode and a number too large to hold', () => {
     expect(() => configViewOf(config(9), ctx)).toThrow(InternalError);
-    const huge = struct({ ...Object.fromEntries(fieldsOf(limits)), payout_ttl_seconds: u64('t', 1n << 60n) });
+    const huge = struct({
+      ...Object.fromEntries(fieldsOf(limits)),
+      payout_ttl_seconds: u64('t', 1n << 60n),
+    });
     expect(() => limitsOf(huge)).toThrow(InternalError);
     const state = struct({
       spent: amount(0n),

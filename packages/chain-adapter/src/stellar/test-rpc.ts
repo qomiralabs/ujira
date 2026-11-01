@@ -14,7 +14,6 @@ import path from 'node:path';
 import { Address, SorobanDataBuilder, TransactionBuilder, xdr } from '@stellar/stellar-sdk/base';
 import type { Transaction } from '@stellar/stellar-sdk/base';
 
-import type { CallOptions } from '../types.js';
 import type {
   RawSimulation,
   RpcLatestLedger,
@@ -119,19 +118,22 @@ export class FakeRpc implements StellarRpc {
         }
       }
       if (call.method === 'simulateTransaction' && call.params.transaction !== undefined) {
-        const tx = TransactionBuilder.fromXdr(call.params.transaction, PASSPHRASES['stellar:testnet']);
+        const tx = TransactionBuilder.fromXdr(
+          call.params.transaction,
+          PASSPHRASES['stellar:testnet'],
+        );
         rpc.reads.set(invoked(tx as Transaction).fn, call.result as unknown as RawSimulation);
       }
     }
     return rpc;
   }
 
-  getLatestLedger(_opts: CallOptions): Promise<RpcLatestLedger> {
+  getLatestLedger(): Promise<RpcLatestLedger> {
     this.calls.push('getLatestLedger');
     return Promise.resolve(this.latest);
   }
 
-  getLedgerEntries(keys: readonly string[], _opts: CallOptions) {
+  getLedgerEntries(keys: readonly string[]) {
     this.calls.push('getLedgerEntries');
     const entries = keys.flatMap((key) => {
       const entry = this.entries.get(key);
@@ -140,7 +142,7 @@ export class FakeRpc implements StellarRpc {
     return Promise.resolve({ latestLedger: this.latest.sequence, entries });
   }
 
-  simulateTransaction(txXdr: string, _opts: CallOptions): Promise<RawSimulation> {
+  simulateTransaction(txXdr: string): Promise<RawSimulation> {
     this.calls.push('simulateTransaction');
     const tx = TransactionBuilder.fromXdr(txXdr, PASSPHRASES['stellar:testnet']) as Transaction;
     this.simulated.push(tx);
@@ -148,34 +150,60 @@ export class FakeRpc implements StellarRpc {
     if (custom !== undefined) return Promise.resolve(custom);
     const op = tx.operations[0]?.type;
     if (op === 'restoreFootprint' || op === 'extendFootprintTtl') {
-      return Promise.resolve(this.success(tx, xdr.ScVal.scvVoid(), []));
+      // As the RPC does, the footprint the transaction declares comes back
+      // with a resource fee added.
+      const envelope = tx.toEnvelope();
+      const declared =
+        envelope.type === 'envelopeTypeTx' && envelope.v1.tx.ext.type === 'sorobanData'
+          ? envelope.v1.tx.ext.sorobanData
+          : undefined;
+      return Promise.resolve({
+        ...this.success(tx, xdr.ScVal.scvVoid(), []),
+        transactionData: new SorobanDataBuilder(declared)
+          .setResourceFee(this.resourceFee)
+          .build()
+          .toXdr('base64'),
+      });
     }
     const call = invoked(tx);
     const read = this.reads.get(call.fn);
-    if (read !== undefined && call.args.length === 0 && ['version', 'config', 'state'].includes(call.fn)) {
+    if (
+      read !== undefined &&
+      call.args.length === 0 &&
+      ['version', 'config', 'state'].includes(call.fn)
+    ) {
       return Promise.resolve(read);
     }
     return Promise.resolve(this.success(tx, this.retval(call)));
   }
 
-  sendTransaction(txXdr: string, _opts: CallOptions): Promise<RpcSendResult> {
+  sendTransaction(txXdr: string): Promise<RpcSendResult> {
     this.calls.push('sendTransaction');
     this.sent.push(txXdr);
     return Promise.resolve(this.sendResult(txXdr));
   }
 
-  getTransaction(hash: string, _opts: CallOptions): Promise<RpcTransaction> {
+  getTransaction(hash: string): Promise<RpcTransaction> {
     this.calls.push('getTransaction');
-    return Promise.resolve(this.txs.get(hash) ?? { status: 'SUCCESS', ledger: this.latest.sequence });
+    return Promise.resolve(
+      this.txs.get(hash) ?? { status: 'SUCCESS', ledger: this.latest.sequence },
+    );
   }
 
   /** A successful recording mode answer for `tx`, with `auth` computed when not given. */
-  success(tx: Transaction, retval: xdr.ScVal, auth?: readonly xdr.SorobanAuthorizationEntry[]): RawSimulation {
+  success(
+    tx: Transaction,
+    retval: xdr.ScVal,
+    auth?: readonly xdr.SorobanAuthorizationEntry[],
+  ): RawSimulation {
     return {
       id: '1',
       latestLedger: this.latest.sequence,
       minResourceFee: this.resourceFee.toString(),
-      transactionData: new SorobanDataBuilder().setResourceFee(this.resourceFee).build().toXdr('base64'),
+      transactionData: new SorobanDataBuilder()
+        .setResourceFee(this.resourceFee)
+        .build()
+        .toXdr('base64'),
       results: [
         {
           auth: (auth ?? this.authFor(tx)).map((entry) => entry.toXdr('base64')),
@@ -193,8 +221,12 @@ export class FakeRpc implements StellarRpc {
     }
     if (call.fn === 'accept_principal') return this.options.proposed ?? null;
     if (call.fn === 'create' && first?.type === 'scvMap') {
-      const principal = (first.map ?? []).find((e) => e.key.type === 'scvSymbol' && e.key.sym.toString() === 'principal');
-      return principal?.val.type === 'scvAddress' ? Address.fromScAddress(principal.val.address).toString() : null;
+      const principal = (first.map ?? []).find(
+        (e) => e.key.type === 'scvSymbol' && e.key.sym.toString() === 'principal',
+      );
+      return principal?.val.type === 'scvAddress'
+        ? Address.fromScAddress(principal.val.address).toString()
+        : null;
     }
     return this.options.principal;
   }

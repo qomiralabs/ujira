@@ -10,11 +10,13 @@ import type { ContractIssue } from './errors.js';
 import { ROUTES } from './routes.js';
 import type { RouteId, RouteQuery, RouteResponse } from './routes.js';
 
-const TITLES: Readonly<Record<ProblemCode, string>> = Object.freeze({
+/** The fixed title of each code. Titles never carry request data. */
+export const PROBLEM_TITLES: Readonly<Record<ProblemCode, string>> = Object.freeze({
   INVALID_FILTER: 'The filter is not valid',
   INVALID_CURSOR: 'The cursor is not valid for this list',
   LIMIT_OUT_OF_RANGE: 'The limit must be from 1 to 200',
   INVALID_AMOUNT: 'The amount is not an integer count of minor units',
+  INVALID_REQUEST: 'The request is not valid',
   TOKEN_MALFORMED: 'The API key is missing or malformed',
   TOKEN_INVALID: 'The API key is not valid',
   TOKEN_ENVIRONMENT_MISMATCH: 'The API key is for another environment',
@@ -23,7 +25,17 @@ const TITLES: Readonly<Record<ProblemCode, string>> = Object.freeze({
   ORIGIN_NOT_ALLOWED: 'The request origin is not allowed',
   EMBED_SCOPE_VIOLATION: 'The embed session cannot reach this route',
   NOT_FOUND: 'Not found',
+  METHOD_NOT_ALLOWED: 'The route does not accept this method',
+  PAYLOAD_TOO_LARGE: 'The request body is too large',
+  UNSUPPORTED_MEDIA_TYPE: 'The request body must be application/json',
+  DESTINATION_INVALID: 'The destination cannot receive this payout',
+  MANDATE_REFUSED: 'The mandate does not allow this',
+  QUOTE_UNAVAILABLE: 'No quote is available for this payout right now',
   RATE_LIMITED: 'Too many requests',
+  INTERNAL: 'Something went wrong on our side',
+  DB_UNAVAILABLE: 'The service is temporarily unavailable',
+  CHAIN_UNAVAILABLE: 'The network is temporarily unavailable',
+  REQUEST_TIMEOUT: 'The request took too long',
 });
 
 export interface FieldError {
@@ -39,7 +51,7 @@ export function buildProblem(
 ): Problem {
   return {
     type: `${PROBLEM_TYPE_BASE}${code}`,
-    title: TITLES[code],
+    title: PROBLEM_TITLES[code],
     status: PROBLEM_CODES[code],
     code,
     requestId,
@@ -66,10 +78,28 @@ function fieldCode(issue: z.core.$ZodIssue): FieldError['code'] {
   return named.success ? named.data : 'invalid_value';
 }
 
+function issueErrors(issues: readonly z.core.$ZodIssue[]): FieldError[] {
+  const errors: FieldError[] = [];
+  for (const issue of issues) {
+    if (issue.code === 'unrecognized_keys') {
+      for (const key of issue.keys) errors.push({ field: key, code: 'unknown_field' });
+    } else {
+      errors.push({ field: issue.path.map(String).join('.') || '(query)', code: fieldCode(issue) });
+    }
+  }
+  return errors;
+}
+
 /**
  * Reads a query string the way the API does and names the problem code
  * the API answers with when it does not parse. A key given twice is refused
  * rather than silently reading one of the values.
+ *
+ * Every value of a repeated key is checked, not only the last, and a bad
+ * value decides the code before the repeat does. So `limit=5&limit=500`
+ * answers LIMIT_OUT_OF_RANGE, which tells the client what to fix, and still
+ * lists the repeat among the errors; a repeat whose values are all valid
+ * answers INVALID_FILTER.
  */
 export function parseQuery<R extends RouteId>(
   route: R,
@@ -79,24 +109,35 @@ export function parseQuery<R extends RouteId>(
   const entries =
     params instanceof URLSearchParams ? [...params.entries()] : Object.entries(params);
   const record: Record<string, string> = {};
-  const errors: FieldError[] = [];
+  const earlier: [string, string][] = [];
+  const repeats: FieldError[] = [];
   for (const [key, value] of entries) {
-    if (Object.hasOwn(record, key)) errors.push({ field: key, code: 'repeated_key' });
+    if (Object.hasOwn(record, key)) {
+      repeats.push({ field: key, code: 'repeated_key' });
+      earlier.push([key, record[key] ?? '']);
+    }
     record[key] = value;
   }
   const parsed = definition.query.safeParse(record);
-  if (parsed.success && errors.length === 0) {
+  if (parsed.success && repeats.length === 0) {
     return { success: true, data: parsed.data as RouteQuery<R> };
   }
-  for (const issue of parsed.error?.issues ?? []) {
-    if (issue.code === 'unrecognized_keys') {
-      for (const key of issue.keys) errors.push({ field: key, code: 'unknown_field' });
-    } else {
-      errors.push({ field: issue.path.map(String).join('.') || '(query)', code: fieldCode(issue) });
+  const values = issueErrors(parsed.error?.issues ?? []);
+  const seen = new Set(values.map((e) => `${e.field} ${e.code}`));
+  for (const [key, value] of earlier) {
+    const again = definition.query.safeParse({ ...record, [key]: value });
+    for (const error of issueErrors(again.error?.issues ?? [])) {
+      const id = `${error.field} ${error.code}`;
+      if (error.field === key && !seen.has(id)) {
+        seen.add(id);
+        values.push(error);
+      }
     }
   }
+  const errors = [...repeats, ...values];
   const fields = new Set(errors.map((e) => e.field));
-  const only = (name: string): boolean => fields.size === 1 && fields.has(name);
+  const only = (name: string): boolean =>
+    values.length > 0 && fields.size === 1 && fields.has(name);
   const code: ProblemCode =
     only('cursor') || only('depositsCursor')
       ? 'INVALID_CURSOR'

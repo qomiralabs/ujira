@@ -94,7 +94,7 @@ export class ExecutorSession {
     const { network, ports, rpc } = this.ctx;
     const signature = await ports.signer.sign(
       { kind: 'executor', network, keyId: this.lease.keyId },
-      { kind: 'stellar_tx', network, xdr: tx.toXDR() },
+      { kind: 'stellar_tx', network, xdr: tx.toXdr() },
       opts,
     );
     attach(tx, this.address, signature);
@@ -122,7 +122,7 @@ export class ExecutorSession {
     });
     // From here the sequence may be used, whatever the answer.
     this.sequence = BigInt(tx.sequence);
-    await sendAndRecord(this.ctx, record.scope, hash, tx.toXDR(), opts);
+    await sendAndRecord(this.ctx, record.scope, hash, tx.toXdr(), opts);
     if (!wait) return { hash, landed: null };
     const landed = await waitForTransaction(rpc, network, hash, this.ctx.wait, opts);
     if (landed.status !== 'SUCCESS') {

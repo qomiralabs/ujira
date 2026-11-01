@@ -42,7 +42,11 @@ const LIMITS = {
   expiresAt: 1_800_000_000n as UnixSeconds,
 };
 
-function request(t: TestSetup, action: MandateAction, signer = t.principal.publicKey()): MandateActionRequest {
+function request(
+  t: TestSetup,
+  action: MandateAction,
+  signer = t.principal.publicKey(),
+): MandateActionRequest {
   return {
     scope: t.scope,
     mandate: action.op === 'create' ? null : t.mandate,
@@ -65,9 +69,19 @@ describe('prepareMandateAction', { timeout: 30_000 }, () => {
     addAccount(t.rpc, member.publicKey(), 7n);
     const agent = 'GAKNCMAXVSDXSSCG544P4E4CADBRGDHCCQX75U5KCTPHHOGDW6RPQQFG';
     const cases: [MandateAction, string, string, number][] = [
-      [{ op: 'set_recovery_threshold', n: 2 }, t.principal.publicKey(), 'set_recovery_threshold', 1],
+      [
+        { op: 'set_recovery_threshold', n: 2 },
+        t.principal.publicKey(),
+        'set_recovery_threshold',
+        1,
+      ],
       [{ op: 'lower_fee_cap', maxFeeBps: 40 }, t.principal.publicKey(), 'lower_fee_cap', 1],
-      [{ op: 'cancel_principal_proposal' }, t.principal.publicKey(), 'cancel_principal_proposal', 0],
+      [
+        { op: 'cancel_principal_proposal' },
+        t.principal.publicKey(),
+        'cancel_principal_proposal',
+        0,
+      ],
       [{ op: 'recovery_revoke' }, member.publicKey(), 'recovery_revoke', 1],
       [
         { op: 'recovery_rotate_agent', old: at(agent), new: null },
@@ -81,7 +95,12 @@ describe('prepareMandateAction', { timeout: 30_000 }, () => {
         'recovery_rotate_agent',
         3,
       ],
-      [{ op: 'add_role', role: 'recovery', account: at(member.publicKey()) }, t.principal.publicKey(), 'add_role', 2],
+      [
+        { op: 'add_role', role: 'recovery', account: at(member.publicKey()) },
+        t.principal.publicKey(),
+        'add_role',
+        2,
+      ],
       [
         { op: 'remove_role', role: 'recovery', account: at(member.publicKey()) },
         t.principal.publicKey(),
@@ -102,7 +121,9 @@ describe('prepareMandateAction', { timeout: 30_000 }, () => {
       // transaction authorizes them.
       if (fn.startsWith('recovery_')) {
         const [caller] = call.args;
-        expect(caller?.type === 'scvAddress' && Address.fromScAddress(caller.address).toString()).toBe(signer);
+        expect(
+          caller?.type === 'scvAddress' && Address.fromScAddress(caller.address).toString(),
+        ).toBe(signer);
       }
     }
     const role = callOf(
@@ -142,12 +163,22 @@ describe('prepareMandateAction', { timeout: 30_000 }, () => {
         },
         'allow_recipients',
       ],
-      [{ op: 'disallow_recipients', entries: [{ recipientRef: REF, destination: plain }] }, 'disallow_recipients'],
       [
-        { op: 'set_attestation_policy', attester: new Uint8Array(32).fill(9), countryPolicyHash: REF },
+        { op: 'disallow_recipients', entries: [{ recipientRef: REF, destination: plain }] },
+        'disallow_recipients',
+      ],
+      [
+        {
+          op: 'set_attestation_policy',
+          attester: new Uint8Array(32).fill(9),
+          countryPolicyHash: REF,
+        },
         'set_attestation_policy',
       ],
-      [{ op: 'propose_principal', proposed: at(Keypair.random().publicKey()) }, 'propose_principal'],
+      [
+        { op: 'propose_principal', proposed: at(Keypair.random().publicKey()) },
+        'propose_principal',
+      ],
       [{ op: 'accept_principal' }, 'accept_principal'],
     ];
     for (const [action, fn] of cases) {
@@ -200,7 +231,10 @@ describe('prepareMandateAction', { timeout: 30_000 }, () => {
     ).rejects.toBeInstanceOf(TenantMismatchError);
     await expect(
       t.adapter.prepareMandateAction(
-        request(t, { ...action, factory: at('CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC') }),
+        request(t, {
+          ...action,
+          factory: at('CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC'),
+        }),
         OPTS,
       ),
     ).rejects.toBeInstanceOf(MandateUntrustedError);
@@ -234,7 +268,11 @@ describe('prepareMandateAction', { timeout: 30_000 }, () => {
         op: 'allow_recipients',
         entries: [{ recipientRef: REF, destination: { address: at(FIXTURE_FACTORY), tag: 1n } }],
       },
-      { op: 'set_attestation_policy', attester: 'raw' as unknown as Uint8Array, countryPolicyHash: REF },
+      {
+        op: 'set_attestation_policy',
+        attester: 'raw' as unknown as Uint8Array,
+        countryPolicyHash: REF,
+      },
       { op: 'add_role', role: 'owner' as 'agent', account: at(FIXTURE_FACTORY) },
       { op: 'bogus' } as unknown as MandateAction,
     ];
@@ -254,7 +292,7 @@ describe('prepareMandateAction', { timeout: 30_000 }, () => {
     const base = request(t, { op: 'pause' });
     await expect(
       t.adapter.prepareMandateAction(
-        { ...base, signer: { ...base.signer, network: 'stellar:pubnet' } as typeof base.signer },
+        { ...base, signer: { ...base.signer, network: 'stellar:pubnet' } },
         OPTS,
       ),
     ).rejects.toBeInstanceOf(InvalidInputError);
@@ -262,7 +300,10 @@ describe('prepareMandateAction', { timeout: 30_000 }, () => {
       t.adapter.prepareMandateAction(request(t, { op: 'pause' }, 'Mxyz'), OPTS),
     ).rejects.toBeInstanceOf(InvalidInputError);
     await expect(
-      t.adapter.prepareMandateAction(request(t, { op: 'pause' }, Keypair.random().publicKey()), OPTS),
+      t.adapter.prepareMandateAction(
+        request(t, { op: 'pause' }, Keypair.random().publicKey()),
+        OPTS,
+      ),
     ).rejects.toBeInstanceOf(InvalidInputError);
   });
 
@@ -278,7 +319,9 @@ describe('prepareMandateAction', { timeout: 30_000 }, () => {
       },
       OPTS,
     );
-    expect(signing.kind === 'stellar_transaction' && signing.signer.value).toBe(t.channel.publicKey());
+    expect(signing.kind === 'stellar_transaction' && signing.signer.value).toBe(
+      t.channel.publicKey(),
+    );
   });
 
   it('carries a mandate refusal under its spec name and refuses a fee over the cap', async () => {
@@ -296,7 +339,10 @@ describe('prepareMandateAction', { timeout: 30_000 }, () => {
             type: xdr.ContractEventType.diagnostic,
             body: xdr.ContractEventBody.v0(
               new xdr.ContractEventV0({
-                topics: [xdr.ScVal.scvSymbol('error'), xdr.ScVal.scvError(xdr.ScError.sceContract(23))],
+                topics: [
+                  xdr.ScVal.scvSymbol('error'),
+                  xdr.ScVal.scvError(xdr.ScError.sceContract(23)),
+                ],
                 data: xdr.ScVal.scvVoid(),
               }),
             ),
@@ -317,8 +363,8 @@ describe('prepareMandateAction', { timeout: 30_000 }, () => {
   it('refuses a call that needs another address to authorize it', async () => {
     const t = setup();
     t.rpc.options.principal = Keypair.random().publicKey();
-    await expect(t.adapter.prepareMandateAction(request(t, { op: 'resume' }), OPTS)).rejects.toBeInstanceOf(
-      SubmissionRejectedError,
-    );
+    await expect(
+      t.adapter.prepareMandateAction(request(t, { op: 'resume' }), OPTS),
+    ).rejects.toBeInstanceOf(SubmissionRejectedError);
   });
 });

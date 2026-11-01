@@ -19,7 +19,11 @@ import { memoryStore } from './test-ports.js';
 describe('executor lease fencing', { timeout: 30_000 }, () => {
   it('refuses a release from a lease that was taken over', async () => {
     const account = Keypair.random().publicKey();
-    const store = memoryStore(NETWORK, [{ address: account, keyId: 'k' }], () => NOW as UnixSeconds);
+    const store = memoryStore(
+      NETWORK,
+      [{ address: account, keyId: 'k' }],
+      () => NOW as UnixSeconds,
+    );
     const first = await store.leaseExecutor(NETWORK, 60);
     const second = await store.leaseExecutor(NETWORK, 60);
     expect(second.leaseId).not.toBe(first.leaseId);
@@ -38,7 +42,13 @@ describe('executor lease fencing', { timeout: 30_000 }, () => {
   it('uses the sequence on chain rather than the one the lease carries', async () => {
     const t = setup();
     const used = await ExecutorSession.run(
-      { network: NETWORK, rpc: t.rpc, ports: t.ports, wait: { attempts: 1, intervalMs: 0, sleep: () => Promise.resolve() }, leaseSeconds: 60 },
+      {
+        network: NETWORK,
+        rpc: t.rpc,
+        ports: t.ports,
+        wait: { attempts: 1, intervalMs: 0, sleep: () => Promise.resolve() },
+        leaseSeconds: 60,
+      },
       OPTS,
       (session) => {
         expect(session.lease.sequenceOrNonce).toBe(0n);
@@ -46,7 +56,9 @@ describe('executor lease fencing', { timeout: 30_000 }, () => {
       },
     );
     expect(used).toBe(900n);
-    expect(t.store.releases).toEqual([{ leaseId: expect.any(String) as string, sequenceOrNonce: 901n }]);
+    expect(t.store.releases).toEqual([
+      { leaseId: expect.any(String) as string, sequenceOrNonce: 901n },
+    ]);
   });
 
   it('releases the lease it holds even when the account is missing or the work fails', async () => {

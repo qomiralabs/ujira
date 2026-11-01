@@ -10,12 +10,7 @@ import type { xdr } from '@stellar/stellar-sdk/base';
 import type { TokenAmount } from '@ujira/core';
 
 import { InvalidInputError } from '../errors.js';
-import type {
-  LimitsInput,
-  MandateAction,
-  MandateConfigInput,
-  RoleName,
-} from '../types.js';
+import type { LimitsInput, MandateAction, MandateConfigInput, RoleName } from '../types.js';
 import {
   address,
   bytes,
@@ -55,7 +50,10 @@ const ROLE_CODES: Readonly<Record<RoleName, number>> = {
 const RECIPIENT_MODES = { allowlist: 1, attested: 2, both: 3 } as const;
 
 function amount(field: string, value: TokenAmount): xdr.ScVal {
-  if (value.asset !== 'USDC' || value.chain !== 'stellar') {
+  // Typed as USDC on Stellar today, checked anyway: an amount in any other
+  // asset must never be read as USDC units.
+  const { asset, chain } = value as { readonly asset: unknown; readonly chain: unknown };
+  if (asset !== 'USDC' || chain !== 'stellar') {
     throw new InvalidInputError({ issues: [`${field} (wrong_asset)`] });
   }
   return i128(field, value.amount);
@@ -77,7 +75,9 @@ export function limitsScVal(limits: LimitsInput): xdr.ScVal {
 }
 
 export function configScVal(config: MandateConfigInput, assetContract: string): xdr.ScVal {
-  if (config.asset !== 'USDC') throw new InvalidInputError({ issues: ['config.asset (invalid)'] });
+  if ((config.asset as unknown) !== 'USDC') {
+    throw new InvalidInputError({ issues: ['config.asset (invalid)'] });
+  }
   const mode: unknown = RECIPIENT_MODES[config.recipientMode];
   if (typeof mode !== 'number') {
     throw new InvalidInputError({ issues: ['config.recipientMode (invalid)'] });

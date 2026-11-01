@@ -99,7 +99,12 @@ function optionalInt(body: Json, field: string): number | undefined {
   return body[field] === undefined ? undefined : int(body, field);
 }
 
-const SEND_STATUSES: ReadonlySet<unknown> = new Set(['PENDING', 'DUPLICATE', 'TRY_AGAIN_LATER', 'ERROR']);
+const SEND_STATUSES: ReadonlySet<unknown> = new Set([
+  'PENDING',
+  'DUPLICATE',
+  'TRY_AGAIN_LATER',
+  'ERROR',
+]);
 const TX_STATUSES: ReadonlySet<unknown> = new Set(['SUCCESS', 'FAILED', 'NOT_FOUND']);
 
 /** A JSON-RPC client for one endpoint. */
@@ -125,7 +130,10 @@ export function createStellarRpc(options: JsonRpcOptions): StellarRpc {
         signal: AbortSignal.any(signals),
       });
     } catch (error) {
-      if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+      if (
+        error instanceof Error &&
+        (error.name === 'TimeoutError' || error.name === 'AbortError')
+      ) {
         throw new RpcTimeoutError({ network, landed, cause: error });
       }
       // A send whose connection dropped may still have reached the node.

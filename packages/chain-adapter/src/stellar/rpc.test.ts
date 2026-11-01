@@ -17,7 +17,7 @@ const OPTS = { correlationId: 'c' };
 function answering(body: unknown, status = 200) {
   const seen: { method: string; params: unknown; signal: AbortSignal | null }[] = [];
   const fetch = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
-    const sent = JSON.parse(String(init?.body)) as { method: string; params: unknown };
+    const sent = JSON.parse(init?.body as string) as { method: string; params: unknown };
     seen.push({ ...sent, signal: init?.signal ?? null });
     return Promise.resolve(
       new Response(typeof body === 'string' ? body : JSON.stringify(body), { status }),
@@ -41,7 +41,10 @@ afterEach(() => {
 describe('createStellarRpc', () => {
   it('reads the latest ledger and ledger entries', async () => {
     const latest = answering({ result: { sequence: 12, closeTime: '1793483385' } });
-    expect(await latest.rpc.getLatestLedger(OPTS)).toEqual({ sequence: 12, closeTime: 1_793_483_385n });
+    expect(await latest.rpc.getLatestLedger(OPTS)).toEqual({
+      sequence: 12,
+      closeTime: 1_793_483_385n,
+    });
     expect(latest.seen[0]).toMatchObject({ method: 'getLatestLedger', params: {} });
 
     const entries = answering({
@@ -67,16 +70,27 @@ describe('createStellarRpc', () => {
 
   it('simulates, sends and looks up transactions', async () => {
     const sim = answering({ result: { latestLedger: 7, error: 'boom' } });
-    expect(await sim.rpc.simulateTransaction('tx', OPTS)).toEqual({ latestLedger: 7, error: 'boom' });
+    expect(await sim.rpc.simulateTransaction('tx', OPTS)).toEqual({
+      latestLedger: 7,
+      error: 'boom',
+    });
     expect(sim.seen[0]?.params).toEqual({ transaction: 'tx' });
 
     const sent = answering({ result: { status: 'ERROR', hash: 'h', errorResultXdr: 'e' } });
-    expect(await sent.rpc.sendTransaction('tx', OPTS)).toEqual({ status: 'ERROR', hash: 'h', errorResultXdr: 'e' });
+    expect(await sent.rpc.sendTransaction('tx', OPTS)).toEqual({
+      status: 'ERROR',
+      hash: 'h',
+      errorResultXdr: 'e',
+    });
     const pending = answering({ result: { status: 'PENDING', hash: 'h' } });
     expect(await pending.rpc.sendTransaction('tx', OPTS)).toEqual({ status: 'PENDING', hash: 'h' });
 
     const found = answering({ result: { status: 'SUCCESS', ledger: 9, resultXdr: 'r' } });
-    expect(await found.rpc.getTransaction('h', OPTS)).toEqual({ status: 'SUCCESS', ledger: 9, resultXdr: 'r' });
+    expect(await found.rpc.getTransaction('h', OPTS)).toEqual({
+      status: 'SUCCESS',
+      ledger: 9,
+      resultXdr: 'r',
+    });
     const missing = answering({ result: { status: 'NOT_FOUND' } });
     expect(await missing.rpc.getTransaction('h', OPTS)).toEqual({ status: 'NOT_FOUND' });
   });
@@ -100,8 +114,12 @@ describe('createStellarRpc', () => {
   });
 
   it('maps HTTP failures, rate limits and timeouts, and never quotes the URL', async () => {
-    await expect(answering({}, 429).rpc.getLatestLedger(OPTS)).rejects.toBeInstanceOf(RpcRateLimitedError);
-    await expect(answering({}, 503).rpc.getLatestLedger(OPTS)).rejects.toBeInstanceOf(ChainUnavailableError);
+    await expect(answering({}, 429).rpc.getLatestLedger(OPTS)).rejects.toBeInstanceOf(
+      RpcRateLimitedError,
+    );
+    await expect(answering({}, 503).rpc.getLatestLedger(OPTS)).rejects.toBeInstanceOf(
+      ChainUnavailableError,
+    );
 
     const timeout = Object.assign(new Error('timed out'), { name: 'TimeoutError' });
     const readTimeout = failing(timeout).getLatestLedger(OPTS);

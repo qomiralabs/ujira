@@ -8,9 +8,7 @@
     {
       "method": "getLedgerEntries",
       "params": {
-        "keys": [
-          "AAAABgAAAAH5i12I41NTvgOEh3UGCAR6M6nqQ8cetKArlDbZVfAwywAAABQAAAAB"
-        ]
+        "keys": ["AAAABgAAAAH5i12I41NTvgOEh3UGCAR6M6nqQ8cetKArlDbZVfAwywAAABQAAAAB"]
       },
       "result": {
         "latestLedger": 5499705,
@@ -27,9 +25,7 @@
     {
       "method": "getLedgerEntries",
       "params": {
-        "keys": [
-          "AAAABgAAAAEBVxhmMz6XLHLYkQa80kuwVHeCTIEIELBVviJLtMIBlwAAABQAAAAB"
-        ]
+        "keys": ["AAAABgAAAAEBVxhmMz6XLHLYkQa80kuwVHeCTIEIELBVviJLtMIBlwAAABQAAAAB"]
       },
       "result": {
         "latestLedger": 5499705,

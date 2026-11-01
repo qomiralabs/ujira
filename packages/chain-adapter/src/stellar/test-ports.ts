@@ -118,51 +118,38 @@ export function recordingSponsorship(deny = false): RecordingSponsorship {
 }
 
 function refKey(ref: SignerRef): string {
-  switch (ref.kind) {
-    case 'executor':
-      return `executor:${ref.keyId}`;
-    case 'fee_sponsor':
-      return 'fee_sponsor';
-    default:
-      return ref.kind;
-  }
+  return ref.kind === 'executor' ? `executor:${ref.keyId}` : ref.kind;
 }
 
 /**
  * Signs transactions and fee bumps with local keypairs, keyed as
- * `executor:<keyId>` and `fee_sponsor`. Any other ref is refused.
+ * `executor:<keyId>` and `fee_sponsor`. Any other ref or payload is refused.
  */
-export function keypairSigner(network: StellarNetworkId, keys: ReadonlyMap<string, Keypair>): SignerProvider {
+export function keypairSigner(
+  network: StellarNetworkId,
+  keys: ReadonlyMap<string, Keypair>,
+): SignerProvider {
   const keyFor = (ref: SignerRef): Keypair => {
     const key = keys.get(refKey(ref));
     if (key === undefined) throw new SignerDeniedError({ network });
     return key;
   };
   return {
-    sign(ref, payload) {
-      try {
+    // Run inside a promise so a refusal is a rejection, as from a real signer.
+    sign: (ref, payload) =>
+      Promise.resolve().then(() => {
         const key = keyFor(ref);
         if (payload.kind !== 'stellar_tx' && payload.kind !== 'stellar_fee_bump') {
           throw new SignerDeniedError({ network });
         }
         const hash = TransactionBuilder.fromXdr(payload.xdr, PASSPHRASES[network]).hash();
-        return Promise.resolve({
+        return {
           kind: 'ed25519',
           signature: key.sign(hash),
           publicKey: key.rawPublicKey(),
-        });
-      } catch (error) {
-        return Promise.reject(error instanceof Error ? error : new Error('sign failed'));
-      }
-    },
-    address(ref) {
-      try {
-        return Promise.resolve({ network, value: keyFor(ref).publicKey() });
-      } catch (error) {
-        return Promise.reject(error instanceof Error ? error : new Error('address failed'));
-      }
-    },
+        } as const;
+      }),
+    address: (ref) => Promise.resolve().then(() => ({ network, value: keyFor(ref).publicKey() })),
     health: () => Promise.reject(new Error('not used by these tests')),
   };
 }
-

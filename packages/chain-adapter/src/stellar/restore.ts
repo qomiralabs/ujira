@@ -21,7 +21,8 @@ import type { Simulated } from './tx.js';
 /** The entries a simulation found archived, each once. */
 export function archivedKeys(sim: Simulated): readonly xdr.LedgerKey[] {
   const keys: xdr.LedgerKey[] = [];
-  if (Api.isSimulationRestore(sim)) keys.push(...sim.restorePreamble.transactionData.getReadWrite());
+  if (Api.isSimulationRestore(sim))
+    keys.push(...sim.restorePreamble.transactionData.getReadWrite());
   const data = sim.transactionData.build();
   if (data.ext.type === 'resourceExt') {
     const readWrite = data.resources.footprint.readWrite;

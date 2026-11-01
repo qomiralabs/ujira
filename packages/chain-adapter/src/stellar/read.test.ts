@@ -68,18 +68,28 @@ describe('readMandate', { timeout: 30_000 }, () => {
     expect(snapshot.tenantRefMatches).toBe(true);
     expect(snapshot.asset).toBe('USDC');
     expect(snapshot.config.factory.value).toBe(FIXTURE_FACTORY);
-    expect(snapshot.config.principal.value).toBe('GDG25NP5BMPMQMARBHUYGRCNMB34DKZGTLQCR7MLNKZMIZ35DLR5UAOH');
+    expect(snapshot.config.principal.value).toBe(
+      'GDG25NP5BMPMQMARBHUYGRCNMB34DKZGTLQCR7MLNKZMIZ35DLR5UAOH',
+    );
     expect(snapshot.config.agents.map((a) => a.value)).toEqual([
       'GAKNCMAXVSDXSSCG544P4E4CADBRGDHCCQX75U5KCTPHHOGDW6RPQQFG',
     ]);
     expect(snapshot.config.recipientMode).toBe('allowlist');
     expect(snapshot.config.approvalsRequired).toBe(1);
-    expect(snapshot.config.limits.totalBudget).toMatchObject({ amount: 10_000_000_000n, asset: 'USDC' });
+    expect(snapshot.config.limits.totalBudget).toMatchObject({
+      amount: 10_000_000_000n,
+      asset: 'USDC',
+    });
     expect(snapshot.config.limits.payoutTtlSeconds).toBe(86_400);
     expect(snapshot.config.attester).toBeNull();
     expect(snapshot.config.proposedPrincipal).toBeNull();
     expect(snapshot.config.maxFeeBps).toBe(100);
-    expect(snapshot.state).toMatchObject({ paused: false, revoked: false, expired: false, policyEpoch: 0 });
+    expect(snapshot.state).toMatchObject({
+      paused: false,
+      revoked: false,
+      expired: false,
+      policyEpoch: 0,
+    });
     expect(snapshot.state.balance.amount).toBe(0n);
     expect(snapshot.observedAt.finality).toBe('final');
     expect(snapshot.observedAt.time).toBe(t.rpc.latest.closeTime);
@@ -94,7 +104,11 @@ describe('readMandate', { timeout: 30_000 }, () => {
 
   it('refuses a mandate running other code than the factory deploys', async () => {
     const t = setup();
-    rewriteInstance(t.rpc, FIXTURE_FACTORY, withStored('MandateWasm', xdr.ScVal.scvBytes(Buffer.alloc(32, 1))));
+    rewriteInstance(
+      t.rpc,
+      FIXTURE_FACTORY,
+      withStored('MandateWasm', xdr.ScVal.scvBytes(Buffer.alloc(32, 1))),
+    );
     await expect(
       t.adapter.readMandate({ scope: t.scope, mandate: t.mandate }, OPTS),
     ).rejects.toBeInstanceOf(MandateUntrustedError);
@@ -120,8 +134,10 @@ describe('readMandate', { timeout: 30_000 }, () => {
     ).rejects.toBeInstanceOf(MandateUntrustedError);
 
     const partial = setup();
-    rewriteInstance(partial.rpc, FIXTURE_FACTORY, (i) =>
-      new xdr.ScContractInstance({ executable: i.executable, storage: [] }),
+    rewriteInstance(
+      partial.rpc,
+      FIXTURE_FACTORY,
+      (i) => new xdr.ScContractInstance({ executable: i.executable, storage: [] }),
     );
     await expect(
       partial.adapter.readMandate({ scope: partial.scope, mandate: partial.mandate }, OPTS),
@@ -130,19 +146,24 @@ describe('readMandate', { timeout: 30_000 }, () => {
 
   it('refuses a contract that is no mandate', async () => {
     const t = setup();
-    rewriteInstance(t.rpc, t.mandate.address.value, (i) =>
-      new xdr.ScContractInstance({ executable: i.executable, storage: [] }),
+    rewriteInstance(
+      t.rpc,
+      t.mandate.address.value,
+      (i) => new xdr.ScContractInstance({ executable: i.executable, storage: [] }),
     );
     await expect(
       t.adapter.readMandate({ scope: t.scope, mandate: t.mandate }, OPTS),
     ).rejects.toBeInstanceOf(MandateUntrustedError);
 
     const token = setup();
-    rewriteInstance(token.rpc, token.mandate.address.value, (i) =>
-      new xdr.ScContractInstance({
-        executable: xdr.ContractExecutable.contractExecutableStellarAsset(),
-        storage: i.storage,
-      }),
+    rewriteInstance(
+      token.rpc,
+      token.mandate.address.value,
+      (i) =>
+        new xdr.ScContractInstance({
+          executable: xdr.ContractExecutable.contractExecutableStellarAsset(),
+          storage: i.storage,
+        }),
     );
     await expect(
       token.adapter.readMandate({ scope: token.scope, mandate: token.mandate }, OPTS),
@@ -163,17 +184,17 @@ describe('readMandate', { timeout: 30_000 }, () => {
   it('refuses an unknown address, another network and a malformed address', async () => {
     const t = setup();
     const missing = { ...t.mandate, address: { ...t.mandate.address, value: OTHER_FACTORY } };
-    await expect(t.adapter.readMandate({ scope: t.scope, mandate: missing }, OPTS)).rejects.toBeInstanceOf(
-      MandateUntrustedError,
-    );
+    await expect(
+      t.adapter.readMandate({ scope: t.scope, mandate: missing }, OPTS),
+    ).rejects.toBeInstanceOf(MandateUntrustedError);
     const pubnet = { ...t.mandate, network: 'stellar:pubnet' as const };
-    await expect(t.adapter.readMandate({ scope: t.scope, mandate: pubnet }, OPTS)).rejects.toBeInstanceOf(
-      InvalidInputError,
-    );
+    await expect(
+      t.adapter.readMandate({ scope: t.scope, mandate: pubnet }, OPTS),
+    ).rejects.toBeInstanceOf(InvalidInputError);
     const garbage = { ...t.mandate, address: { ...t.mandate.address, value: 'Cnot-an-address' } };
-    await expect(t.adapter.readMandate({ scope: t.scope, mandate: garbage }, OPTS)).rejects.toBeInstanceOf(
-      InvalidInputError,
-    );
+    await expect(
+      t.adapter.readMandate({ scope: t.scope, mandate: garbage }, OPTS),
+    ).rejects.toBeInstanceOf(InvalidInputError);
   });
 
   it('refuses a mandate in an asset UJIRA does not settle in', async () => {
@@ -209,8 +230,8 @@ describe('readMandate', { timeout: 30_000 }, () => {
       ports: { ...t.ports, config: () => disabled as typeof config },
       requests: t.requests,
     });
-    await expect(adapter.readMandate({ scope: t.scope, mandate: t.mandate }, OPTS)).rejects.toBeInstanceOf(
-      UnsupportedError,
-    );
+    await expect(
+      adapter.readMandate({ scope: t.scope, mandate: t.mandate }, OPTS),
+    ).rejects.toBeInstanceOf(UnsupportedError);
   });
 });

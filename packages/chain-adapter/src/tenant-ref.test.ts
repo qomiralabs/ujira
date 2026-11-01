@@ -18,7 +18,9 @@ describe('tenantRefOf', () => {
     // equal to the tenant reference the testnet mandate in the read
     // fixture stores for this scope.
     expect(
-      tenantRefOf(scope('e6bece78-d0a1-4a41-8588-73a258cf8011', 'b4557662-6345-4196-ac9d-6da5f6c08a9e')),
+      tenantRefOf(
+        scope('e6bece78-d0a1-4a41-8588-73a258cf8011', 'b4557662-6345-4196-ac9d-6da5f6c08a9e'),
+      ),
     ).toBe('0xe88431e7d8de147f0a668ba5fa61b90e79472afdd4044879df398ca57b49dea4');
   });
 
@@ -33,8 +35,8 @@ describe('tenantRefOf', () => {
     expect(() => tenantRefOf(scope('not-a-uuid', '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d'))).toThrow(
       InvalidInputError,
     );
-    expect(() => tenantRefOf(scope('0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', 42 as unknown as string))).toThrow(
-      InvalidInputError,
-    );
+    expect(() =>
+      tenantRefOf(scope('0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', 42 as unknown as string)),
+    ).toThrow(InvalidInputError);
   });
 });

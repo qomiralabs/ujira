@@ -109,7 +109,7 @@ export async function simulate(
   target: string,
   opts: CallOptions,
 ): Promise<Simulated> {
-  const raw = await rpc.simulateTransaction(tx.toXDR(), opts);
+  const raw = await rpc.simulateTransaction(tx.toXdr(), opts);
   const parsed = parseRawSimulation(raw);
   if (Api.isSimulationSuccess(parsed)) return parsed;
   throw callFailure(network, target, raw.events ?? []);

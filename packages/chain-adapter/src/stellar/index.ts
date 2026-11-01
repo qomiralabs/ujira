@@ -15,7 +15,11 @@ export type {
   SigningRequestUse,
   StoredSigningRequest,
 } from './requests.js';
-export { INSTANCE_TTL_EXTEND_LEDGERS, RECORD_TTL_MARGIN_SECONDS, extensionPlan } from './restore-policy.js';
+export {
+  INSTANCE_TTL_EXTEND_LEDGERS,
+  RECORD_TTL_MARGIN_SECONDS,
+  extensionPlan,
+} from './restore-policy.js';
 export type { ExtensionGroup, ExtensionPolicy, RestoredEntry } from './restore-policy.js';
 export { createStellarRpc } from './rpc.js';
 export type {

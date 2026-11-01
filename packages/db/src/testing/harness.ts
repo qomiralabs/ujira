@@ -73,11 +73,19 @@ export interface TestDatabase {
   readonly drop: () => Promise<void>;
 }
 
+export interface TestDatabaseOptions {
+  // An empty database instead of a clone of the migrated template, for a
+  // test that runs its own folder of fixture migrations: the runner refuses
+  // a folder that does not hold every migration the database already ran.
+  readonly empty?: boolean;
+}
+
 // A fresh database for one test file, cloned from the migrated template.
 // The admin URL comes from the global setup through `inject`.
 export async function createTestDatabase(
   adminUrl: string,
   testPath: string,
+  options: TestDatabaseOptions = {},
 ): Promise<TestDatabase> {
   if (adminUrl === '') {
     throw new Error(
@@ -87,8 +95,9 @@ export async function createTestDatabase(
   const name = databaseNameFor(testPath);
   await withClient(adminUrl, async (client) => {
     await client.query(`drop database if exists ${quoteIdentifier(name)} with (force)`);
+    const template = options.empty === true ? 'template0' : TEMPLATE_DATABASE;
     await client.query(
-      `create database ${quoteIdentifier(name)} template ${quoteIdentifier(TEMPLATE_DATABASE)}`,
+      `create database ${quoteIdentifier(name)} template ${quoteIdentifier(template)}`,
     );
   });
   return {

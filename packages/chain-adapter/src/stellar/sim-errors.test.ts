@@ -20,7 +20,8 @@ function event(emitter: string | null, error: xdr.ScError, name = 'error'): stri
     inSuccessfulContractCall: false,
     event: new xdr.ContractEvent({
       ext: xdr.ExtensionPoint.v0(),
-      contractId: emitter === null ? null : new xdr.ContractId(Address.fromString(emitter).toBuffer()),
+      contractId:
+        emitter === null ? null : new xdr.ContractId(Address.fromString(emitter).toBuffer()),
       type: xdr.ContractEventType.diagnostic,
       body: xdr.ContractEventBody.v0(
         new xdr.ContractEventV0({
@@ -38,7 +39,11 @@ describe('callFailure', () => {
   it('reads a refusal the mandate raised under its spec name', () => {
     const error = callFailure(NETWORK, MANDATE, [event(MANDATE, contract(43))]);
     expect(error).toBeInstanceOf(MandateRuleError);
-    expect(error).toMatchObject({ specCode: 43, specName: 'INSUFFICIENT_FUNDS', waitFor: 'funding' });
+    expect(error).toMatchObject({
+      specCode: 43,
+      specName: 'INSUFFICIENT_FUNDS',
+      waitFor: 'funding',
+    });
   });
 
   it('maps any contract error from the token to TRANSFER_FAILED, never to a mandate code', () => {
@@ -60,13 +65,19 @@ describe('callFailure', () => {
     expect(callFailure(NETWORK, MANDATE, [])).toBeInstanceOf(SubmissionRejectedError);
     expect(callFailure(NETWORK, MANDATE, ['garbage'])).toBeInstanceOf(SubmissionRejectedError);
     expect(
-      callFailure(NETWORK, MANDATE, [event(MANDATE, xdr.ScError.sceAuth(xdr.ScErrorCode.scecInvalidAction))]),
+      callFailure(NETWORK, MANDATE, [
+        event(MANDATE, xdr.ScError.sceAuth(xdr.ScErrorCode.scecInvalidAction)),
+      ]),
     ).toBeInstanceOf(SubmissionRejectedError);
-    expect(callFailure(NETWORK, MANDATE, [event(null, contract(22))])).toBeInstanceOf(SubmissionRejectedError);
+    expect(callFailure(NETWORK, MANDATE, [event(null, contract(22))])).toBeInstanceOf(
+      SubmissionRejectedError,
+    );
     expect(callFailure(NETWORK, MANDATE, [event(MANDATE, contract(22), 'log')])).toBeInstanceOf(
       SubmissionRejectedError,
     );
-    expect(callFailure(NETWORK, MANDATE, [event(MANDATE, contract(99))])).toBeInstanceOf(InternalError);
+    expect(callFailure(NETWORK, MANDATE, [event(MANDATE, contract(99))])).toBeInstanceOf(
+      InternalError,
+    );
   });
 });
 

@@ -40,7 +40,7 @@ function sign(request: SigningRequest, key: Keypair): string {
   if (request.kind !== 'stellar_transaction') throw new Error('expected a transaction');
   const tx = TransactionBuilder.fromXdr(request.xdr, passphrase);
   tx.sign(key);
-  return tx.toXDR();
+  return tx.toXdr();
 }
 
 function submit(t: TestSetup, requestId: string, signed: string) {
@@ -60,7 +60,7 @@ describe('submitSigned for an account signer', { timeout: 30_000 }, () => {
     const [sent] = t.rpc.sent;
     const bump = TransactionBuilder.fromXdr(sent ?? '', passphrase) as FeeBumpTransaction;
     expect(bump.feeSource).toBe(t.sponsor.publicKey());
-    expect(bump.innerTransaction.toXDR()).toBe(signed);
+    expect(bump.innerTransaction.toXdr()).toBe(signed);
     expect(Buffer.from(bump.hash()).toString('hex')).toBe(ref.txHash);
 
     const record = t.store.submissions.get(`${NETWORK}:${ref.txHash}`);
@@ -91,7 +91,7 @@ describe('submitSigned for an account signer', { timeout: 30_000 }, () => {
       networkPassphrase: passphrase,
     }).build();
     edited.sign(t.principal);
-    await expect(submit(t, pause.requestId, edited.toXDR())).rejects.toBeInstanceOf(
+    await expect(submit(t, pause.requestId, edited.toXdr())).rejects.toBeInstanceOf(
       SignedPayloadMismatchError,
     );
     expect(t.rpc.sent).toHaveLength(0);
@@ -102,13 +102,20 @@ describe('submitSigned for an account signer', { timeout: 30_000 }, () => {
     const t = setup();
     const request = await prepare(t, { op: 'pause' });
     if (request.kind !== 'stellar_transaction') throw new Error('expected a transaction');
-    await expect(submit(t, request.requestId, request.xdr)).rejects.toBeInstanceOf(SignedPayloadMismatchError);
-    await expect(submit(t, request.requestId, sign(request, Keypair.random()))).rejects.toBeInstanceOf(
+    await expect(submit(t, request.requestId, request.xdr)).rejects.toBeInstanceOf(
       SignedPayloadMismatchError,
     );
+    await expect(
+      submit(t, request.requestId, sign(request, Keypair.random())),
+    ).rejects.toBeInstanceOf(SignedPayloadMismatchError);
     const inner = TransactionBuilder.fromXdr(sign(request, t.principal), passphrase) as Transaction;
-    const bumped = TransactionBuilder.buildFeeBumpTransaction(t.principal, '200', inner, passphrase);
-    await expect(submit(t, request.requestId, bumped.toXDR())).rejects.toBeInstanceOf(
+    const bumped = TransactionBuilder.buildFeeBumpTransaction(
+      t.principal,
+      '200',
+      inner,
+      passphrase,
+    );
+    await expect(submit(t, request.requestId, bumped.toXdr())).rejects.toBeInstanceOf(
       SignedPayloadMismatchError,
     );
     await expect(submit(t, request.requestId, 'not xdr')).rejects.toBeInstanceOf(InvalidInputError);
@@ -133,7 +140,9 @@ describe('submitSigned for an account signer', { timeout: 30_000 }, () => {
       ),
     ).rejects.toBeInstanceOf(InvalidInputError);
     t.clock.now += 601n;
-    await expect(submit(t, request.requestId, signed)).rejects.toBeInstanceOf(SigningRequestExpiredError);
+    await expect(submit(t, request.requestId, signed)).rejects.toBeInstanceOf(
+      SigningRequestExpiredError,
+    );
   });
 
   it('answers the same signed payload again with the same submission, and refuses any other', async () => {
@@ -147,24 +156,26 @@ describe('submitSigned for an account signer', { timeout: 30_000 }, () => {
     t.rpc.txs.set(first.txHash, { status: 'NOT_FOUND' });
     expect((await submit(t, request.requestId, signed)).finality).toBe('none');
     expect(t.rpc.sent).toHaveLength(1);
-    await expect(submit(t, request.requestId, sign(request, Keypair.random()))).rejects.toBeInstanceOf(
-      SignedPayloadMismatchError,
-    );
+    await expect(
+      submit(t, request.requestId, sign(request, Keypair.random())),
+    ).rejects.toBeInstanceOf(SignedPayloadMismatchError);
 
     // Claimed but never built, as after a crash: the outcome is unknown.
     const other = await prepare(t, { op: 'resume' });
     const otherSigned = sign(other, t.principal);
     await t.requests.claim(t.scope, other.requestId, otherSigned);
-    await expect(submit(t, other.requestId, otherSigned)).rejects.toBeInstanceOf(SubmissionUnknownError);
+    await expect(submit(t, other.requestId, otherSigned)).rejects.toBeInstanceOf(
+      SubmissionUnknownError,
+    );
   });
 
   it('gives the reservation back when the node refuses, and keeps it when the answer is lost', async () => {
     const rejected = setup();
     rejected.rpc.sendResult = () => ({ status: 'ERROR', hash: 'x', errorResultXdr: 'AAAA' });
     const r1 = await prepare(rejected, { op: 'pause' });
-    await expect(submit(rejected, r1.requestId, sign(r1, rejected.principal))).rejects.toBeInstanceOf(
-      SubmissionRejectedError,
-    );
+    await expect(
+      submit(rejected, r1.requestId, sign(r1, rejected.principal)),
+    ).rejects.toBeInstanceOf(SubmissionRejectedError);
     expect([...rejected.store.submissions.values()][0]).toMatchObject({
       state: 'failed',
       errorCode: 'SUBMISSION_REJECTED',
@@ -177,7 +188,9 @@ describe('submitSigned for an account signer', { timeout: 30_000 }, () => {
     await expect(submit(busy, r2.requestId, sign(r2, busy.principal))).rejects.toBeInstanceOf(
       ChainUnavailableError,
     );
-    expect([...busy.store.submissions.values()][0]).toMatchObject({ errorCode: 'CHAIN_UNAVAILABLE' });
+    expect([...busy.store.submissions.values()][0]).toMatchObject({
+      errorCode: 'CHAIN_UNAVAILABLE',
+    });
     expect(busy.sponsorship.calls.map((c) => c.kind)).toEqual(['reserve', 'release']);
 
     const lost = setup();
@@ -185,7 +198,9 @@ describe('submitSigned for an account signer', { timeout: 30_000 }, () => {
       throw new RpcTimeoutError({ network: NETWORK });
     };
     const r3 = await prepare(lost, { op: 'pause' });
-    await expect(submit(lost, r3.requestId, sign(r3, lost.principal))).rejects.toBeInstanceOf(RpcTimeoutError);
+    await expect(submit(lost, r3.requestId, sign(r3, lost.principal))).rejects.toBeInstanceOf(
+      RpcTimeoutError,
+    );
     expect([...lost.store.submissions.values()][0]).toMatchObject({ state: 'unknown' });
     expect(lost.sponsorship.calls.map((c) => c.kind)).toEqual(['reserve']);
   });
@@ -193,7 +208,9 @@ describe('submitSigned for an account signer', { timeout: 30_000 }, () => {
   it('stops before signing anything when sponsorship is denied', async () => {
     const t = setup({ deny: true });
     const request = await prepare(t, { op: 'pause' });
-    await expect(submit(t, request.requestId, sign(request, t.principal))).rejects.toThrow('denied');
+    await expect(submit(t, request.requestId, sign(request, t.principal))).rejects.toThrow(
+      'denied',
+    );
     expect(t.rpc.sent).toHaveLength(0);
   });
 });
@@ -238,13 +255,17 @@ describe('submitSigned for a smart wallet', { timeout: 30_000 }, () => {
     expect(invoked(sent)).toMatchObject({ contract: t.mandate.address.value, fn: 'resume' });
     const op = sent.toEnvelope();
     const body = op.type === 'envelopeTypeTx' ? op.v1.tx.operations[0]?.body : undefined;
-    expect(body?.type === 'invokeHostFunction' && body.invokeHostFunctionOp.auth[0]?.toXdr('base64')).toBe(signed);
+    expect(
+      body?.type === 'invokeHostFunction' && body.invokeHostFunctionOp.auth[0]?.toXdr('base64'),
+    ).toBe(signed);
     expect(t.store.submissions.get(`${NETWORK}:${ref.txHash}`)).toMatchObject({
       signerAddress: t.channel.publicKey(),
       sequenceOrNonce: 901n,
       state: 'broadcast',
     });
-    expect(t.store.releases).toEqual([{ leaseId: expect.any(String) as string, sequenceOrNonce: 902n }]);
+    expect(t.store.releases).toEqual([
+      { leaseId: expect.any(String) as string, sequenceOrNonce: 902n },
+    ]);
   });
 
   it('refuses an entry changed in anything but its signature, or left unsigned', async () => {
@@ -265,7 +286,9 @@ describe('submitSigned for a smart wallet', { timeout: 30_000 }, () => {
       ),
       rootInvocation: entry.rootInvocation,
     }).toXdr('base64');
-    await expect(submit(t, request.requestId, longer)).rejects.toBeInstanceOf(SignedPayloadMismatchError);
+    await expect(submit(t, request.requestId, longer)).rejects.toBeInstanceOf(
+      SignedPayloadMismatchError,
+    );
     await expect(submit(t, request.requestId, request.entryXdr)).rejects.toBeInstanceOf(
       SignedPayloadMismatchError,
     );
@@ -273,7 +296,9 @@ describe('submitSigned for a smart wallet', { timeout: 30_000 }, () => {
       credentials: xdr.SorobanCredentials.sorobanCredentialsSourceAccount(),
       rootInvocation: entry.rootInvocation,
     }).toXdr('base64');
-    await expect(submit(t, request.requestId, source)).rejects.toBeInstanceOf(SignedPayloadMismatchError);
+    await expect(submit(t, request.requestId, source)).rejects.toBeInstanceOf(
+      SignedPayloadMismatchError,
+    );
     await expect(submit(t, request.requestId, '@@')).rejects.toBeInstanceOf(InvalidInputError);
     expect(t.rpc.sent).toHaveLength(0);
   });
@@ -281,11 +306,15 @@ describe('submitSigned for a smart wallet', { timeout: 30_000 }, () => {
   it('refuses at prepare a wallet call that needs no entry, or one for someone else', async () => {
     const none = walletSetup();
     none.rpc.onSimulate = (tx) => none.rpc.success(tx, xdr.ScVal.scvVoid(), []);
-    await expect(prepare(none, { op: 'resume' }, WALLET)).rejects.toBeInstanceOf(SubmissionRejectedError);
+    await expect(prepare(none, { op: 'resume' }, WALLET)).rejects.toBeInstanceOf(
+      SubmissionRejectedError,
+    );
 
     const other = walletSetup();
     other.rpc.options.principal = Address.contract(Buffer.alloc(32, 4)).toString();
-    await expect(prepare(other, { op: 'resume' }, WALLET)).rejects.toBeInstanceOf(SubmissionRejectedError);
+    await expect(prepare(other, { op: 'resume' }, WALLET)).rejects.toBeInstanceOf(
+      SubmissionRejectedError,
+    );
   });
 
   it('releases the lease and the reservation when the channel transaction costs too much', async () => {

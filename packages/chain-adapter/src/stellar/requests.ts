@@ -8,7 +8,13 @@
 // Production backs this with the database, in the tenant's transaction.
 
 import type { NetworkId } from '../networks.js';
-import type { MandateAction, PayoutId, SigningSummary, TenantScope, UnixSeconds } from '../types.js';
+import type {
+  MandateAction,
+  PayoutId,
+  SigningSummary,
+  TenantScope,
+  UnixSeconds,
+} from '../types.js';
 
 export interface StoredSigningRequest {
   readonly requestId: string;

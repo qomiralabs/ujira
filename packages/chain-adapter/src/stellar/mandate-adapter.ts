@@ -50,7 +50,11 @@ import type {
 import { invocationOf } from './calls.js';
 import { ExecutorSession, sendAndRecord } from './executor.js';
 import type { ExecutorContext } from './executor.js';
-import type { LoadedSigningRequest, SigningRequestStore, StoredSigningRequest } from './requests.js';
+import type {
+  LoadedSigningRequest,
+  SigningRequestStore,
+  StoredSigningRequest,
+} from './requests.js';
 import { archivedKeys, restoreAndExtend } from './restore.js';
 import { INSTANCE_TTL_EXTEND_LEDGERS, STELLAR_LEDGER_SECONDS } from './restore-policy.js';
 import type { StellarRpc } from './rpc.js';
@@ -94,7 +98,8 @@ export type StellarMandateOperations = Pick<
 const SPEC_VERSION = 1;
 const DEFAULT_LEASE_SECONDS = 120;
 
-const DEFAULT_WAIT: WaitOptions = {
+/** How the restore step waits for each of its transactions to land. */
+export const DEFAULT_WAIT: WaitOptions = {
   attempts: 30,
   intervalMs: 2_000,
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -151,7 +156,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
 
   #config(): StellarNetworkConfig {
     const config = this.#ports.config()[this.network];
-    if (config === undefined || !config.enabled) {
+    if (!config?.enabled) {
       throw new UnsupportedError({ network: this.network });
     }
     return config;
@@ -211,7 +216,10 @@ export class StellarMandateAdapter implements StellarMandateOperations {
   // -------------------------------------------------------------------------
   // Actions
 
-  async prepareMandateAction(req: MandateActionRequest, opts: CallOptions): Promise<SigningRequest> {
+  async prepareMandateAction(
+    req: MandateActionRequest,
+    opts: CallOptions,
+  ): Promise<SigningRequest> {
     const { network } = this;
     const config = this.#config();
     const { action } = req;
@@ -259,7 +267,9 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       );
       sim = await simulate(this.#rpc, network, tx, inv.contract, opts);
     }
-    const auth = (sim.result?.auth ?? []).map((entry) => checkedEntry(network, entry, signer, viaWallet));
+    const auth = (sim.result?.auth ?? []).map((entry) =>
+      checkedEntry(network, entry, signer, viaWallet),
+    );
     const mandate = action.op === 'create' ? asAddress(returned(sim)) : (instance?.address ?? null);
     const fee = BigInt(sim.minResourceFee) + INCLUSION_FEE * 2n;
     if (fee > config.feeSponsor.maxFeePerTxStroops) throw new SponsorDeniedError({ network });
@@ -289,14 +299,14 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       await this.#requests.save({
         ...base,
         kind: 'stellar_transaction',
-        payload: assembled.toXDR(),
+        payload: assembled.toXdr(),
         hostFunction: null,
         sequence: BigInt(assembled.sequence),
       });
       return {
         kind: 'stellar_transaction',
         network,
-        xdr: assembled.toXDR(),
+        xdr: assembled.toXdr(),
         signer: signerRef,
         validUntil,
         sponsored: true,
@@ -353,7 +363,8 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     }
     if (req.mandate !== null) throw invalid(network, 'mandate (not_null)');
     if (action.factory.network !== network) throw invalid(network, 'factory.network (mismatch)');
-    if (action.config.tenantRef !== tenantRefOf(req.scope)) throw new TenantMismatchError({ network });
+    if (action.config.tenantRef !== tenantRefOf(req.scope))
+      throw new TenantMismatchError({ network });
     if (!(await this.#trust.isTrustedFactory(action.factory.value, opts))) {
       throw new MandateUntrustedError({ network });
     }
@@ -413,7 +424,11 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     if (earlier.signed !== signed) throw new SignedPayloadMismatchError({ network });
     if (earlier.txHash === null) throw new SubmissionUnknownError({ network });
     const tx = await this.#rpc.getTransaction(earlier.txHash, opts);
-    return { network, txHash: earlier.txHash, finality: tx.status === 'NOT_FOUND' ? 'none' : 'final' };
+    return {
+      network,
+      txHash: earlier.txHash,
+      finality: tx.status === 'NOT_FOUND' ? 'none' : 'final',
+    };
   }
 
   /** The signed transaction, if its body is byte for byte the one built and the signer signed it. */
@@ -469,13 +484,13 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     );
     const signature = await this.#ports.signer.sign(
       { kind: 'fee_sponsor', network },
-      { kind: 'stellar_fee_bump', network, xdr: bump.toXDR() },
+      { kind: 'stellar_fee_bump', network, xdr: bump.toXdr() },
       opts,
     );
     attach(bump, sponsor, signature);
     const hash = txHash(bump);
     await this.#record(request, hash, request.signer, request.sequence ?? 0n, correlationId);
-    await sendAndRecord(this.#executor, request.scope, hash, bump.toXDR(), opts);
+    await sendAndRecord(this.#executor, request.scope, hash, bump.toXdr(), opts);
     return hash;
   }
 
@@ -489,7 +504,8 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     const { network } = this;
     const config = this.#config();
     const func = xdr.HostFunction.fromXdr(request.hostFunction ?? '', 'base64');
-    if (func.type !== 'hostFunctionTypeInvokeContract') throw new SubmissionRejectedError({ network });
+    if (func.type !== 'hostFunctionTypeInvokeContract')
+      throw new SubmissionRejectedError({ network });
     const target = asAddress(xdr.ScVal.scvAddress(func.invokeContract.contractAddress));
     return ExecutorSession.run(this.#executor, opts, async (session) => {
       const tx = invokeTx(
@@ -515,14 +531,14 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       }
       const signature = await this.#ports.signer.sign(
         { kind: 'executor', network, keyId: session.lease.keyId },
-        { kind: 'stellar_tx', network, xdr: assembled.toXDR() },
+        { kind: 'stellar_tx', network, xdr: assembled.toXdr() },
         opts,
       );
       attach(assembled, session.address, signature);
       const hash = txHash(assembled);
       await this.#record(request, hash, session.address, BigInt(assembled.sequence), correlationId);
       session.sequence = BigInt(assembled.sequence);
-      await sendAndRecord(this.#executor, request.scope, hash, assembled.toXDR(), opts);
+      await sendAndRecord(this.#executor, request.scope, hash, assembled.toXdr(), opts);
       return hash;
     });
   }
@@ -607,4 +623,3 @@ function hostFunctionOf(tx: Transaction): xdr.HostFunction {
   if (body?.type !== 'invokeHostFunction') throw new InvalidInputError();
   return body.invokeHostFunctionOp.hostFunction;
 }
-

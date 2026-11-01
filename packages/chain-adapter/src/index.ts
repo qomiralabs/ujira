@@ -68,5 +68,6 @@ export {
 } from './retry.js';
 export type { AlertKind, RetryDecision, RetryRule, SignerErrorCode } from './retry.js';
 export type * from './signer.js';
+export { tenantRefOf } from './tenant-ref.js';
 export { CHAIN_ADAPTER_INTERFACE_VERSION } from './types.js';
 export type * from './types.js';

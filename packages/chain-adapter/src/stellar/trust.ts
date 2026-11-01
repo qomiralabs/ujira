@@ -13,11 +13,7 @@
 
 import { Address, xdr } from '@stellar/stellar-sdk/base';
 
-import {
-  InvalidInputError,
-  MandateUntrustedError,
-  TenantMismatchError,
-} from '../errors.js';
+import { InvalidInputError, MandateUntrustedError, TenantMismatchError } from '../errors.js';
 import type { NetworkId } from '../networks.js';
 import { tenantRefOf } from '../tenant-ref.js';
 import type { Bytes32, CallOptions, MandateRef, TenantScope } from '../types.js';
@@ -152,7 +148,11 @@ export class MandateTrust {
     };
   }
 
-  async #instance(contract: string, fieldName: string, opts: CallOptions): Promise<Instance | null> {
+  async #instance(
+    contract: string,
+    fieldName: string,
+    opts: CallOptions,
+  ): Promise<Instance | null> {
     let key: string;
     try {
       key = instanceKey(contract).toXdr('base64');

@@ -151,7 +151,7 @@ async function walletSign(request: SigningRequest, key: Keypair): Promise<string
   if (request.kind === 'stellar_transaction') {
     const tx = TransactionBuilder.fromXdr(request.xdr, passphrase);
     tx.sign(key);
-    return tx.toXDR();
+    return tx.toXdr();
   }
   const entry = xdr.SorobanAuthorizationEntry.fromXdr(request.entryXdr, 'base64');
   if (request.signer.value.startsWith('G')) {
@@ -212,11 +212,7 @@ function harness() {
       signingWindowSeconds: 600,
     },
   });
-  const store = memoryStore(
-    NETWORK,
-    [{ address: channel.publicKey(), keyId: 'channel-1' }],
-    clock,
-  );
+  const store = memoryStore(NETWORK, [{ address: channel.publicKey(), keyId: 'channel-1' }], clock);
   const sponsorship = recordingSponsorship();
   const ports: AdapterPorts = {
     store,
@@ -326,7 +322,8 @@ function harness() {
 
   function report(title: string, mandate: MandateRef): void {
     const lines = hashes.map(([label, txHash]) => `${label} ${txHash}`);
-    console.log(`${title}, mandate ${mandate.address.value}\n${lines.join('\n')}`);
+    // The hashes are public and go in the pull request as the run's record.
+    process.stdout.write([`${title}, mandate ${mandate.address.value}`, ...lines, ''].join('\n'));
   }
 
   return {
@@ -424,7 +421,14 @@ describe.skipIf(!ENABLED)('Stellar mandate operations on testnet', () => {
       at(recovery),
       'recovery',
     );
-    await act('recovery_revoke', mandate, { op: 'recovery_revoke' }, recovery, at(recovery), 'recovery');
+    await act(
+      'recovery_revoke',
+      mandate,
+      { op: 'recovery_revoke' },
+      recovery,
+      at(recovery),
+      'recovery',
+    );
 
     const final = await adapter.readMandate({ scope, mandate }, opts);
     expect(final.state.revoked).toBe(true);

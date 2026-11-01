@@ -16,6 +16,10 @@
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"
+    },
+    "./stellar": {
+      "types": "./dist/stellar/index.d.ts",
+      "default": "./dist/stellar/index.js"
     }
   },
   "files": [
@@ -29,6 +33,7 @@
     "test:vectors": "vitest run src/testing/vectors"
   },
   "dependencies": {
+    "@stellar/stellar-base": "15.0.0",
     "@stellar/stellar-sdk": "17.2.1",
     "@ujira/core": "workspace:*",
     "zod": "4.6.7"

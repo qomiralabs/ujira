@@ -1,7 +1,13 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-import { Address, Keypair, SorobanDataBuilder, TransactionBuilder, xdr } from '@stellar/stellar-sdk/base';
+import {
+  Address,
+  Keypair,
+  SorobanDataBuilder,
+  TransactionBuilder,
+  xdr,
+} from '@stellar/stellar-sdk/base';
 import type { Transaction } from '@stellar/stellar-sdk/base';
 import { parseRawSimulation } from '@stellar/stellar-sdk/rpc';
 import type { Api } from '@stellar/stellar-sdk/rpc';
@@ -51,9 +57,14 @@ function operationOf(envelope: string): { type: string; extendTo?: number; keys:
   const tx = TransactionBuilder.fromXdr(envelope, PASSPHRASES[NETWORK]) as Transaction;
   const op = tx.operations[0];
   const env = tx.toEnvelope();
-  const data = env.type === 'envelopeTypeTx' && env.v1.tx.ext.type === 'sorobanData' ? env.v1.tx.ext.sorobanData : null;
+  const data =
+    env.type === 'envelopeTypeTx' && env.v1.tx.ext.type === 'sorobanData'
+      ? env.v1.tx.ext.sorobanData
+      : null;
   const footprint = data?.resources.footprint;
-  const keys = [...(footprint?.readOnly ?? []), ...(footprint?.readWrite ?? [])].map((k) => k.toXdr('base64'));
+  const keys = [...(footprint?.readOnly ?? []), ...(footprint?.readWrite ?? [])].map((k) =>
+    k.toXdr('base64'),
+  );
   return {
     type: op?.type ?? 'none',
     ...(op?.type === 'extendFootprintTtl' ? { extendTo: op.extendTo } : {}),
@@ -66,7 +77,9 @@ describe('the restore step', { timeout: 30_000 }, () => {
     const t = setup();
     const mandate = t.mandate.address.value;
     const instance = instanceKey(mandate);
-    const code = xdr.LedgerKey.contractCode(new xdr.LedgerKeyContractCode({ hash: new Uint8Array(32).fill(1) }));
+    const code = xdr.LedgerKey.contractCode(
+      new xdr.LedgerKeyContractCode({ hash: new Uint8Array(32).fill(1) }),
+    );
     const balance = putData(
       t,
       FIXTURE_USDC,
@@ -94,7 +107,12 @@ describe('the restore step', { timeout: 30_000 }, () => {
         scope: t.scope,
         mandate: t.mandate,
         action: { op: 'pause' },
-        signer: { kind: 'external', network: NETWORK, role: 'principal', address: { network: NETWORK, value: t.principal.publicKey() } },
+        signer: {
+          kind: 'external',
+          network: NETWORK,
+          role: 'principal',
+          address: { network: NETWORK, value: t.principal.publicKey() },
+        },
       },
       OPTS,
     );
@@ -105,7 +123,11 @@ describe('the restore step', { timeout: 30_000 }, () => {
     expect(sent).toEqual([
       { type: 'restoreFootprint', keys: keys.map(id) },
       { type: 'extendFootprintTtl', extendTo: (1000 + 86_400) / 5, keys: [id(open)] },
-      { type: 'extendFootprintTtl', extendTo: 535_680, keys: [id(instance), id(code), id(balance)] },
+      {
+        type: 'extendFootprintTtl',
+        extendTo: 535_680,
+        keys: [id(instance), id(code), id(balance)],
+      },
     ]);
     const records = [...t.store.submissions.values()];
     expect(records.map((r) => [r.op, r.state, r.signerAddress])).toEqual([
@@ -114,7 +136,9 @@ describe('the restore step', { timeout: 30_000 }, () => {
       ['ttl_extend', 'landed', t.channel.publicKey()],
     ]);
     expect(records.map((r) => r.sequenceOrNonce)).toEqual([901n, 902n, 903n]);
-    expect(t.store.releases).toEqual([{ leaseId: expect.any(String) as string, sequenceOrNonce: 904n }]);
+    expect(t.store.releases).toEqual([
+      { leaseId: expect.any(String) as string, sequenceOrNonce: 904n },
+    ]);
     // The member's own transaction is simulated again after the restore.
     const pauses = t.rpc.simulated.filter((tx) => tx.operations[0]?.type === 'invokeHostFunction');
     expect(pauses.map((tx) => invoked(tx).fn)).toEqual(['pause', 'pause']);
@@ -147,8 +171,13 @@ describe('the restore step', { timeout: 30_000 }, () => {
         address: { network: NETWORK, value: failed.principal.publicKey() },
       } as const,
     };
-    await expect(failed.adapter.prepareMandateAction(pause, OPTS)).rejects.toBeInstanceOf(SubmissionRejectedError);
-    expect([...failed.store.submissions.values()][0]).toMatchObject({ op: 'restore', state: 'failed' });
+    await expect(failed.adapter.prepareMandateAction(pause, OPTS)).rejects.toBeInstanceOf(
+      SubmissionRejectedError,
+    );
+    expect([...failed.store.submissions.values()][0]).toMatchObject({
+      op: 'restore',
+      state: 'failed',
+    });
     expect(failed.store.releases).toHaveLength(1);
 
     const lost = setup();
@@ -167,7 +196,18 @@ describe('the restore step', { timeout: 30_000 }, () => {
           }
         : undefined;
     await expect(
-      lost.adapter.prepareMandateAction({ ...pause, scope: lost.scope, mandate: lost.mandate, signer: { ...pause.signer, address: { network: NETWORK, value: lost.principal.publicKey() } } }, OPTS),
+      lost.adapter.prepareMandateAction(
+        {
+          ...pause,
+          scope: lost.scope,
+          mandate: lost.mandate,
+          signer: {
+            ...pause.signer,
+            address: { network: NETWORK, value: lost.principal.publicKey() },
+          },
+        },
+        OPTS,
+      ),
     ).rejects.toBeInstanceOf(SubmissionUnknownError);
   });
 });
@@ -175,7 +215,9 @@ describe('the restore step', { timeout: 30_000 }, () => {
 describe('archivedKeys', () => {
   it('reads archived entries from the restore preamble and from the archived index list, once each', () => {
     const a = instanceKey(FIXTURE_USDC);
-    const b = xdr.LedgerKey.contractCode(new xdr.LedgerKeyContractCode({ hash: new Uint8Array(32).fill(2) }));
+    const b = xdr.LedgerKey.contractCode(
+      new xdr.LedgerKeyContractCode({ hash: new Uint8Array(32).fill(2) }),
+    );
     const data = new xdr.SorobanTransactionData({
       ext: xdr.SorobanTransactionDataExt.resourceExt(
         new xdr.SorobanResourcesExtV0({ archivedSorobanEntries: [0, 1, 7] }),

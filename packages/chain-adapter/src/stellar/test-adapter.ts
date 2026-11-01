@@ -8,13 +8,7 @@ import { Keypair, xdr } from '@stellar/stellar-sdk/base';
 
 import { parseNetworksConfig } from '../config.js';
 import type { NetworksConfig } from '../config.js';
-import type {
-  AdapterPorts,
-  MandateRef,
-  TenantScope,
-  UnixSeconds,
-  Uuid,
-} from '../types.js';
+import type { AdapterPorts, MandateRef, TenantScope, UnixSeconds, Uuid } from '../types.js';
 import { StellarMandateAdapter } from './mandate-adapter.js';
 import { createMemorySigningRequestStore } from './requests.js';
 import type { SigningRequestStore } from './requests.js';
@@ -39,7 +33,12 @@ export function networksConfig(overrides: {
       rpc: [{ url: 'secretRef:testnet_rpc', weight: 1 }],
       maxEndpointLagSeconds: 60,
       explorer: { tx: 'https://stellar.expert/explorer/testnet/tx/{hash}' },
-      health: { maxHeadLagSeconds: 60, degradedErrorBps: 500, downErrorBps: 2000, hysteresisChecks: 3 },
+      health: {
+        maxHeadLagSeconds: 60,
+        degradedErrorBps: 500,
+        downErrorBps: 2000,
+        hysteresisChecks: 3,
+      },
       trustedFactories: { '1': [...(overrides.trusted ?? [FIXTURE_FACTORY])] },
       assets: {
         USDC: {
@@ -105,12 +104,14 @@ export interface TestSetup {
   readonly clock: { now: bigint };
 }
 
-export function setup(options: {
-  readonly trusted?: readonly string[];
-  readonly maxFeePerTxStroops?: string;
-  readonly usdc?: string;
-  readonly deny?: boolean;
-} = {}): TestSetup {
+export function setup(
+  options: {
+    readonly trusted?: readonly string[];
+    readonly maxFeePerTxStroops?: string;
+    readonly usdc?: string;
+    readonly deny?: boolean;
+  } = {},
+): TestSetup {
   const fixture = loadReadFixture();
   const principal = Keypair.random();
   const sponsor = Keypair.random();
@@ -124,10 +125,16 @@ export function setup(options: {
     sponsor: sponsor.publicKey(),
     channel: channel.publicKey(),
     ...(options.trusted === undefined ? {} : { trusted: options.trusted }),
-    ...(options.maxFeePerTxStroops === undefined ? {} : { maxFeePerTxStroops: options.maxFeePerTxStroops }),
+    ...(options.maxFeePerTxStroops === undefined
+      ? {}
+      : { maxFeePerTxStroops: options.maxFeePerTxStroops }),
     ...(options.usdc === undefined ? {} : { usdc: options.usdc }),
   });
-  const store = memoryStore(NETWORK, [{ address: channel.publicKey(), keyId: 'channel-1' }], nowSeconds);
+  const store = memoryStore(
+    NETWORK,
+    [{ address: channel.publicKey(), keyId: 'channel-1' }],
+    nowSeconds,
+  );
   const sponsorship = recordingSponsorship(options.deny ?? false);
   const ports: AdapterPorts = {
     store,
