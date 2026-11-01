@@ -9,6 +9,8 @@
 // network global. Decoders return plain data, never the XDR library's own
 // objects, so nothing that imports them depends on that library's types.
 
+export { ATTESTATION_MESSAGE_BYTES, attestationMessage } from './attestation.js';
+export type { AttestationMessageFields } from './attestation.js';
 export { attachAuthEntrySignature, decodeAuthEntry } from './auth-entry.js';
 export type { DecodedAuthCredentials, DecodedAuthEntry, DecodedInvocation } from './auth-entry.js';
 export {
