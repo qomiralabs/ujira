@@ -352,6 +352,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@ujira/core':
+        specifier: workspace:*
+        version: link:../core
       kysely:
         specifier: 0.29.6
         version: 0.29.6
