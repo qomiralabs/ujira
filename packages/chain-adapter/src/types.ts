@@ -15,7 +15,7 @@ import type { Chain, FiatCurrencyCode, Money, TokenAmount, TokenAsset } from '@u
 import type { ChainAdapterErrorCode, ChainAdapterErrorJson } from './errors.js';
 import type { NetworkId } from './networks.js';
 import type { NetworksConfig } from './config.js';
-import type { SignerProvider, SignerRef } from './signer.js';
+import type { AttestationFields, SignerProvider, SignerRef } from './signer.js';
 
 export const CHAIN_ADAPTER_INTERFACE_VERSION = 1 as const;
 
@@ -97,6 +97,14 @@ export interface ChainAdapter {
    * InvalidInputError carrying a DestinationParseReason.
    */
   parseDestination(raw: RawDestination): Destination;
+  /**
+   * The 47 byte message the attester signs for one leg, built byte for byte
+   * as this chain's mandate rebuilds it before it verifies the signature.
+   * Pure: no network call and no key. Only the adapter knows the chain's
+   * address encoding, so nothing else builds these bytes. Throws
+   * InvalidInputError for fields the mandate could never accept.
+   */
+  attestationMessage(fields: AttestationFields): Uint8Array;
 
   readMandate(
     req: { readonly scope: TenantScope; readonly mandate: MandateRef },
