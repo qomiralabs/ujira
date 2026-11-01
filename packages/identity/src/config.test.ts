@@ -23,6 +23,7 @@ describe('parseIdentityConfig', () => {
         sep12: { enabled: false },
         principal: { enabled: false },
       },
+      attestation: { ttlSeconds: 86_400, callTimeoutMs: 5_000 },
     });
     expect(parseIdentityConfig({ providers: { self: { enabled: true } } }).providers).toEqual({
       self: { enabled: true },
@@ -41,6 +42,25 @@ describe('parseIdentityConfig', () => {
     for (const [raw, issue] of cases) {
       const error = thrownBy(() => parseIdentityConfig(raw));
       expect(error).toBeInstanceOf(IdentityConfigError);
+      expect((error as IdentityConfigError).issues).toEqual([issue]);
+    }
+  });
+});
+
+describe('attestation settings', () => {
+  it('keeps the window between a minute and the mandate maximum, and the timeout bounded', () => {
+    expect(parseIdentityConfig({ attestation: { ttlSeconds: 60 } }).attestation).toEqual({
+      ttlSeconds: 60,
+      callTimeoutMs: 5_000,
+    });
+    const cases: [unknown, string][] = [
+      [{ attestation: { ttlSeconds: 59 } }, 'attestation.ttlSeconds (too_small)'],
+      [{ attestation: { ttlSeconds: 86_401 } }, 'attestation.ttlSeconds (too_big)'],
+      [{ attestation: { ttlSeconds: 90.5 } }, 'attestation.ttlSeconds (invalid_type)'],
+      [{ attestation: { callTimeoutMs: 60_001 } }, 'attestation.callTimeoutMs (too_big)'],
+    ];
+    for (const [raw, issue] of cases) {
+      const error = thrownBy(() => parseIdentityConfig(raw));
       expect((error as IdentityConfigError).issues).toEqual([issue]);
     }
   });

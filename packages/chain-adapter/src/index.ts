@@ -60,6 +60,7 @@ export {
   readProviderDepositInstruction,
 } from './destination.js';
 export type { BindableDestination, DestinationInput, DestinationMemoType } from './destination.js';
+export { operationsGuardianOf } from './guardian.js';
 export { SIGNER_DOWN, withSignerHealth } from './health.js';
 export {
   MANDATE_ERRORS,

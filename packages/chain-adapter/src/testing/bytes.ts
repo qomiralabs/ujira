@@ -6,8 +6,9 @@
 // not below the group order, which is the strictness the spec's tamper kinds
 // rely on.
 
-import { createHash, createPrivateKey, createPublicKey, sign, verify } from 'node:crypto';
+import { createPrivateKey, createPublicKey, sign, verify } from 'node:crypto';
 
+import { concat, sha256, u32be, u64be, utf8 } from '../bytes.js';
 import { InvalidInputError } from '../errors.js';
 
 const BYTES32 = /^0x[0-9a-f]{64}$/;
@@ -37,37 +38,9 @@ export function bytesOf(hex: string): Uint8Array {
   return Uint8Array.from(Buffer.from(hex.slice(2), 'hex'));
 }
 
-export function concat(...parts: readonly Uint8Array[]): Uint8Array {
-  const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
-  let at = 0;
-  for (const part of parts) {
-    out.set(part, at);
-    at += part.length;
-  }
-  return out;
-}
-
-export function sha256(...parts: readonly Uint8Array[]): Uint8Array {
-  const hash = createHash('sha256');
-  for (const part of parts) hash.update(part);
-  return Uint8Array.from(hash.digest());
-}
-
-export function utf8(text: string): Uint8Array {
-  return Uint8Array.from(Buffer.from(text, 'utf8'));
-}
-
-export function u32be(value: number): Uint8Array {
-  const out = new Uint8Array(4);
-  new DataView(out.buffer).setUint32(0, value);
-  return out;
-}
-
-export function u64be(value: bigint): Uint8Array {
-  const out = new Uint8Array(8);
-  new DataView(out.buffer).setBigUint64(0, value);
-  return out;
-}
+// The encoders are the adapter's own; the fake chain builds the same bytes
+// with them rather than with a copy.
+export { concat, sha256, u32be, u64be, utf8 };
 
 export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   return a.length === b.length && a.every((byte, i) => byte === b[i]);
