@@ -131,6 +131,10 @@ export interface Database {
   // Every project of the principal, read only: the transaction opens read
   // only, and the policies refuse writes under this scope as well.
   readonly principal: (context: ProjectContext, role?: 'app' | 'reader') => TenantSession;
+  // One transaction as the app role with no tenant context, for the entry
+  // points that run before one exists: creating a principal and
+  // authenticating a token. Nothing else can read or write in it.
+  readonly unscoped: <T>(work: (db: Kysely<Schema>) => Promise<T>) => Promise<T>;
   readonly close: () => Promise<void>;
 }
 
@@ -175,6 +179,20 @@ export function createDatabase(config: DatabaseConfig): Database {
     // tenant fails with what was wrong rather than with whatever the
     // connection attempt happened to say, and never costs a connection.
     const begin = `${beginWithTenant(context)}, ${timeoutSettings(config)}`;
+    return inTransaction(role, begin, work);
+  };
+
+  // A transaction with no tenant context. Every policy refuses it with
+  // UJ001, so the only things that work in it are the security definer
+  // entry points, which is the point: they are how a request gets a context.
+  const unscoped: Database['unscoped'] = async (work) =>
+    inTransaction('app', `begin; select ${timeoutSettings(config)}`, work);
+
+  async function inTransaction<T>(
+    role: DatabaseRole,
+    begin: string,
+    work: (db: Kysely<Schema>) => Promise<T>,
+  ): Promise<T> {
     let client: pg.PoolClient;
     try {
       client = await pools[role].connect();
@@ -202,7 +220,7 @@ export function createDatabase(config: DatabaseConfig): Database {
     } finally {
       client.release();
     }
-  };
+  }
 
   // The two values are copied once, here, so a context object whose
   // properties change later cannot change a transaction already handed out.
@@ -221,6 +239,7 @@ export function createDatabase(config: DatabaseConfig): Database {
 
   return {
     withTenant,
+    unscoped,
     tenant: (context, role = 'app') => sessionFor(role, context, 'project'),
     principal: (context, role = 'reader') => sessionFor(role, context, 'all'),
     // Idempotent: a teardown path that closes twice, or a test that closes

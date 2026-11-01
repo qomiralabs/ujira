@@ -98,6 +98,43 @@ $$;
 ALTER FUNCTION ujira.apply_tenant_policies(target regclass) OWNER TO ujira_owner;
 
 --
+-- Name: authenticate_token(text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_tokens
+--
+
+CREATE FUNCTION ujira.authenticate_token(token_prefix text) RETURNS TABLE(token_id uuid, principal_id uuid, project_id uuid, secret_sha256 bytea, scopes text[], expires_at timestamp with time zone, revoked_at timestamp with time zone)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select t.id, t.principal_id, t.project_id, t.secret_sha256::bytea, t.scopes, t.expires_at, t.revoked_at
+    from ujira.api_tokens as t
+   where t.prefix = token_prefix
+$$;
+
+
+ALTER FUNCTION ujira.authenticate_token(token_prefix text) OWNER TO ujira_fn_tokens;
+
+--
+-- Name: check_reporting_time_zone(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.check_reporting_time_zone() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if not exists (select 1 from pg_timezone_names where name = new.reporting_time_zone) then
+    raise exception using
+      errcode = '22023',
+      message = 'reporting_time_zone is not an IANA time zone this server knows';
+  end if;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.check_reporting_time_zone() OWNER TO ujira_owner;
+
+--
 -- Name: check_transition(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -123,6 +160,31 @@ $$;
 
 
 ALTER FUNCTION ujira.check_transition() OWNER TO ujira_owner;
+
+--
+-- Name: create_principal(text, text, uuid, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_principals
+--
+
+CREATE FUNCTION ujira.create_principal(principal_name text, project_name text, owner_user_id uuid, reporting_time_zone text DEFAULT 'UTC'::text) RETURNS TABLE(principal_id uuid, project_id uuid)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  new_principal uuid := gen_random_uuid();
+  new_project uuid := gen_random_uuid();
+begin
+  insert into ujira.principals (id, name, reporting_time_zone)
+    values (new_principal, principal_name, create_principal.reporting_time_zone);
+  insert into ujira.projects (principal_id, id, name)
+    values (new_principal, new_project, project_name);
+  insert into ujira.principal_members (principal_id, user_id, role)
+    values (new_principal, owner_user_id, 'owner');
+  return query select new_principal, new_project;
+end
+$$;
+
+
+ALTER FUNCTION ujira.create_principal(principal_name text, project_name text, owner_user_id uuid, reporting_time_zone text) OWNER TO ujira_fn_principals;
 
 --
 -- Name: current_principal_id(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
@@ -196,6 +258,33 @@ $$;
 
 
 ALTER FUNCTION ujira.forbid_mutation() OWNER TO ujira_owner;
+
+--
+-- Name: keep_token_revoked(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.keep_token_revoked() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if old.revoked_at is not null and new.revoked_at is distinct from old.revoked_at then
+    raise exception using
+      errcode = 'UJ006',
+      message = 'a revoked api token cannot be restored or re-revoked';
+  end if;
+  if new.prefix <> old.prefix or new.secret_sha256 <> old.secret_sha256
+     or new.principal_id <> old.principal_id or new.project_id <> old.project_id then
+    raise exception using
+      errcode = 'UJ006',
+      message = 'an api token keeps its prefix, secret and tenant';
+  end if;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.keep_token_revoked() OWNER TO ujira_owner;
 
 --
 -- Name: project_scope_all(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
@@ -281,6 +370,29 @@ ALTER SEQUENCE public.ujira_migrations_id_seq OWNED BY public.ujira_migrations.i
 
 
 --
+-- Name: api_tokens; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.api_tokens (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    prefix text NOT NULL,
+    secret_sha256 ujira.hash32 NOT NULL,
+    scopes text[] DEFAULT '{}'::text[] NOT NULL,
+    expires_at timestamp with time zone,
+    revoked_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT api_tokens_prefix_format CHECK ((prefix ~ '^[A-Za-z0-9_]{8,40}$'::text)),
+    CONSTRAINT api_tokens_scopes_bounded CHECK ((cardinality(scopes) <= 32))
+);
+
+ALTER TABLE ONLY ujira.api_tokens FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.api_tokens OWNER TO ujira_owner;
+
+--
 -- Name: chains; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -316,6 +428,60 @@ CREATE TABLE ujira.currency_scales (
 
 
 ALTER TABLE ujira.currency_scales OWNER TO ujira_owner;
+
+--
+-- Name: principal_members; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.principal_members (
+    principal_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    role text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT principal_members_role CHECK ((role = ANY (ARRAY['owner'::text, 'admin'::text, 'developer'::text, 'viewer'::text])))
+);
+
+ALTER TABLE ONLY ujira.principal_members FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.principal_members OWNER TO ujira_owner;
+
+--
+-- Name: principals; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.principals (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    name text NOT NULL,
+    reporting_time_zone text DEFAULT 'UTC'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT principals_name_length CHECK (((char_length(name) >= 1) AND (char_length(name) <= 200)))
+);
+
+ALTER TABLE ONLY ujira.principals FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.principals OWNER TO ujira_owner;
+
+--
+-- Name: projects; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.projects (
+    principal_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    name text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT projects_name_length CHECK (((char_length(name) >= 1) AND (char_length(name) <= 200)))
+);
+
+ALTER TABLE ONLY ujira.projects FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.projects OWNER TO ujira_owner;
 
 --
 -- Name: settlement_tokens; Type: TABLE; Schema: ujira; Owner: ujira_owner
@@ -362,6 +528,30 @@ ALTER TABLE ONLY public.ujira_migrations
 
 
 --
+-- Name: api_tokens api_tokens_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.api_tokens
+    ADD CONSTRAINT api_tokens_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: api_tokens api_tokens_prefix_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.api_tokens
+    ADD CONSTRAINT api_tokens_prefix_key UNIQUE (prefix);
+
+
+--
+-- Name: api_tokens api_tokens_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.api_tokens
+    ADD CONSTRAINT api_tokens_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
 -- Name: chains chains_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -383,6 +573,38 @@ ALTER TABLE ONLY ujira.currencies
 
 ALTER TABLE ONLY ujira.currency_scales
     ADD CONSTRAINT currency_scales_pkey PRIMARY KEY (currency, scale);
+
+
+--
+-- Name: principal_members principal_members_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.principal_members
+    ADD CONSTRAINT principal_members_pkey PRIMARY KEY (principal_id, user_id);
+
+
+--
+-- Name: principals principals_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.principals
+    ADD CONSTRAINT principals_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: projects projects_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.projects
+    ADD CONSTRAINT projects_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: projects projects_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.projects
+    ADD CONSTRAINT projects_tenant_key UNIQUE (principal_id, id);
 
 
 --
@@ -410,11 +632,70 @@ ALTER TABLE ONLY ujira.status_transitions
 
 
 --
+-- Name: api_tokens api_tokens_keep_revoked; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER api_tokens_keep_revoked BEFORE UPDATE ON ujira.api_tokens FOR EACH ROW EXECUTE FUNCTION ujira.keep_token_revoked();
+
+
+--
+-- Name: principal_members principal_members_touch; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER principal_members_touch BEFORE UPDATE ON ujira.principal_members FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
+-- Name: principals principals_reporting_time_zone; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER principals_reporting_time_zone BEFORE INSERT OR UPDATE OF reporting_time_zone ON ujira.principals FOR EACH ROW EXECUTE FUNCTION ujira.check_reporting_time_zone();
+
+
+--
+-- Name: principals principals_touch; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER principals_touch BEFORE UPDATE ON ujira.principals FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
+-- Name: projects projects_touch; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER projects_touch BEFORE UPDATE ON ujira.projects FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
+-- Name: api_tokens api_tokens_principal_id_project_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.api_tokens
+    ADD CONSTRAINT api_tokens_principal_id_project_id_fkey FOREIGN KEY (principal_id, project_id) REFERENCES ujira.projects(principal_id, id);
+
+
+--
 -- Name: currency_scales currency_scales_currency_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
 ALTER TABLE ONLY ujira.currency_scales
     ADD CONSTRAINT currency_scales_currency_fkey FOREIGN KEY (currency) REFERENCES ujira.currencies(code);
+
+
+--
+-- Name: principal_members principal_members_principal_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.principal_members
+    ADD CONSTRAINT principal_members_principal_id_fkey FOREIGN KEY (principal_id) REFERENCES ujira.principals(id);
+
+
+--
+-- Name: projects projects_principal_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.projects
+    ADD CONSTRAINT projects_principal_id_fkey FOREIGN KEY (principal_id) REFERENCES ujira.principals(id);
 
 
 --
@@ -426,6 +707,163 @@ ALTER TABLE ONLY ujira.settlement_tokens
 
 
 --
+-- Name: api_tokens; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.api_tokens ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: api_tokens authenticate; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY authenticate ON ujira.api_tokens FOR SELECT TO ujira_fn_tokens USING (true);
+
+
+--
+-- Name: principal_members create_principal; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY create_principal ON ujira.principal_members FOR INSERT TO ujira_fn_principals WITH CHECK (true);
+
+
+--
+-- Name: principals create_principal; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY create_principal ON ujira.principals FOR INSERT TO ujira_fn_principals WITH CHECK (true);
+
+
+--
+-- Name: projects create_principal; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY create_principal ON ujira.projects FOR INSERT TO ujira_fn_principals WITH CHECK (true);
+
+
+--
+-- Name: api_tokens owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.api_tokens TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: principal_members owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.principal_members TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: principals owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.principals TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: projects owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.projects TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: principal_members; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.principal_members ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: principals; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.principals ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: projects; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.projects ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: api_tokens tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.api_tokens FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: principal_members tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.principal_members FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (NOT ujira.project_scope_all())));
+
+
+--
+-- Name: projects tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.projects FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (NOT ujira.project_scope_all())));
+
+
+--
+-- Name: api_tokens tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.api_tokens FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: principal_members tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.principal_members FOR SELECT TO ujira_app, ujira_reader USING ((principal_id = ujira.current_principal_id()));
+
+
+--
+-- Name: principals tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.principals FOR SELECT TO ujira_app, ujira_reader USING ((id = ujira.current_principal_id()));
+
+
+--
+-- Name: projects tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.projects FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (id = ujira.current_project_id()))));
+
+
+--
+-- Name: api_tokens tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.api_tokens FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: principal_members tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.principal_members FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (NOT ujira.project_scope_all()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (NOT ujira.project_scope_all())));
+
+
+--
+-- Name: principals tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.principals FOR UPDATE TO ujira_app USING (((id = ujira.current_principal_id()) AND (NOT ujira.project_scope_all()))) WITH CHECK (((id = ujira.current_principal_id()) AND (NOT ujira.project_scope_all())));
+
+
+--
+-- Name: projects tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.projects FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (id = ujira.current_project_id())));
+
+
+--
 -- Name: SCHEMA ujira; Type: ACL; Schema: -; Owner: ujira_owner
 --
 
@@ -434,6 +872,8 @@ GRANT USAGE ON SCHEMA ujira TO ujira_reader;
 GRANT USAGE ON SCHEMA ujira TO ujira_retention;
 GRANT USAGE ON SCHEMA ujira TO ujira_auth;
 GRANT USAGE ON SCHEMA ujira TO ujira_indexer;
+GRANT USAGE ON SCHEMA ujira TO ujira_fn_principals;
+GRANT USAGE ON SCHEMA ujira TO ujira_fn_tokens;
 
 
 --
@@ -480,10 +920,34 @@ REVOKE ALL ON FUNCTION ujira.apply_tenant_policies(target regclass) FROM PUBLIC;
 
 
 --
+-- Name: FUNCTION authenticate_token(token_prefix text); Type: ACL; Schema: ujira; Owner: ujira_fn_tokens
+--
+
+REVOKE ALL ON FUNCTION ujira.authenticate_token(token_prefix text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.authenticate_token(token_prefix text) TO ujira_app;
+GRANT ALL ON FUNCTION ujira.authenticate_token(token_prefix text) TO ujira_auth;
+
+
+--
+-- Name: FUNCTION check_reporting_time_zone(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.check_reporting_time_zone() FROM PUBLIC;
+
+
+--
 -- Name: FUNCTION check_transition(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
 REVOKE ALL ON FUNCTION ujira.check_transition() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION create_principal(principal_name text, project_name text, owner_user_id uuid, reporting_time_zone text); Type: ACL; Schema: ujira; Owner: ujira_fn_principals
+--
+
+REVOKE ALL ON FUNCTION ujira.create_principal(principal_name text, project_name text, owner_user_id uuid, reporting_time_zone text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.create_principal(principal_name text, project_name text, owner_user_id uuid, reporting_time_zone text) TO ujira_app;
 
 
 --
@@ -518,6 +982,13 @@ REVOKE ALL ON FUNCTION ujira.forbid_mutation() FROM PUBLIC;
 
 
 --
+-- Name: FUNCTION keep_token_revoked(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.keep_token_revoked() FROM PUBLIC;
+
+
+--
 -- Name: FUNCTION project_scope_all(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -534,6 +1005,15 @@ GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_indexer;
 --
 
 REVOKE ALL ON FUNCTION ujira.touch() FROM PUBLIC;
+
+
+--
+-- Name: TABLE api_tokens; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE ujira.api_tokens TO ujira_app;
+GRANT SELECT ON TABLE ujira.api_tokens TO ujira_reader;
+GRANT SELECT ON TABLE ujira.api_tokens TO ujira_fn_tokens;
 
 
 --
@@ -567,6 +1047,33 @@ GRANT SELECT ON TABLE ujira.currency_scales TO ujira_reader;
 GRANT SELECT ON TABLE ujira.currency_scales TO ujira_retention;
 GRANT SELECT ON TABLE ujira.currency_scales TO ujira_auth;
 GRANT SELECT ON TABLE ujira.currency_scales TO ujira_indexer;
+
+
+--
+-- Name: TABLE principal_members; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE ujira.principal_members TO ujira_app;
+GRANT SELECT ON TABLE ujira.principal_members TO ujira_reader;
+GRANT INSERT ON TABLE ujira.principal_members TO ujira_fn_principals;
+
+
+--
+-- Name: TABLE principals; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,UPDATE ON TABLE ujira.principals TO ujira_app;
+GRANT SELECT ON TABLE ujira.principals TO ujira_reader;
+GRANT INSERT ON TABLE ujira.principals TO ujira_fn_principals;
+
+
+--
+-- Name: TABLE projects; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE ujira.projects TO ujira_app;
+GRANT SELECT ON TABLE ujira.projects TO ujira_reader;
+GRANT INSERT ON TABLE ujira.projects TO ujira_fn_principals;
 
 
 --
