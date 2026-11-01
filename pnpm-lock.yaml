@@ -419,6 +419,15 @@ importers:
         specifier: 4.10.2
         version: 4.10.2
 
+  packages/mandates:
+    dependencies:
+      '@ujira/chain-adapter':
+        specifier: workspace:*
+        version: link:../chain-adapter
+      '@ujira/core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/payouts:
     devDependencies:
       zod:

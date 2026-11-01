@@ -189,6 +189,11 @@ const stellarNetwork = z
     // UJIRA's login key for each anchor it pays out through.
     sep10: sep10Keys,
     signingWindowSeconds: z.int().min(30).max(SECONDS_PER_HOUR),
+    // The operations team's pause-only guardian, added to new mandates
+    // unless the principal opts out. An address only: the key is held by
+    // people, not by the signer. Optional so a network can run before one
+    // is assigned; creation then needs an explicit opt out.
+    operationsGuardian: stellarAccount.optional(),
   })
   .superRefine((network, ctx) => {
     // One key, one role. The signer picks its policy from the ref it is
@@ -208,6 +213,11 @@ const stellarNetwork = z
       }
       addresses.add(key.address);
       ids.add(id);
+    }
+    // The guardian can only pause. If it were also a key UJIRA signs with,
+    // that key could pause and spend, which is what the split prevents.
+    if (network.operationsGuardian !== undefined && addresses.has(network.operationsGuardian)) {
+      ctx.addIssue({ code: 'custom', message: 'key used twice', path: ['operationsGuardian'] });
     }
   });
 
