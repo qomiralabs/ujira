@@ -37,3 +37,4 @@ export {
 } from './migrate.js';
 export { TENANT_SETTINGS, type TenantContext, type TenantScope } from './tenant.js';
 export { DatabaseConfigError, SessionStateError, TenantContextError } from './errors.js';
+export { DatabaseUnavailableError } from './unavailable.js';

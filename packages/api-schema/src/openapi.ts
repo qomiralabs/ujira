@@ -33,7 +33,12 @@ import {
   StatsWindow,
 } from './stats.js';
 
-const COMPONENTS: readonly (readonly [string, z.ZodType])[] = [
+/**
+ * Every named schema, in document order. Exported so the API builds its own
+ * document with the same component names, and a $ref means the same thing
+ * in both.
+ */
+export const OPENAPI_COMPONENTS: readonly (readonly [string, z.ZodType])[] = [
   ['Money', Money],
   ['TokenAmount', TokenAmount],
   ['Rate', Rate],
@@ -85,7 +90,8 @@ function parameterSchema(field: z.ZodType): { schema: JsonObject; required: bool
   return { schema: withoutMeta(z.toJSONSchema(inner, { io: 'input' })), required };
 }
 
-function parameters(where: 'path' | 'query', object: z.ZodType): JsonObject[] {
+/** OpenAPI parameter objects for each field of a path or query schema, typed as the text sent. */
+export function openApiParameters(where: 'path' | 'query', object: z.ZodType): JsonObject[] {
   if (!(object instanceof z.ZodObject)) return [];
   return Object.entries(object.shape as Record<string, z.ZodType>).map(([name, field]) => {
     const { schema, required } = parameterSchema(field);
@@ -94,7 +100,7 @@ function parameters(where: 'path' | 'query', object: z.ZodType): JsonObject[] {
 }
 
 function componentName(schema: z.ZodType): string {
-  const found = COMPONENTS.find(([, candidate]) => candidate === schema);
+  const found = OPENAPI_COMPONENTS.find(([, candidate]) => candidate === schema);
   if (found === undefined)
     throw new SchemaRegistryError('every route response must be a named component');
   return found[0];
@@ -106,12 +112,14 @@ const STATUS_TEXT: Readonly<Record<number, string>> = Object.freeze({
   403: 'Not allowed',
   404: 'Not found, including any id that belongs to another tenant',
   429: 'Rate limited',
+  500: 'Failed on our side; quote the request id to support',
+  503: 'Temporarily unavailable; retry after the Retry-After header',
 });
 
 /** The OpenAPI 3.1 document for every read route in v1. */
 export function buildOpenApiDocument(): JsonObject {
   const registry = z.registry<{ id: string }>();
-  for (const [id, schema] of COMPONENTS) registry.add(schema, { id });
+  for (const [id, schema] of OPENAPI_COMPONENTS) registry.add(schema, { id });
   const generated = z.toJSONSchema(registry, { uri: (id) => `${REF}${id}`, io: 'output' });
   const schemas = Object.fromEntries(
     Object.entries(generated.schemas).map(([id, schema]) => [id, withoutMeta(schema)]),
@@ -140,7 +148,10 @@ export function buildOpenApiDocument(): JsonObject {
         operationId: id,
         summary: route.summary,
         security: [{ bearer: [] }],
-        parameters: [...parameters('path', route.params), ...parameters('query', route.query)],
+        parameters: [
+          ...openApiParameters('path', route.params),
+          ...openApiParameters('query', route.query),
+        ],
         responses,
       },
     };
