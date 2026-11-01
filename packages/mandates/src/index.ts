@@ -8,6 +8,16 @@
 export { planMandateCreation } from './create-mandate.js';
 export type { CreateMandateRequest, CreationDeps, MandateCreationPlan } from './create-mandate.js';
 export {
+  allowsManagedAgent,
+  assertCustodyAllowed,
+  assertMayAddManagedAgent,
+  createMemoryManagedAgentMandates,
+  recipientModesOffered,
+  withCustodyGuard,
+} from './custody.js';
+export type { CustodyGuardDeps, ManagedAgentMandates, RecipientMode } from './custody.js';
+export {
+  CustodyGuardError,
   MANDATE_POLICY_ERROR_CODES,
   MandatePolicyError,
   OperationsGuardianNotConfiguredError,

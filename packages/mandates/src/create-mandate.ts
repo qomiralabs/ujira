@@ -6,6 +6,7 @@
 
 import type { MandateConfigInput, NetworkId } from '@ujira/chain-adapter';
 
+import { assertCustodyAllowed } from './custody.js';
 import { OperationsGuardianNotConfiguredError } from './errors.js';
 import { configuredGuardian, hasOptedOut, sameAddress } from './operations-guardian.js';
 import type { GuardianPolicyDeps, OperationsGuardianStatus } from './operations-guardian.js';
@@ -23,6 +24,8 @@ export interface CreateMandateRequest {
    * is the principal choosing, not UJIRA re-adding.
    */
   readonly guardian?: boolean;
+  /** True when one of the agents is a key UJIRA holds for the principal. */
+  readonly managedAgent?: boolean;
 }
 
 export interface MandateCreationPlan {
@@ -42,6 +45,7 @@ async function includeGuardian(req: CreateMandateRequest, deps: CreationDeps): P
 
 /**
  * Applies the creation rules and returns the configuration to create. Throws
+ * CustodyGuardError for an attested only mandate with a managed agent, and
  * OperationsGuardianNotConfiguredError when the guardian should be added but
  * the network has none configured.
  */
@@ -49,6 +53,8 @@ export async function planMandateCreation(
   req: CreateMandateRequest,
   deps: CreationDeps,
 ): Promise<MandateCreationPlan> {
+  // First, and before any store is read: this refusal never depends on state.
+  assertCustodyAllowed(req.config.recipientMode, req.managedAgent === true);
   const guardian = configuredGuardian(deps, req.network);
   let guardians = req.config.guardians;
   if (await includeGuardian(req, deps)) {
