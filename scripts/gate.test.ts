@@ -20,7 +20,10 @@ import vitestConfig from '../vitest.config.ts';
 import { plan, run } from './gate.ts';
 import {
   buildOrder,
-  lintProjects,
+  ROOT_LINT_PROJECT,
+  lintRuns,
+  lintScopes,
+  runLint,
   testProjects,
   workspaceDependencies,
   type Member,
@@ -382,39 +385,101 @@ describe('gate', () => {
   });
 
   describe('lint projects', () => {
-    it('lists the root tsconfig and every member tsconfig', () => {
+    const repo = join(import.meta.dirname, '..');
+
+    function workspace(): string {
       const root = mkdtempSync(join(tmpdir(), 'ujira-lint-'));
       writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n');
       for (const name of ['b', 'a']) {
         mkdirSync(join(root, 'packages', name), { recursive: true });
         writeFileSync(join(root, 'packages', name, 'package.json'), JSON.stringify({ name }));
       }
-      const projects = lintProjects(root);
+      return root;
+    }
+
+    it('scopes every member to its own tsconfig', () => {
+      const root = workspace();
+      const scopes = lintScopes(root);
       rmSync(root, { recursive: true, force: true });
-      expect(projects).toEqual([
-        './tsconfig.json',
-        './packages/a/tsconfig.json',
-        './packages/b/tsconfig.json',
+      expect(scopes).toEqual([
+        { files: ['packages/a/**'], project: ['./packages/a/tsconfig.json'] },
+        { files: ['packages/b/**'], project: ['./packages/b/tsconfig.json'] },
       ]);
     });
 
-    it('gives ESLint that explicit list instead of the nearest tsconfig', () => {
-      const withParser = (
+    it('plans one run per member and one for the rest, each with the arguments it was given', () => {
+      const root = workspace();
+      const runs = lintRuns(root, ['--max-warnings', '0']);
+      rmSync(root, { recursive: true, force: true });
+      const base = ['--config', 'eslint.config.js', '--max-warnings', '0'];
+      expect(runs).toEqual([
+        { label: 'packages/a', args: [...base, 'packages/a'] },
+        { label: 'packages/b', args: [...base, 'packages/b'] },
+        {
+          label: 'root',
+          args: [
+            ...base,
+            '--ignore-pattern',
+            'packages/a/**',
+            '--ignore-pattern',
+            'packages/b/**',
+            '.',
+          ],
+        },
+      ]);
+    });
+
+    it('refuses a workspace it cannot read', () => {
+      const root = mkdtempSync(join(tmpdir(), 'ujira-lint-'));
+      writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - tools/**\n');
+      expect(() => lintScopes(root)).toThrow('unsupported glob');
+      expect(() => lintRuns(root, [])).toThrow('unsupported glob');
+      rmSync(root, { recursive: true, force: true });
+    });
+
+    it('runs every target after a failure and counts a killed run as failed', () => {
+      const runs = [
+        { label: 'clean', args: [] },
+        { label: 'errors', args: [] },
+        { label: 'killed', args: [] },
+        { label: 'last', args: [] },
+      ];
+      const seen: string[] = [];
+      const status: Record<string, number | null> = { errors: 1, killed: null };
+      const failed = runLint(runs, (run) => {
+        seen.push(run.label);
+        return status[run.label] ?? 0;
+      });
+      expect(seen).toEqual(['clean', 'errors', 'killed', 'last']);
+      expect(failed).toEqual(['errors', 'killed']);
+    });
+
+    it('types each file with its own member only, and everything else with the root', async () => {
+      const eslint = new ESLint({ cwd: repo });
+      const projectOf = async (path: string): Promise<unknown> => {
+        const config = (await eslint.calculateConfigForFile(join(repo, path))) as {
+          languageOptions: { parserOptions: { project: unknown } };
+        };
+        return config.languageOptions.parserOptions.project;
+      };
+      for (const { files, project } of lintScopes(repo)) {
+        const member = (files[0] ?? '').replace('/**', '');
+        expect(await projectOf(`${member}/src/any.ts`)).toEqual(project);
+      }
+      expect(await projectOf('scripts/gate.ts')).toEqual([ROOT_LINT_PROJECT]);
+      // Not a member, so it stays with the root and fails for having no tsconfig.
+      expect(await projectOf('packages/not-a-member/any.ts')).toEqual([ROOT_LINT_PROJECT]);
+    }, 60_000);
+
+    it('never finds a tsconfig by itself', () => {
+      const options = (
         eslintConfig as { languageOptions?: { parserOptions?: Record<string, unknown> } }[]
       )
         .map((entry) => entry.languageOptions?.parserOptions)
-        .filter(
-          (options) =>
-            options !== undefined && ('project' in options || 'projectService' in options),
-        );
-      expect(withParser).toEqual([
-        expect.objectContaining({
-          project: lintProjects(join(import.meta.dirname, '..')),
-        }),
-      ]);
-      expect(
-        withParser.some((options) => options !== undefined && 'projectService' in options),
-      ).toBe(false);
+        .filter((o): o is Record<string, unknown> => o !== undefined);
+      expect(options.some((o) => 'project' in o)).toBe(true);
+      expect(options.some((o) => 'projectService' in o)).toBe(false);
+      expect(options.some((o) => o['project'] === true)).toBe(false);
     });
   });
 
@@ -437,6 +502,12 @@ describe('gate', () => {
       // The default loader writes node_modules/.vite-temp, which fails on the
       // read-only checkout CI tests run on.
       expect(pkg.scripts['test']).toBe('vitest run --coverage --configLoader native');
+    });
+
+    it('lints through the per member runner with warnings refused', () => {
+      expect(pkg.scripts['lint']).toBe(
+        'node scripts/check-workspace-scripts.ts && node scripts/lint.ts --max-warnings 0',
+      );
     });
 
     it('builds before any test code runs in CI', () => {
