@@ -105,6 +105,19 @@ function dialectFor(connection: DatabaseConnection): Dialect {
   };
 }
 
+// A principal and one of its projects, as an authenticated request carries
+// them.
+export interface ProjectContext {
+  readonly principalId: string;
+  readonly projectId: string;
+}
+
+// Transactions for one tenant. Every one opens with the context in its first
+// statement, so no query in it can run without one.
+export interface TenantSession {
+  readonly transaction: <T>(work: (db: Kysely<Schema>) => Promise<T>) => Promise<T>;
+}
+
 export interface Database {
   // Runs the work in one transaction, under the tenant context.
   readonly withTenant: <T>(
@@ -112,6 +125,11 @@ export interface Database {
     context: TenantContext,
     work: (db: Kysely<Schema>) => Promise<T>,
   ) => Promise<T>;
+  // One project of one principal, read and write.
+  readonly tenant: (context: ProjectContext, role?: 'app' | 'worker') => TenantSession;
+  // Every project of the principal, read only: the transaction opens read
+  // only, and the policies refuse writes under this scope as well.
+  readonly principal: (context: ProjectContext, role?: 'app' | 'reader') => TenantSession;
   readonly close: () => Promise<void>;
 }
 
@@ -151,33 +169,52 @@ export function createDatabase(config: DatabaseConfig): Database {
 
   let closed = false;
 
-  return {
-    withTenant: async (role, context, work) => {
-      // The context is checked before a connection is taken, so a malformed
-      // tenant fails with what was wrong rather than with whatever the
-      // connection attempt happened to say, and never costs a connection.
-      const begin = `${beginWithTenant(context)}, ${timeoutSettings(config)}`;
-      const client = await pools[role].connect();
-      let open = false;
-      try {
-        // One round trip: begin, the tenant context, and the timeouts.
-        await client.query(begin);
-        open = true;
-        const db = new Kysely<Schema>({ dialect: dialectFor(new ClientConnection(client)) });
-        const result = await work(db);
-        await client.query('commit');
-        open = false;
-        return result;
-      } catch (error) {
-        if (open) {
-          // A rollback that fails must not hide the error that caused it.
-          await client.query('rollback').catch(() => undefined);
-        }
-        throw error;
-      } finally {
-        client.release();
+  const withTenant: Database['withTenant'] = async (role, context, work) => {
+    // The context is checked before a connection is taken, so a malformed
+    // tenant fails with what was wrong rather than with whatever the
+    // connection attempt happened to say, and never costs a connection.
+    const begin = `${beginWithTenant(context)}, ${timeoutSettings(config)}`;
+    const client = await pools[role].connect();
+    let open = false;
+    try {
+      // One round trip: begin, the tenant context, and the timeouts.
+      await client.query(begin);
+      open = true;
+      const db = new Kysely<Schema>({ dialect: dialectFor(new ClientConnection(client)) });
+      const result = await work(db);
+      await client.query('commit');
+      open = false;
+      return result;
+    } catch (error) {
+      if (open) {
+        // A rollback that fails must not hide the error that caused it.
+        await client.query('rollback').catch(() => undefined);
       }
-    },
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+
+  // The two values are copied once, here, so a context object whose
+  // properties change later cannot change a transaction already handed out.
+  const sessionFor = (
+    role: DatabaseRole,
+    context: ProjectContext,
+    scope: TenantContext['scope'],
+  ): TenantSession => {
+    const fixed: TenantContext = {
+      principalId: context.principalId,
+      projectId: context.projectId,
+      scope,
+    };
+    return { transaction: async (work) => withTenant(role, fixed, work) };
+  };
+
+  return {
+    withTenant,
+    tenant: (context, role = 'app') => sessionFor(role, context, 'project'),
+    principal: (context, role = 'reader') => sessionFor(role, context, 'all'),
     // Idempotent: a teardown path that closes twice, or a test that closes
     // after an error, must not fail on the second call. pg throws on a
     // second end of the same pool.
