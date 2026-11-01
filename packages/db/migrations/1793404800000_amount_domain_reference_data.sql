@@ -13,6 +13,12 @@
 --          foreign key (asset, chain, scale)
 --            references ujira.settlement_tokens (asset, chain, token_scale)
 -- so USDC on stellar at any scale but 7 is refused by the database itself.
+--
+-- squawk warns against constraints on domains, because changing one later
+-- revalidates every column of that type. The constraints here are the
+-- definition of an amount, a scale and a hash, not something expected to
+-- change, and repeating them on every money column is how they would drift.
+-- squawk-ignore-file ban-create-domain-with-constraint
 
 -- Up Migration
 set local lock_timeout = '5s';
@@ -25,7 +31,6 @@ create schema ujira;
 -- not how an integer count is written. NaN and both infinities sort outside
 -- every finite number, so the range test refuses them; scale() alone would
 -- not, because it returns null for them.
--- squawk-ignore ban-create-domain-with-constraint
 create domain ujira.amount as numeric
   constraint amount_is_i128_integer check (
     value between -170141183460469231731687303715884105728
@@ -35,12 +40,10 @@ create domain ujira.amount as numeric
 
 -- The number of decimal places an amount is counted at. 18 is the finest
 -- the money model allows.
--- squawk-ignore ban-create-domain-with-constraint, prefer-bigint-over-smallint
 create domain ujira.scale as smallint
   constraint scale_in_range check (value between 0 and 18);
 
 -- A SHA-256 digest or a 32 byte chain hash, never hex text.
--- squawk-ignore ban-create-domain-with-constraint
 create domain ujira.hash32 as bytea
   constraint hash32_is_32_bytes check (octet_length(value) = 32);
 
