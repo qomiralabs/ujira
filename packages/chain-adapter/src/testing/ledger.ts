@@ -9,12 +9,13 @@
 // each contract.
 
 import { InvalidInputError } from '../errors.js';
+import { STELLAR_PASSPHRASES } from '../stellar/network-id.js';
 
 import { sha256, utf8 } from './bytes.js';
 import { NestedCallRefused } from './failures.js';
 import type { EngineEvent, EventValue, TokenEvent } from './types.js';
 
-export const TESTNET_PASSPHRASE = 'Test SDF Network ; September 2015';
+export const TESTNET_PASSPHRASE = STELLAR_PASSPHRASES['stellar:testnet'];
 
 /**
  * Whether a view of a contract already on the call stack is answered. The
@@ -136,6 +137,23 @@ export class FakeLedger {
     } finally {
       this.#stack.pop();
     }
+  }
+
+  /**
+   * Saves every contract and both event logs, and returns what puts them
+   * back, dropping any contract deployed since. The fake network closes
+   * each ledger on one of these, so it can simulate a call without keeping
+   * it and undo whole ledgers in a reorganization.
+   */
+  snapshot(): () => void {
+    const restore = this.#checkpoint();
+    const known = new Set(this.#contracts.keys());
+    return () => {
+      for (const address of [...this.#contracts.keys()]) {
+        if (!known.has(address)) this.#contracts.delete(address);
+      }
+      restore();
+    };
   }
 
   #checkpoint(): () => void {
