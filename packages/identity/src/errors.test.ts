@@ -5,6 +5,12 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
 import {
+  AttestationConflictError,
+  AttestationMessageError,
+  AttestationSigningError,
+  AttestationStateError,
+  CallAbortedError,
+  CallTimeoutError,
   IDENTITY_ERROR_CODES,
   IdentityConfigError,
   IdentityInputError,
@@ -27,6 +33,16 @@ describe('identity errors', () => {
       'IDENTITY_CONFIG_INVALID',
     ],
     [new IdentityTenantMismatchError(), 'IdentityTenantMismatchError', 'IDENTITY_TENANT_MISMATCH'],
+    [new CallTimeoutError(), 'CallTimeoutError', 'IDENTITY_CALL_TIMEOUT'],
+    [new CallAbortedError(), 'CallAbortedError', 'IDENTITY_CALL_ABORTED'],
+    [new AttestationConflictError(), 'AttestationConflictError', 'IDENTITY_ATTESTATION_CONFLICT'],
+    [new AttestationStateError(), 'AttestationStateError', 'IDENTITY_ATTESTATION_STATE'],
+    [
+      new AttestationMessageError(),
+      'AttestationMessageError',
+      'IDENTITY_ATTESTATION_MESSAGE_INVALID',
+    ],
+    [new AttestationSigningError('X'), 'AttestationSigningError', 'IDENTITY_SIGNING_FAILED'],
   ];
 
   it('every error class has code and name', () => {
