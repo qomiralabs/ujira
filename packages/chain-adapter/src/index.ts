@@ -79,3 +79,21 @@ export type { AlertKind, RetryDecision, RetryRule, SignerErrorCode } from './ret
 export type * from './signer.js';
 export { CHAIN_ADAPTER_INTERFACE_VERSION } from './types.js';
 export type * from './types.js';
+export {
+  DEFAULT_WALLET_PROOF_TTL_SECONDS,
+  MAX_WALLET_PROOF_TTL_SECONDS,
+  WALLET_PROOF_PURPOSES,
+  WALLET_PROOF_VERSION,
+  parsePublicConfig,
+  publicConfigSchema,
+  walletProofChallenge,
+  walletProofNonce,
+  walletProofText,
+} from './wallet-proof.js';
+export type {
+  PublicConfig,
+  WalletProofChallenge,
+  WalletProofChallengeRequest,
+  WalletProofDeps,
+  WalletProofPurpose,
+} from './wallet-proof.js';
