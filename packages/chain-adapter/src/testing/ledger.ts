@@ -9,12 +9,13 @@
 // each contract.
 
 import { InvalidInputError } from '../errors.js';
+import { STELLAR_PASSPHRASES } from '../stellar/network-id.js';
 
 import { sha256, utf8 } from './bytes.js';
 import { NestedCallRefused } from './failures.js';
 import type { EngineEvent, EventValue, TokenEvent } from './types.js';
 
-export const TESTNET_PASSPHRASE = 'Test SDF Network ; September 2015';
+export const TESTNET_PASSPHRASE = STELLAR_PASSPHRASES['stellar:testnet'];
 
 /**
  * Whether a view of a contract already on the call stack is answered. The
