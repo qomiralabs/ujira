@@ -31,4 +31,3 @@ export type {
   RpcTransaction,
   StellarRpc,
 } from './rpc.js';
-export { SPEC_ERRORS } from './spec-errors.js';

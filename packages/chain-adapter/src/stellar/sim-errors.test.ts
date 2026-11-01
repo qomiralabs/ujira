@@ -1,15 +1,11 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
-
 import { Address, xdr } from '@stellar/stellar-sdk/base';
 import { describe, expect, it } from 'vitest';
 
 import { InternalError, MandateRuleError, SubmissionRejectedError } from '../errors.js';
 import { callFailure } from './sim-errors.js';
-import { SPEC_ERRORS } from './spec-errors.js';
 
 const MANDATE = Address.contract(Buffer.alloc(32, 1)).toString();
 const TOKEN = Address.contract(Buffer.alloc(32, 2)).toString();
@@ -78,14 +74,5 @@ describe('callFailure', () => {
     expect(callFailure(NETWORK, MANDATE, [event(MANDATE, contract(99))])).toBeInstanceOf(
       InternalError,
     );
-  });
-});
-
-describe('the spec error table', () => {
-  it('matches the vendored errors.json exactly', () => {
-    const vendored = JSON.parse(
-      readFileSync(path.resolve(import.meta.dirname, '../../spec/errors.json'), 'utf8'),
-    ) as { name: string; code: number }[];
-    expect([...SPEC_ERRORS.entries()]).toEqual(vendored.map((e) => [e.code, e.name]));
   });
 });

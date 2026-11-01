@@ -355,6 +355,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@ujira/core':
+        specifier: workspace:*
+        version: link:../core
       kysely:
         specifier: 0.29.6
         version: 0.29.6
@@ -414,9 +417,34 @@ importers:
       zod:
         specifier: 4.6.7
         version: 4.6.7
+    devDependencies:
+      fast-check:
+        specifier: 4.10.2
+        version: 4.10.2
+
+  packages/mandates:
+    dependencies:
+      '@ujira/chain-adapter':
+        specifier: workspace:*
+        version: link:../chain-adapter
+      '@ujira/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/payouts:
     devDependencies:
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
+
+  packages/signer:
+    dependencies:
+      '@noble/curves':
+        specifier: 2.4.0
+        version: 2.4.0
+      '@ujira/chain-adapter':
+        specifier: workspace:*
+        version: link:../chain-adapter
       zod:
         specifier: 4.6.7
         version: 4.6.7
@@ -1116,6 +1144,10 @@ packages:
   '@noble/curves@1.9.7':
     resolution: {integrity: sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==}
     engines: {node: ^14.21.3 || >=16}
+
+  '@noble/curves@2.4.0':
+    resolution: {integrity: sha512-P4/62zrgfH33CneE3Dn4WhJVA22YUU0eR51wKIan4NVRvwsA0YnPTwWGpNbpuacSujmSFLvyzpyuR30+fbq2Ew==}
+    engines: {node: '>= 20.19.0'}
 
   '@noble/ed25519@3.2.0':
     resolution: {integrity: sha512-criDgRlnUA09hchYrTy/JUWPIEap5rZxQe6wDWzRx51oWWpDRcUpuNzlgPxDJaOK6AsW9c0wKcj3rKRv6t+bPQ==}
@@ -5913,6 +5945,10 @@ snapshots:
   '@noble/curves@1.9.7':
     dependencies:
       '@noble/hashes': 1.8.0
+
+  '@noble/curves@2.4.0':
+    dependencies:
+      '@noble/hashes': 2.4.0
 
   '@noble/ed25519@3.2.0': {}
 

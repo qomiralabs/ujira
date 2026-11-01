@@ -43,3 +43,4 @@ scripts/fixtures/pnpm-lock.*.yaml
 # Vendored byte for byte from the contracts repository and pinned by hash,
 # so reformatting them would break the pin
 /packages/chain-adapter/spec/
+/packages/chain-adapter/vendor/

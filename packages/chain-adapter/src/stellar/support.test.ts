@@ -47,7 +47,6 @@ describe('the stellar entry', () => {
     expect(Object.keys(entry).sort()).toEqual([
       'INSTANCE_TTL_EXTEND_LEDGERS',
       'RECORD_TTL_MARGIN_SECONDS',
-      'SPEC_ERRORS',
       'StellarMandateAdapter',
       'createMemorySigningRequestStore',
       'createStellarRpc',

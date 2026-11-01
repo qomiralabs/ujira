@@ -14,7 +14,7 @@ import { Address, xdr } from '@stellar/stellar-sdk/base';
 import { InternalError, MandateRuleError, SubmissionRejectedError } from '../errors.js';
 import type { ChainAdapterError } from '../errors.js';
 import type { NetworkId } from '../networks.js';
-import { SPEC_ERRORS, TRANSFER_FAILED_CODE } from './spec-errors.js';
+import { MANDATE_ERRORS, mandateErrorName } from '../mandate-errors.js';
 
 interface ContractErrorEvent {
   readonly emitter: string | null;
@@ -60,11 +60,11 @@ export function callFailure(
 ): ChainAdapterError {
   const found = contractErrors(events);
   if (found.some((e) => e.emitter !== null && e.emitter !== target)) {
-    return new MandateRuleError(TRANSFER_FAILED_CODE, 'TRANSFER_FAILED', { network });
+    return new MandateRuleError(MANDATE_ERRORS.TRANSFER_FAILED, 'TRANSFER_FAILED', { network });
   }
   const own = found.find((e) => e.emitter === target);
   if (own === undefined) return new SubmissionRejectedError({ network });
-  const name = SPEC_ERRORS.get(own.code);
+  const name = mandateErrorName(own.code);
   if (name === undefined) return new InternalError({ network });
   return new MandateRuleError(own.code, name, { network });
 }
