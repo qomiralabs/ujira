@@ -229,6 +229,7 @@ class RedactedCause extends Error {
 // The class names below, kept in step by a test.
 const ADAPTER_ERROR_NAMES = [
   'InvalidInputError',
+  'MemoOnContractCallError',
   'UnsupportedError',
   'TenantMismatchError',
   'MandateUntrustedError',
@@ -385,7 +386,8 @@ function withoutOwnOptions(read: Record<string, unknown>): Record<string, unknow
 // is what shows up in logs and error trackers.
 
 export class InvalidInputError extends ChainAdapterError {
-  override readonly name = 'InvalidInputError';
+  // Widened to string so a narrower kind of invalid input can name itself.
+  override readonly name: string = 'InvalidInputError';
   readonly issues: readonly string[];
   /** Why a destination was refused, or null for any other invalid input. */
   readonly reason: DestinationParseReason | null;
@@ -412,6 +414,20 @@ export class InvalidInputError extends ChainAdapterError {
   override toJSON(): ChainAdapterErrorJson {
     const json = { ...super.toJSON(), issues: this.issues };
     return this.reason === null ? json : { ...json, reason: this.reason };
+  }
+}
+
+/**
+ * A Stellar transaction that runs contract code carries a memo. The network
+ * refuses every such transaction, so it is stopped before it is signed or
+ * sent instead of surfacing later as a failed payout. It is invalid input
+ * by code, so callers that branch on the code need no new case.
+ */
+export class MemoOnContractCallError extends InvalidInputError {
+  override readonly name: string = 'MemoOnContractCallError';
+
+  constructor(options?: { readonly network?: NetworkId | null }) {
+    super({ network: options?.network ?? null, issues: ['memo (contract_call)'] });
   }
 }
 

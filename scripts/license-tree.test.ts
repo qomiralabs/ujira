@@ -365,6 +365,82 @@ modification, are permitted provided that the following conditions are met:
       expect(resolveListing([entry([], [])], WORKSPACES, inspector).problems).toHaveLength(1);
     });
 
+    // An optional peer present for some importers and not others gives one
+    // version two folders, such as jsdom@x and jsdom@x_@noble+hashes@y, and
+    // pnpm then lists more paths than versions.
+    describe('one version installed at several peer variant paths', () => {
+      const variant = (version: string): string =>
+        store('multi', version).replace(`@${version}/`, `@${version}_peer@1.0.0/`);
+      const peers = world({
+        [store('multi', '1.0.0')]: { name: 'multi', version: '1.0.0' },
+        [variant('1.0.0')]: { name: 'multi', version: '1.0.0' },
+        [store('multi', '2.0.0')]: { name: 'multi', version: '2.0.0' },
+      });
+
+      it('reads each path for its own version and keeps every listed version', () => {
+        const { packages, problems } = resolveListing(
+          [entry(['1.0.0'], [store('multi', '1.0.0'), variant('1.0.0')])],
+          WORKSPACES,
+          peers,
+        );
+        expect(problems).toEqual([]);
+        expect(packages.map((p) => `${p.version}=${p.path}`)).toEqual([
+          `1.0.0=${store('multi', '1.0.0')}`,
+          `1.0.0=${variant('1.0.0')}`,
+        ]);
+      });
+
+      it('takes versions from the folders, not from their order in the list', () => {
+        const { packages, problems } = resolveListing(
+          [
+            entry(
+              ['1.0.0', '2.0.0'],
+              [store('multi', '2.0.0'), variant('1.0.0'), store('multi', '1.0.0')],
+            ),
+          ],
+          WORKSPACES,
+          peers,
+        );
+        expect(problems).toEqual([]);
+        expect(packages.map((p) => p.version).sort()).toEqual(['1.0.0', '1.0.0', '2.0.0']);
+      });
+
+      it('fails when a path holds a version pnpm did not list', () => {
+        const { packages, problems } = resolveListing(
+          [entry(['1.0.0'], [store('multi', '1.0.0'), store('multi', '2.0.0')])],
+          WORKSPACES,
+          peers,
+        );
+        expect(problems).toEqual([
+          `multi: path "${store('multi', '2.0.0')}" holds version "2.0.0", which pnpm did not list`,
+        ]);
+        expect(packages.map((p) => p.version)).toEqual(['1.0.0']);
+      });
+
+      it('fails when a listed version is at none of the paths', () => {
+        const { problems } = resolveListing(
+          [entry(['1.0.0', '2.0.0'], [store('multi', '1.0.0'), variant('1.0.0'), '/gone'])],
+          WORKSPACES,
+          { ...peers, realpath: (p) => (p === '/gone' ? '/gone' : peers.realpath(p)) },
+        );
+        expect(problems).toEqual([
+          'multi: no package.json at "/gone"',
+          'multi@2.0.0: listed but found at none of its paths',
+        ]);
+      });
+
+      it('still fails closed on a version that is not from the registry', () => {
+        const { problems } = resolveListing(
+          [entry(['file:vendor/local'], [store('multi', '1.0.0'), variant('1.0.0')])],
+          WORKSPACES,
+          peers,
+        );
+        expect(problems).toEqual([
+          'multi: pnpm listed 1 version(s) and 2 path(s); cannot tell which path holds which version',
+        ]);
+      });
+    });
+
     it('keeps a non registry version as listed', () => {
       const path = '/repo/vendor/local';
       const { packages } = resolveListing(

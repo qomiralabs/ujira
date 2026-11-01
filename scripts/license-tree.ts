@@ -113,6 +113,56 @@ export interface InstalledPackage {
 // A registry version, as opposed to a `file:`, `link:` or git specifier.
 const REGISTRY_VERSION = /^\d+\.\d+\.\d+(?:[-+][\w.+-]*)?$/;
 
+// pnpm lists a package's versions and the folders that hold them. With one
+// folder per version they pair in order, and the checks below confirm each
+// pairing. An optional peer present for some importers and not others gives
+// one version several folders, and then pnpm lists more paths than
+// versions; each folder's own package.json then says which version it
+// holds, and every listed version must turn up in at least one of them.
+// Anything else fails closed.
+function listingPairs(
+  entry: PnpmLicenseEntry,
+  inspector: ManifestInspector,
+  problems: string[],
+): (readonly [version: string, path: string])[] | undefined {
+  const { name, versions, paths } = entry;
+  if (versions.length > 0 && versions.length === paths.length) {
+    return versions.map((version, i) => [version, paths[i] ?? ''] as const);
+  }
+  if (
+    versions.length === 0 ||
+    paths.length < versions.length ||
+    !versions.every((version) => REGISTRY_VERSION.test(version))
+  ) {
+    problems.push(
+      `${name}: pnpm listed ${String(versions.length)} version(s) and ${String(paths.length)} path(s); cannot tell which path holds which version`,
+    );
+    return undefined;
+  }
+  const listed = new Set(versions);
+  const found = new Set<string>();
+  const pairs: (readonly [string, string])[] = [];
+  for (const path of paths) {
+    const real = path === '' ? undefined : inspector.realpath(path);
+    const version = real === undefined ? undefined : inspector.manifest(real)?.['version'];
+    if (typeof version !== 'string') {
+      problems.push(`${name}: no package.json at "${real ?? path}"`);
+      continue;
+    }
+    if (!listed.has(version)) {
+      problems.push(`${name}: path "${path}" holds version "${version}", which pnpm did not list`);
+      continue;
+    }
+    found.add(version);
+    pairs.push([version, path]);
+  }
+  for (const version of versions) {
+    if (!found.has(version))
+      problems.push(`${name}@${version}: listed but found at none of its paths`);
+  }
+  return pairs;
+}
+
 // Resolves each listed version to the package folder that holds it and reads
 // that folder's package.json, so a version is never trusted on its position
 // in the list alone. Our own workspace projects are skipped only when the path
@@ -128,14 +178,9 @@ export function resolveListing(
   const byDir = new Map(workspaces.map((project) => [project.dir, project]));
   for (const entry of entries) {
     const label = entry.name;
-    if (entry.versions.length === 0 || entry.versions.length !== entry.paths.length) {
-      problems.push(
-        `${label}: pnpm listed ${String(entry.versions.length)} version(s) and ${String(entry.paths.length)} path(s); cannot tell which path holds which version`,
-      );
-      continue;
-    }
-    entry.versions.forEach((version, i) => {
-      const path = entry.paths[i] ?? '';
+    const pairs = listingPairs(entry, inspector, problems);
+    if (pairs === undefined) continue;
+    pairs.forEach(([version, path]) => {
       const where = `${label}@${version}`;
       const real = path === '' ? undefined : inspector.realpath(path);
       if (real === undefined) {

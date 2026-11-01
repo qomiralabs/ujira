@@ -9,6 +9,7 @@
 // network global. Envelope, fee bump and authorization entry decoders join
 // it together with the Stellar XDR library.
 
+export { CONTRACT_OPERATION_TYPES, assertNoMemoOnContractCall } from './memo.js';
 export {
   decodeAccountAddress,
   encodeAccountAddress,
