@@ -138,6 +138,23 @@ export class FakeLedger {
     }
   }
 
+  /**
+   * Saves every contract and both event logs, and returns what puts them
+   * back, dropping any contract deployed since. The fake network closes
+   * each ledger on one of these, so it can simulate a call without keeping
+   * it and undo whole ledgers in a reorganization.
+   */
+  snapshot(): () => void {
+    const restore = this.#checkpoint();
+    const known = new Set(this.#contracts.keys());
+    return () => {
+      for (const address of [...this.#contracts.keys()]) {
+        if (!known.has(address)) this.#contracts.delete(address);
+      }
+      restore();
+    };
+  }
+
   #checkpoint(): () => void {
     const restores = [...this.#contracts.values()].map((c) => c.checkpoint());
     const events = this.#events.length;
