@@ -58,7 +58,8 @@ export interface NewApiToken {
   // SHA-256 of the secret, 32 bytes. The secret itself never reaches here.
   readonly secretSha256: Buffer;
   readonly scopes: readonly string[];
-  readonly expiresAt: Date | null;
+  // Every token expires: rotation is the only way to keep one working.
+  readonly expiresAt: Date;
 }
 
 const MEMBER_ROLES: ReadonlySet<string> = new Set<MemberRole>([
