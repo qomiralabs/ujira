@@ -21,6 +21,7 @@ export const IDENTITY_ERROR_CODES = Object.freeze([
   'IDENTITY_PROVIDER_UNAVAILABLE',
   'IDENTITY_SELF_CREDITS_EXHAUSTED',
   'IDENTITY_SESSION_REFUSED',
+  'IDENTITY_WALLET_METHOD_NOT_FOUND',
 ] as const);
 
 export type IdentityErrorCode = (typeof IDENTITY_ERROR_CODES)[number];
@@ -41,6 +42,7 @@ const MESSAGES: Readonly<Record<IdentityErrorCode, string>> = {
   IDENTITY_PROVIDER_UNAVAILABLE: 'The identity provider is unavailable',
   IDENTITY_SELF_CREDITS_EXHAUSTED: 'The identity provider account has no credits left',
   IDENTITY_SESSION_REFUSED: 'A verification session cannot be started for this recipient',
+  IDENTITY_WALLET_METHOD_NOT_FOUND: 'No active payout method of this recipient has that id',
 };
 
 /** Every subclass sets its own `name`, so a caught error says what it is. */
@@ -191,6 +193,15 @@ export class SelfSessionRefusedError extends IdentityError {
   constructor(reason: SessionRefusal) {
     super('IDENTITY_SESSION_REFUSED');
     this.reason = reason;
+  }
+}
+
+/** A challenge was asked for on a method that is missing, disabled or another recipient's. */
+export class WalletMethodNotFoundError extends IdentityError {
+  override readonly name = 'WalletMethodNotFoundError';
+
+  constructor() {
+    super('IDENTITY_WALLET_METHOD_NOT_FOUND');
   }
 }
 
