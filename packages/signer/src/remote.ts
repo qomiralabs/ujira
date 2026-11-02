@@ -101,10 +101,9 @@ export class RemoteSigner implements SignerProvider {
     const options = network === undefined ? {} : { network };
     const signals = [AbortSignal.timeout(this.#timeoutMs)];
     if (opts.signal !== undefined) signals.push(opts.signal);
-    let response: Response;
-    let text: string;
-    try {
-      response = await this.#fetch(new URL(path, this.#baseUrl), {
+    const signal = AbortSignal.any(signals);
+    const send = async (): Promise<{ response: Response; text: string }> => {
+      const response = await this.#fetch(new URL(path, this.#baseUrl), {
         method,
         headers: {
           authorization: `Bearer ${this.#token}`,
@@ -112,14 +111,27 @@ export class RemoteSigner implements SignerProvider {
           ...(body === undefined ? {} : { 'content-type': 'application/json' }),
         },
         ...(body === undefined ? {} : { body: toWire(body) }),
-        signal: AbortSignal.any(signals),
+        signal,
         redirect: 'error',
       });
-      text = await response.text();
+      return { response, text: await response.text() };
+    };
+    let reply: { response: Response; text: string };
+    try {
+      // A reused connection can close just as a request is written to it,
+      // and that request is lost with no answer. One more try on a fresh
+      // connection, inside the same deadline, is safe: a signature changes
+      // nothing and ed25519 gives the same one again.
+      reply = await send().catch((error: unknown) => {
+        if (signal.aborted) throw error;
+        return send();
+      });
     } catch (error) {
-      // A timeout, an abort or a dropped connection: worth another try.
+      // A timeout, an abort or a connection that stays down: the caller's
+      // retry rules for SIGNER_UNAVAILABLE take it from here.
       throw new SignerUnavailableError({ ...options, cause: error });
     }
+    const { response, text } = reply;
     const decoded = text.length > MAX_WIRE_BYTES ? undefined : fromWire(text);
     if (!response.ok) throw failure(response.status, decoded, network);
     return decoded;

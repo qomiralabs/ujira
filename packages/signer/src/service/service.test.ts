@@ -147,6 +147,40 @@ describe('the remote client', () => {
   const client = (fetchImpl: typeof fetch) =>
     new RemoteSigner({ baseUrl: BASE, token: CALLER_TOKEN, timeoutMs: 1_000, fetch: fetchImpl });
 
+  it('tries once more when a connection drops a request, and only once', async () => {
+    const { service, payload } = await payloadFor();
+    let calls = 0;
+    const flaky = client((input, init) => {
+      calls += 1;
+      return calls === 1
+        ? Promise.reject(new TypeError('fetch failed'))
+        : service.fetch(input, init);
+    });
+    expect((await flaky.sign(EXECUTOR, payload, OPTS)).kind).toBe('ed25519');
+    expect(calls).toBe(2);
+    calls = 0;
+    const down = client(() => {
+      calls += 1;
+      return Promise.reject(new TypeError('fetch failed'));
+    });
+    expect(await codeOf(down.health(OPTS))).toBe('SIGNER_UNAVAILABLE');
+    expect(calls).toBe(2);
+  });
+
+  it('does not try again once the caller has given up', async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const aborting = client(() => {
+      calls += 1;
+      controller.abort();
+      return Promise.reject(new TypeError('aborted'));
+    });
+    expect(await codeOf(aborting.health({ ...OPTS, signal: controller.signal }))).toBe(
+      'SIGNER_UNAVAILABLE',
+    );
+    expect(calls).toBe(1);
+  });
+
   it('treats a dropped call, an abort and a timeout as unavailable', async () => {
     const { payload } = await payloadFor();
     const dropped = client(() => Promise.reject(new TypeError('fetch failed')));
