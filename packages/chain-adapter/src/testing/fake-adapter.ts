@@ -357,6 +357,9 @@ export class FakeChainAdapter implements ChainAdapter {
     return parseStellarDestination(this.network, raw);
   }
 
+  // The real encoder, not a copy: an attestation the fake accepts must be
+  // one the mandate on a real network would verify. The encoder builds for
+  // whatever network the mandate names, so this adapter refuses any other.
   attestationMessage(fields: AttestationFields): Uint8Array {
     if (fields.mandate.network !== this.network) {
       throw invalid('mandate.network (mismatch)', this.network);
