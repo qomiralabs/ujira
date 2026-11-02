@@ -169,6 +169,10 @@ export function verificationRow(
     signerKey: method.destination.address.value,
     derivedFrom: null,
     recordedAt: TEST_NOW,
+    scheme: null,
+    challengeId: null,
+    signature: null,
+    partnerRef: null,
     ...patch,
   };
 }
