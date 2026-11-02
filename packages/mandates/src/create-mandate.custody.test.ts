@@ -37,6 +37,8 @@ import {
   assertCustodyAllowed,
   createMemoryGuardianOptOutStore,
   createMemoryManagedAgentKeys,
+  createMemoryPrincipalInstances,
+  createMemoryPrincipalKeyReader,
   planMandateCreation,
   recipientModesOffered,
 } from './index.js';
@@ -53,7 +55,15 @@ function deps(
   optOuts: GuardianOptOutStore = createMemoryGuardianOptOutStore(),
   managedAgents: ManagedAgentKeys = createMemoryManagedAgentKeys(),
 ): CreationDeps {
-  return { networks: () => networks(), optOuts, managedAgents };
+  return {
+    networks: () => networks(),
+    optOuts,
+    managedAgents,
+    principalKeys: {
+      instances: createMemoryPrincipalInstances(),
+      signing: createMemoryPrincipalKeyReader(),
+    },
+  };
 }
 
 function configIn(mode: RecipientMode): MandateConfigInput {
