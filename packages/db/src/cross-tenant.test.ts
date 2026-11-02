@@ -21,6 +21,7 @@ import {
   chainEvents,
   deposits,
   fundingSources,
+  fundingSweeps,
   instanceRoles,
   mandateInstances,
   mandateRepositories,
@@ -55,6 +56,9 @@ interface Tenant {
   readonly mandateId: string;
   readonly instanceId: string;
   readonly sourceId: string;
+  readonly accountSourceId: string;
+  readonly sweepId: string;
+  readonly depositOperationId: string;
   readonly eventId: string;
   readonly eventTxHash: Buffer;
   readonly depositId: string;
@@ -96,22 +100,42 @@ async function tenant(name: string): Promise<Tenant> {
       expiresAt: null,
     }),
   );
-  const { mandateId, instanceId, sourceId } = await db.tenant(first).transaction(async (tx) => {
-    const mandate = await mandates.create(tx, { name: `${name} mandate` });
-    const instance = await mandateInstances.create(tx, {
-      mandateId: mandate.id,
-      chain: 'stellar',
-      contractAddress: `C${randomUUID()}`,
-      specVersion: '1',
-      asset: 'USDC',
-      scale: 7,
+  const depositOperationId = randomUUID();
+  const { mandateId, instanceId, sourceId, accountSourceId, sweepId } = await db
+    .tenant(first)
+    .transaction(async (tx) => {
+      const mandate = await mandates.create(tx, { name: `${name} mandate` });
+      const instance = await mandateInstances.create(tx, {
+        mandateId: mandate.id,
+        chain: 'stellar',
+        contractAddress: `C${randomUUID()}`,
+        specVersion: '1',
+        asset: 'USDC',
+        scale: 7,
+      });
+      const source = await fundingSources.create(tx, {
+        mandateInstanceId: instance.id,
+        kind: 'stablecoin_deposit',
+      });
+      const account = await fundingSources.create(tx, {
+        mandateInstanceId: instance.id,
+        kind: 'stellar_funding_account',
+        config: { sponsoredReserves: true, sponsorTxHash: randomBytes(32) },
+      });
+      const sweep = await fundingSweeps.create(tx, {
+        fundingSourceId: account.id,
+        mandateInstanceId: instance.id,
+        depositOperationId,
+        amount: tokenAmount(100n, 'USDC', 'stellar'),
+      });
+      return {
+        mandateId: mandate.id,
+        instanceId: instance.id,
+        sourceId: source.id,
+        accountSourceId: account.id,
+        sweepId: sweep.id,
+      };
     });
-    const source = await fundingSources.create(tx, {
-      mandateInstanceId: instance.id,
-      kind: 'stablecoin_deposit',
-    });
-    return { mandateId: mandate.id, instanceId: instance.id, sourceId: source.id };
-  });
   const eventTxHash = randomBytes(32);
   const roleAddress = `G${name}`;
   const { eventId, depositId, journalId, accountId } = await indexing(first, async (tx) => {
@@ -198,6 +222,9 @@ async function tenant(name: string): Promise<Tenant> {
     mandateId,
     instanceId,
     sourceId,
+    accountSourceId,
+    sweepId,
+    depositOperationId,
     eventId,
     eventTxHash,
     depositId,
@@ -372,6 +399,58 @@ const cases: Record<string, () => Promise<void>> = {
       }),
     );
     expect(await codeOf(attempt)).toBe('23503');
+  },
+  'fundingSweeps.list': async () => {
+    const page = await acrossA(async (tx) => fundingSweeps.list(tx, { limit: 100 }));
+    expect(page.items.map((sweep) => sweep.id)).not.toContain(b.sweepId);
+    expect(page.items.map((sweep) => sweep.id)).toContain(a.sweepId);
+  },
+  'fundingSweeps.get': async () => {
+    expect(await acrossA(async (tx) => fundingSweeps.get(tx, b.sweepId))).toBeUndefined();
+  },
+  'fundingSweeps.byDepositOperation': async () => {
+    const found = await acrossA(async (tx) =>
+      fundingSweeps.byDepositOperation(tx, {
+        chain: 'stellar',
+        depositOperationId: b.depositOperationId,
+      }),
+    );
+    expect(found).toBeUndefined();
+  },
+  'fundingSweeps.create': async () => {
+    const amount = tokenAmount(5n, 'USDC', 'stellar');
+    const sweep = await asA(async (tx) =>
+      fundingSweeps.create(tx, {
+        fundingSourceId: a.accountSourceId,
+        mandateInstanceId: a.instanceId,
+        depositOperationId: randomUUID(),
+        amount,
+      }),
+    );
+    expect(await ownerOf('ujira.funding_sweeps', 'id', sweep.id)).toBe(a.first.principalId);
+    // Naming B's source and instance goes nowhere.
+    expect(
+      await codeOf(
+        asA(async (tx) =>
+          fundingSweeps.create(tx, {
+            fundingSourceId: b.accountSourceId,
+            mandateInstanceId: b.instanceId,
+            depositOperationId: randomUUID(),
+            amount,
+          }),
+        ),
+      ),
+    ).toBe('23503');
+  },
+  'fundingSweeps.setStatus': async () => {
+    expect(
+      await asA(async (tx) => fundingSweeps.setStatus(tx, b.sweepId, { status: 'cancelled' })),
+    ).toBe(false);
+    const row = await admin.query<{ status: string }>(
+      'select status from ujira.funding_sweeps where id = $1',
+      [b.sweepId],
+    );
+    expect(row.rows[0]?.status).toBe('awaiting_signature');
   },
   'fundingSources.list': async () => {
     const page = await acrossA(async (tx) => fundingSources.list(tx, { limit: 100 }));
