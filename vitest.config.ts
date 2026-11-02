@@ -148,6 +148,14 @@ export default defineConfig({
           branches: 95,
           statements: 95,
         },
+        // The router decides where every payout goes and which configuration
+        // is live, so it carries the same bar as the adapter.
+        'packages/router/src/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
         // A receipt is the permanent proof of a payment and its hash must
         // never drift, so it carries the money bar too.
         'packages/receipts/src/**': {
