@@ -151,8 +151,11 @@ describe('executor leases', { timeout: 30_000 }, () => {
   it('watches the channel balance with the same alert as the sponsor, once per drop', async () => {
     const t = setup();
     const alerts: { account: string; balance: { amount: bigint } }[] = [];
-    const ports = { ...t.ports, alerts: { ...t.ports.alerts, lowBalance: (e: (typeof alerts)[0]) => alerts.push(e) } };
-    const ctx = context(t, { ports: ports as never });
+    const ports = {
+      ...t.ports,
+      alerts: { ...t.ports.alerts, lowBalance: (e: (typeof alerts)[0]) => alerts.push(e) },
+    };
+    const ctx = context(t, { ports: ports });
     // 10 XLM: below the 50 XLM default, above the 5 XLM minimum.
     await ExecutorSession.run(ctx, OPTS, () => Promise.resolve());
     await ExecutorSession.run(ctx, OPTS, () => Promise.resolve());
@@ -197,7 +200,9 @@ describe('sending', { timeout: 30_000 }, () => {
     await sendAndRecord(context(t), t.scope, hash, tx.toXdr(), NOW + 100n, OPTS);
     expect(t.rpc.sent).toHaveLength(3);
     expect(new Set(t.rpc.sent).size).toBe(1);
-    expect(txHash(TransactionBuilder.fromXdr(t.rpc.sent[2] ?? '', tx.networkPassphrase))).toBe(hash);
+    expect(txHash(TransactionBuilder.fromXdr(t.rpc.sent[2] ?? '', tx.networkPassphrase))).toBe(
+      hash,
+    );
     expect(t.store.submissions.get(`${NETWORK}:${hash}`)?.state).toBe('broadcast');
   });
 
@@ -249,7 +254,9 @@ describe('what became of a transaction', { timeout: 30_000 }, () => {
     const unknown = { kind: 'unknown' };
     expect(fateOf({ status: 'NOT_FOUND', oldestLedger: 1 }, record())).toEqual(unknown);
     expect(fateOf({ ...past, oldestLedger: 1 }, record({ maxTime: null }))).toEqual(unknown);
-    expect(fateOf({ ...past, oldestLedger: 1 }, record({ submittedAtLedger: null }))).toEqual(unknown);
+    expect(fateOf({ ...past, oldestLedger: 1 }, record({ submittedAtLedger: null }))).toEqual(
+      unknown,
+    );
     expect(fateOf(past, record())).toEqual(unknown);
   });
 
@@ -324,7 +331,11 @@ describe('reconciliation', { timeout: 30_000 }, () => {
   it('keeps an unprovable transaction open and never allows a rebuild', async () => {
     const { t, store, sponsorship, ctx } = world();
     const r = await put(store, { reservationId: 'reservation' });
-    t.rpc.txs.set(r.txHash, { status: 'NOT_FOUND', latestLedgerCloseTime: 2000n, oldestLedger: 501 });
+    t.rpc.txs.set(r.txHash, {
+      status: 'NOT_FOUND',
+      latestLedgerCloseTime: 2000n,
+      oldestLedger: 501,
+    });
     const result = await reconcileSubmission(ctx, r, OPTS);
     expect(result).toMatchObject({ state: 'unknown', mayRebuild: false });
     // Asked again it stays there, with its reservation still held.
@@ -337,14 +348,20 @@ describe('reconciliation', { timeout: 30_000 }, () => {
     const { t, store, ctx } = world();
     const r = await put(store, {});
     t.rpc.txs.set(r.txHash, { status: 'NOT_FOUND', latestLedgerCloseTime: 10n });
-    expect(await reconcileSubmission(ctx, r, OPTS)).toMatchObject({ state: 'built', mayRebuild: false });
+    expect(await reconcileSubmission(ctx, r, OPTS)).toMatchObject({
+      state: 'built',
+      mayRebuild: false,
+    });
     expect(store.submissions[0]?.state).toBe('built');
   });
 
   it('sweeps what is open, alerts on what is stuck, and survives a read that fails', async () => {
     const { t, store, ctx } = world();
     const stuck: { txHash: string; ageSeconds: number }[] = [];
-    const ports = { ...ctx.ports, alerts: { ...ctx.ports.alerts, stuck: (e: (typeof stuck)[0]) => stuck.push(e) } };
+    const ports = {
+      ...ctx.ports,
+      alerts: { ...ctx.ports.alerts, stuck: (e: (typeof stuck)[0]) => stuck.push(e) },
+    };
     const old = 'bb'.repeat(32);
     const broken = 'cc'.repeat(32);
     const landed = 'dd'.repeat(32);
@@ -361,7 +378,7 @@ describe('reconciliation', { timeout: 30_000 }, () => {
     t.rpc.getTransaction = (hash) =>
       hash === broken ? Promise.reject(new Error('down')) : read(hash);
     const results = await reconcileUnresolved(
-      { ...ctx, ports: ports as never },
+      { ...ctx, ports: ports },
       { olderThanSeconds: 60, limit: 10, stuckAfterSeconds: 300 },
       OPTS,
     );

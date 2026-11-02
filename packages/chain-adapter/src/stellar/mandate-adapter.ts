@@ -446,7 +446,13 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       const hash =
         signed.kind === 'tx'
           ? await this.#submitFeeBumped(request, signed.tx, reservationId, req.correlationId, opts)
-          : await this.#submitFromChannel(request, signed.entry, reservationId, req.correlationId, opts);
+          : await this.#submitFromChannel(
+              request,
+              signed.entry,
+              reservationId,
+              req.correlationId,
+              opts,
+            );
       return { network, txHash: hash, finality: 'none' };
     } catch (error) {
       // Only an outcome that certainly sent nothing gives the reservation back.
@@ -530,8 +536,23 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     );
     attach(bump, sponsor, signature);
     const hash = txHash(bump);
-    await this.#record(request, hash, request.signer, request.sequence ?? 0n, reservationId, correlationId, opts);
-    await sendAndRecord(this.#executor, request.scope, hash, bump.toXdr(), request.validUntil, opts);
+    await this.#record(
+      request,
+      hash,
+      request.signer,
+      request.sequence ?? 0n,
+      reservationId,
+      correlationId,
+      opts,
+    );
+    await sendAndRecord(
+      this.#executor,
+      request.scope,
+      hash,
+      bump.toXdr(),
+      request.validUntil,
+      opts,
+    );
     return hash;
   }
 
@@ -585,7 +606,14 @@ export class StellarMandateAdapter implements StellarMandateOperations {
         opts,
       );
       session.sequence = BigInt(assembled.sequence);
-      await sendAndRecord(this.#executor, request.scope, hash, assembled.toXdr(), build.maxTime, opts);
+      await sendAndRecord(
+        this.#executor,
+        request.scope,
+        hash,
+        assembled.toXdr(),
+        build.maxTime,
+        opts,
+      );
       return hash;
     });
   }

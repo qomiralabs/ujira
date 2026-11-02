@@ -25,6 +25,8 @@ export type JsonPrimitive = boolean | number | string | null;
 
 export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 
+export type Numeric = ColumnType<string, number | string, number | string>;
+
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
 export interface OpsChainCursors {
@@ -39,6 +41,19 @@ export interface OpsExecutorAccounts {
   lease_holder: string | null;
   network: string;
   next_sequence: Generated<Int8>;
+}
+
+export interface OpsFeeEstimates {
+  computed_at: Generated<Timestamp>;
+  leg_count: Int8;
+  network: string;
+  op: string;
+  p95_inclusion_fee_stroops: Int8;
+  p95_rent_stroops: Int8;
+  p95_resource_fee_stroops: Int8;
+  sample_count: Int8;
+  window_end: Timestamp;
+  window_start: Timestamp;
 }
 
 export interface OpsRoutingConfigActive {
@@ -66,6 +81,45 @@ export interface UjiraApiTokens {
   secret_sha256: Buffer;
 }
 
+export interface UjiraAuditHeads {
+  last_hash: Buffer;
+  last_seq: Generated<Int8>;
+  principal_id: string;
+}
+
+export interface UjiraAuditLog {
+  action: string;
+  actor_id: string | null;
+  actor_kind: string;
+  id: Generated<string>;
+  metadata: Generated<Json>;
+  occurred_at: Generated<Timestamp>;
+  prev_hash: Buffer;
+  principal_id: string;
+  project_id: string;
+  row_hash: Buffer;
+  seq: Int8;
+}
+
+export interface UjiraAuditMetadataKeys {
+  key: string;
+}
+
+export interface UjiraChainEvents {
+  chain: string;
+  created_at: Generated<Timestamp>;
+  event_index: Int8;
+  event_type: string;
+  finalized_at: Timestamp;
+  id: Generated<string>;
+  ledger: Int8;
+  mandate_instance_id: string;
+  payload: Json;
+  principal_id: string;
+  project_id: string;
+  tx_hash: Buffer;
+}
+
 export interface UjiraChains {
   code: string;
 }
@@ -80,10 +134,151 @@ export interface UjiraCurrencyScales {
   scale: number;
 }
 
+export interface UjiraDeposits {
+  amount: Numeric;
+  asset: string;
+  chain: string;
+  chain_event_id: string;
+  created_at: Generated<Timestamp>;
+  from_address: string;
+  funding_source_id: string | null;
+  id: Generated<string>;
+  mandate_instance_id: string;
+  principal_id: string;
+  project_id: string;
+  scale: number;
+}
+
+export interface UjiraFundingSources {
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  kind: string;
+  mandate_instance_id: string;
+  principal_id: string;
+  project_id: string;
+}
+
+export interface UjiraLedgerAccounts {
+  asset: string;
+  balance: Generated<Numeric>;
+  chain: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  kind: string;
+  last_seq: Generated<Int8>;
+  mandate_instance_id: string;
+  principal_id: string;
+  project_id: string;
+  scale: number;
+}
+
+export interface UjiraLedgerEntries {
+  account_id: string;
+  account_seq: Int8;
+  amount: Numeric;
+  balance_after: Numeric;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  journal_id: string;
+  principal_id: string;
+  project_id: string;
+}
+
+export interface UjiraLedgerJournals {
+  chain_event_id: string | null;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  mandate_instance_id: string;
+  principal_id: string;
+  project_id: string;
+  reverses_journal_id: string | null;
+}
+
+export interface UjiraLedgerReconciliation {
+  ledger: Int8 | null;
+  ledger_balance: Numeric | null;
+  ledger_committed: Numeric | null;
+  ledger_pending: Numeric | null;
+  ledger_spent: Numeric | null;
+  mandate_instance_id: string | null;
+  matches: boolean | null;
+  principal_id: string | null;
+  project_id: string | null;
+  state_balance: Numeric | null;
+  state_committed: Numeric | null;
+  state_pending: Numeric | null;
+  state_spent: Numeric | null;
+  taken_at: Timestamp | null;
+}
+
+export interface UjiraMandateInstanceRoles {
+  address: string;
+  granted_event_id: string;
+  mandate_instance_id: string;
+  principal_id: string;
+  project_id: string;
+  revoked_event_id: string | null;
+  role: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface UjiraMandateInstances {
+  asset: string;
+  chain: string;
+  contract_address: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  mandate_id: string;
+  principal_id: string;
+  project_id: string;
+  scale: number;
+  spec_version: string;
+}
+
+export interface UjiraMandates {
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  name: string;
+  principal_id: string;
+  project_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface UjiraMandateStateSnapshots {
+  balance: Numeric;
+  committed: Numeric;
+  id: Generated<string>;
+  ledger: Int8;
+  mandate_instance_id: string;
+  pending: Numeric;
+  principal_id: string;
+  project_id: string;
+  spent: Numeric;
+  taken_at: Generated<Timestamp>;
+}
+
 export interface UjiraMigrations {
   id: Generated<number>;
   name: string;
   run_on: Timestamp;
+}
+
+export interface UjiraPayoutMethods {
+  chain: string;
+  created_at: Generated<Timestamp>;
+  destination_address: string;
+  destination_tag: Numeric | null;
+  details_ciphertext: Buffer | null;
+  details_nonce: Buffer | null;
+  has_tag: Generated<boolean>;
+  id: Generated<string>;
+  method: string;
+  principal_id: string;
+  project_id: string;
+  rail: string;
+  recipient_id: string;
+  status: Generated<string>;
+  updated_at: Generated<Timestamp>;
 }
 
 export interface UjiraPrincipalMembers {
@@ -103,10 +298,46 @@ export interface UjiraPrincipals {
 }
 
 export interface UjiraProjects {
+  chain_fallback: Generated<string>;
   created_at: Generated<Timestamp>;
+  funding_hold_max_seconds: Generated<Int8>;
   id: Generated<string>;
   name: string;
   principal_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface UjiraRecipientIdentities {
+  chain: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  principal_id: string;
+  project_id: string;
+  provider: string;
+  provider_ref: string;
+  recipient_id: string;
+  state: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface UjiraRecipientPii {
+  ciphertext: Buffer;
+  created_at: Generated<Timestamp>;
+  nonce: Buffer;
+  principal_id: string;
+  project_id: string;
+  recipient_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface UjiraRecipients {
+  country: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  principal_id: string;
+  project_id: string;
+  recipient_ref: Buffer;
+  status: Generated<string>;
   updated_at: Generated<Timestamp>;
 }
 
@@ -126,16 +357,35 @@ export interface UjiraStatusTransitions {
 export interface Schema {
   'ops.chain_cursors': OpsChainCursors;
   'ops.executor_accounts': OpsExecutorAccounts;
+  'ops.fee_estimates': OpsFeeEstimates;
   'ops.routing_config_active': OpsRoutingConfigActive;
   'ops.routing_config_versions': OpsRoutingConfigVersions;
   ujira_migrations: UjiraMigrations;
   'ujira.api_tokens': UjiraApiTokens;
+  'ujira.audit_heads': UjiraAuditHeads;
+  'ujira.audit_log': UjiraAuditLog;
+  'ujira.audit_metadata_keys': UjiraAuditMetadataKeys;
+  'ujira.chain_events': UjiraChainEvents;
   'ujira.chains': UjiraChains;
   'ujira.currencies': UjiraCurrencies;
   'ujira.currency_scales': UjiraCurrencyScales;
+  'ujira.deposits': UjiraDeposits;
+  'ujira.funding_sources': UjiraFundingSources;
+  'ujira.ledger_accounts': UjiraLedgerAccounts;
+  'ujira.ledger_entries': UjiraLedgerEntries;
+  'ujira.ledger_journals': UjiraLedgerJournals;
+  'ujira.ledger_reconciliation': UjiraLedgerReconciliation;
+  'ujira.mandate_instance_roles': UjiraMandateInstanceRoles;
+  'ujira.mandate_instances': UjiraMandateInstances;
+  'ujira.mandate_state_snapshots': UjiraMandateStateSnapshots;
+  'ujira.mandates': UjiraMandates;
+  'ujira.payout_methods': UjiraPayoutMethods;
   'ujira.principal_members': UjiraPrincipalMembers;
   'ujira.principals': UjiraPrincipals;
   'ujira.projects': UjiraProjects;
+  'ujira.recipient_identities': UjiraRecipientIdentities;
+  'ujira.recipient_pii': UjiraRecipientPii;
+  'ujira.recipients': UjiraRecipients;
   'ujira.settlement_tokens': UjiraSettlementTokens;
   'ujira.status_transitions': UjiraStatusTransitions;
 }

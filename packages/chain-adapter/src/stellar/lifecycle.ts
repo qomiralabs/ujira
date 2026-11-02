@@ -24,7 +24,11 @@ import type { RpcTransaction, StellarRpc } from './rpc.js';
 
 export type SubmissionFate =
   /** Included, successfully or not. A failed one still used its sequence and paid its fee. */
-  | { readonly kind: 'landed' | 'failed'; readonly ledger: bigint; readonly feeCharged: bigint | null }
+  | {
+      readonly kind: 'landed' | 'failed';
+      readonly ledger: bigint;
+      readonly feeCharged: bigint | null;
+    }
   /** Not seen, and its validity window is still open, so it may yet land. */
   | { readonly kind: 'pending' }
   /** Not seen, past its window, with the RPC's retention covering all of it. It can never land. */
@@ -115,10 +119,9 @@ export async function reconcileSubmission(
   switch (fate.kind) {
     case 'landed':
     case 'failed':
-      await move(fate.kind, {
-        landedAtHeight: fate.ledger,
-        ...(fate.kind === 'failed' ? { errorCode: 'SUBMISSION_REJECTED' as const } : {}),
-      });
+      // The cost goes first. Both calls change nothing the second time, so a
+      // crash between here and the move is put right by the next sweep, where
+      // the other order would leave a closed record whose fee is never counted.
       if (fate.feeCharged !== null) {
         const actualFee = stroops(network, fate.feeCharged);
         if (reservationId === null) {
@@ -133,10 +136,14 @@ export async function reconcileSubmission(
           await ports.sponsorship.settle({ scope, reservationId, actualFee });
         }
       }
+      await move(fate.kind, {
+        landedAtHeight: fate.ledger,
+        ...(fate.kind === 'failed' ? { errorCode: 'SUBMISSION_REJECTED' as const } : {}),
+      });
       return { txHash, state, mayRebuild: false };
     case 'dead':
-      await move('expired');
       if (reservationId !== null) await ports.sponsorship.release({ scope, reservationId });
+      await move('expired');
       return { txHash, state, mayRebuild: true };
     case 'unknown':
       await move('unknown');
@@ -164,14 +171,21 @@ export async function reconcileUnresolved(
   opts: CallOptions,
 ): Promise<readonly ReconcileResult[]> {
   const { network, ports } = ctx;
-  const open = await ports.store.unresolvedSubmissions(network, sweep.olderThanSeconds, sweep.limit);
+  const open = await ports.store.unresolvedSubmissions(
+    network,
+    sweep.olderThanSeconds,
+    sweep.limit,
+  );
   const results: ReconcileResult[] = [];
   for (const record of open) {
     try {
       const result = await reconcileSubmission(ctx, record, opts);
       results.push(result);
       const age = Number(ports.clock.nowSeconds() - record.createdAt);
-      if (age >= sweep.stuckAfterSeconds && (result.state === 'broadcast' || result.state === 'unknown')) {
+      if (
+        age >= sweep.stuckAfterSeconds &&
+        (result.state === 'broadcast' || result.state === 'unknown')
+      ) {
         ports.alerts.stuck({
           network,
           txHash: record.txHash,

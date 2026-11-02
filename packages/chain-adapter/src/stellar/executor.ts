@@ -105,7 +105,9 @@ export class ExecutorSession {
       // Either way the fencing did its job and the lease lapses on its own, and
       // neither changes what this job did, so it never replaces the job's
       // own outcome.
-      await ctx.ports.store.releaseExecutor(lease, { sequenceOrNonce: next }).catch(() => undefined);
+      await ctx.ports.store
+        .releaseExecutor(lease, { sequenceOrNonce: next })
+        .catch(() => undefined);
     }
   }
 

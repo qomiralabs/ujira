@@ -26,6 +26,8 @@ export const RETRY_AFTER_SECONDS: Readonly<Partial<Record<ProblemCode, number>>>
   DB_UNAVAILABLE: 5,
   CHAIN_UNAVAILABLE: 5,
   REQUEST_TIMEOUT: 2,
+  // Providers retry on their own schedule; this only tells them not to hurry.
+  WEBHOOK_UNAVAILABLE: 60,
 });
 
 export interface ApiErrorOptions {

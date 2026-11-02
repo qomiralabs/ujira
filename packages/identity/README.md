@@ -35,12 +35,21 @@ A refusal writes nothing and signs nothing. Every chain and attester call has a 
 `createSelfVerification(ports)` runs recipient verification with Self. UJIRA never holds the recipient's documents.
 
 - `startSelfSession(ctx, { recipientId, returnUrl })` starts the one Pre-KYC flow of the environment. The flow rules are fixed: minimum age 18, OFAC on, the excluded countries from config, no reveals, high security, backend mode. The identity row id is the session's `externalUuid` and the TTL is 1800 seconds. An unexpired pending session is handed back instead of a new one.
-- `handleWebhook({ rawBody, headers, correlationId })` answers the webhook route. It checks the signature over the exact bytes and the signed time, the environment and the flow id, then dedupes on `<verification_id>-completed` and maps by `external_uuid`. A result older than the one already applied changes nothing, and neither does an error or lapsed session after a final result.
+- `handleWebhook({ rawBody, headers, correlationId })` answers `POST /v1/identity/self-webhook` in `packages/api`. It checks the signature over the exact bytes and the signed time, the environment and the flow id, then dedupes on `<verification_id>-completed` and maps by `external_uuid`. A result older than the one already applied changes nothing, and neither does an error or lapsed session after a final result.
 - A valid result sets `verified`, assurance `document_zk`, for 365 days. A valid result for a person already verified as another recipient of the same principal is stored as `rejected` with `duplicate_person`, and the principal is alerted. `SELF_CREDITS_EXHAUSTED` alerts operations and leaves the recipient pending.
 - Only references, statuses, an HMAC of the nullifier and a SHA-256 of the raw body are stored. The proof, the user context data and the body are discarded.
 - A `sk_test_` key is refused in production and a `sk_live_` key everywhere else.
 
 The webhook signature scheme here (`self-signature: t=<time>,v1=<HMAC-SHA256 of "<time>.<body>">`) and the payload fields are provisional until the Self spike records real deliveries. Self's own verifier plugs in behind `SelfWebhookVerifier`.
+
+## Wallet proof
+
+`createWalletProofFlow(ports)` records that a recipient controls a payout destination, the evidence attest reads.
+
+- `createWalletChallenge(ctx, { recipientId, methodId })` issues the adapter's challenge text for an active method of that recipient, valid for 600 seconds. Only hashes of the nonce and the text are stored, so the wallet's copy comes back with the proof. The host in the text comes from the adapter's configuration, never from a request.
+- `submitWalletProof(ctx, { challengeId, message, nonce, signature, signer? })` checks the challenge, verifies the signature through the adapter, and runs `checkDestination` before anything is written. A challenge is consumed in the same write that records the proof, so it backs one row however many proofs race for it. A proof that fails leaves the challenge open until it expires, so a recipient who adds a missing trustline can send it again.
+- A refusal is a result: `WALLET_PROOF_INVALID`, `WALLET_PROOF_EXPIRED`, `WALLET_SIGNER_NOT_AUTHORIZED` or `DESTINATION_NOT_RECEIVABLE` with its reason. A chain outage throws `ProviderUnavailableError`.
+- `levelAcceptedForMode` is the table of which evidence each recipient mode takes.
 
 ## Ports
 

@@ -5,7 +5,11 @@ import { TransactionBuilder } from '@stellar/stellar-sdk/base';
 import { describe, expect, it } from 'vitest';
 
 import { RpcTimeoutError } from '../errors.js';
-import { SUBMISSION_TRANSITIONS, canMoveSubmission, isLiveSubmission } from '../submission-states.js';
+import {
+  SUBMISSION_TRANSITIONS,
+  canMoveSubmission,
+  isLiveSubmission,
+} from '../submission-states.js';
 import { FakeAdapterStore } from '../testing/fake-store.js';
 import type { SigningRequest, SubmissionState, UnixSeconds } from '../types.js';
 import { StellarMandateAdapter } from './mandate-adapter.js';
@@ -49,7 +53,7 @@ async function pause({ t, adapter }: ReturnType<typeof world>) {
   const tx = TransactionBuilder.fromXdr(request.xdr, PASSPHRASES[NETWORK]);
   tx.sign(t.principal);
   return adapter.submitSigned(
-    { scope: t.scope, requestId: request.requestId, signed: tx.toXDR(), correlationId: 'c' },
+    { scope: t.scope, requestId: request.requestId, signed: tx.toXdr(), correlationId: 'c' },
     OPTS,
   );
 }
@@ -64,7 +68,9 @@ function assertForward(store: FakeAdapterStore): void {
 
 describe('submission states', { timeout: 30_000 }, () => {
   it('state moves follow the forward-only rules', () => {
-    const allowed = ALL.flatMap((from) => ALL.filter((to) => canMoveSubmission(from, to)).map((to) => `${from}>${to}`));
+    const allowed = ALL.flatMap((from) =>
+      ALL.filter((to) => canMoveSubmission(from, to)).map((to) => `${from}>${to}`),
+    );
     expect(allowed.sort()).toEqual(
       [
         'built>broadcast',
@@ -78,7 +84,11 @@ describe('submission states', { timeout: 30_000 }, () => {
         'unknown>expired',
       ].sort(),
     );
-    expect(ALL.filter((s) => isLiveSubmission(s)).sort()).toEqual(['broadcast', 'built', 'unknown']);
+    expect(ALL.filter((s) => isLiveSubmission(s)).sort()).toEqual([
+      'broadcast',
+      'built',
+      'unknown',
+    ]);
   });
 
   it('a send that is accepted goes built then broadcast, before the send and not after', async () => {
@@ -86,7 +96,12 @@ describe('submission states', { timeout: 30_000 }, () => {
     let stateAtSend: SubmissionState | undefined;
     w.t.rpc.sendResult = (envelope) => {
       stateAtSend = w.store.submissions[0]?.state;
-      return { status: 'PENDING', hash: Buffer.from(TransactionBuilder.fromXdr(envelope, PASSPHRASES[NETWORK]).hash()).toString('hex') };
+      return {
+        status: 'PENDING',
+        hash: Buffer.from(
+          TransactionBuilder.fromXdr(envelope, PASSPHRASES[NETWORK]).hash(),
+        ).toString('hex'),
+      };
     };
     await pause(w);
     // A crash during the send leaves a record that says it may have left.
@@ -120,5 +135,4 @@ describe('submission states', { timeout: 30_000 }, () => {
     expect(w.store.submissions[0]).toMatchObject({ submittedAtLedger: 4242n });
     expect(w.store.submissions[0]?.reservationId).toMatch(/^[0-9a-f]{64}$/);
   });
-
 });

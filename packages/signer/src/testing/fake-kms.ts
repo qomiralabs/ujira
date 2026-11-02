@@ -32,10 +32,16 @@ export class FakeKmsClient implements KmsClient {
   keySpec: string = ED25519_SPEC;
   #failures: { readonly operation: KmsOperation | null; readonly errorName: string }[] = [];
   #badSignature = false;
+  #noRequestId = false;
 
   /** Makes the next matching call fail with this service error. */
   failNext(errorName: string, operation: KmsOperation | null = null): void {
     this.#failures.push({ operation, errorName });
+  }
+
+  /** Makes the next signature come back with no request id. */
+  omitNextRequestId(): void {
+    this.#noRequestId = true;
   }
 
   /** Makes the next signature come back wrong. */
@@ -77,7 +83,9 @@ export class FakeKmsClient implements KmsClient {
         this.#badSignature = false;
         return { signature: new Uint8Array(64), requestId: 'fake-request-id' };
       }
-      return { signature, requestId: 'fake-request-id' };
+      const requestId = this.#noRequestId ? undefined : 'fake-request-id';
+      this.#noRequestId = false;
+      return { signature, requestId };
     });
   }
 
