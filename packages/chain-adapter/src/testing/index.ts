@@ -48,7 +48,7 @@ export type {
 } from './conformance.js';
 export { MandateEngine } from './engine.js';
 export { FakeChainAdapter, signFakeRequest } from './fake-adapter.js';
-export type { FakeChainAdapterPorts } from './fake-adapter.js';
+export type { FakeChainAdapterOptions, FakeChainAdapterPorts } from './fake-adapter.js';
 export {
   FAKE_GENESIS,
   FAKE_TX_FEE,

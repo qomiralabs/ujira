@@ -8,7 +8,8 @@
 
 import type { TenantScope, Uuid } from '@ujira/chain-adapter';
 
-import type { IdentityStore } from '../ports.js';
+import { IdentityConflictError } from '../errors.js';
+import type { IdentityStore, IdentityUpdate, IdentityWriteStore } from '../ports.js';
 import type {
   DestinationVerificationRecord,
   IdentityRecord,
@@ -25,7 +26,7 @@ function rowKey(scope: TenantScope, id: string): string {
   return `${tenantKey(scope)}/${id}`;
 }
 
-export class InMemoryIdentityStore implements IdentityStore {
+export class InMemoryIdentityStore implements IdentityStore, IdentityWriteStore {
   readonly #recipients = new Map<string, RecipientRecord>();
   readonly #methods = new Map<string, PayoutMethodRecord>();
   readonly #instances = new Map<string, MandateInstanceRecord>();
@@ -121,5 +122,65 @@ export class InMemoryIdentityStore implements IdentityStore {
     verificationId: Uuid,
   ): Promise<DestinationVerificationRecord | null> {
     return Promise.resolve(this.#verifications.get(rowKey(scope, verificationId)) ?? null);
+  }
+
+  identityById(identityId: Uuid): Promise<IdentityRecord | null> {
+    for (const row of this.#identities.values()) {
+      if (row.id === identityId) return Promise.resolve(row);
+    }
+    return Promise.resolve(null);
+  }
+
+  createIdentity(row: IdentityRecord): Promise<void> {
+    for (const existing of this.#identities.values()) {
+      if (
+        tenantKey(existing.scope) === tenantKey(row.scope) &&
+        existing.recipientId === row.recipientId &&
+        existing.provider === row.provider &&
+        existing.providerAccount === row.providerAccount
+      ) {
+        return Promise.reject(new IdentityConflictError());
+      }
+    }
+    this.#identities.set(rowKey(row.scope, row.id), row);
+    return Promise.resolve();
+  }
+
+  updateIdentity(
+    scope: TenantScope,
+    identityId: Uuid,
+    patch: IdentityUpdate,
+  ): Promise<IdentityRecord> {
+    const key = rowKey(scope, identityId);
+    const row = this.#identities.get(key);
+    if (row === undefined) return Promise.reject(new IdentityConflictError());
+    const next: IdentityRecord = { ...row, ...patch };
+    if (next.status === 'verified' && next.nullifierHmac !== null) {
+      for (const other of this.#identities.values()) {
+        if (
+          other.id !== next.id &&
+          other.status === 'verified' &&
+          other.scope.principalId === next.scope.principalId &&
+          other.nullifierHmac === next.nullifierHmac
+        ) {
+          return Promise.reject(new IdentityConflictError());
+        }
+      }
+    }
+    this.#identities.set(key, next);
+    return Promise.resolve(next);
+  }
+
+  verifiedByNullifier(principalId: Uuid, nullifierHmac: string): Promise<IdentityRecord | null> {
+    for (const row of this.#identities.values()) {
+      if (
+        row.status === 'verified' &&
+        row.scope.principalId === principalId &&
+        row.nullifierHmac === nullifierHmac
+      ) {
+        return Promise.resolve(row);
+      }
+    }
+    return Promise.resolve(null);
   }
 }
