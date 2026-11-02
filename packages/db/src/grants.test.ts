@@ -168,6 +168,7 @@ describe('roles', () => {
       'ujira_fn_tokens',
       'ujira_indexer',
       'ujira_migrator',
+      'ujira_ops',
       'ujira_owner',
       'ujira_reader',
       'ujira_retention',
