@@ -6,7 +6,7 @@
 // else: no payload body, no recipient destination, no token, no signature
 // and no key material, on success or on refusal.
 
-import type { SignPayload, SignerRef, Uuid } from '@ujira/chain-adapter';
+import type { SignPayload, SignerProvider, SignerRef, Uuid } from '@ujira/chain-adapter';
 import { decodeFeeBumpEnvelope } from '@ujira/chain-adapter/codecs';
 import {
   TEST_CONTRACT,
@@ -14,6 +14,7 @@ import {
   testFeeBumpXdr,
   testInvokeXdr,
   testReserveSandwichXdr,
+  testTransactionXdr,
 } from '@ujira/chain-adapter/testing';
 import { describe, expect, it } from 'vitest';
 
@@ -21,6 +22,7 @@ import { LocalSigner } from '../local-signer.js';
 import { CALLER_TOKEN, OPTS, TEST_SEED, codeOf, harness } from '../testing/service.js';
 import {
   SIGNER_LOG_FIELDS,
+  backendOnlyPolicy,
   chainPolicy,
   memoryMandateIndex,
   memorySponsorshipLedger,
@@ -34,6 +36,44 @@ const TENANT = {
 const EXECUTOR: SignerRef = { kind: 'executor', network: NETWORK, keyId: 'executor_0' };
 const SPONSOR: SignerRef = { kind: 'fee_sponsor', network: NETWORK };
 const ISSUER = 'GABQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQHGPC';
+
+describe('the key manager request id', () => {
+  it('goes in the log and not back to the caller', async () => {
+    const keys = new LocalSigner({ seed: TEST_SEED, nodeEnv: 'test' });
+    const backend: SignerProvider = {
+      sign: async (ref, payload, opts) => ({
+        ...(await keys.sign(ref, payload, opts)),
+        requestId: 'kms-request-1',
+      }),
+      address: (ref, opts) => keys.address(ref, opts),
+      health: (opts) => keys.health(opts),
+    };
+    const service = harness({ policy: backendOnlyPolicy(), provider: backend });
+    const source = (await keys.address(EXECUTOR, OPTS)).value;
+    const payload: SignPayload = {
+      kind: 'stellar_tx',
+      network: NETWORK,
+      xdr: testTransactionXdr({ source }),
+    };
+
+    const result = await service.remote.sign(EXECUTOR, payload, OPTS);
+
+    expect(result).not.toHaveProperty('requestId');
+    expect(service.records[0]).toMatchObject({ event: 'sign_ok', keyRequestId: 'kms-request-1' });
+  });
+
+  it('is left out of the log when the backend has none', async () => {
+    const keys = new LocalSigner({ seed: TEST_SEED, nodeEnv: 'test' });
+    const service = harness({ policy: backendOnlyPolicy(), provider: keys });
+    const source = (await keys.address(EXECUTOR, OPTS)).value;
+    await service.remote.sign(
+      EXECUTOR,
+      { kind: 'stellar_tx', network: NETWORK, xdr: testTransactionXdr({ source }) },
+      OPTS,
+    );
+    expect(service.records[0]).not.toHaveProperty('keyRequestId');
+  });
+});
 
 describe('signer service logs', () => {
   it('captured logs contain only the allowed fields', async () => {
