@@ -1,9 +1,10 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-// The mandate spec's constants and error table, as the fake chain uses them.
-// A test compares both with the vendored spec files, so a spec change that
-// lands without an engine change fails instead of drifting quietly.
+// The mandate spec's constants, as the fake chain uses them, and the error
+// table it shares with the adapter. A test compares both with the vendored
+// spec files, so a spec change that lands without an engine change fails
+// instead of drifting quietly.
 
 export const SPEC_VERSION = 1;
 
@@ -73,66 +74,10 @@ export const RECOVERY_ACTION = Object.freeze({ REVOKE: 1, ROTATE_AGENT: 2 } as c
 
 export type RecoveryActionKind = (typeof RECOVERY_ACTION)[keyof typeof RECOVERY_ACTION];
 
-/** The error table, append only: codes are never reused. */
-export const MANDATE_ERRORS = Object.freeze({
-  UNAUTHORIZED: 10,
-  ROLE_CONFLICT: 11,
-  ROLE_SET_FULL: 12,
-  MANDATE_REVOKED: 20,
-  MANDATE_EXPIRED: 21,
-  MANDATE_PAUSED: 22,
-  ALREADY_PAUSED: 23,
-  NOT_PAUSED: 24,
-  MANDATE_ACTIVE: 25,
-  PRINCIPAL_CHANGE_PENDING: 26,
-  SWEEP_GRACE_PERIOD: 27,
-  AMOUNT_INVALID: 30,
-  LEGS_INVALID: 31,
-  LEGS_SUM_MISMATCH: 32,
-  BATCH_INVALID: 33,
-  CONFIG_INVALID: 34,
-  REQUEST_DEADLINE_PASSED: 35,
-  BUDGET_EXCEEDED: 40,
-  PAYMENT_CAP_EXCEEDED: 41,
-  DAILY_CAP_EXCEEDED: 42,
-  INSUFFICIENT_FUNDS: 43,
-  BUDGET_BELOW_RESERVED: 44,
-  NOTHING_TO_SWEEP: 45,
-  FEE_EXCEEDS_CAP: 46,
-  RECIPIENT_NOT_ALLOWED: 50,
-  ATTESTATION_INVALID: 51,
-  ATTESTATION_EXPIRED: 52,
-  POLICY_CHANGED: 53,
-  WRONG_RECIPIENT_MODE: 54,
-  PAYOUT_ID_EXISTS: 60,
-  PAYOUT_NOT_FOUND: 61,
-  PAYOUT_WRONG_STATUS: 62,
-  PAYOUT_LAPSED: 63,
-  ALREADY_APPROVED: 64,
-  AGENT_REMOVED: 65,
-  ASSET_NOT_SUPPORTED: 70,
-  WRONG_ASSET: 71,
-  TRANSFER_FAILED: 72,
-  INTERNAL_INVARIANT: 90,
-} as const);
-
-export type MandateErrorName = keyof typeof MANDATE_ERRORS;
-
-const ERROR_NAMES: ReadonlyMap<number, MandateErrorName> = new Map(
-  (Object.entries(MANDATE_ERRORS) as [MandateErrorName, number][]).map(([name, code]) => [
-    code,
-    name,
-  ]),
-);
-
-/** The error name of a code, or undefined for a code the table does not hold. */
-export function mandateErrorName(code: number): MandateErrorName | undefined {
-  return ERROR_NAMES.get(code);
-}
-
-export function isMandateErrorName(name: string): name is MandateErrorName {
-  return Object.hasOwn(MANDATE_ERRORS, name);
-}
+// The error table is generated from the vendored spec in the adapter itself;
+// the fake chain reads the same one.
+export { MANDATE_ERRORS, isMandateErrorName, mandateErrorName } from '../mandate-errors.js';
+export type { MandateErrorName } from '../mandate-errors.js';
 
 export const PAYOUT_STATUSES = Object.freeze([
   'PENDING',

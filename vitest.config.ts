@@ -146,9 +146,32 @@ export default defineConfig({
           branches: 95,
           statements: 95,
         },
+        // A receipt is the permanent proof of a payment and its hash must
+        // never drift, so it carries the money bar too.
+        'packages/receipts/src/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
         // Identity decides who may be paid and what the attester signs, so it
         // carries the same bar as the money and chain primitives.
         'packages/identity/src/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
+        // The signer holds every key UJIRA signs with.
+        'packages/signer/src/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
+        // The mandate rules decide which mandates may be created and served,
+        // so a gap there is a gap in the custody guarantees.
+        'packages/mandates/src/**': {
           lines: 95,
           functions: 95,
           branches: 95,

@@ -1,0 +1,32 @@
+// Copyright (c) 2026 Qomira Labs. All rights reserved.
+// Proprietary and confidential. Unauthorized copying is prohibited.
+
+// UJIRA's own mandate rules, applied off chain around what the contract
+// enforces: what a new mandate must contain, which mandates may be created
+// and which may be served.
+
+export { planMandateCreation } from './create-mandate.js';
+export type { CreateMandateRequest, CreationDeps, MandateCreationPlan } from './create-mandate.js';
+export {
+  MANDATE_POLICY_ERROR_CODES,
+  MandatePolicyError,
+  OperationsGuardianNotConfiguredError,
+  PolicyStoreError,
+  PolicyStoreTimeoutError,
+  isMandatePolicyError,
+} from './errors.js';
+export type { MandatePolicyErrorCode } from './errors.js';
+export {
+  createMemoryGuardianOptOutStore,
+  onRoleRemoved,
+  reconcileOperationsGuardian,
+} from './operations-guardian.js';
+export type {
+  GuardianOptOutStore,
+  GuardianPolicyDeps,
+  OnChainGuardians,
+  OperationsGuardianStatus,
+  RoleRemoved,
+} from './operations-guardian.js';
+export { PORT_TIMEOUT_MS, callPort, keyText } from './ports.js';
+export type { LogicalMandateKey, PortCallOptions } from './ports.js';

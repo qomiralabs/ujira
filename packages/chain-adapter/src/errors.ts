@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
+import { MANDATE_ERRORS, isMandateErrorName, mandateErrorName } from './mandate-errors.js';
+import type { MandateErrorName } from './mandate-errors.js';
 import { isNetworkId } from './networks.js';
 import type { NetworkId } from './networks.js';
 
@@ -83,7 +85,7 @@ export interface ChainAdapterErrorJson {
   readonly retryAfterMs: number | null;
   readonly waitFor: WaitFor;
   readonly specCode?: number;
-  readonly specName?: string;
+  readonly specName?: MandateErrorName;
   readonly issues?: readonly string[];
   readonly reason?: DestinationParseReason;
 }
@@ -229,6 +231,7 @@ class RedactedCause extends Error {
 // The class names below, kept in step by a test.
 const ADAPTER_ERROR_NAMES = [
   'InvalidInputError',
+  'MemoOnContractCallError',
   'UnsupportedError',
   'TenantMismatchError',
   'MandateUntrustedError',
@@ -348,9 +351,10 @@ export function isChainAdapterError(value: unknown): value is ChainAdapterError 
   return value instanceof ChainAdapterError;
 }
 
-// "path (code)": the path is field names, indexes and network IDs, and the
-// code a lower snake case reason. Neither has room for a value.
-const ISSUE = /^[A-Za-z0-9_.:]{1,96} \([a-z_]{1,48}\)$/;
+// "path (code)": the path is field names, indexes, network IDs and, where an
+// operator needs it to fix a config, a host name; the code a lower snake
+// case reason. Neither has room for a value.
+const ISSUE = /^[A-Za-z0-9_.:-]{1,96} \([a-z_]{1,48}\)$/;
 const MAX_ISSUES = 10;
 
 export interface InvalidInputErrorOptions extends ChainAdapterErrorOptions {
@@ -385,7 +389,8 @@ function withoutOwnOptions(read: Record<string, unknown>): Record<string, unknow
 // is what shows up in logs and error trackers.
 
 export class InvalidInputError extends ChainAdapterError {
-  override readonly name = 'InvalidInputError';
+  // Widened to string so a narrower kind of invalid input can name itself.
+  override readonly name: string = 'InvalidInputError';
   readonly issues: readonly string[];
   /** Why a destination was refused, or null for any other invalid input. */
   readonly reason: DestinationParseReason | null;
@@ -412,6 +417,20 @@ export class InvalidInputError extends ChainAdapterError {
   override toJSON(): ChainAdapterErrorJson {
     const json = { ...super.toJSON(), issues: this.issues };
     return this.reason === null ? json : { ...json, reason: this.reason };
+  }
+}
+
+/**
+ * A Stellar transaction that runs contract code carries a memo. The network
+ * refuses every such transaction, so it is stopped before it is signed or
+ * sent instead of surfacing later as a failed payout. It is invalid input
+ * by code, so callers that branch on the code need no new case.
+ */
+export class MemoOnContractCallError extends InvalidInputError {
+  override readonly name: string = 'MemoOnContractCallError';
+
+  constructor(options?: { readonly network?: NetworkId | null }) {
+    super({ network: options?.network ?? null, issues: ['memo (contract_call)'] });
   }
 }
 
@@ -627,28 +646,26 @@ export class InternalError extends ChainAdapterError {
 
 // The mandate errors a job can wait out. Any other mandate error is final;
 // TRANSFER_FAILED goes down the leg fallback path instead of a retry.
-const MANDATE_RULE_WAITS: ReadonlyMap<string, WaitFor> = new Map([
-  ['INSUFFICIENT_FUNDS', 'funding'],
-  ['DAILY_CAP_EXCEEDED', 'utc_day'],
-  ['MANDATE_PAUSED', 'resume'],
-]);
+const MANDATE_RULE_WAITS: Readonly<Partial<Record<MandateErrorName, WaitFor>>> = Object.freeze({
+  INSUFFICIENT_FUNDS: 'funding',
+  DAILY_CAP_EXCEEDED: 'utc_day',
+  MANDATE_PAUSED: 'resume',
+});
 
-const SPEC_NAME = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$/;
-
-/** A mandate contract refusal, carrying the contract's own error code and name. */
+/**
+ * A mandate contract refusal, carrying the contract's own error code and
+ * name. Both must be a pair from the vendored spec table: a code the table
+ * does not hold is not a rule we know, and is reported as InternalError by
+ * whoever decodes it (see mandateRuleErrorOf).
+ */
 export class MandateRuleError extends ChainAdapterError {
   override readonly name = 'MandateRuleError';
   readonly specCode: number;
-  readonly specName: string;
+  readonly specName: MandateErrorName;
 
-  constructor(specCode: number, specName: string, options?: ChainAdapterErrorOptions) {
-    const valid =
-      Number.isSafeInteger(specCode) &&
-      specCode >= 0 &&
-      typeof specName === 'string' &&
-      specName.length <= 64 &&
-      SPEC_NAME.test(specName);
-    const waitFor = valid ? MANDATE_RULE_WAITS.get(specName) : undefined;
+  constructor(specCode: number, specName: MandateErrorName, options?: ChainAdapterErrorOptions) {
+    const valid = isMandateErrorName(specName) && MANDATE_ERRORS[specName] === specCode;
+    const waitFor = valid ? MANDATE_RULE_WAITS[specName] : undefined;
     super('MANDATE_RULE', options, {
       retryable: waitFor !== undefined,
       waitFor: waitFor ?? 'none',
@@ -661,4 +678,19 @@ export class MandateRuleError extends ChainAdapterError {
   override toJSON(): ChainAdapterErrorJson {
     return { ...super.toJSON(), specCode: this.specCode, specName: this.specName };
   }
+}
+
+/**
+ * The error for a code the mandate contract returned: the named rule when
+ * the vendored table holds the code, and InternalError when it does not,
+ * since a code we cannot name is a contract we do not understand.
+ */
+export function mandateRuleErrorOf(
+  specCode: number,
+  options?: ChainAdapterErrorOptions,
+): MandateRuleError | InternalError {
+  const name = mandateErrorName(specCode);
+  return name === undefined
+    ? new InternalError(options)
+    : new MandateRuleError(specCode, name, options);
 }

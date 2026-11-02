@@ -79,6 +79,8 @@ describe('chain branching in packages/identity', () => {
     expect(config.rules?.[RULE]).toEqual([2]);
   });
 
+  // Typed linting of every file here takes several seconds under load, and the
+  // root test run gives each test only the default timeout.
   it('every source file passes', async () => {
     const results = await eslint.lintFiles(['packages/identity/src/**/*.ts']);
     expect(results.length).toBeGreaterThan(5);
@@ -88,7 +90,7 @@ describe('chain branching in packages/identity', () => {
         .map((message) => `${path.relative(REPO_ROOT, result.filePath)}:${String(message.line)}`),
     );
     expect(hits).toEqual([]);
-  });
+  }, 120_000);
 
   it.each(FIXTURES)('fails on a fixture with %s', async (_name, code) => {
     expect(await ruleHits(code, SOURCE_FILE)).toBeGreaterThan(0);

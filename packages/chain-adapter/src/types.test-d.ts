@@ -25,6 +25,7 @@ import type {
   SponsorshipPolicy,
   LimitsInput,
   AllowEntryInput,
+  AttestationFields,
   AttestationInput,
   SubmissionPatch,
   UnixSeconds,
@@ -158,6 +159,10 @@ expectTypeOf<ReturnType<ChainAdapter['parseAddress']>>().toEqualTypeOf<ChainAddr
 // Destinations come back as the pair the mandate binds, with a u64 tag as bigint.
 expectTypeOf<ReturnType<ChainAdapter['parseDestination']>>().toEqualTypeOf<Destination>();
 expectTypeOf<Parameters<ChainAdapter['parseDestination']>[0]>().toEqualTypeOf<RawDestination>();
+expectTypeOf<
+  Parameters<ChainAdapter['attestationMessage']>[0]
+>().toEqualTypeOf<AttestationFields>();
+expectTypeOf<ReturnType<ChainAdapter['attestationMessage']>>().toEqualTypeOf<Uint8Array>();
 expectTypeOf<RawDestination>().toEqualTypeOf<{
   readonly address: string;
   readonly memoId?: string | undefined;
