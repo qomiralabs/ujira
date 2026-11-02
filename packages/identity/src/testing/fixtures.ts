@@ -143,6 +143,14 @@ export function identityRow(
     status: 'verified',
     assurance: 'document_zk',
     expiresAt: null,
+    providerRef: null,
+    providerStatus: null,
+    flowRef: null,
+    nullifierHmac: null,
+    pendingSession: null,
+    failureReason: null,
+    rawSha256: null,
+    lastCheckedAt: null,
     ...patch,
   };
 }
@@ -195,13 +203,13 @@ export function snapshotOf(
   return {
     mandate: instance.mandate,
     trustedFactory: true,
-    tenantRefMatches: true,
+    tenantTagMatches: true,
     asset: 'USDC',
     config: {
       principal: account('principal'),
       asset: 'USDC',
       recipientMode: instance.recipientMode,
-      tenantRef: bytes32Of(`tenant:${instance.scope.projectId}`),
+      tenantTag: bytes32Of(`tenant:${instance.scope.projectId}`),
       agents: [account('agent')],
       approvers: [],
       approvalsRequired: 0,

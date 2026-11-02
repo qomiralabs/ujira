@@ -1,6 +1,6 @@
 {
   "repository": "qomiralabs/ujira-contracts",
-  "commit": "2cd67bbea58f214039600206dcb6fef912aba6ca",
+  "commit": "af7a20eeb821b3960f0c286c43cf663eb3370753",
   "note": "Copied byte for byte from spec/ at this commit. Moves to the spec-v1 tag once it is cut.",
   "files": [
     {
@@ -12,124 +12,128 @@
       "sha256": "627e18a7fff3f01798fafca4f1c1613ccf3be8519a6c4930f753d3ec3af97826"
     },
     {
+      "path": "fixtures/fee-cap-edges.json",
+      "sha256": "657621270c058c1bd6cd2af850233f18ae836f6e32b3734cc5bb86b738ec9f3c"
+    },
+    {
       "path": "vectors/amounts.json",
-      "sha256": "40d56cde132d789d28b58cf7e511cedfa56963a5a959b39fdc87140c775458a1"
+      "sha256": "b3b70675e776cd2f3d2a6966bcce4ec2b73d2ae35a8ac7d8cf4c83fbdcabd4a6"
     },
     {
       "path": "vectors/approval.json",
-      "sha256": "b938d363beedb5ff67a36b3bcc6aa8715d5596c55663a3f624d2ef10a788290b"
+      "sha256": "780c8657eec4bf77d93e770b240fd745f0fedf3bd0cd4aaddd786715ced63151"
     },
     {
       "path": "vectors/attestation.json",
-      "sha256": "a67725425b7c35e9c1f112e3742f05dbc2f198c360c70dc8b1e5078b7c036502"
+      "sha256": "9a4ac69d00dfb41351c91182803bc9bafc04eaa1df3b4005cc4ec5e0f5add6f7"
     },
     {
       "path": "vectors/batch.json",
-      "sha256": "632e4b30fe4fc4f0841af6e95b423e126ee8a18c585a1eb9b9bb92de8a2bc6cd"
+      "sha256": "12da1fee5bfbbffa723edaf550968eb3f746f317715fd0c7b3b26277b6d8e214"
     },
     {
       "path": "vectors/budget.json",
-      "sha256": "4690a5706b84b99707a994d3167c5f65be8df403b7dcdd0799985b22aa8a3d39"
+      "sha256": "ca0c35c89f56c10d9215641c8a01448fc70f3446a241e8e91cfd3cd1f464cff1"
     },
     {
       "path": "vectors/config.json",
-      "sha256": "699d2fd2c594225287623dbe75e5ab1000d1bd05c1b4d1fcbed0d7ad615efa89"
+      "sha256": "442e3c4d7cd088bd6129566f3e3d222fba424ab5079fba5de86c953b22e04078"
     },
     {
       "path": "vectors/daily-cap.json",
-      "sha256": "5f073e4aea6a21da8260a7168d4fef79098d91458d005194ba3d251e2382c67c"
+      "sha256": "40ea9d5802b790955d9c1a4d4fe0f84e9efc2f12c9fbed1ef86ad6e3eecc7296"
     },
     {
       "path": "vectors/dust.json",
-      "sha256": "d7bf8e04f026a986669f0013a096614dac45df2f27559b882d73b5445c06cc18"
+      "sha256": "0acecd7bff254f5d3cb2c9a892ecf49f4b84345fc8fd18f82aca23bf1dd5b225"
     },
     {
       "path": "vectors/events.json",
-      "sha256": "df3f050e263c5c962efa7f8f4ac94717e380124524a1cb0b63ec49782243efee"
+      "sha256": "8eabb040da34941e7847eb94cc2c033f159399a140dac2a8e21a5e4a628ddf13"
     },
     {
       "path": "vectors/example.json",
-      "sha256": "eab338e4ef5e6ac28f2e8682139f2c3f46b9fbee23949a9307485ace389a0a28"
+      "sha256": "7963e2bb260f661c024f15f30772d309a6c33c61117c24de011b0f06994305bf"
     },
     {
       "path": "vectors/expiry.json",
-      "sha256": "362de761b578506a4b5ad06cd06201c506f43ca7ad28c0d6a3df671eeffdc7be"
+      "sha256": "352cb0764da18c519531e81d379b49550911125c0b524401922ffd70fe141878"
     },
     {
       "path": "vectors/fee.json",
-      "sha256": "56239c38c9b5ccb4fc930da0c07b204ce489cf7e85eae60d334ea20a0be853e3"
+      "sha256": "b5df55ca8bc35c7aed222b9d8c0b2ccbcc3d7dfa63458fd249060469ce6ef374"
     },
     {
       "path": "vectors/funding.json",
-      "sha256": "eec2981d0a0f35ee2cb2f2c1aa7948c17c59ea68f16069efc7215e184dee3196"
+      "sha256": "df872285e845e353a86aee76bd909641e77fe6ad634d1d9ba8cea51d38919293"
     },
     {
       "path": "vectors/idempotency.json",
-      "sha256": "fef372fa2901caf6c71775e902cb9cb67579f4789e42b18bdf65229a7b2df0b6"
+      "sha256": "850e65951d78748c5c67cb4fc2e7ea52002c8f3d0958be66f0f788b9c7dba7b3"
     },
     {
       "path": "vectors/nested-calls.json",
-      "sha256": "c1cdcff5a08ce7eb6a86aabc881c0ea64b4ec339f9093e65d91c7e8aa9f3e3d2"
+      "sha256": "b80eb2240c715ed7b9595abe37526aa85628404073fc6ff7b24a4df40bd18c56"
     },
     {
       "path": "vectors/pause.json",
-      "sha256": "f91665f55c0a334a686a0730338c6d6c2a9d9d8ecd207e59e81aa76efcb87bdc"
+      "sha256": "3c2bd4b18f4857d0476c6767c21bc7c0f709e1ef3d7c9fec5c953af7ce9a328e"
     },
     {
       "path": "vectors/payout-lifecycle.json",
-      "sha256": "98b93c23d38e50cb454b32aff5519312097c97cf536026388d49cbbc2c534f76"
+      "sha256": "8ae7bcb2bdfdad3a49210d5c2b061038968c91faf8b6a43a0927f2f862ecabe8"
     },
     {
       "path": "vectors/per-payment-cap.json",
-      "sha256": "8a557391fb4845fa4b44872fef90fc14e805c56b442f8e0b03f1dc3c28ad6fd7"
+      "sha256": "dda19619d1483d4a71281efb00e8adcab14e93a623b80ef4ecc811fbbae687eb"
     },
     {
       "path": "vectors/precedence.json",
-      "sha256": "e4739a04b42d2a3a7361d9b2972e19165473844cea3022b76f4a9e6b1cac1d36"
+      "sha256": "c1d799602dd174b996918107cd998dca4b0356748b6b815b8ca20ec0c507301f"
     },
     {
       "path": "vectors/principal.json",
-      "sha256": "a7beef073db2411231060a378795aa54df09e4983e0a258fd20cf440acc1d44d"
+      "sha256": "4833b58b132be5454e6a0cb8f98c5f92644dd67e2f0e4b027ec96d2445fb7bb7"
     },
     {
       "path": "vectors/recipients.json",
-      "sha256": "873dd6d1f95ee09dc74ef996312c68a8c6e40f67a0903c125e16710544926b12"
+      "sha256": "c64fbb33702c1f4049ebdbd3ba92d10eeb24a5e8cd7548f68e63dcd8dd1efa87"
     },
     {
       "path": "vectors/recover-token.json",
-      "sha256": "dc2c22e1b60cf38e6e07ab7e40404c8906db269cbdc6dc1ee40aab16a168d30f"
+      "sha256": "1c3a49c01b3fff990f71af75d4f3506321b14ab0ee419bb7d21df633e434ebfe"
     },
     {
       "path": "vectors/recovery.json",
-      "sha256": "3ebe6357c449725dd7c0928ace56911c11488eb50907bb4615e33b861a3d0526"
+      "sha256": "208d229f19235e59dd1e42f8309cda6dfa78cdf11b1c0b5ac62d1fa0b06ad9cd"
     },
     {
       "path": "vectors/revoke.json",
-      "sha256": "a8aaf14e203a3f612ddc4a3bd9cf0ff29469053f72b6485a30ab5e492d3d0423"
+      "sha256": "a173f3ba47cffc20a5546b144ae8906d3471bac0d2041f94907df568e6261fa1"
     },
     {
       "path": "vectors/roles.json",
-      "sha256": "3d602d9a3cc8beae80e3366040bb7442965011fe4d456507757aaa8bb50a9153"
+      "sha256": "7669a347cb6023a78b427683347cfa0e8b47f9fc88f4db6d25cc4cf7dbfff2d6"
     },
     {
       "path": "vectors/schema.json",
-      "sha256": "478ec2c2a6be8b92f7d5e87288929d4d2c2bee7c04989394434429498932e283"
+      "sha256": "8a9092b874390b1c7fc428228647fbf7b1668eff98f119636335e5ddca93f14a"
     },
     {
       "path": "vectors/split-totals.json",
-      "sha256": "c265b00c0372c7a95ded9c3da0eec766985aae748972bab823d04d73f3eb7ca5"
+      "sha256": "d8d53c32191e4067c4aceeb7ba58fffbd39d93d89381609e78c976d5da2c49c4"
     },
     {
       "path": "vectors/sweep.json",
-      "sha256": "ded37a0af100612348a4163fb6ea5b697af9691b1e6c0dd7337a2bf9d24ab4c2"
+      "sha256": "f57c16c84cef2d7338c6e0666478d4bb4187c76d28198853c8666513937ca7dd"
     },
     {
       "path": "vectors/unexpected-asset.json",
-      "sha256": "b78efc807da5302fad01459a692dc30cab2e08bdac2cc347de994b486def848f"
+      "sha256": "784eee17ebfc038a72a7620ea4b5c02f2dabd22066c8704da67f41cf5faaaacc"
     },
     {
       "path": "vectors/withdrawal.json",
-      "sha256": "d1d5ff6761f8f60d2bae885026f92d0d936970cda6ca7edf634029ec8cb44793"
+      "sha256": "9062388f17830b39779d5da11510ae28be2cb575ad2bb8dca81b7e5b84bb7270"
     }
   ]
 }

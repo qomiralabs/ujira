@@ -176,6 +176,29 @@ export interface IdentityRecord {
   readonly status: IdentityStatus;
   readonly assurance: Assurance;
   readonly expiresAt: UnixSeconds | null;
+  /** The provider's id for the verification, such as Self's verification id. */
+  readonly providerRef: string | null;
+  /** The provider's own word for the last result, kept for support. Never branched on. */
+  readonly providerStatus: string | null;
+  /** The provider flow and version that produced the result. */
+  readonly flowRef: string | null;
+  /** Hex HMAC of the provider's nullifier. The nullifier itself is never stored. */
+  readonly nullifierHmac: string | null;
+  /** The open session the recipient was sent to, reused until it expires. */
+  readonly pendingSession: PendingSession | null;
+  /** A code such as duplicate_person or session_expired, never a provider message. */
+  readonly failureReason: string | null;
+  /** Hex SHA-256 of the last raw result body. The body itself is discarded. */
+  readonly rawSha256: string | null;
+  /** When the provider completed the result last applied, to drop older ones. */
+  readonly lastCheckedAt: UnixSeconds | null;
+}
+
+export interface PendingSession {
+  readonly sessionId: string;
+  /** The provider's hosted page. Carries no personal data. */
+  readonly url: string;
+  readonly expiresAt: UnixSeconds;
 }
 
 export interface ProjectIdentitySettings {

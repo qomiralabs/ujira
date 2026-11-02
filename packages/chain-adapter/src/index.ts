@@ -19,6 +19,7 @@ export {
   LiquidityUnavailableError,
   MandateRuleError,
   MandateUntrustedError,
+  MemoOnContractCallError,
   QuoteExpiredError,
   QuoteUnavailableError,
   RailActionRequiredError,
@@ -66,6 +67,7 @@ export { pinnedKeys, verifyPinnedAddresses } from './key-ref.js';
 export type { PinnedKey } from './key-ref.js';
 export { NETWORK_IDS, chainOf, isNetworkId } from './networks.js';
 export type { NetworkId, StellarNetworkId } from './networks.js';
+export { RAIL_IDS, isRailId } from './rails.js';
 export { RECEIPT_HASH_FORMATS, formatReceiptRef, parseReceiptRef } from './receipt-ref.js';
 export type { ReceiptRefParts } from './receipt-ref.js';
 export { createChainAdapterRegistry } from './registry.js';
@@ -87,5 +89,14 @@ export type {
   RentWatch,
   RentWatchOptions,
 } from './stellar/rent-watch.js';
+export { bisectRounds, planBatch } from './bisect.js';
+export type {
+  BatchAlert,
+  BatchPlan,
+  BatchPlanOptions,
+  BatchSimulation,
+  BatchSimulationPort,
+} from './bisect.js';
+export { tenantRefOf, tenantTagOf } from './tenant-ref.js';
 export { CHAIN_ADAPTER_INTERFACE_VERSION } from './types.js';
 export type * from './types.js';

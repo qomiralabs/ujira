@@ -40,7 +40,7 @@ export type CountryCode = Brand<string, 'CountryCode'>;
 /** ujira:tx:v1:{caip2}:{txHash}:{eventIndex}. Built and read by receipt-ref.ts. */
 export type ReceiptRef = Brand<string, 'ReceiptRef'>;
 
-/** Every request carries the tenant, checked against the mandate's tenant reference on chain. */
+/** Every request carries the tenant, checked against the mandate's tenant tag on chain. */
 export interface TenantScope {
   readonly principalId: Uuid;
   readonly projectId: Uuid;
@@ -407,6 +407,19 @@ export interface AdapterAlerts {
     readonly detail: string;
     readonly correlationId: string;
   }): void;
+  /**
+   * An execute batch hit the contract events limit, which batches within
+   * the spec limits never should, or held a payout whose agent was removed,
+   * which the payout's principal is told about.
+   */
+  batch(e: {
+    readonly network: NetworkId;
+    readonly kind: 'events_limit' | 'agent_removed';
+    readonly scope: TenantScope;
+    /** The removed agent's payout; null for the events limit. */
+    readonly payoutId: PayoutId | null;
+    readonly correlationId: string;
+  }): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -478,7 +491,6 @@ export interface MandateConfigInput {
   /** Resolved to the network's token contract by the adapter. */
   readonly asset: TokenAsset;
   readonly recipientMode: 'allowlist' | 'attested' | 'both';
-  readonly tenantRef: Bytes32;
   readonly agents: readonly ChainAddress[];
   readonly approvers: readonly ChainAddress[];
   readonly approvalsRequired: number;
@@ -496,6 +508,12 @@ export interface MandateConfigInput {
 
 /** The mandate's config view: the creation input plus what the factory fixed. */
 export interface MandateConfigView extends MandateConfigInput {
+  /**
+   * The tag the mandate stores: its tenant's reference hashed with its own
+   * address. The adapter computes it from the request's scope, so the
+   * reference itself never reaches the chain and is not part of the config.
+   */
+  readonly tenantTag: Bytes32;
   readonly factory: ChainAddress;
   readonly feeAddress: ChainAddress;
   readonly policyEpoch: number;
@@ -578,6 +596,13 @@ export interface MandateActionRequest {
    * through the port.
    */
   readonly signer: SignerRef;
+  /**
+   * The address the call names as its caller, where it takes one. It must be
+   * the signer's own address: the adapter refuses any other before it
+   * simulates, so an action can never be built for one member and signed by
+   * another. Defaults to the signer's address.
+   */
+  readonly caller?: ChainAddress;
 }
 
 /** Human readable and chain neutral, shown before signing. Amounts are core values. */
@@ -646,8 +671,8 @@ export interface MandateSnapshot {
   readonly mandate: MandateRef;
   /** Created by a factory the config trusts for this mandate version. */
   readonly trustedFactory: boolean;
-  /** The on chain tenant reference matches the request scope. */
-  readonly tenantRefMatches: boolean;
+  /** The tag the mandate stores is the one recomputed from the request scope and its address. */
+  readonly tenantTagMatches: boolean;
   readonly asset: TokenAsset;
   readonly config: MandateConfigView;
   readonly state: MandateState;

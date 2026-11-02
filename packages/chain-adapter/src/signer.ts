@@ -58,6 +58,16 @@ export type SignPayload =
       readonly xdr: string;
     }
   | {
+      /**
+       * The fee sponsor's own transaction that opens or activates an account
+       * with its reserves sponsored: begin sponsoring, optionally create the
+       * account, add the payout asset's trust line, end sponsoring.
+       */
+      readonly kind: 'stellar_reserve_sandwich';
+      readonly network: NetworkId;
+      readonly xdr: string;
+    }
+  | {
       readonly kind: 'stellar_auth_entry';
       readonly network: NetworkId;
       readonly entryXdr: string;
