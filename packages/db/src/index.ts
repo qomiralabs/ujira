@@ -83,7 +83,14 @@ export {
   routingConfig,
   type ExecutorLease,
   type RoutingConfig,
+  type RoutingConfigVersion,
 } from './repositories/ops.js';
+export {
+  RoutingConfigReadOnlyError,
+  createRoutingConfigStore,
+  type PostgresRoutingConfigStore,
+  type RoutingConfigRow,
+} from './routing-config-store.js';
 export {
   FEE_ESTIMATE_OPS,
   feeEstimates,
