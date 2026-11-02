@@ -198,6 +198,19 @@ const recipientActivation = z
 const fees = z
   .strictObject({
     uncoveredNetworkCost: z.strictObject({ monthlyBudgetStroops: stroops }),
+    networkFee: z.strictObject({ marginBps: bps.default(1_200) }).prefault({}),
+    xlmRate: z
+      .strictObject({
+        maxAgeSeconds: z.int().min(1).max(86_400).default(60),
+        maxDeviationBps: bps.default(200),
+        // XLM has no market price on testnet, so one is configured. Text, so
+        // no rate passes through a float.
+        testnetReferenceRate: z
+          .string()
+          .regex(/^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,18})?$/)
+          .optional(),
+      })
+      .prefault({}),
   })
   .prefault({ uncoveredNetworkCost: { monthlyBudgetStroops: '0' } });
 

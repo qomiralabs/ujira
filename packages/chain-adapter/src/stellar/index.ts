@@ -24,6 +24,7 @@ export {
 export type { ExtensionGroup, ExtensionPolicy, RestoredEntry } from './restore-policy.js';
 export { createStellarRpc } from './rpc.js';
 export { accountBalance } from './tx.js';
+export { horizonDexSource, reflectorOracleSource } from './xlm-rate-sources.js';
 export type {
   JsonRpcOptions,
   RpcLatestLedger,

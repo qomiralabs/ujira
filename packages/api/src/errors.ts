@@ -101,6 +101,8 @@ export const ADAPTER_ERROR_MAP: Readonly<Record<ChainAdapterErrorCode, ProblemCo
     QUOTE_EXPIRED: 'QUOTE_UNAVAILABLE',
     QUOTE_UNAVAILABLE: 'QUOTE_UNAVAILABLE',
     LIQUIDITY_UNAVAILABLE: 'QUOTE_UNAVAILABLE',
+    // The price of the native asset is internal, and passes when a source returns.
+    RATE_UNAVAILABLE: 'CHAIN_UNAVAILABLE',
     RAIL_UNAVAILABLE: 'CHAIN_UNAVAILABLE',
     RAIL_REJECTED: 'INTERNAL',
     RAIL_TIMEOUT: 'CHAIN_UNAVAILABLE',
