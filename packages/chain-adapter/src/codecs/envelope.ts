@@ -11,6 +11,8 @@ import { xdr } from '@stellar/stellar-base';
 import type { NetworkId } from '../networks.js';
 
 import { checkNetwork, networkIdOf, sha256 } from './network.js';
+import { operationDetail } from './operations.js';
+import type { DecodedOperationDetail } from './operations.js';
 import { accountOf, bytes, checkSignature, invalid, readXdr } from './xdr.js';
 import type { DecodedAccount, Ed25519SignatureParts } from './xdr.js';
 
@@ -24,6 +26,8 @@ export interface DecodedOperation {
   readonly type: string;
   /** The operation's own source, or null when the transaction's applies. */
   readonly source: DecodedAccount | null;
+  /** What it does, for the operation types a signer's policy reads. */
+  readonly detail: DecodedOperationDetail;
 }
 
 export interface DecodedSignature {
@@ -115,7 +119,11 @@ function decodeV1(envelope: xdr.TransactionV1Envelope, network: NetworkId): Deco
     timeBounds: timeBoundsOf(tx.cond()),
     operations: tx.operations().map((op) => {
       const source = op.sourceAccount();
-      return { type: op.body().switch().name, source: source ? accountOf(source) : null };
+      return {
+        type: op.body().switch().name,
+        source: source ? accountOf(source) : null,
+        detail: operationDetail(op, FIELD),
+      };
     }),
     resourceFee: ext.switch() === 1 ? BigInt(ext.sorobanData().resourceFee().toString()) : null,
     signatures: signaturesOf(envelope.signatures()),

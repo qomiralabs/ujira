@@ -21,7 +21,7 @@
     "format:check": "prettier --config .prettierrc.json --no-editorconfig --ignore-path .prettierignore --check .",
     "invisible:check": "node scripts/check-invisible-characters.ts",
     "licenses:check": "node scripts/check-licenses.ts",
-    "lint": "node scripts/check-workspace-scripts.ts && eslint --config eslint.config.js --max-warnings 0 .",
+    "lint": "node scripts/check-workspace-scripts.ts && node scripts/lint.ts --max-warnings 0",
     "metadata:check": "node scripts/check-embedded-metadata.ts",
     "metadata:strip": "node scripts/strip-embedded-metadata.ts",
     "page:report": "node scripts/check-page-performance.ts apps/dashboard/lighthouserc.json apps/dashboard/.lighthouseci",

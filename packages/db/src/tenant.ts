@@ -90,9 +90,13 @@ export function beginWithTenant(context: TenantContext): string {
   const principalId = checkedUuid(context.principalId, 'principalId');
   const projectId = checkedUuid(context.projectId, 'projectId');
   const scope = checkedScope(context.scope);
+  // Scope all reads across the principal's projects and writes nothing. The
+  // policies already refuse its writes; a read only transaction refuses them
+  // before a policy is even consulted, and says why.
+  const begin = scope === 'all' ? 'begin read only;' : 'begin;';
   // Only the values the checks returned reach the statement.
   return [
-    'begin;',
+    begin,
     'select',
     `set_config('ujira.principal_id', '${principalId}', true),`,
     `set_config('ujira.project_id', '${projectId}', true),`,
