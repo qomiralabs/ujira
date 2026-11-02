@@ -44,6 +44,16 @@ export {
   type TokenRecord,
 } from './repositories/entry-points.js';
 export {
+  ledger,
+  type LedgerAccount,
+  type LedgerAccountKind,
+  type LedgerEntry,
+  type LedgerEntryInput,
+  type MandateState,
+  type PostResult,
+  type Reconciliation,
+} from './repositories/ledger.js';
+export {
   executors,
   routingConfig,
   type ExecutorLease,

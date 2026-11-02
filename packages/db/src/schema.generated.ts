@@ -121,6 +121,59 @@ export interface UjiraFundingSources {
   project_id: string;
 }
 
+export interface UjiraLedgerAccounts {
+  asset: string;
+  balance: Generated<Numeric>;
+  chain: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  kind: string;
+  last_seq: Generated<Int8>;
+  mandate_instance_id: string;
+  principal_id: string;
+  project_id: string;
+  scale: number;
+}
+
+export interface UjiraLedgerEntries {
+  account_id: string;
+  account_seq: Int8;
+  amount: Numeric;
+  balance_after: Numeric;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  journal_id: string;
+  principal_id: string;
+  project_id: string;
+}
+
+export interface UjiraLedgerJournals {
+  chain_event_id: string | null;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  mandate_instance_id: string;
+  principal_id: string;
+  project_id: string;
+  reverses_journal_id: string | null;
+}
+
+export interface UjiraLedgerReconciliation {
+  ledger: Int8 | null;
+  ledger_balance: Numeric | null;
+  ledger_committed: Numeric | null;
+  ledger_pending: Numeric | null;
+  ledger_spent: Numeric | null;
+  mandate_instance_id: string | null;
+  matches: boolean | null;
+  principal_id: string | null;
+  project_id: string | null;
+  state_balance: Numeric | null;
+  state_committed: Numeric | null;
+  state_pending: Numeric | null;
+  state_spent: Numeric | null;
+  taken_at: Timestamp | null;
+}
+
 export interface UjiraMandateInstanceRoles {
   address: string;
   granted_event_id: string;
@@ -152,6 +205,19 @@ export interface UjiraMandates {
   principal_id: string;
   project_id: string;
   updated_at: Generated<Timestamp>;
+}
+
+export interface UjiraMandateStateSnapshots {
+  balance: Numeric;
+  committed: Numeric;
+  id: Generated<string>;
+  ledger: Int8;
+  mandate_instance_id: string;
+  pending: Numeric;
+  principal_id: string;
+  project_id: string;
+  spent: Numeric;
+  taken_at: Generated<Timestamp>;
 }
 
 export interface UjiraMigrations {
@@ -212,8 +278,13 @@ export interface Schema {
   'ujira.currency_scales': UjiraCurrencyScales;
   'ujira.deposits': UjiraDeposits;
   'ujira.funding_sources': UjiraFundingSources;
+  'ujira.ledger_accounts': UjiraLedgerAccounts;
+  'ujira.ledger_entries': UjiraLedgerEntries;
+  'ujira.ledger_journals': UjiraLedgerJournals;
+  'ujira.ledger_reconciliation': UjiraLedgerReconciliation;
   'ujira.mandate_instance_roles': UjiraMandateInstanceRoles;
   'ujira.mandate_instances': UjiraMandateInstances;
+  'ujira.mandate_state_snapshots': UjiraMandateStateSnapshots;
   'ujira.mandates': UjiraMandates;
   'ujira.principal_members': UjiraPrincipalMembers;
   'ujira.principals': UjiraPrincipals;

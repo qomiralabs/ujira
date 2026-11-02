@@ -169,6 +169,7 @@ describe('roles', () => {
       'ujira_app',
       'ujira_auth',
       'ujira_fn_instances',
+      'ujira_fn_ledger',
       'ujira_fn_principals',
       'ujira_fn_tokens',
       'ujira_indexer',
@@ -183,6 +184,7 @@ describe('roles', () => {
     const nologin = new Set([
       'ujira_owner',
       'ujira_fn_instances',
+      'ujira_fn_ledger',
       'ujira_fn_principals',
       'ujira_fn_tokens',
       'ujira_signer_read',
@@ -205,6 +207,8 @@ describe('roles', () => {
       { fn: 'ujira.attestation_pending(bytea)', owner: 'ujira_signer_read' },
       { fn: 'ujira.authenticate_token(text)', owner: 'ujira_fn_tokens' },
       { fn: 'ujira.create_principal(text,text,uuid,text)', owner: 'ujira_fn_principals' },
+      { fn: 'ujira.ledger_balanced()', owner: 'ujira_fn_ledger' },
+      { fn: 'ujira.ledger_stamp()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.resolve_mandate_instance(text,text)', owner: 'ujira_fn_instances' },
     ]);
     // Each holds only what its one function needs, and never CREATE.
@@ -218,6 +222,9 @@ describe('roles', () => {
     );
     expect(rights.rows).toEqual([
       { grantee: 'ujira_fn_instances', object: 'mandate_instances', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_ledger', object: 'ledger_accounts', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_ledger', object: 'ledger_accounts', privilege: 'UPDATE' },
+      { grantee: 'ujira_fn_ledger', object: 'ledger_entries', privilege: 'SELECT' },
       { grantee: 'ujira_fn_principals', object: 'principal_members', privilege: 'INSERT' },
       { grantee: 'ujira_fn_principals', object: 'principals', privilege: 'INSERT' },
       { grantee: 'ujira_fn_principals', object: 'projects', privilege: 'INSERT' },
