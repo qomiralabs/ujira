@@ -79,5 +79,14 @@ export {
 } from './retry.js';
 export type { AlertKind, RetryDecision, RetryRule, SignerErrorCode } from './retry.js';
 export type * from './signer.js';
+export { bisectRounds, planBatch } from './bisect.js';
+export type {
+  BatchAlert,
+  BatchPlan,
+  BatchPlanOptions,
+  BatchSimulation,
+  BatchSimulationPort,
+} from './bisect.js';
+export { tenantRefOf, tenantTagOf } from './tenant-ref.js';
 export { CHAIN_ADAPTER_INTERFACE_VERSION } from './types.js';
 export type * from './types.js';

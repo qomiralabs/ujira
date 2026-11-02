@@ -8,6 +8,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./service": {
+      "types": "./dist/service/index.d.ts",
+      "default": "./dist/service/index.js"
     }
   },
   "files": [
@@ -20,8 +24,10 @@
     "test": "vitest run --coverage"
   },
   "dependencies": {
+    "@hono/node-server": "2.1.5",
     "@noble/curves": "2.4.0",
     "@ujira/chain-adapter": "workspace:*",
+    "hono": "4.13.13",
     "zod": "4.6.7"
   }
 }
