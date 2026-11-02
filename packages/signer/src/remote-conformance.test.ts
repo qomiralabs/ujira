@@ -8,7 +8,7 @@
 
 import { afterAll } from 'vitest';
 
-import { LocalAttesterSigner, LocalSigner, RemoteSigner } from './index.js';
+import { LocalSigner, RemoteAttesterSigner, RemoteSigner } from './index.js';
 import {
   backendOnlyPolicy,
   createSignerService,
@@ -38,12 +38,10 @@ describeSignerProvider('RemoteSigner', async () => {
     hostname: '127.0.0.1',
     requestTimeoutMs: 30_000,
   });
-  return {
-    provider: new RemoteSigner({
-      baseUrl: `http://127.0.0.1:${String(running.port)}`,
-      token: CALLER_TOKEN,
-      timeoutMs: 30_000,
-    }),
-    attester: new LocalAttesterSigner({ seed: TEST_SEED, nodeEnv: 'test' }),
+  const client = {
+    baseUrl: `http://127.0.0.1:${String(running.port)}`,
+    token: CALLER_TOKEN,
+    timeoutMs: 30_000,
   };
+  return { provider: new RemoteSigner(client), attester: new RemoteAttesterSigner(client) };
 });

@@ -11,6 +11,7 @@
 export { LOCAL_SEED_VARIABLE } from './keys.js';
 export { LocalAttesterSigner, LocalSigner } from './local-signer.js';
 export type { LocalSignerOptions } from './local-signer.js';
+export { RemoteAttesterSigner } from './remote-attester.js';
 export { RemoteSigner } from './remote.js';
 export type { RemoteSignerOptions } from './remote.js';
 export { LOCAL_PROVIDER, verifySignerStartup } from './startup.js';

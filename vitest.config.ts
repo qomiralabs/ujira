@@ -56,7 +56,7 @@ export default defineConfig({
           globalSetup: ['src/testing/global-setup.ts'],
         },
         // The conformance suites sign and verify hundreds of times.
-        '@ujira/signer': { testTimeout: 60_000 },
+        '@ujira/signer': { testTimeout: 60_000, hookTimeout: 60_000 },
         '@ujira/payouts': {
           include: ['src/**/*.test.ts', 'spikes/**/*.test.ts'],
           hookTimeout: 180_000,
