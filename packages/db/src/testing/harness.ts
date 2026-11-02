@@ -53,6 +53,7 @@ export const LOGIN_ROLES = [
   'ujira_retention',
   'ujira_auth',
   'ujira_indexer',
+  'ujira_ops',
 ] as const;
 
 export type LoginRole = (typeof LOGIN_ROLES)[number];

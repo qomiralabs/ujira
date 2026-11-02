@@ -12,6 +12,10 @@
     "./service": {
       "types": "./dist/service/index.d.ts",
       "default": "./dist/service/index.js"
+    },
+    "./aws-kms": {
+      "types": "./dist/aws-kms/index.d.ts",
+      "default": "./dist/aws-kms/index.js"
     }
   },
   "files": [
@@ -24,6 +28,7 @@
     "test": "vitest run --coverage"
   },
   "dependencies": {
+    "@aws-sdk/client-kms": "3.1152.0",
     "@hono/node-server": "2.1.5",
     "@noble/curves": "2.4.0",
     "@ujira/chain-adapter": "workspace:*",

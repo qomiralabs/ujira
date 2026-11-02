@@ -50,7 +50,7 @@ export const config = z
     principal: actor,
     asset: z.enum(['asset', 'other_token']),
     recipient_mode: z.enum(['ALLOWLIST', 'ATTESTED', 'BOTH']),
-    tenant_ref: bytes32,
+    tenant_tag: bytes32,
     agents: z.array(actor),
     approvers: z.array(actor),
     approvals_required: u32,

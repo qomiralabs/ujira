@@ -69,7 +69,7 @@ describe('readMandate', { timeout: 30_000 }, () => {
     const t = setup();
     const snapshot = await t.adapter.readMandate({ scope: t.scope, mandate: t.mandate }, OPTS);
     expect(snapshot.trustedFactory).toBe(true);
-    expect(snapshot.tenantRefMatches).toBe(true);
+    expect(snapshot.tenantTagMatches).toBe(true);
     expect(snapshot.asset).toBe('USDC');
     expect(snapshot.config.factory.value).toBe(FIXTURE_FACTORY);
     expect(snapshot.config.principal.value).toBe(
@@ -79,7 +79,9 @@ describe('readMandate', { timeout: 30_000 }, () => {
       'GAKNCMAXVSDXSSCG544P4E4CADBRGDHCCQX75U5KCTPHHOGDW6RPQQFG',
     ]);
     expect(snapshot.config.recipientMode).toBe('allowlist');
-    expect(snapshot.config.tenantRef).toBe(tenantRefOf(t.scope));
+    expect(snapshot.config.tenantTag).toBe(
+      tenantTagOf(tenantRefOf(t.scope), addressXdr(t.mandate.address.value)),
+    );
     expect(snapshot.config.approvalsRequired).toBe(1);
     expect(snapshot.config.limits.totalBudget).toMatchObject({
       amount: 10_000_000_000n,

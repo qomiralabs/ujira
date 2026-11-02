@@ -48,7 +48,10 @@ async function main(): Promise<void> {
     // what it is where the query layer imports it.
     const generated = readFileSync(OUT_FILE, 'utf8')
       .replace(/^\/\*\*[\s\S]*?\*\/\n/, '')
-      .replace(/\bexport interface DB\b/, 'export interface Schema');
+      .replace(/\bexport interface DB\b/, 'export interface Schema')
+      // The first jsonb column brings this object type, written in a form the
+      // lint rules refuse, and generated code gets no exception from them.
+      .replace(/export type JsonObject = \{([\s\S]*?)\n\};/, 'export interface JsonObject {$1\n}');
     if (!generated.includes('export interface Schema')) {
       throw new Error('kysely-codegen did not produce the root interface this expected to rename');
     }
