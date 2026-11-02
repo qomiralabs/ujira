@@ -5,6 +5,7 @@
 // store's own error text reaches a log through them.
 
 export const MANDATE_POLICY_ERROR_CODES = Object.freeze([
+  'CUSTODY_GUARD',
   'OPERATIONS_GUARDIAN_NOT_CONFIGURED',
   'POLICY_STORE_TIMEOUT',
   'POLICY_STORE_FAILED',
@@ -15,6 +16,22 @@ export type MandatePolicyErrorCode = (typeof MANDATE_POLICY_ERROR_CODES)[number]
 /** Base of every mandate policy failure. Branch on `code`. */
 export abstract class MandatePolicyError extends Error {
   abstract readonly code: MandatePolicyErrorCode;
+}
+
+/**
+ * A mandate in attested only mode would have an agent key UJIRA holds. UJIRA
+ * also runs the attester, so one compromise of its signing path could then
+ * send funds anywhere; the principal's allowlist must bind the destination.
+ * The fix is a mandate in allowlist or both mode, or the principal's own
+ * agent key.
+ */
+export class CustodyGuardError extends MandatePolicyError {
+  override readonly name = 'CustodyGuardError';
+  readonly code = 'CUSTODY_GUARD';
+
+  constructor() {
+    super('A mandate with a UJIRA held agent key must use allowlist or both mode');
+  }
 }
 
 /**
