@@ -15,6 +15,13 @@ export type {
 } from './client.js';
 export { DEFAULT_KMS_REGION, KMS_REGION_VARIABLE, readKmsEnvironment } from './config.js';
 export type { KmsEnvironment } from './config.js';
+export { AwsKmsKeyManager, KEY_MANAGER_IAM_ACTIONS, PII_KEK_VARIABLE } from './key-manager.js';
+export type {
+  AwsKmsKeyManagerOptions,
+  KeyManager,
+  WrapContext,
+  WrappedKey,
+} from './key-manager.js';
 export { configKeyResolver } from './keys.js';
 export type { ExtraKmsKey } from './keys.js';
 export { awsKmsClient } from './sdk-client.js';
