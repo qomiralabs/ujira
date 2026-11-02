@@ -32,7 +32,7 @@ import { describe, expect, it } from 'vitest';
 import { parseNetworksConfig } from '../config.js';
 import { SubmissionRejectedError, isChainAdapterError } from '../errors.js';
 import type { ExternalSignerRole } from '../signer.js';
-import { tenantRefOf } from '../tenant-ref.js';
+import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
 import type {
   AdapterPorts,
   Bytes32,
@@ -44,6 +44,7 @@ import type {
   UnixSeconds,
   Uuid,
 } from '../types.js';
+import { addressXdr } from './address-xdr.js';
 import { StellarMandateAdapter } from './mandate-adapter.js';
 import { createMemorySigningRequestStore } from './requests.js';
 import { createStellarRpc } from './rpc.js';
@@ -299,7 +300,6 @@ function harness() {
         principal,
         asset: 'USDC',
         recipientMode: 'allowlist',
-        tenantRef: tenantRefOf(scope),
         agents: [at(agent)],
         approvers: [at(approver)],
         approvalsRequired: 1,
@@ -393,7 +393,9 @@ describe.skipIf(!ENABLED)('Stellar mandate operations on testnet', () => {
       );
     }
     expect(snapshot.config.principal.value).toBe(principal.publicKey());
-    expect(snapshot.config.tenantRef).toBe(tenantRefOf(scope));
+    expect(snapshot.config.tenantTag).toBe(
+      tenantTagOf(tenantRefOf(scope), addressXdr(mandate.address.value)),
+    );
     expect(snapshot.config.factory.value).toBe(FACTORY);
     expect(snapshot.state.paused).toBe(false);
 

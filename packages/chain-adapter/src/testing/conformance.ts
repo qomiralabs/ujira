@@ -77,8 +77,6 @@ export interface AdapterHarness {
   fund(to: ChainAddress, amount: bigint): Promise<void>;
   balance(of: ChainAddress): Promise<bigint>;
   advance(seconds: bigint): Promise<void>;
-  /** The tenant reference the mandate stores for a scope. */
-  tenantRef(scope: TenantScope): Bytes32;
   /** Registers a destination as a recipient method and returns its ID. */
   recipientMethod(destination: Destination): Uuid;
   /** Where the factory puts the mandate a principal creates with a salt. */
@@ -204,7 +202,6 @@ export async function deployMandate(
     principal,
     asset: 'USDC',
     recipientMode: 'allowlist',
-    tenantRef: h.tenantRef(h.scope),
     agents: [h.managedAgent.address],
     approvers,
     approvalsRequired: approvers.length,
@@ -420,7 +417,7 @@ export function describeChainAdapter(
         const { h, m } = await setup({ approvers: 1, recovery: 2 });
         const snap = await h.adapter.readMandate({ scope: h.scope, mandate: m.ref }, OPTS);
         expect(snap.trustedFactory).toBe(true);
-        expect(snap.tenantRefMatches).toBe(true);
+        expect(snap.tenantTagMatches).toBe(true);
         expect(snap.config.principal).toEqual(m.principal);
         expect(snap.config.approvers).toEqual(m.approvers);
         expect(snap.config.recovery).toEqual(m.recovery);

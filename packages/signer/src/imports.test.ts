@@ -37,6 +37,11 @@ function inService(file: string): boolean {
   return path.relative(SRC, file).startsWith(`service${path.sep}`);
 }
 
+// The vendor SDK loads only in the KMS folder, so nothing else ever carries it.
+function inKms(file: string): boolean {
+  return path.relative(SRC, file).startsWith(`aws-kms${path.sep}`);
+}
+
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(dir, entry.name);
@@ -59,8 +64,12 @@ describe('the signer imports', () => {
       for (const match of text.matchAll(/^\s*(?:import|export)\b[^'"]*?from\s+'([^']+)'/gm)) {
         const spec = match[1] ?? '';
         const service = inService(file);
-        const relative = spec.startsWith('./') || (service && spec.startsWith('../'));
-        const allowed = SHIPPED.has(spec) || (service && SERVICE_ONLY.has(spec));
+        const kms = inKms(file);
+        const relative = spec.startsWith('./') || ((service || kms) && spec.startsWith('../'));
+        const allowed =
+          SHIPPED.has(spec) ||
+          (service && SERVICE_ONLY.has(spec)) ||
+          (kms && spec === '@aws-sdk/client-kms');
         // Outside the service folder nothing reaches into it.
         const intoService = !service && /(^|\/)service(\/|$)/.test(spec);
         if ((!relative && !allowed) || intoService) {
