@@ -10,24 +10,41 @@ export {
   SweepTimeoutError,
 } from './errors.js';
 export type { FundingErrorCode } from './errors.js';
-export { MemorySweepStore, RecordingSweepPrompts, RecordingSweepReports } from './memory.js';
-export { SWEEP_STATUSES, reconcileSweep, recordDeposit, submitSweep } from './sweep.js';
+export {
+  MemorySweepStore,
+  RecordingSweepFunding,
+  RecordingSweepPrompts,
+  RecordingSweepReports,
+} from './memory.js';
+export {
+  FAILED_EXPIRY_MARGIN_MS,
+  acceptSweepSignature,
+  cancelSweep,
+  noteObservedTransfer,
+  reconcileSweep,
+  recordDeposit,
+  retrySweep,
+  sendSweep,
+} from './sweep.js';
 export type {
   DepositEvent,
+  ObservedTransfer,
+  SweepAlertKind,
   SweepChain,
   SweepChainResult,
+  SweepEnvelope,
   SweepFailureReason,
-  SweepFundingReference,
+  SweepFunding,
+  SweepFundingRecord,
   SweepKey,
   SweepOptions,
-  SweepPatch,
   SweepPorts,
   SweepPrompt,
   SweepPrompts,
-  SweepRecord,
   SweepReports,
+  SweepRetry,
+  SweepRoute,
   SweepScope,
-  SweepStatus,
   SweepStore,
   SweepTransferEvent,
 } from './sweep.js';

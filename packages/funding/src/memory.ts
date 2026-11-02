@@ -1,78 +1,146 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-// The ports in memory, for tests and until the funding_sweeps table lands.
-// The store enforces what the table must: one row per chain and deposit
-// operation id, tenant checked on every read and write, and a state move
-// only from the state the caller named.
+// The ports in memory, for tests and for services that run with no database.
+// The store holds what funding_sweeps holds: one row per chain and deposit
+// operation across every tenant, only a tenant's own rows visible, the table's
+// moves and no others, and failing with no ledger refused until the time bound
+// is past by the margin.
 
-import { chainOf } from '@ujira/chain-adapter';
+import { randomUUID } from 'node:crypto';
+
+import type { FundingSweep, FundingSweepMove, NewFundingSweep } from '@ujira/db';
 
 import { SweepStateError } from './errors.js';
+import { FAILED_EXPIRY_MARGIN_MS } from './sweep.js';
 import type {
-  SweepKey,
-  SweepPatch,
+  SweepFunding,
+  SweepFundingRecord,
   SweepPrompt,
   SweepPrompts,
-  SweepRecord,
   SweepReports,
-  SweepStatus,
+  SweepScope,
   SweepStore,
 } from './sweep.js';
 
-function uniqueKey(chain: string, depositOperationId: string): string {
-  return `${chain}|${depositOperationId}`;
+const MOVES: Readonly<Record<FundingSweep['status'], readonly FundingSweep['status'][]>> = {
+  awaiting_signature: ['submitted', 'cancelled'],
+  submitted: ['settled', 'failed'],
+  failed: ['awaiting_signature'],
+  settled: [],
+  cancelled: [],
+};
+
+interface Stored {
+  readonly scope: SweepScope;
+  readonly chain: string;
+  row: FundingSweep;
+}
+
+function isScope(a: SweepScope, b: SweepScope): boolean {
+  return a.principalId === b.principalId && a.projectId === b.projectId;
 }
 
 export class MemorySweepStore implements SweepStore {
-  /** The next markPrompted throws this, as a crash between the two writes would. */
-  failNextMarkPrompted: Error | null = null;
-  readonly #rows = new Map<string, SweepRecord>();
+  /** The next setStatus throws this, as a crash before the write would. */
+  failNextSetStatus: Error | null = null;
+  /** The next read finds nothing, as a read just before a racing insert would. */
+  hideNextRead = false;
+  readonly #clock: { now(): Date };
+  readonly #rows = new Map<string, Stored>();
 
-  rows(): readonly SweepRecord[] {
-    return [...this.#rows.values()];
+  constructor(clock: { now(): Date }) {
+    this.#clock = clock;
   }
 
-  #own(key: SweepKey): SweepRecord | null {
-    const row = this.#rows.get(uniqueKey(chainOf(key.network), key.depositOperationId));
-    if (row === undefined) return null;
-    const { principalId, projectId } = key.scope;
-    return row.principalId === principalId && row.projectId === projectId ? row : null;
+  rowsOf(scope: SweepScope): readonly FundingSweep[] {
+    return [...this.#rows.values()].filter((s) => isScope(s.scope, scope)).map((s) => s.row);
   }
 
-  insertIfAbsent(row: SweepRecord): Promise<SweepRecord> {
-    const unique = uniqueKey(row.chain, row.depositOperationId);
-    const existing = this.#rows.get(unique);
-    if (existing !== undefined) return Promise.resolve(existing);
-    this.#rows.set(unique, row);
+  byDepositOperation(
+    scope: SweepScope,
+    input: { readonly chain: string; readonly depositOperationId: string },
+  ): Promise<FundingSweep | undefined> {
+    if (this.hideNextRead) {
+      this.hideNextRead = false;
+      return Promise.resolve(undefined);
+    }
+    const stored = this.#rows.get(`${input.chain}|${input.depositOperationId}`);
+    return Promise.resolve(
+      stored !== undefined && isScope(stored.scope, scope) ? stored.row : undefined,
+    );
+  }
+
+  create(scope: SweepScope, input: NewFundingSweep): Promise<FundingSweep | 'duplicate'> {
+    const { chain } = input.amount;
+    const unique = `${chain}|${input.depositOperationId}`;
+    if (this.#rows.has(unique)) return Promise.resolve('duplicate');
+    const at = this.#clock.now();
+    const row: FundingSweep = {
+      id: randomUUID(),
+      fundingSourceId: input.fundingSourceId,
+      mandateInstanceId: input.mandateInstanceId,
+      depositOperationId: input.depositOperationId,
+      amount: input.amount,
+      status: 'awaiting_signature',
+      sweepTxHash: null,
+      validUntil: null,
+      failedLedger: null,
+      createdAt: at,
+      updatedAt: at,
+    };
+    this.#rows.set(unique, { scope, chain, row });
     return Promise.resolve(row);
   }
 
-  get(key: SweepKey): Promise<SweepRecord | null> {
-    return Promise.resolve(this.#own(key));
-  }
-
-  markPrompted(key: SweepKey, at: bigint): Promise<void> {
-    if (this.failNextMarkPrompted !== null) {
-      const error = this.failNextMarkPrompted;
-      this.failNextMarkPrompted = null;
+  setStatus(scope: SweepScope, id: string, move: FundingSweepMove): Promise<boolean> {
+    if (this.failNextSetStatus !== null) {
+      const error = this.failNextSetStatus;
+      this.failNextSetStatus = null;
       return Promise.reject(error);
     }
-    const row = this.#own(key);
-    if (row === null) return Promise.reject(new SweepStateError());
-    this.#put({ ...row, promptedAt: at });
-    return Promise.resolve();
+    const stored = [...this.#rows.values()].find((s) => s.row.id === id && isScope(s.scope, scope));
+    if (stored === undefined) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      stored.row = this.#applied(stored.row, move);
+      resolve(true);
+    });
   }
 
-  transition(key: SweepKey, from: SweepStatus, patch: SweepPatch): Promise<SweepRecord> {
-    const row = this.#own(key);
-    if (row?.status !== from) return Promise.reject(new SweepStateError());
-    return Promise.resolve(this.#put({ ...row, ...patch }));
-  }
-
-  #put(row: SweepRecord): SweepRecord {
-    this.#rows.set(uniqueKey(row.chain, row.depositOperationId), row);
-    return row;
+  #applied(row: FundingSweep, move: FundingSweepMove): FundingSweep {
+    if (!MOVES[row.status].includes(move.status)) throw new SweepStateError();
+    const at = this.#clock.now();
+    const updatedAt = at;
+    switch (move.status) {
+      case 'submitted':
+        if (move.validUntil.getTime() <= at.getTime()) throw new SweepStateError();
+        return {
+          ...row,
+          status: move.status,
+          sweepTxHash: move.sweepTxHash,
+          validUntil: move.validUntil,
+          updatedAt,
+        };
+      case 'failed':
+        if (
+          move.failedLedger === null &&
+          at.getTime() < (row.validUntil?.getTime() ?? 0) + FAILED_EXPIRY_MARGIN_MS
+        ) {
+          throw new SweepStateError();
+        }
+        return { ...row, status: move.status, failedLedger: move.failedLedger, updatedAt };
+      case 'awaiting_signature':
+        return {
+          ...row,
+          status: move.status,
+          sweepTxHash: null,
+          validUntil: null,
+          failedLedger: null,
+          updatedAt,
+        };
+      default:
+        return { ...row, status: move.status, updatedAt };
+    }
   }
 }
 
@@ -96,14 +164,36 @@ export class RecordingSweepPrompts implements SweepPrompts {
   }
 }
 
+export class RecordingSweepFunding implements SweepFunding {
+  readonly #records = new Map<string, SweepFundingRecord>();
+
+  record(record: SweepFundingRecord, key: string): Promise<void> {
+    if (!this.#records.has(key)) this.#records.set(key, record);
+    return Promise.resolve();
+  }
+
+  records(): readonly SweepFundingRecord[] {
+    return [...this.#records.values()];
+  }
+}
+
 export class RecordingSweepReports implements SweepReports {
   readonly #events: Parameters<SweepReports['sweepFailed']>[0][] = [];
+  readonly #alerts: Parameters<SweepReports['transferAlert']>[0][] = [];
 
   sweepFailed(event: Parameters<SweepReports['sweepFailed']>[0]): void {
     this.#events.push(event);
   }
 
+  transferAlert(event: Parameters<SweepReports['transferAlert']>[0]): void {
+    this.#alerts.push(event);
+  }
+
   events(): readonly Parameters<SweepReports['sweepFailed']>[0][] {
     return [...this.#events];
+  }
+
+  alerts(): readonly Parameters<SweepReports['transferAlert']>[0][] {
+    return [...this.#alerts];
   }
 }

@@ -2,21 +2,31 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 // Moves each deposit on a forwarding account into the mandate, exactly once.
-// A sweep is a money move, so the deposit's operation id is its permanent
-// idempotency key: a repeated deposit event finds the row already there, a
-// retried job does not prompt the principal again, and a second send is
-// refused by the row's state before it reaches the chain. The transaction
-// hash is written before the send, so a crash leaves a sweep to reconcile
-// rather than one that could go out twice.
+// A double sweep moves money, and the funding_sweeps table can only hold a
+// caller to what it says. It has to believe the time bound is the real one, the
+// ledger really recorded the failure, submitted was written before sending and
+// an expired transaction did not land first. Those are this module's duties:
+//
+// - The hash and time bounds come from the signed envelope itself, and are
+//   written as submitted before anything is sent. Sending is a later job step,
+//   which looks the hash up first, so a crash after a send sends nothing new.
+// - A sweep fails only on a ledger read from a transaction result, or once the
+//   network has no record of it and its time bound is past by the margin.
+//   Whatever the clock says, a hash that landed is followed.
+// - A failure rolls back without using the authorization entry's nonce, so the
+//   signed entry stays usable until its own expiry. A new signature is asked
+//   for only after that, or two could be live.
+// - A sweep that failed for insufficient balance found the money gone, so it
+//   is reported and never goes round again, though the table would allow it.
 //
 // This package knows no chain. What is sent and how it is built is the chain
 // adapter's, behind the SweepChain port.
 
-import { isChainAdapterError } from '@ujira/chain-adapter';
 import { chainOf, isNetworkId } from '@ujira/chain-adapter';
 import type { NetworkId } from '@ujira/chain-adapter';
 import { equals, isNegative, isZero } from '@ujira/core';
-import type { Chain, TokenAmount } from '@ujira/core';
+import type { TokenAmount } from '@ujira/core';
+import type { FundingSweep, FundingSweepMove, NewFundingSweep } from '@ujira/db';
 import { z } from 'zod';
 
 import {
@@ -26,47 +36,16 @@ import {
   SweepTimeoutError,
 } from './errors.js';
 
-export const SWEEP_STATUSES = Object.freeze([
-  'awaiting_signature',
-  'submitted',
-  'confirmed',
-  'failed',
-] as const);
-
-export type SweepStatus = (typeof SWEEP_STATUSES)[number];
-
-export type SweepFailureReason = 'insufficient_balance' | 'no_matching_transfer' | 'rejected';
+/**
+ * How long past its time bound a transaction may be claimed dead with no ledger
+ * to show for it. The table holds the same five minutes: they cover the gap
+ * between our clock and the network's.
+ */
+export const FAILED_EXPIRY_MARGIN_MS = 300_000;
 
 export interface SweepScope {
   readonly principalId: string;
   readonly projectId: string;
-}
-
-/** The asset contract transfer that funded the mandate. */
-export interface SweepFundingReference {
-  readonly txHash: string;
-  readonly eventIndex: number;
-  /** The mandate. */
-  readonly to: string;
-}
-
-/** One deposit's sweep, as stored. Tenant on the row. */
-export interface SweepRecord {
-  readonly principalId: string;
-  readonly projectId: string;
-  readonly chain: Chain;
-  readonly network: NetworkId;
-  /** The idempotency key, unique per chain. */
-  readonly depositOperationId: string;
-  readonly forwarder: string;
-  readonly mandate: string;
-  readonly amount: TokenAmount;
-  readonly status: SweepStatus;
-  readonly txHash: string | null;
-  readonly failureReason: SweepFailureReason | null;
-  readonly funding: SweepFundingReference | null;
-  /** When the principal's prompt was queued, as a bigint of Unix seconds. */
-  readonly promptedAt: bigint | null;
 }
 
 export interface SweepKey {
@@ -75,39 +54,40 @@ export interface SweepKey {
   readonly depositOperationId: string;
 }
 
-export interface SweepPatch {
-  readonly status: SweepStatus;
-  readonly txHash?: string;
-  readonly failureReason?: SweepFailureReason;
-  readonly funding?: SweepFundingReference;
+/** Where a sweep moves money, from the funding source and mandate instance it names. */
+export interface SweepRoute {
+  readonly forwarder: string;
+  readonly mandate: string;
+  /** The asset contract a transfer must come from. */
+  readonly token: string;
 }
 
 /**
- * The sweeps table. Unique on chain and deposit operation id. Every read and
- * write is by tenant, so another tenant's row reads as absent.
+ * The funding_sweeps repository, under the tenant's transaction. Only this
+ * tenant's rows are visible. `create` answers 'duplicate' when the chain and
+ * operation already exist, in any tenant. `setStatus` is false when this tenant
+ * has no such row, and throws SweepStateError for a move the table refuses.
  */
 export interface SweepStore {
-  /** Inserts the row unless the chain and deposit id exist; returns whichever row holds them. */
-  insertIfAbsent(row: SweepRecord): Promise<SweepRecord>;
-  get(key: SweepKey): Promise<SweepRecord | null>;
-  markPrompted(key: SweepKey, at: bigint): Promise<void>;
-  /** Moves the row only from `from`. Throws SweepStateError otherwise. */
-  transition(key: SweepKey, from: SweepStatus, patch: SweepPatch): Promise<SweepRecord>;
+  byDepositOperation(
+    scope: SweepScope,
+    input: { readonly chain: string; readonly depositOperationId: string },
+  ): Promise<FundingSweep | undefined>;
+  create(scope: SweepScope, input: NewFundingSweep): Promise<FundingSweep | 'duplicate'>;
+  setStatus(scope: SweepScope, id: string, move: FundingSweepMove): Promise<boolean>;
 }
 
 export interface SweepPrompt {
   readonly scope: SweepScope;
   readonly network: NetworkId;
   readonly depositOperationId: string;
-  readonly forwarder: string;
-  readonly mandate: string;
+  readonly route: SweepRoute;
   readonly amount: TokenAmount;
 }
 
 /**
- * Queues the principal's prompt, in the outbox. The key makes a repeat a
- * no-op there, which is what makes one prompt per deposit hold across a crash
- * between queuing it and marking the row.
+ * Queues the principal's prompt in the outbox. The key makes a repeat a no-op
+ * there, which is what makes one prompt per attempt hold across a crash.
  */
 export interface SweepPrompts {
   requestSignature(prompt: SweepPrompt, idempotencyKey: string): Promise<void>;
@@ -121,19 +101,45 @@ export interface SweepTransferEvent {
   readonly amount: TokenAmount;
 }
 
+/** What the network says of a hash. `failed` and `landed` name the ledger that applied it. */
 export type SweepChainResult =
-  | { readonly kind: 'pending' }
-  | { readonly kind: 'landed'; readonly transfers: readonly SweepTransferEvent[] }
-  | { readonly kind: 'failed'; readonly reason: 'insufficient_balance' | 'rejected' };
+  | { readonly kind: 'not_found' }
+  | {
+      readonly kind: 'landed';
+      readonly ledger: number;
+      readonly transfers: readonly SweepTransferEvent[];
+    }
+  | {
+      readonly kind: 'failed';
+      readonly ledger: number;
+      readonly reason: 'insufficient_balance' | 'rejected';
+    };
 
-/** The chain adapter's side: the hash of a signed payload, its send and its result. */
-export interface SweepChain {
-  hashOf(signedPayload: string): string;
-  submit(signedPayload: string, signal: AbortSignal): Promise<void>;
-  result(txHash: string, signal: AbortSignal): Promise<SweepChainResult>;
+/** What a signed envelope itself says, so nothing about it is taken on trust. */
+export interface SweepEnvelope {
+  /** Hex. */
+  readonly txHash: string;
+  /** The last moment it can be applied, from its time bounds. */
+  readonly validUntil: Date;
+  /** The ledger its signed authorization entry expires at, or null when it has none. */
+  readonly authExpiresLedger: number | null;
 }
 
-/** What a person should look at. A duplicate cannot double fund, but it is not normal. */
+/** The chain adapter's side. */
+export interface SweepChain {
+  /** Throws for an envelope with no upper time bound. */
+  describe(signedPayload: string): SweepEnvelope;
+  send(signedPayload: string, signal: AbortSignal): Promise<void>;
+  result(txHash: string, signal: AbortSignal): Promise<SweepChainResult>;
+  latestLedger(signal: AbortSignal): Promise<number>;
+}
+
+export type SweepFailureReason =
+  'insufficient_balance' | 'rejected' | 'no_matching_transfer' | 'expired';
+
+export type SweepAlertKind = 'landed_after_failed' | 'unexplained';
+
+/** What a person should look at. */
 export interface SweepReports {
   sweepFailed(event: {
     readonly principalId: string;
@@ -142,6 +148,32 @@ export interface SweepReports {
     readonly depositOperationId: string;
     readonly reason: SweepFailureReason;
   }): void;
+  /** A transfer landed that no live attempt explains. A double sweep looks like this. */
+  transferAlert(event: {
+    readonly principalId: string;
+    readonly projectId: string;
+    readonly network: NetworkId;
+    readonly txHash: string;
+    readonly kind: SweepAlertKind;
+  }): void;
+}
+
+/** What funded the mandate. Idempotent on `key`, since it is written before the row moves. */
+export interface SweepFundingRecord {
+  readonly scope: SweepScope;
+  readonly network: NetworkId;
+  readonly depositOperationId: string;
+  readonly mandateInstanceId: string;
+  /** Hex. */
+  readonly txHash: string;
+  readonly eventIndex: number;
+  /** The mandate. */
+  readonly to: string;
+  readonly amount: TokenAmount;
+}
+
+export interface SweepFunding {
+  record(record: SweepFundingRecord, key: string): Promise<void>;
 }
 
 export interface SweepPorts {
@@ -149,22 +181,36 @@ export interface SweepPorts {
   readonly prompts: SweepPrompts;
   readonly chain: SweepChain;
   readonly reports: SweepReports;
+  readonly funding: SweepFunding;
+  readonly clock: { now(): Date };
 }
 
 export interface SweepOptions {
   /** How long to wait for the chain, in whole milliseconds. */
   readonly timeoutMs: number;
-  /** The asset contract a confirming transfer must come from. */
-  readonly token: string;
 }
 
-export interface DepositEvent {
+export interface DepositEvent extends SweepKey {
+  readonly fundingSourceId: string;
+  readonly mandateInstanceId: string;
+  readonly route: SweepRoute;
+  readonly amount: TokenAmount;
+}
+
+export type SweepRetry =
+  | { readonly kind: 'retried'; readonly sweep: FundingSweep }
+  /** Run the step again once the network reaches this ledger. */
+  | { readonly kind: 'waiting'; readonly untilLedger: number }
+  | { readonly kind: 'declined'; readonly reason: 'insufficient_balance' | 'landed' };
+
+export interface ObservedTransfer {
   readonly scope: SweepScope;
   readonly network: NetworkId;
-  /** The operation id of the incoming payment. */
-  readonly depositOperationId: string;
-  readonly forwarder: string;
-  readonly mandate: string;
+  /** Hex. */
+  readonly txHash: string;
+  readonly eventIndex: number;
+  readonly from: string;
+  readonly to: string;
   readonly amount: TokenAmount;
 }
 
@@ -174,35 +220,37 @@ const OPERATION_ID = /^[0-9]{1,32}$/;
 const MAX_TIMEOUT_MS = 120_000;
 const MAX_ISSUES = 10;
 
-const scopeSchema = z.strictObject({
-  principalId: z.string().regex(UUID),
-  projectId: z.string().regex(UUID),
-});
-const networkSchema = z.custom<NetworkId>(isNetworkId);
+const uuid = z.string().regex(UUID);
 const address = z.string().min(1).max(128);
-const amountSchema = z.custom<TokenAmount>(isPositiveToken);
+
+const keyFields = {
+  scope: z.strictObject({ principalId: uuid, projectId: uuid }),
+  network: z.custom<NetworkId>(isNetworkId),
+  depositOperationId: z.string().regex(OPERATION_ID),
+};
+
+const routeSchema = z.strictObject({ forwarder: address, mandate: address, token: address });
 
 const depositSchema = z.strictObject({
-  scope: scopeSchema,
-  network: networkSchema,
-  depositOperationId: z.string().regex(OPERATION_ID),
-  forwarder: address,
-  mandate: address,
-  amount: amountSchema,
+  ...keyFields,
+  fundingSourceId: uuid,
+  mandateInstanceId: uuid,
+  route: routeSchema,
+  amount: z.custom<TokenAmount>(isPositiveToken),
 });
 
-const keySchema = z.strictObject({
-  scope: scopeSchema,
-  network: networkSchema,
-  depositOperationId: z.string().regex(OPERATION_ID),
+const keySchema = z.strictObject(keyFields);
+const signedSchema = z.strictObject({
+  ...keyFields,
+  signedPayload: z.string().min(1).max(350_000),
 });
-
-const submitSchema = keySchema.extend({ signedPayload: z.string().min(1).max(350_000) });
-
-const optionsSchema = z.strictObject({
-  timeoutMs: z.int().min(1).max(MAX_TIMEOUT_MS),
-  token: address,
+const reconcileSchema = z.strictObject({ ...keyFields, route: routeSchema });
+const retrySchema = z.strictObject({
+  ...keyFields,
+  route: routeSchema,
+  authExpiresLedger: z.int().min(0).nullable(),
 });
+const optionsSchema = z.strictObject({ timeoutMs: z.int().min(1).max(MAX_TIMEOUT_MS) });
 
 // The money module validates a value of any shape and throws on a forged one.
 function isPositiveToken(value: unknown): boolean {
@@ -228,7 +276,7 @@ function parsed<T>(schema: z.ZodType<T>, value: unknown, root: string): T {
 
 // Gives up at the deadline even if the port ignores the signal.
 async function withDeadline<T>(
-  timeoutMs: number,
+  options: SweepOptions,
   run: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
   const controller = new AbortController();
@@ -237,7 +285,7 @@ async function withDeadline<T>(
     timer = setTimeout(() => {
       controller.abort();
       reject(new SweepTimeoutError());
-    }, timeoutMs);
+    }, options.timeoutMs);
   });
   try {
     return await Promise.race([run(controller.signal), deadline]);
@@ -246,165 +294,297 @@ async function withDeadline<T>(
   }
 }
 
-function promptKey(row: SweepRecord): string {
-  return `sweep:${row.chain}:${row.depositOperationId}`;
+function hexOf(hash: Buffer): string {
+  return hash.toString('hex');
 }
 
-function nowSeconds(): bigint {
-  return BigInt(Date.now()) / 1000n;
+function operationOf(key: SweepKey): {
+  readonly chain: string;
+  readonly depositOperationId: string;
+} {
+  return { chain: chainOf(key.network), depositOperationId: key.depositOperationId };
+}
+
+function find(key: SweepKey, store: SweepStore): Promise<FundingSweep | undefined> {
+  return store.byDepositOperation(key.scope, operationOf(key));
+}
+
+async function requireSweep(key: SweepKey, store: SweepStore): Promise<FundingSweep> {
+  const row = await find(key, store);
+  if (row === undefined) throw new SweepStateError();
+  return row;
+}
+
+async function moved(
+  key: SweepKey,
+  row: FundingSweep,
+  move: FundingSweepMove,
+  store: SweepStore,
+): Promise<FundingSweep> {
+  if (!(await store.setStatus(key.scope, row.id, move))) throw new SweepStateError();
+  return requireSweep(key, store);
+}
+
+function firstPromptKey(key: SweepKey): string {
+  return `sweep:${chainOf(key.network)}:${key.depositOperationId}`;
 }
 
 /**
  * Records a deposit and prompts the principal once. Safe to call for every
- * sighting of the same deposit. Throws SweepTenantError when the deposit is
- * already recorded under another tenant.
+ * sighting of the same deposit. It trusts the tenant the event names, so whoever
+ * attributes deposits must have checked that the forwarding account and mandate
+ * are that tenant's. Throws SweepTenantError when the operation is already
+ * recorded under another tenant.
  */
-export async function recordDeposit(event: DepositEvent, ports: SweepPorts): Promise<SweepRecord> {
+export async function recordDeposit(event: DepositEvent, ports: SweepPorts): Promise<FundingSweep> {
   const read = parsed(depositSchema, event, 'deposit');
-  const { principalId, projectId } = read.scope;
-  const row = await ports.store.insertIfAbsent({
-    principalId,
-    projectId,
-    chain: chainOf(read.network),
-    network: read.network,
-    depositOperationId: read.depositOperationId,
-    forwarder: read.forwarder,
-    mandate: read.mandate,
-    amount: read.amount,
-    status: 'awaiting_signature',
-    txHash: null,
-    failureReason: null,
-    funding: null,
-    promptedAt: null,
-  });
-  if (row.principalId !== principalId || row.projectId !== projectId) {
-    throw new SweepTenantError();
+  const row = (await find(read, ports.store)) ?? (await createSweep(read, ports.store));
+  if (row.status === 'awaiting_signature') {
+    await ports.prompts.requestSignature(
+      {
+        scope: read.scope,
+        network: read.network,
+        depositOperationId: read.depositOperationId,
+        route: read.route,
+        amount: row.amount,
+      },
+      firstPromptKey(read),
+    );
   }
-  if (row.status !== 'awaiting_signature' || row.promptedAt !== null) return row;
-  await ports.prompts.requestSignature(
-    {
-      scope: read.scope,
-      network: read.network,
-      depositOperationId: read.depositOperationId,
-      forwarder: row.forwarder,
-      mandate: row.mandate,
-      amount: row.amount,
-    },
-    promptKey(row),
-  );
-  const at = nowSeconds();
-  await ports.store.markPrompted(read, at);
-  return { ...row, promptedAt: at };
-}
-
-function keyOf(read: SweepKey): SweepKey {
-  return {
-    scope: read.scope,
-    network: read.network,
-    depositOperationId: read.depositOperationId,
-  };
-}
-
-async function requireSweep(key: SweepKey, store: SweepStore): Promise<SweepRecord> {
-  const row = await store.get(key);
-  if (row === null) throw new SweepStateError();
   return row;
 }
 
+async function createSweep(
+  read: z.infer<typeof depositSchema>,
+  store: SweepStore,
+): Promise<FundingSweep> {
+  const created = await store.create(read.scope, {
+    fundingSourceId: read.fundingSourceId,
+    mandateInstanceId: read.mandateInstanceId,
+    depositOperationId: read.depositOperationId,
+    amount: read.amount,
+  });
+  if (created !== 'duplicate') return created;
+  // The key is global and the row is not visible unless it is ours, so a clash
+  // is either a racing attempt of this tenant's or another tenant's deposit.
+  const raced = await find(read, store);
+  if (raced === undefined) throw new SweepTenantError();
+  return raced;
+}
+
 /**
- * Sends the principal's signed sweep. The hash is written first, so nothing
- * goes out unrecorded. Asked again for the same payload it sends nothing and
- * returns the row; a different payload, or a sweep that already failed, throws
- * SweepStateError. A send that definitely did not land marks the sweep failed.
- * Anything else leaves it submitted for reconcileSweep, since it may have.
+ * Takes the principal's signed sweep and writes it as submitted, with the hash
+ * and time bounds read from the envelope itself. Nothing is sent here: the
+ * caller queues sendSweep, so nothing can leave before the row names it. The same
+ * payload again changes nothing. A different one throws SweepStateError, as does
+ * a sweep in any other state, or an envelope whose time bound has passed.
  */
-export async function submitSweep(
+export async function acceptSweepSignature(
+  request: SweepKey & { readonly signedPayload: string },
+  ports: SweepPorts,
+): Promise<FundingSweep> {
+  const read = parsed(signedSchema, request, 'request');
+  const row = await requireSweep(read, ports.store);
+  const envelope = ports.chain.describe(read.signedPayload);
+  if (row.status === 'submitted' && row.sweepTxHash !== null) {
+    if (hexOf(row.sweepTxHash) === envelope.txHash) return row;
+    throw new SweepStateError();
+  }
+  if (row.status !== 'awaiting_signature') throw new SweepStateError();
+  return moved(
+    read,
+    row,
+    {
+      status: 'submitted',
+      sweepTxHash: Buffer.from(envelope.txHash, 'hex'),
+      validUntil: envelope.validUntil,
+    },
+    ports.store,
+  );
+}
+
+/**
+ * Sends a submitted sweep's envelope. The queue's step, so it may run again
+ * after a crash at any point: it looks the hash up first and sends only if the
+ * network has never seen it, which can only ever be this same envelope. A failed
+ * send leaves the sweep submitted, because only a ledger or the passing of its
+ * time bound can show it will not land. reconcileSweep ends it.
+ */
+export async function sendSweep(
   request: SweepKey & { readonly signedPayload: string },
   ports: SweepPorts,
   options: SweepOptions,
-): Promise<SweepRecord> {
-  const read = parsed(submitSchema, request, 'request');
-  const { timeoutMs } = parsed(optionsSchema, options, 'options');
-  const key = keyOf(read);
-  const row = await requireSweep(key, ports.store);
-  const txHash = ports.chain.hashOf(read.signedPayload);
-  if (row.status !== 'awaiting_signature') {
-    if (row.status !== 'failed' && row.txHash === txHash) return row;
+): Promise<'sent' | 'already_on_network'> {
+  const read = parsed(signedSchema, request, 'request');
+  const limits = parsed(optionsSchema, options, 'options');
+  const row = await requireSweep(read, ports.store);
+  const { txHash } = ports.chain.describe(read.signedPayload);
+  if (row.status !== 'submitted' || row.sweepTxHash === null || hexOf(row.sweepTxHash) !== txHash) {
     throw new SweepStateError();
   }
-  const submitted = await ports.store.transition(key, 'awaiting_signature', {
-    status: 'submitted',
-    txHash,
-  });
-  try {
-    await withDeadline(timeoutMs, (signal) => ports.chain.submit(read.signedPayload, signal));
-  } catch (err) {
-    if (isChainAdapterError(err) && err.landed === 'no') {
-      await failSweep(key, submitted, 'rejected', ports);
-    }
-    throw err;
-  }
-  return submitted;
+  const seen = await withDeadline(limits, (signal) => ports.chain.result(txHash, signal));
+  if (seen.kind !== 'not_found') return 'already_on_network';
+  await withDeadline(limits, (signal) => ports.chain.send(read.signedPayload, signal));
+  return 'sent';
 }
 
 async function failSweep(
   key: SweepKey,
-  row: SweepRecord,
+  row: FundingSweep,
+  failedLedger: bigint | null,
   reason: SweepFailureReason,
   ports: SweepPorts,
-): Promise<SweepRecord> {
-  const failed = await ports.store.transition(key, 'submitted', {
-    status: 'failed',
-    failureReason: reason,
-  });
+): Promise<FundingSweep> {
+  const failed = await moved(key, row, { status: 'failed', failedLedger }, ports.store);
   ports.reports.sweepFailed({
-    principalId: row.principalId,
-    projectId: row.projectId,
-    network: row.network,
-    depositOperationId: row.depositOperationId,
+    principalId: key.scope.principalId,
+    projectId: key.scope.projectId,
+    network: key.network,
+    depositOperationId: key.depositOperationId,
     reason,
   });
   return failed;
 }
 
-function fundingTransfer(
-  row: SweepRecord,
-  token: string,
-  transfers: readonly SweepTransferEvent[],
-): SweepTransferEvent | undefined {
-  return transfers.find(
+/**
+ * Brings a submitted sweep up to date with the network, and returns any other
+ * sweep as it is. It settles only on an asset contract transfer of this amount
+ * from the forwarding account to the mandate. It fails with the ledger it read
+ * from the result, or, when the network has no record, only once the time bound
+ * is past by the margin. A hash that landed is followed whatever the clock says.
+ */
+export async function reconcileSweep(
+  request: SweepKey & { readonly route: SweepRoute },
+  ports: SweepPorts,
+  options: SweepOptions,
+): Promise<FundingSweep> {
+  const read = parsed(reconcileSchema, request, 'request');
+  const limits = parsed(optionsSchema, options, 'options');
+  const row = await requireSweep(read, ports.store);
+  if (row.status !== 'submitted' || row.sweepTxHash === null || row.validUntil === null) return row;
+  const txHash = hexOf(row.sweepTxHash);
+  const result = await withDeadline(limits, (signal) => ports.chain.result(txHash, signal));
+  if (result.kind === 'not_found') {
+    const deadline = row.validUntil.getTime() + FAILED_EXPIRY_MARGIN_MS;
+    if (ports.clock.now().getTime() < deadline) return row;
+    return failSweep(read, row, null, 'expired', ports);
+  }
+  const ledger = BigInt(result.ledger);
+  if (result.kind === 'failed') return failSweep(read, row, ledger, result.reason, ports);
+  const { forwarder, mandate, token } = read.route;
+  const transfer = result.transfers.find(
     (t) =>
-      t.token === token &&
-      t.from === row.forwarder &&
-      t.to === row.mandate &&
-      equals(t.amount, row.amount),
+      t.token === token && t.from === forwarder && t.to === mandate && equals(t.amount, row.amount),
   );
+  if (transfer === undefined) return failSweep(read, row, ledger, 'no_matching_transfer', ports);
+  // Before the row moves, so a crash between the two repeats this and the key
+  // drops the repeat, rather than leaving a settled sweep with no funding record.
+  await ports.funding.record(
+    {
+      scope: read.scope,
+      network: read.network,
+      depositOperationId: read.depositOperationId,
+      mandateInstanceId: row.mandateInstanceId,
+      txHash,
+      eventIndex: transfer.eventIndex,
+      to: transfer.to,
+      amount: row.amount,
+    },
+    `sweep-funding:${chainOf(read.network)}:${read.depositOperationId}`,
+  );
+  return moved(read, row, { status: 'settled' }, ports.store);
 }
 
 /**
- * Brings a submitted sweep up to date with the chain. It confirms only on an
- * asset contract transfer of this amount from the forwarding account to the
- * mandate, and the record references that event. A duplicate on-chain sweep
- * fails for insufficient balance, which cannot double fund: it is marked
- * failed and reported, never retried. Any other sweep comes back unchanged.
+ * Takes a failed sweep round again, through the table's typed move, once that
+ * cannot put two live signatures or two transfers on the network. It reads the
+ * hash again, because the row cannot say why it failed: insufficient balance
+ * means the money has gone, and a hash that landed means it should never have
+ * been failed, which also raises an alert. Both are declined, not thrown, so the
+ * queue does not retry them. While the earlier entry can still authorize a
+ * transfer it answers waiting. `authExpiresLedger` comes from the envelope
+ * accepted for this attempt, null when it carried no signed entry.
  */
-export async function reconcileSweep(
-  request: SweepKey,
+export async function retrySweep(
+  request: SweepKey & { readonly route: SweepRoute; readonly authExpiresLedger: number | null },
   ports: SweepPorts,
   options: SweepOptions,
-): Promise<SweepRecord> {
-  const key = keyOf(parsed(keySchema, request, 'request'));
-  const { timeoutMs, token } = parsed(optionsSchema, options, 'options');
-  const row = await requireSweep(key, ports.store);
-  const { txHash } = row;
-  if (row.status !== 'submitted' || txHash === null) return row;
-  const result = await withDeadline(timeoutMs, (signal) => ports.chain.result(txHash, signal));
-  if (result.kind === 'pending') return row;
-  if (result.kind === 'failed') return failSweep(key, row, result.reason, ports);
-  const transfer = fundingTransfer(row, token, result.transfers);
-  if (transfer === undefined) return failSweep(key, row, 'no_matching_transfer', ports);
-  return ports.store.transition(key, 'submitted', {
-    status: 'confirmed',
-    funding: { txHash, eventIndex: transfer.eventIndex, to: transfer.to },
+): Promise<SweepRetry> {
+  const read = parsed(retrySchema, request, 'request');
+  const limits = parsed(optionsSchema, options, 'options');
+  const row = await requireSweep(read, ports.store);
+  // Asked again after the move, when the prompt is already queued.
+  if (row.status === 'awaiting_signature') return { kind: 'retried', sweep: row };
+  if (row.status !== 'failed' || row.sweepTxHash === null) throw new SweepStateError();
+  const txHash = hexOf(row.sweepTxHash);
+  const result = await withDeadline(limits, (signal) => ports.chain.result(txHash, signal));
+  if (result.kind === 'landed') {
+    ports.reports.transferAlert({
+      principalId: read.scope.principalId,
+      projectId: read.scope.projectId,
+      network: read.network,
+      txHash,
+      kind: 'landed_after_failed',
+    });
+    return { kind: 'declined', reason: 'landed' };
+  }
+  if (result.kind === 'failed' && result.reason === 'insufficient_balance') {
+    return { kind: 'declined', reason: 'insufficient_balance' };
+  }
+  if (read.authExpiresLedger !== null) {
+    const expires = read.authExpiresLedger;
+    const latest = await withDeadline(limits, (signal) => ports.chain.latestLedger(signal));
+    // The entry is still good in the ledger it names.
+    if (latest <= expires) return { kind: 'waiting', untilLedger: expires + 1 };
+  }
+  // Queued before the row gives up the old hash, which is what keeps the key the
+  // same if this step runs again after a crash. The outbox then drops the repeat.
+  await ports.prompts.requestSignature(
+    {
+      scope: read.scope,
+      network: read.network,
+      depositOperationId: read.depositOperationId,
+      route: read.route,
+      amount: row.amount,
+    },
+    `${firstPromptKey(read)}:after:${txHash}`,
+  );
+  return {
+    kind: 'retried',
+    sweep: await moved(read, row, { status: 'awaiting_signature' }, ports.store),
+  };
+}
+
+/** The principal's decision, final. A sweep already sent cannot be cancelled. */
+export async function cancelSweep(request: SweepKey, ports: SweepPorts): Promise<FundingSweep> {
+  const read = parsed(keySchema, request, 'request');
+  const row = await requireSweep(read, ports.store);
+  return moved(read, row, { status: 'cancelled' }, ports.store);
+}
+
+/**
+ * Classifies a transfer the indexer saw from a forwarding account to its mandate,
+ * against that source's rows. A retry drops the old hash and a cancelled row
+ * never held one, so a transfer from an abandoned attempt matches nothing: any
+ * hash no live row names is unexplained and raises an alert. The principal owns
+ * the account and can also send from their own wallet, so an alert is for a
+ * person to look at, not a fault. Naming the exact attempt would need a record of
+ * past hashes, which the table does not keep.
+ */
+export function noteObservedTransfer(
+  transfer: ObservedTransfer,
+  rows: readonly FundingSweep[],
+  reports: SweepReports,
+): 'expected' | SweepAlertKind {
+  const row = rows.find((r) => r.sweepTxHash !== null && hexOf(r.sweepTxHash) === transfer.txHash);
+  if (row?.status === 'submitted' || row?.status === 'settled') return 'expected';
+  const kind: SweepAlertKind = row === undefined ? 'unexplained' : 'landed_after_failed';
+  reports.transferAlert({
+    principalId: transfer.scope.principalId,
+    projectId: transfer.scope.projectId,
+    network: transfer.network,
+    txHash: transfer.txHash,
+    kind,
   });
+  return kind;
 }

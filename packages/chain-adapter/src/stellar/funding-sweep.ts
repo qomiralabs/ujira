@@ -9,10 +9,17 @@
 // else or much later. The fee bump form is the fallback for a wallet that
 // cannot sign an entry. A contract call carries no memo, so none is set.
 
-import { Address, nativeToScVal, xdr } from '@stellar/stellar-base';
+import {
+  Address,
+  FeeBumpTransaction,
+  TransactionBuilder,
+  nativeToScVal,
+  xdr,
+} from '@stellar/stellar-base';
 import { I128_MAX } from '@ujira/core';
 import { z } from 'zod';
 
+import { checkNetwork, networkPassphrase } from '../codecs/network.js';
 import { isAccountAddress, isContractAddress } from '../codecs/strkey.js';
 import { readXdr } from '../codecs/xdr.js';
 import { InvalidInputError, SignedPayloadMismatchError } from '../errors.js';
@@ -238,4 +245,56 @@ export function buildSweepFeeBumpInner(input: SweepFeeBumpInput): string {
     rootInvocation: transferInvocation(read),
   });
   return buildInvoke(read.forwarder, read.forwarderSequence, read, [entry]);
+}
+
+/** What a signed sweep envelope itself says, for the row and the retry to rely on. */
+export interface SweepEnvelopeFacts {
+  /** Hex, of the envelope as sent: the outer hash for a fee bump. */
+  readonly txHash: string;
+  /** The transaction's upper time bound, in Unix seconds. */
+  readonly validUntilSeconds: bigint;
+  /** The last ledger its signed authorization entry is good in, or null for source credentials. */
+  readonly authExpiresLedger: number | null;
+}
+
+function refusedEnvelope(code: string): InvalidInputError {
+  return new InvalidInputError({ issues: [`xdr (${code})`] });
+}
+
+/**
+ * Reads the facts the sweep worker writes to its row from the envelope, so they
+ * are the ones on the transaction that is really sent. Every sweep has an upper
+ * time bound, so an envelope with none is refused rather than recorded as one
+ * that can never be shown dead.
+ */
+export function describeSweepEnvelope(
+  envelopeXdr: string,
+  network: StellarNetworkId,
+): SweepEnvelopeFacts {
+  const checked = checkNetwork(network);
+  const envelope = readXdr(envelopeXdr, 'xdr', (text) =>
+    xdr.TransactionEnvelope.fromXDR(text, 'base64'),
+  );
+  if (envelope.switch().name === 'envelopeTypeTxV0') throw refusedEnvelope('wrong_envelope_type');
+  const tx = TransactionBuilder.fromXDR(envelope, networkPassphrase(checked));
+  const inner = tx instanceof FeeBumpTransaction ? tx.innerTransaction : tx;
+  const maxTime = BigInt(inner.timeBounds?.maxTime ?? '0');
+  if (maxTime === 0n) throw refusedEnvelope('no_time_bound');
+  const operations = inner.toEnvelope().v1().tx().operations();
+  const [operation] = operations;
+  if (operation?.body().switch().name !== 'invokeHostFunction' || operations.length !== 1) {
+    throw refusedEnvelope('not_a_sweep');
+  }
+  const expiries = operation
+    .body()
+    .invokeHostFunctionOp()
+    .auth()
+    .map((entry) => entry.credentials())
+    .filter((credentials) => credentials.switch().name === 'sorobanCredentialsAddress')
+    .map((credentials) => credentials.address().signatureExpirationLedger());
+  return Object.freeze({
+    txHash: tx.hash().toString('hex'),
+    validUntilSeconds: maxTime,
+    authExpiresLedger: expiries.length === 0 ? null : Math.max(...expiries),
+  });
 }

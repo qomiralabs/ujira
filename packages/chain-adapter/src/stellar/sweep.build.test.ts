@@ -8,9 +8,12 @@
 // fallback, with the forwarding account as source.
 
 import {
+  Account,
   Address,
+  Asset,
   Keypair,
   Networks,
+  Operation,
   SorobanDataBuilder,
   StrKey,
   TransactionBuilder,
@@ -25,6 +28,7 @@ import {
   MAX_SWEEP_AUTH_LEDGERS,
   buildSweepFeeBumpInner,
   buildSweepRelayerTransaction,
+  describeSweepEnvelope,
   sweepAuthEntry,
 } from './funding-sweep.js';
 import type { SweepAuthInput, SweepTransactionInput } from './funding-sweep.js';
@@ -220,6 +224,106 @@ describe('sweep.build.test.ts', () => {
         InvalidInputError,
       );
     }
+  });
+
+  describe('reading a signed envelope for the worker', () => {
+    const relayer = (): string =>
+      buildSweepRelayerTransaction({ ...TX, signedAuthEntry: signedEntry(sweepAuthEntry(AUTH)) });
+
+    it('gives its hash, its time bound and when its signed entry expires', () => {
+      const text = relayer();
+      const tx = TransactionBuilder.fromXDR(text, Networks.TESTNET) as Transaction;
+      expect(describeSweepEnvelope(text, NETWORK)).toEqual({
+        txHash: tx.hash().toString('hex'),
+        validUntilSeconds: 1_900_000_000n,
+        authExpiresLedger: 1_060,
+      });
+    });
+
+    it('gives the outer hash of a fee bump, and no expiry for source credentials', () => {
+      const inner = TransactionBuilder.fromXDR(
+        buildSweepFeeBumpInner({
+          network: NETWORK,
+          token: TOKEN,
+          forwarder: FORWARDER,
+          mandate: MANDATE,
+          amount: TX.amount,
+          inclusionFee: TX.inclusionFee,
+          timeBounds: TX.timeBounds,
+          sorobanData: SOROBAN_DATA,
+          forwarderSequence: 9n,
+        }),
+        Networks.TESTNET,
+      ) as Transaction;
+      const bump = TransactionBuilder.buildFeeBumpTransaction(
+        SPONSOR,
+        '200',
+        inner,
+        Networks.TESTNET,
+      );
+      expect(describeSweepEnvelope(bump.toEnvelope().toXDR('base64'), NETWORK)).toEqual({
+        txHash: bump.hash().toString('hex'),
+        validUntilSeconds: 1_900_000_000n,
+        authExpiresLedger: null,
+      });
+    });
+
+    it('refuses an envelope with no time bound, or that is not one sweep', () => {
+      const build = (bounds: { minTime: number; maxTime: number }, count: number): string => {
+        const builder = new TransactionBuilder(new Account(SPONSOR, '1'), {
+          fee: '100',
+          networkPassphrase: Networks.TESTNET,
+          timebounds: bounds,
+        });
+        for (let i = 0; i < count; i += 1) {
+          builder.addOperation(
+            Operation.invokeContractFunction({ contract: TOKEN, function: 'transfer', args: [] }),
+          );
+        }
+        return builder.build().toEnvelope().toXDR('base64');
+      };
+      const unbounded = build({ minTime: 0, maxTime: 0 }, 1);
+      const two = build({ minTime: 0, maxTime: 1_900_000_000 }, 2);
+      const payment = new TransactionBuilder(new Account(SPONSOR, '1'), {
+        fee: '100',
+        networkPassphrase: Networks.TESTNET,
+        timebounds: { minTime: 0, maxTime: 1_900_000_000 },
+      })
+        .addOperation(Operation.payment({ destination: OTHER, asset: Asset.native(), amount: '1' }))
+        .build()
+        .toEnvelope()
+        .toXDR('base64');
+      const v0 = xdr.TransactionEnvelope.envelopeTypeTxV0(
+        new xdr.TransactionV0Envelope({
+          tx: new xdr.TransactionV0({
+            sourceAccountEd25519: pair(1).rawPublicKey(),
+            fee: 100,
+            seqNum: xdr.Int64.fromString('1'),
+            timeBounds: null,
+            memo: xdr.Memo.memoNone(),
+            operations: [],
+            ext: new xdr.TransactionV0Ext(0),
+          }),
+          signatures: [],
+        }),
+      ).toXDR('base64');
+      for (const [text, code] of [
+        [unbounded, 'xdr (no_time_bound)'],
+        [two, 'xdr (not_a_sweep)'],
+        [payment, 'xdr (not_a_sweep)'],
+        [v0, 'xdr (wrong_envelope_type)'],
+      ] as const) {
+        const err = thrown(() => describeSweepEnvelope(text, NETWORK));
+        expect(err).toBeInstanceOf(InvalidInputError);
+        expect((err as InvalidInputError).issues).toEqual([code]);
+      }
+      expect(thrown(() => describeSweepEnvelope('not xdr', NETWORK))).toBeInstanceOf(
+        InvalidInputError,
+      );
+      expect(thrown(() => describeSweepEnvelope(two, 'stellar:mainnet' as never))).toBeInstanceOf(
+        InvalidInputError,
+      );
+    });
   });
 
   it('falls back to a fee bump form with the forwarding account as source', () => {
