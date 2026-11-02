@@ -11,19 +11,14 @@ import { z } from 'zod';
 import { isContractAddress } from '../codecs/strkey.js';
 import { InvalidInputError } from '../errors.js';
 import type { StellarNetworkId } from '../networks.js';
-import type { CallOptions } from '../types.js';
+import type { CallOptions, DestinationCheck, ProofSignerStatus } from '../types.js';
 import {
   isCurrentSigner,
   receivability,
   stellarAccountEntrySchema,
   stellarTrustlineEntrySchema,
 } from './account-rules.js';
-import type {
-  ReceivabilityReason,
-  StellarAccountEntry,
-  StellarAsset,
-  StellarTrustlineEntry,
-} from './account-rules.js';
+import type { StellarAccountEntry, StellarAsset, StellarTrustlineEntry } from './account-rules.js';
 import { parseStellarDestination } from './parse-destination.js';
 
 export type StellarLedgerKey =
@@ -46,9 +41,7 @@ export interface StellarLedgerReader {
   ): Promise<readonly (StellarLedgerEntry | null)[]>;
 }
 
-export type ProofSignerStatus = 'current' | 'not_current' | 'not_applicable';
-
-export interface CheckDestinationRequest {
+export interface StellarCheckDestinationRequest {
   /** As the recipient gave it: a G, an M or a C. */
   readonly destination: string;
   readonly asset: StellarAsset;
@@ -58,15 +51,23 @@ export interface CheckDestinationRequest {
   readonly proofSigner?: string;
 }
 
-export interface DestinationCheck {
-  readonly receivable: boolean;
-  readonly reason: ReceivabilityReason | null;
-  readonly proofSigner: ProofSignerStatus;
-}
-
 const accountEntry = stellarAccountEntrySchema.extend({ kind: z.literal('account') });
 const trustlineEntry = stellarTrustlineEntrySchema.extend({ kind: z.literal('trustline') });
 const entries = z.tuple([accountEntry.nullable(), trustlineEntry.nullable()]);
+const accountOnly = z.tuple([accountEntry.nullable()]);
+
+/** The account entry of `accountId` from one read, or null when it does not exist. */
+export async function readStellarAccount(
+  network: StellarNetworkId,
+  accountId: string,
+  ledger: StellarLedgerReader,
+  opts: CallOptions,
+): Promise<StellarAccountEntry | null> {
+  const answer = await ledger.getLedgerEntries(network, [{ kind: 'account', accountId }], opts);
+  const parsed = accountOnly.safeParse(answer);
+  if (!parsed.success) throw new InvalidInputError({ issues: ['ledgerEntries (invalid)'] });
+  return parsed.data[0];
+}
 
 /**
  * Reads the account behind the destination and its trustline for the
@@ -77,7 +78,7 @@ const entries = z.tuple([accountEntry.nullable(), trustlineEntry.nullable()]);
  */
 export async function checkStellarDestination(
   network: StellarNetworkId,
-  req: CheckDestinationRequest,
+  req: StellarCheckDestinationRequest,
   ledger: StellarLedgerReader,
   opts: CallOptions,
 ): Promise<DestinationCheck> {
@@ -100,7 +101,10 @@ export async function checkStellarDestination(
   const [account, trustline] = parsed.data;
   if (
     (account !== null && account.accountId !== base) ||
-    (trustline !== null && trustline.accountId !== base)
+    (trustline !== null &&
+      (trustline.accountId !== base ||
+        trustline.asset.code !== req.asset.code ||
+        trustline.asset.issuer !== req.asset.issuer))
   ) {
     throw new InvalidInputError({ issues: ['ledgerEntries (mismatch)'] });
   }

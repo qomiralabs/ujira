@@ -8,6 +8,7 @@
 import { z } from 'zod';
 
 import { InvalidInputError } from '../errors.js';
+import type { ReceivabilityReason } from '../types.js';
 
 /** A classic asset as a trustline names it. */
 export interface StellarAsset {
@@ -95,13 +96,6 @@ export function isCurrentSigner(account: StellarAccountEntry, key: string): bool
       signer.weight >= account.thresholds.low,
   );
 }
-
-export type ReceivabilityReason =
-  | 'ACCOUNT_NOT_FOUND'
-  | 'DESTINATION_IS_ISSUER'
-  | 'NO_TRUSTLINE'
-  | 'TRUSTLINE_NOT_AUTHORIZED'
-  | 'TRUSTLINE_LIMIT';
 
 export type Receivability =
   | { readonly receivable: true }

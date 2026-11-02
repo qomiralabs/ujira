@@ -16,6 +16,13 @@ import type { ChainAdapterErrorCode, ChainAdapterErrorJson } from './errors.js';
 import type { NetworkId } from './networks.js';
 import type { NetworksConfig } from './config.js';
 import type { AttestationFields, SignerProvider, SignerRef } from './signer.js';
+import type {
+  PublicConfig,
+  VerifyWalletProofRequest,
+  WalletProofChallenge,
+  WalletProofChallengeRequest,
+  WalletProofResult,
+} from './wallet-proof.js';
 
 export const CHAIN_ADAPTER_INTERFACE_VERSION = 1 as const;
 
@@ -106,6 +113,25 @@ export interface ChainAdapter {
    */
   attestationMessage(fields: AttestationFields): Uint8Array;
 
+  /**
+   * The exact text a recipient signs to prove they control an address. The
+   * host comes from the public configuration, never from the request.
+   */
+  walletProofChallenge(req: WalletProofChallengeRequest): WalletProofChallenge;
+  /** Checks a signed challenge against the issued one and the signers on chain today. */
+  verifyWalletProof(req: VerifyWalletProofRequest, opts: CallOptions): Promise<WalletProofResult>;
+  /** Whether a destination can receive a payout, and whether a proof's signer is still current. */
+  checkDestination(req: CheckDestinationRequest, opts: CallOptions): Promise<DestinationCheck>;
+  /**
+   * Builds the transaction that gets a recipient ready to be paid, with UJIRA
+   * paying the reserves and the fee, for the recipient's wallet to sign.
+   * Throws UnsupportedError where capabilities().reserveSponsorship is false.
+   */
+  prepareRecipientActivation(
+    req: RecipientActivationRequest,
+    opts: CallOptions,
+  ): Promise<SigningRequest>;
+
   readMandate(
     req: { readonly scope: TenantScope; readonly mandate: MandateRef },
     opts: CallOptions,
@@ -151,6 +177,8 @@ export interface AdapterPorts {
   readonly clock: { nowSeconds(): UnixSeconds };
   /** The current validated config snapshot. */
   readonly config: () => NetworksConfig;
+  /** The public configuration, where the wallet proof host comes from. */
+  readonly publicConfig: () => PublicConfig;
 }
 
 /** Every operation the adapter submits: mandate calls and the adapter's own steps. */
@@ -434,6 +462,51 @@ export interface AdapterCapabilities {
   /** Used by the router to compare speed. */
   readonly typicalSettlementSeconds: number;
   readonly typicalFinalSeconds: number;
+  /** verifyWalletProof can check a proof on this network. */
+  readonly walletProof: boolean;
+  /** Partner authentication is available. */
+  readonly partnerAuth: boolean;
+  /** The agent registry is available. */
+  readonly agentRegistry: boolean;
+  /** prepareRecipientActivation can sponsor a recipient's reserves. */
+  readonly reserveSponsorship: boolean;
+}
+
+/** Why a destination cannot receive. Codes are data; nothing above branches on a chain. */
+export type ReceivabilityReason =
+  | 'ACCOUNT_NOT_FOUND'
+  | 'DESTINATION_IS_ISSUER'
+  | 'NO_TRUSTLINE'
+  | 'TRUSTLINE_NOT_AUTHORIZED'
+  | 'TRUSTLINE_LIMIT';
+
+export type ProofSignerStatus = 'current' | 'not_current' | 'not_applicable';
+
+export interface CheckDestinationRequest {
+  /** The address as the recipient gave it. */
+  readonly destination: string;
+  readonly asset: TokenAsset;
+  /** Checked against what the destination has room to receive, when given. */
+  readonly amount?: TokenAmount;
+  /** The key a wallet proof was signed with, to check it is still current. */
+  readonly proofSigner?: string;
+}
+
+export interface DestinationCheck {
+  readonly receivable: boolean;
+  readonly reason: ReceivabilityReason | null;
+  readonly proofSigner: ProofSignerStatus;
+}
+
+export interface RecipientActivationRequest {
+  readonly scope: TenantScope;
+  /** The address as the recipient gave it. */
+  readonly destination: string;
+  readonly asset: TokenAsset;
+  /** True when checkDestination found no account there. */
+  readonly createAccount: boolean;
+  /** Sponsorship reservations the activation spends. */
+  readonly reservationIds: readonly string[];
 }
 
 export type HealthState = 'healthy' | 'degraded' | 'down';

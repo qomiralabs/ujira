@@ -104,6 +104,38 @@ export interface WalletProofChallenge {
   readonly expiresAt: string;
 }
 
+export type WalletProofInvalidReason =
+  | 'BAD_SIGNATURE'
+  | 'WRONG_SIGNER'
+  | 'EXPIRED'
+  | 'MESSAGE_MISMATCH'
+  | 'UNSUPPORTED_ACCOUNT'
+  | 'SIGNER_NOT_AUTHORIZED'
+  | 'ACCOUNT_NOT_FOUND';
+
+export type WalletProofResult =
+  | {
+      readonly status: 'valid';
+      /** The signing scheme the network uses, as data. */
+      readonly scheme: string;
+      readonly signer: string;
+    }
+  | { readonly status: 'invalid'; readonly reason: WalletProofInvalidReason };
+
+export interface VerifyWalletProofRequest {
+  /** The challenge as issued and stored, never as the client sent it back. */
+  readonly challenge: WalletProofChallenge;
+  /** The text the wallet says it signed. */
+  readonly signedText: string;
+  /** The signature as the wallet returned it. */
+  readonly signature: string;
+  /**
+   * The key the wallet reports signing with, for an account where an added
+   * signer signs. Absent means the account's own key.
+   */
+  readonly signer?: string;
+}
+
 const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
 /** RFC 4648 base32 without padding, upper case. */

@@ -25,7 +25,7 @@ export const ACTIVATION_VALIDITY_SECONDS = 300n;
 const INT64_MAX = 2n ** 63n - 1n;
 const ASSET_CODE = /^[A-Za-z0-9]{1,12}$/;
 
-export interface RecipientActivationRequest {
+export interface StellarRecipientActivationRequest {
   readonly requestId: string;
   /** The fee sponsor's G, the transaction source and fee payer. */
   readonly sponsor: string;
@@ -60,9 +60,9 @@ function inRange(value: bigint, min: bigint, max: bigint): boolean {
  */
 export function buildRecipientActivation(
   network: StellarNetworkId,
-  req: RecipientActivationRequest,
+  req: StellarRecipientActivationRequest,
   capabilities: { readonly reserveSponsorship: boolean },
-): SigningRequest {
+): Extract<SigningRequest, { readonly kind: 'stellar_transaction' }> {
   if (!capabilities.reserveSponsorship) throw new UnsupportedError({ network });
   if (!isAccountAddress(req.sponsor)) throw refuse('sponsor', 'invalid');
   const recipient = parseStellarDestination(network, { address: req.recipient }).address.value;

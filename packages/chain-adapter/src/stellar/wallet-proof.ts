@@ -9,45 +9,21 @@
 import { decodeAccountAddress, isAccountAddress } from '../codecs/strkey.js';
 import { InvalidInputError } from '../errors.js';
 import type { StellarNetworkId } from '../networks.js';
+import type { CallOptions } from '../types.js';
 import { challengeSeconds } from '../wallet-proof.js';
-import type { WalletProofChallenge } from '../wallet-proof.js';
+import type {
+  VerifyWalletProofRequest,
+  WalletProofInvalidReason,
+  WalletProofResult,
+} from '../wallet-proof.js';
 import { isCurrentSigner } from './account-rules.js';
 import type { StellarAccountEntry } from './account-rules.js';
+import { readStellarAccount } from './check-destination.js';
+import type { StellarLedgerReader } from './check-destination.js';
 import { parseStellarDestination } from './parse-destination.js';
 import { verifySep53 } from './sep53.js';
 
 export const WALLET_PROOF_SCHEME = 'sep53';
-
-export type WalletProofInvalidReason =
-  | 'BAD_SIGNATURE'
-  | 'WRONG_SIGNER'
-  | 'EXPIRED'
-  | 'MESSAGE_MISMATCH'
-  | 'UNSUPPORTED_ACCOUNT'
-  | 'SIGNER_NOT_AUTHORIZED'
-  | 'ACCOUNT_NOT_FOUND';
-
-export type WalletProofResult =
-  | {
-      readonly status: 'valid';
-      readonly scheme: typeof WALLET_PROOF_SCHEME;
-      readonly signer: string;
-    }
-  | { readonly status: 'invalid'; readonly reason: WalletProofInvalidReason };
-
-export interface StellarWalletProofRequest {
-  /** The challenge as issued and stored, never as the client sent it back. */
-  readonly challenge: WalletProofChallenge;
-  /** The text the wallet says it signed. */
-  readonly signedText: string;
-  /** The 64 byte ed25519 signature, base64 as wallets return it. */
-  readonly signature: string;
-  /**
-   * The G key the wallet reports signing with, for an account where an
-   * added signer signs. Absent means the account's own key.
-   */
-  readonly signer?: string;
-}
 
 /** The account entry of the G behind the proven address, read at verification. */
 export interface StellarWalletProofLedger {
@@ -79,7 +55,7 @@ export function proofAccountOf(network: StellarNetworkId, address: string): stri
  */
 export function verifyStellarWalletProof(
   network: StellarNetworkId,
-  req: StellarWalletProofRequest,
+  req: VerifyWalletProofRequest,
   ledger: StellarWalletProofLedger,
   nowSeconds: bigint,
 ): WalletProofResult {
@@ -105,4 +81,25 @@ export function verifyStellarWalletProof(
   }
   if (!isCurrentSigner(ledger.account, signer)) return invalid('SIGNER_NOT_AUTHORIZED');
   return { status: 'valid', scheme: WALLET_PROOF_SCHEME, signer };
+}
+
+/**
+ * Reads the account behind the proven address and verifies against it. An
+ * address with no key to sign with needs no read: the answer is already
+ * UNSUPPORTED_ACCOUNT.
+ */
+export async function checkStellarWalletProof(
+  network: StellarNetworkId,
+  req: VerifyWalletProofRequest,
+  ledger: StellarLedgerReader,
+  nowSeconds: bigint,
+  opts: CallOptions,
+): Promise<WalletProofResult> {
+  if (req.challenge.network !== network) {
+    throw new InvalidInputError({ issues: ['walletProof.network (mismatch)'] });
+  }
+  const accountId = proofAccountOf(network, req.challenge.address);
+  const account =
+    accountId === null ? null : await readStellarAccount(network, accountId, ledger, opts);
+  return verifyStellarWalletProof(network, req, { account }, nowSeconds);
 }

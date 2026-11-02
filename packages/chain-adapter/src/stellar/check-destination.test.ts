@@ -146,6 +146,8 @@ describe('checkStellarDestination', () => {
       [{ ...accountEntry, extra: true }, null],
       [{ ...accountEntry, accountId: G(8) }, null],
       [accountEntry, { ...trustlineEntry, accountId: G(8) }],
+      [accountEntry, { ...trustlineEntry, asset: { code: 'EURC', issuer: ASSET.issuer } }],
+      [accountEntry, { ...trustlineEntry, asset: { code: 'USDC', issuer: G(8) } }],
     ]) {
       const { reader } = fakeLedger(answer);
       await expect(

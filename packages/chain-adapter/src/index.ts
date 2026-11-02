@@ -93,8 +93,11 @@ export {
 } from './wallet-proof.js';
 export type {
   PublicConfig,
+  VerifyWalletProofRequest,
   WalletProofChallenge,
   WalletProofChallengeRequest,
   WalletProofDeps,
+  WalletProofInvalidReason,
   WalletProofPurpose,
+  WalletProofResult,
 } from './wallet-proof.js';
