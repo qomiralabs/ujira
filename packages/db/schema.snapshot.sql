@@ -2697,7 +2697,7 @@ CREATE TRIGGER payout_attempts_instance BEFORE INSERT ON ujira.payout_attempts F
 -- Name: payout_attempts payout_attempts_match_legs; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
 --
 
-CREATE CONSTRAINT TRIGGER payout_attempts_match_legs AFTER INSERT OR UPDATE OF total_amount ON ujira.payout_attempts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ujira.legs_match_attempt('id');
+CREATE CONSTRAINT TRIGGER payout_attempts_match_legs AFTER UPDATE OF total_amount ON ujira.payout_attempts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ujira.legs_match_attempt('id');
 
 
 --
