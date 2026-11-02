@@ -68,6 +68,30 @@ export interface UjiraApiTokens {
   secret_sha256: Buffer;
 }
 
+export interface UjiraAuditHeads {
+  last_hash: Buffer;
+  last_seq: Generated<Int8>;
+  principal_id: string;
+}
+
+export interface UjiraAuditLog {
+  action: string;
+  actor_id: string | null;
+  actor_kind: string;
+  id: Generated<string>;
+  metadata: Generated<Json>;
+  occurred_at: Generated<Timestamp>;
+  prev_hash: Buffer;
+  principal_id: string;
+  project_id: string;
+  row_hash: Buffer;
+  seq: Int8;
+}
+
+export interface UjiraAuditMetadataKeys {
+  key: string;
+}
+
 export interface UjiraChainEvents {
   chain: string;
   created_at: Generated<Timestamp>;
@@ -246,6 +270,24 @@ export interface UjiraMigrations {
   run_on: Timestamp;
 }
 
+export interface UjiraPayoutMethods {
+  chain: string;
+  created_at: Generated<Timestamp>;
+  destination_address: string;
+  destination_tag: Numeric | null;
+  details_ciphertext: Buffer | null;
+  details_nonce: Buffer | null;
+  has_tag: Generated<boolean>;
+  id: Generated<string>;
+  method: string;
+  principal_id: string;
+  project_id: string;
+  rail: string;
+  recipient_id: string;
+  status: Generated<string>;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface UjiraPrincipalMembers {
   created_at: Generated<Timestamp>;
   principal_id: string;
@@ -272,6 +314,40 @@ export interface UjiraProjects {
   updated_at: Generated<Timestamp>;
 }
 
+export interface UjiraRecipientIdentities {
+  chain: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  principal_id: string;
+  project_id: string;
+  provider: string;
+  provider_ref: string;
+  recipient_id: string;
+  state: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface UjiraRecipientPii {
+  ciphertext: Buffer;
+  created_at: Generated<Timestamp>;
+  nonce: Buffer;
+  principal_id: string;
+  project_id: string;
+  recipient_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface UjiraRecipients {
+  country: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  principal_id: string;
+  project_id: string;
+  recipient_ref: Buffer;
+  status: Generated<string>;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface UjiraSettlementTokens {
   asset: string;
   chain: string;
@@ -292,6 +368,9 @@ export interface Schema {
   'ops.routing_config_versions': OpsRoutingConfigVersions;
   ujira_migrations: UjiraMigrations;
   'ujira.api_tokens': UjiraApiTokens;
+  'ujira.audit_heads': UjiraAuditHeads;
+  'ujira.audit_log': UjiraAuditLog;
+  'ujira.audit_metadata_keys': UjiraAuditMetadataKeys;
   'ujira.chain_events': UjiraChainEvents;
   'ujira.chains': UjiraChains;
   'ujira.currencies': UjiraCurrencies;
@@ -307,9 +386,13 @@ export interface Schema {
   'ujira.mandate_instances': UjiraMandateInstances;
   'ujira.mandate_state_snapshots': UjiraMandateStateSnapshots;
   'ujira.mandates': UjiraMandates;
+  'ujira.payout_methods': UjiraPayoutMethods;
   'ujira.principal_members': UjiraPrincipalMembers;
   'ujira.principals': UjiraPrincipals;
   'ujira.projects': UjiraProjects;
+  'ujira.recipient_identities': UjiraRecipientIdentities;
+  'ujira.recipient_pii': UjiraRecipientPii;
+  'ujira.recipients': UjiraRecipients;
   'ujira.settlement_tokens': UjiraSettlementTokens;
   'ujira.status_transitions': UjiraStatusTransitions;
 }

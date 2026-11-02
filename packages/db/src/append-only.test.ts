@@ -13,6 +13,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
 import type { Database } from './database.js';
+import { audit } from './repositories/audit.js';
 import { entryPoints, type CreatedPrincipal } from './repositories/entry-points.js';
 import { ledger } from './repositories/ledger.js';
 import { chainEvents, deposits, mandateInstances, mandates } from './repositories/mandates.js';
@@ -29,6 +30,7 @@ const roleUrls = inject('dbRoleUrls');
 
 // Every append only table with a row in it, and a change to try on each.
 const CHANGES: Readonly<Record<string, string>> = {
+  'ujira.audit_log': `action = 'changed.action'`,
   'ujira.chain_events': `event_type = 'changed'`,
   'ujira.deposits': `from_address = 'changed'`,
   'ujira.ledger_journals': 'created_at = now()',
@@ -137,6 +139,11 @@ beforeAll(async () => {
       spent: 0n,
     });
   });
+  await db
+    .tenant(tenant)
+    .transaction(async (tx) =>
+      audit.record(tx, { action: 'project.created', actor: { kind: 'system' } }),
+    );
 });
 
 afterAll(async () => {
