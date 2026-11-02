@@ -19,6 +19,7 @@ export {
   LiquidityUnavailableError,
   MandateRuleError,
   MandateUntrustedError,
+  MemoOnContractCallError,
   QuoteExpiredError,
   QuoteUnavailableError,
   RailActionRequiredError,
