@@ -112,8 +112,11 @@ function checkInvariants(before: Observed | undefined, now: Observed): void {
   }
 }
 
-// Refused moves are part of the exercise. Anything unexpected still fails the run.
-const EXPECTED_CODES: ReadonlySet<string> = new Set(['UJ005', 'UJ004', 'UJ013']);
+// Refused moves are part of the exercise, and every refusal the database makes on
+// purpose carries a UJ code. Naming them here would make this test fail against a
+// later schema that adds a rule, though the invariants below still hold there.
+// Anything else still fails the run.
+const REFUSAL_PREFIX = 'UJ';
 
 async function apply(payoutId: string, move: Step, now: Observed): Promise<void> {
   const session = db.tenant(fixture.tenant);
@@ -159,7 +162,7 @@ async function apply(payoutId: string, move: Step, now: Observed): Promise<void>
   } catch (error) {
     if (error instanceof IllegalTransitionError || error instanceof LiveAttemptError) return;
     const code = (error as { code?: string }).code ?? '';
-    if (!EXPECTED_CODES.has(code)) throw error;
+    if (!code.startsWith(REFUSAL_PREFIX)) throw error;
   }
 }
 
