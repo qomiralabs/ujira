@@ -5,12 +5,12 @@
 // every query lives in that package's repositories, and the time limit on each
 // comes from the statement and lock timeouts every transaction opens with.
 
-import { apiTokens, entryPoints, idempotencyKeys, rateLimits } from '@ujira/db';
+import { apiTokens, entryPoints, idempotencyKeys, rateLimits, securityEvents } from '@ujira/db';
 import type { Database } from '@ujira/db';
 
 import type { IdempotencyStore } from './idempotency.js';
 import type { BucketStore } from './rate-limit.js';
-import type { TokenStore } from './token-auth.js';
+import type { SecurityEventSink, TokenStore } from './token-auth.js';
 
 export function databaseTokenStore(db: Database): TokenStore {
   return {
@@ -21,6 +21,11 @@ export function databaseTokenStore(db: Database): TokenStore {
       await db.tenant(tenant).transaction((tx) => apiTokens.touchLastUsed(tx, tokenId));
     },
   };
+}
+
+export function databaseSecurityEvents(db: Database): SecurityEventSink {
+  // Unscoped, because a refused key has no tenant anyone can trust.
+  return (event) => db.unscoped((tx) => securityEvents.record(tx, event));
 }
 
 export function databaseIdempotencyStore(db: Database): IdempotencyStore {

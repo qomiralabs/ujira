@@ -95,6 +95,38 @@ $$;
 ALTER FUNCTION ops.active_routing_config() OWNER TO ujira_ops;
 
 --
+-- Name: delete_expired_security_events(integer); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.delete_expired_security_events(batch_size integer) RETURNS bigint
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  removed bigint;
+begin
+  if batch_size is null or batch_size < 1 or batch_size > 10000 then
+    raise exception using
+      errcode = '22023',
+      message = 'a batch is from 1 to 10000 rows';
+  end if;
+  delete from ops.security_events as e
+   where e.id in (
+     select c.id
+       from ops.security_events as c
+      where c.occurred_at < now() - interval '90 days'
+      order by c.occurred_at
+      limit batch_size
+   );
+  get diagnostics removed = row_count;
+  return removed;
+end
+$$;
+
+
+ALTER FUNCTION ops.delete_expired_security_events(batch_size integer) OWNER TO ujira_ops;
+
+--
 -- Name: lease_executor(text, text, integer); Type: FUNCTION; Schema: ops; Owner: ujira_ops
 --
 
@@ -127,6 +159,21 @@ $$;
 
 
 ALTER FUNCTION ops.lease_executor(target_network text, holder text, lease_seconds integer) OWNER TO ujira_ops;
+
+--
+-- Name: record_security_event(text, bytea, text, bytea); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.record_security_event(event_kind text, event_email_hmac bytea, event_token_prefix text, event_ip_hmac bytea) RETURNS void
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  insert into ops.security_events (kind, email_hmac, token_prefix, ip_hmac)
+  values (event_kind, event_email_hmac, event_token_prefix, event_ip_hmac)
+$$;
+
+
+ALTER FUNCTION ops.record_security_event(event_kind text, event_email_hmac bytea, event_token_prefix text, event_ip_hmac bytea) OWNER TO ujira_ops;
 
 --
 -- Name: release_executor(text, text, text, bigint); Type: FUNCTION; Schema: ops; Owner: ujira_ops
@@ -857,6 +904,40 @@ ALTER TABLE ops.routing_config_versions ALTER COLUMN version ADD GENERATED ALWAY
 
 
 --
+-- Name: security_events; Type: TABLE; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TABLE ops.security_events (
+    id bigint NOT NULL,
+    kind text NOT NULL,
+    email_hmac bytea,
+    token_prefix text,
+    ip_hmac bytea,
+    occurred_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT security_events_email_hmac_length CHECK ((octet_length(email_hmac) = 32)),
+    CONSTRAINT security_events_ip_hmac_length CHECK ((octet_length(ip_hmac) = 32)),
+    CONSTRAINT security_events_kind_known CHECK ((kind = ANY (ARRAY['sign_in_failed'::text, 'otp_failed'::text, 'mfa_failed'::text, 'token_invalid'::text, 'token_env_mismatch'::text, 'csrf_failed'::text, 'callback_signature_invalid'::text, 'unresolved_identity_event'::text]))),
+    CONSTRAINT security_events_token_prefix_format CHECK ((token_prefix ~ '^[A-Za-z0-9_]{8,40}$'::text))
+);
+
+
+ALTER TABLE ops.security_events OWNER TO ujira_owner;
+
+--
+-- Name: security_events_id_seq; Type: SEQUENCE; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ops.security_events ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME ops.security_events_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: ujira_migrations; Type: TABLE; Schema: public; Owner: test
 --
 
@@ -947,7 +1028,7 @@ CREATE TABLE ujira.audit_log (
     occurred_at timestamp with time zone DEFAULT now() NOT NULL,
     prev_hash ujira.hash32 NOT NULL,
     row_hash ujira.hash32 NOT NULL,
-    CONSTRAINT audit_log_action_format CHECK ((action ~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$'::text)),
+    CONSTRAINT audit_log_action_known CHECK ((action = ANY (ARRAY['session.signed_in'::text, 'session.signed_out'::text, 'session.stepped_up'::text, 'member.invited'::text, 'member.added'::text, 'member.removed'::text, 'member.role_changed'::text, 'api_key.created'::text, 'api_key.rotated'::text, 'api_key.revoked'::text, 'webhook.endpoint_created'::text, 'webhook.endpoint_updated'::text, 'webhook.endpoint_deleted'::text, 'webhook.secret_rotated'::text, 'export.requested'::text, 'export.downloaded'::text, 'identity.verification_started'::text, 'identity.verification_completed'::text, 'identity.verification_revoked'::text, 'identity.pii_viewed'::text, 'principal.reporting_time_zone_changed'::text, 'project.routing_settings_changed'::text, 'project.payout_minimums_changed'::text, 'project.cashout_bearer_changed'::text]))),
     CONSTRAINT audit_log_actor_kind CHECK ((actor_kind = ANY (ARRAY['member'::text, 'token'::text, 'system'::text]))),
     CONSTRAINT audit_log_actor_whole CHECK (((actor_kind = 'system'::text) = (actor_id IS NULL)))
 );
@@ -1550,6 +1631,14 @@ ALTER TABLE ONLY ops.routing_config_versions
 
 
 --
+-- Name: security_events security_events_pkey; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.security_events
+    ADD CONSTRAINT security_events_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: ujira_migrations ujira_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: test
 --
 
@@ -1998,6 +2087,13 @@ ALTER TABLE ONLY ujira.status_transitions
 
 
 --
+-- Name: security_events_occurred_at; Type: INDEX; Schema: ops; Owner: ujira_owner
+--
+
+CREATE INDEX security_events_occurred_at ON ops.security_events USING btree (occurred_at);
+
+
+--
 -- Name: chain_events_by_instance; Type: INDEX; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2051,6 +2147,13 @@ CREATE TRIGGER routing_config_active_touch BEFORE UPDATE ON ops.routing_config_a
 --
 
 CREATE TRIGGER routing_config_versions_append_only BEFORE DELETE OR UPDATE ON ops.routing_config_versions FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: security_events security_events_append_only; Type: TRIGGER; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TRIGGER security_events_append_only BEFORE UPDATE ON ops.security_events FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
 
 
 --
@@ -3424,6 +3527,8 @@ CREATE POLICY tenant_update ON ujira.recipients FOR UPDATE TO ujira_app USING ((
 
 GRANT USAGE ON SCHEMA ops TO ujira_ops;
 GRANT USAGE ON SCHEMA ops TO ujira_app;
+GRANT USAGE ON SCHEMA ops TO ujira_auth;
+GRANT USAGE ON SCHEMA ops TO ujira_retention;
 
 
 --
@@ -3500,11 +3605,28 @@ GRANT ALL ON FUNCTION ops.active_routing_config() TO ujira_app;
 
 
 --
+-- Name: FUNCTION delete_expired_security_events(batch_size integer); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.delete_expired_security_events(batch_size integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.delete_expired_security_events(batch_size integer) TO ujira_retention;
+
+
+--
 -- Name: FUNCTION lease_executor(target_network text, holder text, lease_seconds integer); Type: ACL; Schema: ops; Owner: ujira_ops
 --
 
 REVOKE ALL ON FUNCTION ops.lease_executor(target_network text, holder text, lease_seconds integer) FROM PUBLIC;
 GRANT ALL ON FUNCTION ops.lease_executor(target_network text, holder text, lease_seconds integer) TO ujira_app;
+
+
+--
+-- Name: FUNCTION record_security_event(event_kind text, event_email_hmac bytea, event_token_prefix text, event_ip_hmac bytea); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.record_security_event(event_kind text, event_email_hmac bytea, event_token_prefix text, event_ip_hmac bytea) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.record_security_event(event_kind text, event_email_hmac bytea, event_token_prefix text, event_ip_hmac bytea) TO ujira_app;
+GRANT ALL ON FUNCTION ops.record_security_event(event_kind text, event_email_hmac bytea, event_token_prefix text, event_ip_hmac bytea) TO ujira_auth;
 
 
 --
@@ -3721,6 +3843,13 @@ GRANT SELECT,INSERT,UPDATE ON TABLE ops.routing_config_active TO ujira_ops;
 --
 
 GRANT SELECT,INSERT ON TABLE ops.routing_config_versions TO ujira_ops;
+
+
+--
+-- Name: TABLE security_events; Type: ACL; Schema: ops; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,DELETE ON TABLE ops.security_events TO ujira_ops;
 
 
 --

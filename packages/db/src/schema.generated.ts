@@ -75,6 +75,15 @@ export interface OpsRoutingConfigVersions {
   version: Generated<Int8>;
 }
 
+export interface OpsSecurityEvents {
+  email_hmac: Buffer | null;
+  id: Generated<Int8>;
+  ip_hmac: Buffer | null;
+  kind: string;
+  occurred_at: Generated<Timestamp>;
+  token_prefix: string | null;
+}
+
 export interface UjiraApiTokens {
   created_at: Generated<Timestamp>;
   expires_at: Timestamp;
@@ -384,6 +393,7 @@ export interface Schema {
   'ops.rate_limit_buckets': OpsRateLimitBuckets;
   'ops.routing_config_active': OpsRoutingConfigActive;
   'ops.routing_config_versions': OpsRoutingConfigVersions;
+  'ops.security_events': OpsSecurityEvents;
   ujira_migrations: UjiraMigrations;
   'ujira.api_tokens': UjiraApiTokens;
   'ujira.audit_heads': UjiraAuditHeads;

@@ -21,6 +21,7 @@ import type { Logger } from './log.js';
 import {
   databaseBucketStore,
   databaseIdempotencyStore,
+  databaseSecurityEvents,
   databaseTokenStore,
 } from './postgres-stores.js';
 import { allowEveryRequest, createRateLimit } from './rate-limit.js';
@@ -59,6 +60,7 @@ export function apiAccessFromEnv(
   return {
     authenticate: createTokenAuthenticator({
       store: databaseTokenStore(db),
+      securityEvents: databaseSecurityEvents(db),
       environment: KEY_ENVIRONMENT[config.environment],
       embedOrigins: config.embedOrigins,
       logger,

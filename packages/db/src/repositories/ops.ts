@@ -40,6 +40,28 @@ export interface RateLimitTaken {
   readonly tokens: number;
 }
 
+export const SECURITY_EVENT_KINDS = Object.freeze([
+  'sign_in_failed',
+  'otp_failed',
+  'mfa_failed',
+  'token_invalid',
+  'token_env_mismatch',
+  'csrf_failed',
+  'callback_signature_invalid',
+  'unresolved_identity_event',
+] as const);
+export type SecurityEventKind = (typeof SECURITY_EVENT_KINDS)[number];
+
+export interface NewSecurityEvent {
+  readonly kind: SecurityEventKind;
+  // HMAC-SHA-256 under a key the caller holds, never the value itself: the table
+  // refuses anything that is not 32 bytes.
+  readonly emailHmac?: Buffer;
+  readonly ipHmac?: Buffer;
+  // The public part of a key, never the key.
+  readonly tokenPrefix?: string;
+}
+
 export const executors = {
   // A free account on the network for this holder, or undefined when every
   // account is held. Concurrent callers never get the same one.
@@ -81,6 +103,28 @@ export const executors = {
       ) as released
     `.execute(db);
     return result.rows[0]?.released === true;
+  },
+};
+
+export const securityEvents = {
+  record: async (db: Tx, event: NewSecurityEvent): Promise<void> => {
+    await sql`
+      select ops.record_security_event(
+        ${event.kind},
+        ${event.emailHmac ?? null}::bytea,
+        ${event.tokenPrefix ?? null}::text,
+        ${event.ipHmac ?? null}::bytea
+      )
+    `.execute(db);
+  },
+
+  // Removes one batch of events past their 90 days and says how many, so a job
+  // keeps calling until this says none. Needs the retention login.
+  deleteExpired: async (db: Tx, batchSize: number): Promise<number> => {
+    const result = await sql<{ removed: string }>`
+      select ops.delete_expired_security_events(${batchSize}::integer) as removed
+    `.execute(db);
+    return Number(result.rows[0]?.removed ?? '0');
   },
 };
 

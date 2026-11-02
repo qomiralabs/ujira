@@ -22,6 +22,7 @@ const TABLES = [
   'ops.routing_config_versions',
   'ops.routing_config_active',
   'ops.rate_limit_buckets',
+  'ops.security_events',
 ];
 
 let database: TestDatabase;
@@ -62,7 +63,7 @@ describe('the ops role', () => {
     });
   });
 
-  it('the other service roles cannot reach the schema at all', async () => {
+  it('the other service roles cannot reach what they were not given', async () => {
     for (const role of [
       'ujira_reader',
       'ujira_retention',

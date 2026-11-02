@@ -320,6 +320,7 @@ describe('against the database', () => {
       routes: [readRoute, createPayout],
       authenticate: createTokenAuthenticator({
         store: databaseTokenStore(db),
+        securityEvents: () => Promise.resolve(),
         environment: 'test',
         embedOrigins: [],
         logger,

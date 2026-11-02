@@ -44,8 +44,10 @@ export {
   type TokenRecord,
 } from './repositories/entry-points.js';
 export {
+  AUDIT_ACTIONS,
   audit,
   AuditScopeError,
+  type AuditAction,
   type AuditActor,
   type AuditChainBreak,
   type AuditEntry,
@@ -85,10 +87,14 @@ export {
   type Reservation,
 } from './repositories/idempotency.js';
 export {
+  SECURITY_EVENT_KINDS,
   executors,
   rateLimits,
   routingConfig,
+  securityEvents,
   type ExecutorLease,
+  type NewSecurityEvent,
+  type SecurityEventKind,
   type RateLimitBucket,
   type RateLimitTaken,
   type RoutingConfig,

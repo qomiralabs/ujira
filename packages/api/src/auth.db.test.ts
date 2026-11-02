@@ -19,7 +19,7 @@ import { API_SCOPES } from './auth.js';
 import type { Tenant } from './auth.js';
 import { memoryIdempotencyStore } from './idempotency.js';
 import { memoryLogger } from './log.js';
-import { databaseTokenStore } from './postgres-stores.js';
+import { databaseSecurityEvents, databaseTokenStore } from './postgres-stores.js';
 import { allowEveryRequest } from './rate-limit.js';
 import { defineTenantRoute } from './route.js';
 import { issueToken } from './token.js';
@@ -91,6 +91,7 @@ function served(now?: () => Date) {
     routes: [whoami],
     authenticate: createTokenAuthenticator({
       store: databaseTokenStore(db),
+      securityEvents: databaseSecurityEvents(db),
       environment: 'test',
       embedOrigins: [],
       logger,
@@ -102,8 +103,9 @@ function served(now?: () => Date) {
     idempotency: memoryIdempotencyStore(),
     logger,
   });
-  return (token: string) =>
+  const call = (token: string) =>
     app.request('/v1/whoami', { headers: { authorization: `Bearer ${token}` } });
+  return Object.assign(call, { logger });
 }
 
 describe('against the table', () => {
@@ -136,6 +138,12 @@ describe('against the table', () => {
 
     const expired = await newKey(tenant, { expiresAt: new Date(Date.now() - 1000) });
     expect((await call(expired.token)).status).toBe(401);
+  });
+
+  it('records a refused key through the real function, as the role the API runs as', async () => {
+    const call = served();
+    expect((await call(issueToken('test').token)).status).toBe(401);
+    expect(call.logger.records.map((r) => r.event)).not.toContain('security_event_failed');
   });
 
   it('holds only the hash of the secret', async () => {

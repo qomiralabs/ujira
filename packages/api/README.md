@@ -117,17 +117,21 @@ is stored. Nothing here writes a key, a prefix or a hash to a log.
 
 A key goes in `Authorization: Bearer`, and nowhere else. What is checked, in order:
 
-| Check                                 | Refused with                     | Costs a query |
-| ------------------------------------- | -------------------------------- | ------------- |
-| `Origin`, if sent, is an embed        | `403 ORIGIN_NOT_ALLOWED`         | no            |
-| The header, format and checksum       | `401 TOKEN_MALFORMED`            | no            |
-| The key's environment                 | `401 TOKEN_ENVIRONMENT_MISMATCH` | no            |
-| Known, secret, not expired or revoked | `401 TOKEN_INVALID`, all alike   | yes           |
-| The rate limits                       | `429 RATE_LIMITED`               | yes           |
-| The route's scope                     | `403 INSUFFICIENT_SCOPE`         | no            |
+| Check                                 | Refused with                     | Costs a query    |
+| ------------------------------------- | -------------------------------- | ---------------- |
+| `Origin`, if sent, is an embed        | `403 ORIGIN_NOT_ALLOWED`         | no               |
+| The header, format and checksum       | `401 TOKEN_MALFORMED`            | no               |
+| The key's environment                 | `401 TOKEN_ENVIRONMENT_MISMATCH` | records an event |
+| Known, secret, not expired or revoked | `401 TOKEN_INVALID`, all alike   | yes              |
+| The rate limits                       | `429 RATE_LIMITED`               | yes              |
+| The route's scope                     | `403 INSUFFICIENT_SCOPE`         | no               |
 
 `test` keys work only in the sandbox and `live` keys only in production. `/v1`
 sends no CORS headers to anyone.
+
+A key refused on its environment or at the lookup is recorded in
+`ops.security_events` by its public prefix, and kept for 90 days. If the record
+cannot be written the client still gets its refusal, and the failure is logged.
 
 A good lookup is cached for at most 30 seconds, so a revoked key stops working
 within that time on every instance. `last_used_at` is written at most once per

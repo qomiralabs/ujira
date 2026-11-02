@@ -49,6 +49,7 @@ export { OPENAPI_PATH, buildOpenApiDocument, withOpenApiRoute } from './openapi.
 export {
   databaseBucketStore,
   databaseIdempotencyStore,
+  databaseSecurityEvents,
   databaseTokenStore,
 } from './postgres-stores.js';
 export {
@@ -112,5 +113,11 @@ export {
   TokenRecordError,
   createTokenAuthenticator,
 } from './token-auth.js';
-export type { TokenAuthOptions, TokenLookup, TokenStore } from './token-auth.js';
+export type {
+  SecurityEventSink,
+  TokenAuthOptions,
+  TokenLookup,
+  TokenSecurityEvent,
+  TokenStore,
+} from './token-auth.js';
 export type { RunningServer, ServeOptions } from './serve.js';
