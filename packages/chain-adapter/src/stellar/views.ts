@@ -12,7 +12,6 @@ import type { xdr } from '@stellar/stellar-sdk/base';
 import { InternalError } from '../errors.js';
 import type { NetworkId } from '../networks.js';
 import type {
-  Bytes32,
   ChainAddress,
   LimitsInput,
   MandateConfigView,
@@ -64,8 +63,6 @@ export interface ViewContext {
   readonly network: NetworkId;
   readonly factory: string;
   readonly policyEpoch: number;
-  /** The tenant's own reference. The chain holds only the tag, already checked against it. */
-  readonly tenantRef: Bytes32;
 }
 
 export function configViewOf(value: xdr.ScVal, ctx: ViewContext): MandateConfigView {
@@ -81,7 +78,7 @@ export function configViewOf(value: xdr.ScVal, ctx: ViewContext): MandateConfigV
     principal: at(asAddress(field(f, 'principal'))),
     asset: 'USDC',
     recipientMode: mode,
-    tenantRef: ctx.tenantRef,
+    tenantTag: asBytes32(field(f, 'tenant_tag')),
     agents: list('agents'),
     approvers: list('approvers'),
     approvalsRequired: asU32(field(f, 'approvals_required')),

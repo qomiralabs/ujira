@@ -40,7 +40,7 @@ export type CountryCode = Brand<string, 'CountryCode'>;
 /** ujira:tx:v1:{caip2}:{txHash}:{eventIndex}. Built and read by receipt-ref.ts. */
 export type ReceiptRef = Brand<string, 'ReceiptRef'>;
 
-/** Every request carries the tenant, checked against the mandate's tenant reference on chain. */
+/** Every request carries the tenant, checked against the mandate's tenant tag on chain. */
 export interface TenantScope {
   readonly principalId: Uuid;
   readonly projectId: Uuid;
@@ -491,12 +491,6 @@ export interface MandateConfigInput {
   /** Resolved to the network's token contract by the adapter. */
   readonly asset: TokenAsset;
   readonly recipientMode: 'allowlist' | 'attested' | 'both';
-  /**
-   * The tenant's own reference, which never reaches the chain. The mandate
-   * stores a tag derived from it and the mandate's address, and the adapter
-   * computes that tag itself.
-   */
-  readonly tenantRef: Bytes32;
   readonly agents: readonly ChainAddress[];
   readonly approvers: readonly ChainAddress[];
   readonly approvalsRequired: number;
@@ -514,6 +508,12 @@ export interface MandateConfigInput {
 
 /** The mandate's config view: the creation input plus what the factory fixed. */
 export interface MandateConfigView extends MandateConfigInput {
+  /**
+   * The tag the mandate stores: its tenant's reference hashed with its own
+   * address. The adapter computes it from the request's scope, so the
+   * reference itself never reaches the chain and is not part of the config.
+   */
+  readonly tenantTag: Bytes32;
   readonly factory: ChainAddress;
   readonly feeAddress: ChainAddress;
   readonly policyEpoch: number;
@@ -672,7 +672,7 @@ export interface MandateSnapshot {
   /** Created by a factory the config trusts for this mandate version. */
   readonly trustedFactory: boolean;
   /** The tag the mandate stores is the one recomputed from the request scope and its address. */
-  readonly tenantRefMatches: boolean;
+  readonly tenantTagMatches: boolean;
   readonly asset: TokenAsset;
   readonly config: MandateConfigView;
   readonly state: MandateState;

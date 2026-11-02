@@ -10,7 +10,6 @@ import { Keypair } from '@stellar/stellar-sdk/base';
 import { describe, expect, it } from 'vitest';
 
 import { InvalidInputError, SubmissionRejectedError } from '../errors.js';
-import { tenantRefOf } from '../tenant-ref.js';
 import type { Bytes32, ChainAddress, MandateAction, PayoutId, UnixSeconds } from '../types.js';
 import { tokenAmount } from '@ujira/core';
 import { NETWORK, OPTS, addAccount, setup } from './test-adapter.js';
@@ -107,7 +106,6 @@ describe('caller authorization', { timeout: 30_000 }, () => {
             principal: at(t.principal.publicKey()),
             asset: 'USDC',
             recipientMode: 'allowlist',
-            tenantRef: tenantRefOf(t.scope),
             agents: [at(agent.publicKey())],
             approvers: [],
             approvalsRequired: 0,

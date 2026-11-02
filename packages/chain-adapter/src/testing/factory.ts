@@ -74,7 +74,7 @@ export class MandateFactory implements LedgerContract {
         mandate: at,
         principal: c.principal,
         asset: c.asset,
-        tenant_ref: c.tenantRef,
+        tenant_tag: c.tenantTag,
         spec_version: SPEC_VERSION,
         fee_address: this.feeAddress,
       });

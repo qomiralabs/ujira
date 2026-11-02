@@ -52,6 +52,7 @@ import {
   SECONDS_PER_DAY,
   SPEC_VERSION,
   SWEEP_GRACE_SECONDS,
+  U64_MAX,
   isMandateErrorName,
 } from './spec.js';
 import type {
@@ -194,7 +195,7 @@ export class MandateEngine implements LedgerContract {
   readonly factory: string;
   readonly asset: string;
   readonly recipientMode: RecipientMode;
-  readonly tenantRef: string;
+  readonly tenantTag: string;
   readonly feeAddress: string;
   readonly #ledger: FakeLedger;
   #s: MandateState;
@@ -212,7 +213,7 @@ export class MandateEngine implements LedgerContract {
     this.factory = init.factory;
     this.asset = c.asset;
     this.recipientMode = c.recipientMode;
-    this.tenantRef = c.tenantRef;
+    this.tenantTag = c.tenantTag;
     this.feeAddress = init.feeAddress;
     this.#s = {
       principal: c.principal,
@@ -248,7 +249,7 @@ export class MandateEngine implements LedgerContract {
       principal: c.principal,
       asset: c.asset,
       recipient_mode: c.recipientMode,
-      tenant_ref: c.tenantRef,
+      tenant_tag: c.tenantTag,
       agents: [...c.agents],
       approvers: [...c.approvers],
       approvals_required: c.approvalsRequired,
@@ -765,7 +766,7 @@ export class MandateEngine implements LedgerContract {
         principal: s.principal,
         asset: this.asset,
         recipientMode: this.recipientMode,
-        tenantRef: this.tenantRef,
+        tenantTag: this.tenantTag,
         agents: s.agents.map((a) => a.account),
         approvers: [...s.approvers],
         approvalsRequired: s.approvalsRequired,
@@ -1084,7 +1085,11 @@ export class MandateEngine implements LedgerContract {
     if (attested && r.attestations.length !== r.legs.length) {
       throw refusal('ATTESTATION_INVALID');
     }
+    // Within one time to live of the largest time the sum does not fit. It is
+    // capped rather than refused: a wrapped value would read as already lapsed
+    // and let anyone cancel the payout.
     let expiresAt = now + s.limits.payoutTtlSeconds;
+    if (expiresAt > U64_MAX) expiresAt = U64_MAX;
     // Every check of one leg runs before the next leg starts.
     r.legs.forEach((leg, i) => {
       if (listed && !s.allowlist.has(allowKey(r.recipientRef, leg.destination))) {

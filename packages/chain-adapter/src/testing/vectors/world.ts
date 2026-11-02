@@ -325,7 +325,7 @@ export class VectorWorld {
       principal: this.address(c.principal),
       asset: this.address(c.asset),
       recipientMode: c.recipient_mode,
-      tenantRef: hexOf(bytes32Of(c.tenant_ref)),
+      tenantTag: hexOf(bytes32Of(c.tenant_tag)),
       agents: list(c.agents),
       approvers: list(c.approvers),
       approvalsRequired: c.approvals_required,

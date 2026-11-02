@@ -91,13 +91,13 @@ export const ATTESTATION_BREAKERS: readonly Breaker[] = Object.freeze([
     },
   },
   {
-    name: "the mandate's tenant reference does not match",
+    name: "the mandate's tenant tag does not match",
     step: '1',
     reason: 'MANDATE_INACTIVE',
     detail: null,
     representative: false,
     apply: (w) => {
-      w.patchSnapshot((s) => ({ ...s, tenantRefMatches: false }));
+      w.patchSnapshot((s) => ({ ...s, tenantTagMatches: false }));
     },
   },
   {
