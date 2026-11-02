@@ -10,7 +10,105 @@
 // the generated schema types. A caller that needs a query needs a
 // repository method, which arrives with the tables.
 
-export { createDatabase, type Database, type DatabaseRole } from './database.js';
+export {
+  createDatabase,
+  type Database,
+  type DatabaseHooks,
+  type DatabaseRole,
+  type ProjectContext,
+  type TenantSession,
+} from './database.js';
+export {
+  MAX_PAGE_SIZE,
+  PageRequestError,
+  type Page,
+  type PageRequest,
+} from './repositories/page.js';
+export {
+  apiTokens,
+  members,
+  principals,
+  projects,
+  type ApiToken,
+  type Member,
+  type MemberRole,
+  type NewApiToken,
+  type Principal,
+  type Project,
+} from './repositories/tenancy.js';
+export {
+  entryPoints,
+  type CreatedPrincipal,
+  type NewPrincipal,
+  type ResolvedInstance,
+  type TokenRecord,
+} from './repositories/entry-points.js';
+export {
+  audit,
+  AuditScopeError,
+  type AuditActor,
+  type AuditChainBreak,
+  type AuditEntry,
+  type AuditMetadata,
+  type AuditVerification,
+  type NewAuditEntry,
+} from './repositories/audit.js';
+export {
+  ledger,
+  type LedgerAccount,
+  type LedgerAccountKind,
+  type LedgerEntry,
+  type LedgerEntryInput,
+  type MandateState,
+  type PostResult,
+  type Reconciliation,
+} from './repositories/ledger.js';
+export {
+  payoutMethods,
+  recipientIdentities,
+  recipientPii,
+  recipients,
+  type EncryptedValue,
+  type IdentityState,
+  type IdentityUpdate,
+  type NewPayoutMethod,
+  type PayoutMethod,
+  type PayoutMethodKind,
+  type Recipient,
+  type RecipientIdentity,
+  type RecipientStatus,
+} from './repositories/recipients.js';
+export {
+  executors,
+  routingConfig,
+  type ExecutorLease,
+  type RoutingConfig,
+} from './repositories/ops.js';
+export {
+  FEE_ESTIMATE_OPS,
+  feeEstimates,
+  type FeeEstimate,
+  type FeeEstimateOp,
+} from './repositories/fee-estimates.js';
+export {
+  chainEvents,
+  deposits,
+  fundingSources,
+  instanceRoles,
+  mandateInstances,
+  mandates,
+  type ChainEvent,
+  type Deposit,
+  type FundingSource,
+  type InstanceRole,
+  type Mandate,
+  type MandateInstance,
+  type MandateRole,
+  type NewChainEvent,
+  type NewDeposit,
+  type NewMandateInstance,
+  type RoleGrant,
+} from './repositories/mandates.js';
 export {
   CONNECTION_BUDGET,
   loadDatabaseConfig,

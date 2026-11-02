@@ -168,6 +168,19 @@ describe('check-migrations', () => {
     ]);
   });
 
+  it('flags a role left set at the end of a section, which the runner would record as', () => {
+    expect(messages(migration('set local role ujira_owner;\nselect 1;'))).toEqual([
+      'up: a role set here must be reset with reset role before the section ends',
+    ]);
+  });
+
+  it('passes a role that is set and then reset, either way', () => {
+    expect(messages(migration('set local role ujira_owner;\nselect 1;\nreset role;'))).toEqual([]);
+    expect(
+      messages(migration('set local role ujira_owner;\nselect 1;\nset local role none;')),
+    ).toEqual([]);
+  });
+
   it('flags a file name the runner would sort wrongly', () => {
     expect(messages(migration('select 1;'), '17610048_Example.sql')).toEqual([
       'name it <13 digit timestamp>_<lower case words>.sql',
@@ -182,6 +195,8 @@ describe('check-migrations', () => {
     }
   });
 
+  // Starts node twice, which took 22 seconds on a loaded machine against the
+  // default limit of 5.
   it('fails the unsafe fixture from the command line and passes the real migrations', () => {
     const fixture = join(ROOT, 'scripts/fixtures/migrations/1700000000000_unsafe_index.sql');
     const failed = spawnSync(process.execPath, ['scripts/check-migrations.ts', fixture], {
@@ -196,7 +211,7 @@ describe('check-migrations', () => {
     });
     expect(passed.status).toBe(0);
     expect(passed.stdout).toContain('0 problem(s)');
-  });
+  }, 120_000);
 });
 
 describe('statement splitting', () => {

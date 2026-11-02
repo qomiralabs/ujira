@@ -17,7 +17,7 @@
             }
           },
           "400": {
-            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid",
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -31,7 +31,307 @@
             }
           },
           "503": {
-            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long",
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/identity/self-webhook": {
+      "post": {
+        "operationId": "receiveSelfWebhook",
+        "summary": "Receive a verification result from Self",
+        "security": [],
+        "parameters": [
+          {
+            "name": "self-signature",
+            "in": "header",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SelfWebhookAck" } }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "413": {
+            "description": "PAYLOAD_TOO_LARGE: The request body is too large",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE: The request body must be application/json",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/recipients/{id}/methods/{methodId}/wallet-challenges": {
+      "post": {
+        "operationId": "createWalletChallenge",
+        "summary": "Issue a challenge for a recipient to prove they control a payout destination",
+        "security": [{ "bearer": [] }],
+        "x-ujira-scope": "recipients:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "methodId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "OK",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/WalletChallenge" } }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "401": {
+            "description": "TOKEN_MALFORMED: The API key is missing or malformed. TOKEN_INVALID: The API key is not valid. TOKEN_ENVIRONMENT_MISMATCH: The API key is for another environment. EMBED_TOKEN_INVALID: The embed session is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "403": {
+            "description": "INSUFFICIENT_SCOPE: The API key lacks the scope this route needs. ORIGIN_NOT_ALLOWED: The request origin is not allowed. EMBED_SCOPE_VIOLATION: The embed session cannot reach this route",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND: Not found",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/recipients/{id}/methods/{methodId}/wallet-proofs": {
+      "post": {
+        "operationId": "submitWalletProof",
+        "summary": "Record a signed wallet proof, once the destination can receive",
+        "security": [{ "bearer": [] }],
+        "x-ujira-scope": "recipients:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "methodId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "challengeId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "message": { "type": "string", "minLength": 1, "maxLength": 4096 },
+                  "nonce": { "type": "string", "minLength": 1, "maxLength": 128 },
+                  "signature": { "type": "string", "minLength": 1, "maxLength": 2048 },
+                  "signer": { "type": "string", "pattern": "^[A-Za-z0-9]{1,128}$" }
+                },
+                "required": ["challengeId", "message", "nonce", "signature"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/WalletProofAccepted" }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "401": {
+            "description": "TOKEN_MALFORMED: The API key is missing or malformed. TOKEN_INVALID: The API key is not valid. TOKEN_ENVIRONMENT_MISMATCH: The API key is for another environment. EMBED_TOKEN_INVALID: The embed session is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "403": {
+            "description": "INSUFFICIENT_SCOPE: The API key lacks the scope this route needs. ORIGIN_NOT_ALLOWED: The request origin is not allowed. EMBED_SCOPE_VIOLATION: The embed session cannot reach this route",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND: Not found",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "413": {
+            "description": "PAYLOAD_TOO_LARGE: The request body is too large",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE: The request body must be application/json",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "422": {
+            "description": "DESTINATION_INVALID: The destination cannot receive this payout. MANDATE_REFUSED: The mandate does not allow this. QUOTE_UNAVAILABLE: No quote is available for this payout right now. WALLET_PROOF_INVALID: The wallet proof is not valid. WALLET_PROOF_EXPIRED: The wallet proof challenge has expired. WALLET_SIGNER_NOT_AUTHORIZED: That key cannot sign for this wallet. DESTINATION_NOT_RECEIVABLE: This destination cannot receive a payout yet",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now",
             "headers": {
               "Request-Id": { "schema": { "type": "string" } },
               "Retry-After": { "schema": { "type": "string" } }
@@ -58,7 +358,7 @@
             }
           },
           "400": {
-            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid",
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -72,7 +372,7 @@
             }
           },
           "503": {
-            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long",
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now",
             "headers": {
               "Request-Id": { "schema": { "type": "string" } },
               "Retry-After": { "schema": { "type": "string" } }
@@ -102,6 +402,9 @@
               "LIMIT_OUT_OF_RANGE",
               "INVALID_AMOUNT",
               "INVALID_REQUEST",
+              "WEBHOOK_SIGNATURE_INVALID",
+              "WEBHOOK_PAYLOAD_INVALID",
+              "WEBHOOK_REJECTED",
               "TOKEN_MALFORMED",
               "TOKEN_INVALID",
               "TOKEN_ENVIRONMENT_MISMATCH",
@@ -116,11 +419,16 @@
               "DESTINATION_INVALID",
               "MANDATE_REFUSED",
               "QUOTE_UNAVAILABLE",
+              "WALLET_PROOF_INVALID",
+              "WALLET_PROOF_EXPIRED",
+              "WALLET_SIGNER_NOT_AUTHORIZED",
+              "DESTINATION_NOT_RECEIVABLE",
               "RATE_LIMITED",
               "INTERNAL",
               "DB_UNAVAILABLE",
               "CHAIN_UNAVAILABLE",
-              "REQUEST_TIMEOUT"
+              "REQUEST_TIMEOUT",
+              "WEBHOOK_UNAVAILABLE"
             ]
           },
           "requestId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{8,128}$" },
@@ -156,6 +464,47 @@
         "type": "object",
         "properties": { "status": { "type": "string", "const": "ok" } },
         "required": ["status"],
+        "additionalProperties": false
+      },
+      "SelfWebhookAck": {
+        "type": "object",
+        "properties": {
+          "result": { "type": "string", "enum": ["applied", "duplicate", "stale", "ignored"] }
+        },
+        "required": ["result"],
+        "additionalProperties": false
+      },
+      "WalletChallenge": {
+        "type": "object",
+        "properties": {
+          "challengeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "message": { "type": "string", "minLength": 1 },
+          "nonce": { "type": "string", "minLength": 1 },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": ["challengeId", "message", "nonce", "expiresAt"],
+        "additionalProperties": false
+      },
+      "WalletProofAccepted": {
+        "type": "object",
+        "properties": {
+          "verificationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "level": { "type": "string", "const": "wallet_signature" },
+          "signerKey": { "type": "string", "minLength": 1 }
+        },
+        "required": ["verificationId", "level", "signerKey"],
         "additionalProperties": false
       },
       "OpenApiDocument": {

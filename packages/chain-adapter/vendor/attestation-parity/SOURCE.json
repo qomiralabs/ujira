@@ -1,11 +1,11 @@
 {
   "repository": "qomiralabs/ujira-contracts",
-  "commit": "691f19bd979f819284d59bc68c41ff37f02c3aba",
+  "commit": "af7a20eeb821b3960f0c286c43cf663eb3370753",
   "note": "Copied byte for byte at this commit: fixture.json from spikes/attestation-parity/fixture.json and ENCODING.md from spec/ENCODING.md.",
   "files": [
     {
       "path": "ENCODING.md",
-      "sha256": "85eead7f5a010156985c87afc4025cde555752e761e43caa76561761218b5481"
+      "sha256": "fc8a3905343359a5e9ae22ee2cdbadaffe45023d77a4f240a3d482a37eff8b2a"
     },
     {
       "path": "fixture.json",

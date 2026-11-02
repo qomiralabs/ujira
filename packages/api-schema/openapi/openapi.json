@@ -917,6 +917,9 @@
               "LIMIT_OUT_OF_RANGE",
               "INVALID_AMOUNT",
               "INVALID_REQUEST",
+              "WEBHOOK_SIGNATURE_INVALID",
+              "WEBHOOK_PAYLOAD_INVALID",
+              "WEBHOOK_REJECTED",
               "TOKEN_MALFORMED",
               "TOKEN_INVALID",
               "TOKEN_ENVIRONMENT_MISMATCH",
@@ -931,11 +934,16 @@
               "DESTINATION_INVALID",
               "MANDATE_REFUSED",
               "QUOTE_UNAVAILABLE",
+              "WALLET_PROOF_INVALID",
+              "WALLET_PROOF_EXPIRED",
+              "WALLET_SIGNER_NOT_AUTHORIZED",
+              "DESTINATION_NOT_RECEIVABLE",
               "RATE_LIMITED",
               "INTERNAL",
               "DB_UNAVAILABLE",
               "CHAIN_UNAVAILABLE",
-              "REQUEST_TIMEOUT"
+              "REQUEST_TIMEOUT",
+              "WEBHOOK_UNAVAILABLE"
             ]
           },
           "requestId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{8,128}$" },

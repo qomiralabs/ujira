@@ -25,6 +25,7 @@ export const CHAIN_ADAPTER_ERROR_CODES = Object.freeze([
   'SIGNER_ADDRESS_MISMATCH',
   'SPONSOR_DENIED',
   'SPONSOR_UNFUNDED',
+  'ACTIVATION_BUDGET_EXHAUSTED',
   'EXECUTOR_UNFUNDED',
   'DESTINATION_INVALID',
   'QUOTE_EXPIRED',
@@ -142,6 +143,11 @@ const DEFAULTS: Readonly<Record<ChainAdapterErrorCode, Defaults>> = {
   },
   SPONSOR_DENIED: { retryable: false, landed: 'no', message: 'Fee sponsorship denied' },
   SPONSOR_UNFUNDED: { retryable: false, landed: 'no', message: 'Fee sponsor is underfunded' },
+  ACTIVATION_BUDGET_EXHAUSTED: {
+    retryable: false,
+    landed: 'no',
+    message: 'Monthly activation budget is spent',
+  },
   EXECUTOR_UNFUNDED: { retryable: false, landed: 'no', message: 'Executor is underfunded' },
   DESTINATION_INVALID: {
     retryable: false,
@@ -231,6 +237,7 @@ class RedactedCause extends Error {
 // The class names below, kept in step by a test.
 const ADAPTER_ERROR_NAMES = [
   'InvalidInputError',
+  'MemoOnContractCallError',
   'UnsupportedError',
   'TenantMismatchError',
   'MandateUntrustedError',
@@ -248,6 +255,7 @@ const ADAPTER_ERROR_NAMES = [
   'SignerAddressMismatchError',
   'SponsorDeniedError',
   'SponsorUnfundedError',
+  'ActivationBudgetExhaustedError',
   'ExecutorUnfundedError',
   'DestinationInvalidError',
   'UnsupportedMemoDestinationError',
@@ -420,6 +428,20 @@ export class InvalidInputError extends ChainAdapterError {
   }
 }
 
+/**
+ * A Stellar transaction that runs contract code carries a memo. The network
+ * refuses every such transaction, so it is stopped before it is signed or
+ * sent instead of surfacing later as a failed payout. It is invalid input
+ * by code, so callers that branch on the code need no new case.
+ */
+export class MemoOnContractCallError extends InvalidInputError {
+  override readonly name: string = 'MemoOnContractCallError';
+
+  constructor(options?: { readonly network?: NetworkId | null }) {
+    super({ network: options?.network ?? null, issues: ['memo (contract_call)'] });
+  }
+}
+
 export class UnsupportedError extends ChainAdapterError {
   override readonly name = 'UnsupportedError';
   constructor(options?: ChainAdapterErrorOptions) {
@@ -541,6 +563,14 @@ export class SponsorUnfundedError extends ChainAdapterError {
   override readonly name = 'SponsorUnfundedError';
   constructor(options?: ChainAdapterErrorOptions) {
     super('SPONSOR_UNFUNDED', options);
+  }
+}
+
+/** The principal's activations and funding accounts reached the month's budget. */
+export class ActivationBudgetExhaustedError extends ChainAdapterError {
+  override readonly name = 'ActivationBudgetExhaustedError';
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('ACTIVATION_BUDGET_EXHAUSTED', options);
   }
 }
 
