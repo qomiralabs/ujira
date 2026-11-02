@@ -29,7 +29,7 @@ create table ops.fee_estimates (
       )
     ),
   -- Legs per payout item.
-  leg_count integer not null
+  leg_count bigint not null
     constraint fee_estimates_leg_count_range check (leg_count between 1 and 4),
   -- Per item, in stroops.
   p95_resource_fee_stroops bigint not null
@@ -40,7 +40,7 @@ create table ops.fee_estimates (
   -- Charged per transaction, then shared per item.
   p95_inclusion_fee_stroops bigint not null
     constraint fee_estimates_inclusion_fee_not_negative check (p95_inclusion_fee_stroops >= 0),
-  sample_count integer not null
+  sample_count bigint not null
     constraint fee_estimates_sample_count_positive check (sample_count > 0),
   window_start timestamptz not null,
   window_end timestamptz not null,

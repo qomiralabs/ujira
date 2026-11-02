@@ -44,11 +44,11 @@ export interface FeeEstimate {
 interface Row {
   network: string;
   op: string;
-  leg_count: number;
+  leg_count: string;
   p95_resource_fee_stroops: string;
   p95_rent_stroops: string;
   p95_inclusion_fee_stroops: string;
-  sample_count: number;
+  sample_count: string;
   window_start: Date;
   window_end: Date;
   computed_at: Date;
@@ -59,12 +59,13 @@ function fromRow(row: Row): FeeEstimate {
     network: row.network,
     // The table's check admits only the closed list.
     op: row.op as FeeEstimateOp,
-    legCount: row.leg_count,
-    // int8 comes back from pg as text, and stays a bigint from here on.
+    // int8 comes back from pg as text. These two are small counts, the checks
+    // keep them small, and the fees stay bigints from here on.
+    legCount: Number(row.leg_count),
     p95ResourceFeeStroops: BigInt(row.p95_resource_fee_stroops),
     p95RentStroops: BigInt(row.p95_rent_stroops),
     p95InclusionFeeStroops: BigInt(row.p95_inclusion_fee_stroops),
-    sampleCount: row.sample_count,
+    sampleCount: Number(row.sample_count),
     windowStart: row.window_start,
     windowEnd: row.window_end,
     computedAt: row.computed_at,
@@ -82,7 +83,7 @@ export const feeEstimates = {
       .selectAll()
       .where('network', '=', key.network)
       .where('op', '=', key.op)
-      .where('leg_count', '=', key.legCount)
+      .where('leg_count', '=', String(key.legCount))
       .executeTakeFirst();
     return row === undefined ? undefined : fromRow(row);
   },

@@ -489,11 +489,11 @@ ALTER TABLE ops.executor_accounts OWNER TO ujira_owner;
 CREATE TABLE ops.fee_estimates (
     network text NOT NULL,
     op text NOT NULL,
-    leg_count integer NOT NULL,
+    leg_count bigint NOT NULL,
     p95_resource_fee_stroops bigint NOT NULL,
     p95_rent_stroops bigint NOT NULL,
     p95_inclusion_fee_stroops bigint NOT NULL,
-    sample_count integer NOT NULL,
+    sample_count bigint NOT NULL,
     window_start timestamp with time zone NOT NULL,
     window_end timestamp with time zone NOT NULL,
     computed_at timestamp with time zone DEFAULT now() NOT NULL,

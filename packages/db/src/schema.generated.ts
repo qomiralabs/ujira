@@ -45,13 +45,13 @@ export interface OpsExecutorAccounts {
 
 export interface OpsFeeEstimates {
   computed_at: Generated<Timestamp>;
-  leg_count: number;
+  leg_count: Int8;
   network: string;
   op: string;
   p95_inclusion_fee_stroops: Int8;
   p95_rent_stroops: Int8;
   p95_resource_fee_stroops: Int8;
-  sample_count: number;
+  sample_count: Int8;
   window_end: Timestamp;
   window_start: Timestamp;
 }
