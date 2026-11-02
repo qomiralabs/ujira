@@ -31,7 +31,7 @@ async function codeOf(promise: Promise<unknown>): Promise<string | undefined> {
 
 function entry(overrides: Partial<NewAuditEntry> = {}): NewAuditEntry {
   return {
-    action: 'project.settings_changed',
+    action: 'project.routing_settings_changed',
     actor: { kind: 'member', id: randomUUID() },
     metadata: { setting: 'chain_fallback', old_value: 'off', new_value: 'verified_methods' },
     ...overrides,
@@ -125,7 +125,7 @@ describe('the audit chain', () => {
       const inserted = await admin.query<{ seq: string }>(
         `insert into ujira.audit_log
            (principal_id, project_id, action, actor_kind, seq, prev_hash, row_hash)
-         values ($1, $2, 'project.settings_changed', 'system', 999, $3, $3)
+         values ($1, $2, 'project.routing_settings_changed', 'system', 999, $3, $3)
          returning seq`,
         [tenant.principalId, tenant.projectId, Buffer.alloc(32, 7)],
       );
@@ -268,7 +268,7 @@ describe('metadata', () => {
     const written = await db
       .tenant(tenant)
       .transaction(async (tx) =>
-        audit.record(tx, { action: 'project.created', actor: { kind: 'system' } }),
+        audit.record(tx, { action: 'project.routing_settings_changed', actor: { kind: 'system' } }),
       );
     expect(written.metadata).toEqual({});
   });
@@ -285,7 +285,7 @@ describe('the fields', () => {
           admin.query(
             `insert into ujira.audit_log
                (principal_id, project_id, action, actor_kind, seq, prev_hash, row_hash)
-             values ($1, $2, 'a.b', 'member', 0, $3, $3)`,
+             values ($1, $2, 'project.routing_settings_changed', 'member', 0, $3, $3)`,
             [tenant.principalId, tenant.projectId, Buffer.alloc(32)],
           ),
         ),
