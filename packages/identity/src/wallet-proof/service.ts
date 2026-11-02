@@ -58,6 +58,9 @@ export interface IssuedWalletChallenge {
 }
 
 export interface SubmitWalletProofRequest {
+  /** The recipient and method the proof is sent for, which must be the challenge's. */
+  readonly recipientId: Uuid;
+  readonly methodId: Uuid;
   readonly challengeId: Uuid;
   readonly message: string;
   readonly nonce: string;
@@ -94,6 +97,8 @@ export interface WalletProofFlow {
 const createSchema = z.strictObject({ recipientId: z.uuid(), methodId: z.uuid() });
 
 const submitSchema = z.strictObject({
+  recipientId: z.uuid(),
+  methodId: z.uuid(),
   challengeId: z.uuid(),
   message: z.string().min(1).max(4_096),
   nonce: z.string().min(1).max(128),
@@ -195,7 +200,7 @@ export function createWalletProofFlow(ports: WalletProofPorts): WalletProofFlow 
 
       const challenge = await proofs.challenge(scope, req.challengeId as Uuid);
       assertScope(scope, [challenge]);
-      if (challenge === null) return refuse('WALLET_PROOF_INVALID');
+      if (challenge?.methodId !== req.methodId) return refuse('WALLET_PROOF_INVALID');
       if (challenge.consumedAt !== null) return refuse('WALLET_PROOF_INVALID', 'ALREADY_USED');
       const now = ports.clock.nowSeconds();
       if (now >= challenge.expiresAt) return refuse('WALLET_PROOF_EXPIRED');
@@ -214,6 +219,7 @@ export function createWalletProofFlow(ports: WalletProofPorts): WalletProofFlow 
       if (method?.status !== 'active' || !sameDestination(method.destination, destination)) {
         return refuse('WALLET_PROOF_INVALID', 'METHOD_CHANGED');
       }
+      if (method.recipientId !== req.recipientId) return refuse('WALLET_PROOF_INVALID');
 
       const chain = ports.chain(challenge.network);
       const ms = ports.config().attestation.callTimeoutMs;

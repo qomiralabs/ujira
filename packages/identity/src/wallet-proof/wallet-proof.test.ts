@@ -243,6 +243,17 @@ describe('submitWalletProof', () => {
     expect(await verificationOf(w)).toBeNull();
   });
 
+  it('a proof sent for another method or recipient is invalid', async () => {
+    const w = walletProofWorld();
+    const { proof } = await submitted(w);
+    const invalid = { accepted: false, code: 'WALLET_PROOF_INVALID', reason: null };
+    expect(await w.flow.submitWalletProof(w.ctx, { ...proof, methodId: newId() })).toEqual(invalid);
+    expect(await w.flow.submitWalletProof(w.ctx, { ...proof, recipientId: newId() })).toEqual(
+      invalid,
+    );
+    expect(await verificationOf(w)).toBeNull();
+  });
+
   it('another tenant cannot use a challenge, and a failed proof can be sent again', async () => {
     const w = walletProofWorld();
     const { proof } = await submitted(w);

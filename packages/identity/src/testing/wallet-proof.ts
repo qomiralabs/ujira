@@ -116,7 +116,7 @@ export class InMemoryWalletProofStore implements WalletProofStore {
   ): Promise<'recorded' | 'already_consumed'> {
     const key = `${tenantKey(scope)}/${challengeId}`;
     const row = this.#rows.get(key);
-    if (row === undefined || row.consumedAt !== null) return Promise.resolve('already_consumed');
+    if (row?.consumedAt !== null) return Promise.resolve('already_consumed');
     this.#rows.set(key, { ...row, consumedAt });
     this.#store.putVerification(verification);
     return Promise.resolve('recorded');
@@ -165,6 +165,8 @@ export function walletProofWorld() {
     /** Signs an issued challenge as the destination's own key would. */
     proofOf(issued: Awaited<ReturnType<WalletProofWorldFlow['createWalletChallenge']>>) {
       return {
+        recipientId: recipient.id,
+        methodId: method.id,
         challengeId: issued.challengeId,
         message: issued.message,
         nonce: issued.nonce,
