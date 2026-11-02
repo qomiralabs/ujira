@@ -8,7 +8,8 @@
 
 import type { Destination } from '@ujira/chain-adapter';
 
-import type { DestinationVerificationRecord, VerificationLevel } from './types.js';
+import { VERIFICATION_LEVELS } from './types.js';
+import type { DestinationVerificationRecord, RecipientMode, VerificationLevel } from './types.js';
 
 export type AttestedMode = 'attested' | 'both';
 
@@ -22,6 +23,17 @@ const ACCEPTED: Readonly<Record<AttestedMode, readonly VerificationLevel[]>> = {
     'principal_asserted',
   ],
 };
+
+/**
+ * Whether a mode takes a level at all. Allowlist mode takes any, as the
+ * principal named the destination on chain themselves. A forwarder's wallet
+ * is checked separately by evidenceAccepted.
+ */
+export function levelAcceptedForMode(mode: RecipientMode, level: VerificationLevel): boolean {
+  const accepted: readonly VerificationLevel[] =
+    mode === 'allowlist' ? VERIFICATION_LEVELS : ACCEPTED[mode];
+  return accepted.includes(level);
+}
 
 /** A forwarder is only as good as the wallet it forwards to. */
 const FORWARDER_BASES: readonly VerificationLevel[] = ['wallet_signature', 'wallet_session'];

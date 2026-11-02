@@ -25,6 +25,7 @@ export const CATALOG_SCHEMA = 'ujira';
 
 // Reference data, the same for every tenant and writable only by the owner.
 export const CATALOG_EXCEPTIONS: readonly string[] = [
+  'ujira.audit_metadata_keys',
   'ujira.chains',
   'ujira.currencies',
   'ujira.currency_scales',
@@ -43,11 +44,13 @@ const DEFAULT_COLUMNS: TenantColumns = { principal: 'principal_id', project: 'pr
 
 // The tenant roots, which carry their tenant under other names: a principal
 // is its own principal, a project its own project, and a member belongs to
-// the whole principal.
+// the whole principal. So does an audit head, because one chain runs across
+// all of a principal's projects.
 export const TENANT_COLUMNS: Readonly<Record<string, TenantColumns>> = {
   'ujira.principals': { principal: 'id', project: null },
   'ujira.projects': { principal: 'principal_id', project: 'id' },
   'ujira.principal_members': { principal: 'principal_id', project: null },
+  'ujira.audit_heads': { principal: 'principal_id', project: null },
 };
 
 export const SERVICE_ROLES = [

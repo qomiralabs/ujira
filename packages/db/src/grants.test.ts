@@ -137,7 +137,10 @@ describe('grants on ujira', () => {
       'function ujira.current_project_id()',
       'function ujira.project_scope_all()',
     ];
+    const auditHash =
+      'function ujira.audit_row_hash(bytea,uuid,uuid,bigint,text,text,uuid,jsonb,timestamp with time zone)';
     expect(await executable('ujira_app')).toEqual([
+      auditHash,
       'function ujira.authenticate_token(text)',
       'function ujira.create_principal(text,text,uuid,text)',
       ...context,
@@ -146,7 +149,7 @@ describe('grants on ujira', () => {
       'function ujira.authenticate_token(text)',
       ...context,
     ]);
-    expect(await executable('ujira_reader')).toEqual(context);
+    expect(await executable('ujira_reader')).toEqual([auditHash, ...context]);
     expect(await executable('ujira_indexer')).toEqual([
       ...context,
       'function ujira.resolve_mandate_instance(text,text)',
@@ -168,7 +171,9 @@ describe('roles', () => {
     expect(roles.rows.map((role) => role.rolname)).toEqual([
       'ujira_app',
       'ujira_auth',
+      'ujira_fn_audit',
       'ujira_fn_instances',
+      'ujira_fn_ledger',
       'ujira_fn_principals',
       'ujira_fn_tokens',
       'ujira_indexer',
@@ -182,7 +187,9 @@ describe('roles', () => {
     ]);
     const nologin = new Set([
       'ujira_owner',
+      'ujira_fn_audit',
       'ujira_fn_instances',
+      'ujira_fn_ledger',
       'ujira_fn_principals',
       'ujira_fn_tokens',
       'ujira_signer_read',
@@ -203,8 +210,11 @@ describe('roles', () => {
     );
     expect(definers.rows).toEqual([
       { fn: 'ujira.attestation_pending(bytea)', owner: 'ujira_signer_read' },
+      { fn: 'ujira.audit_chain()', owner: 'ujira_fn_audit' },
       { fn: 'ujira.authenticate_token(text)', owner: 'ujira_fn_tokens' },
       { fn: 'ujira.create_principal(text,text,uuid,text)', owner: 'ujira_fn_principals' },
+      { fn: 'ujira.ledger_balanced()', owner: 'ujira_fn_ledger' },
+      { fn: 'ujira.ledger_stamp()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.resolve_mandate_instance(text,text)', owner: 'ujira_fn_instances' },
     ]);
     // Each holds only what its one function needs, and never CREATE.
@@ -217,7 +227,14 @@ describe('roles', () => {
         order by 1, 2, 3`,
     );
     expect(rights.rows).toEqual([
+      { grantee: 'ujira_fn_audit', object: 'audit_heads', privilege: 'INSERT' },
+      { grantee: 'ujira_fn_audit', object: 'audit_heads', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_audit', object: 'audit_heads', privilege: 'UPDATE' },
+      { grantee: 'ujira_fn_audit', object: 'audit_metadata_keys', privilege: 'SELECT' },
       { grantee: 'ujira_fn_instances', object: 'mandate_instances', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_ledger', object: 'ledger_accounts', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_ledger', object: 'ledger_accounts', privilege: 'UPDATE' },
+      { grantee: 'ujira_fn_ledger', object: 'ledger_entries', privilege: 'SELECT' },
       { grantee: 'ujira_fn_principals', object: 'principal_members', privilege: 'INSERT' },
       { grantee: 'ujira_fn_principals', object: 'principals', privilege: 'INSERT' },
       { grantee: 'ujira_fn_principals', object: 'projects', privilege: 'INSERT' },

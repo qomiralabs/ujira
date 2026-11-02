@@ -104,6 +104,7 @@ export {
 export type { TokenFailureReason } from './failures.js';
 export { FakeLedger, TESTNET_PASSPHRASE } from './ledger.js';
 export type { FakeLedgerOptions, LedgerContract, NestedViews } from './ledger.js';
+export { InMemoryRentStore } from './rent-store.js';
 export { feeCap } from './rules.js';
 export * from './spec.js';
 export {

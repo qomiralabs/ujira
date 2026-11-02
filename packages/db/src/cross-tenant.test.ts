@@ -14,7 +14,9 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
 import type { Database, ProjectContext } from './database.js';
 import type { Schema } from './schema.generated.js';
+import { audit, auditRepositories } from './repositories/audit.js';
 import { entryPoints } from './repositories/entry-points.js';
+import { ledger, ledgerRepositories } from './repositories/ledger.js';
 import {
   chainEvents,
   deposits,
@@ -24,6 +26,13 @@ import {
   mandateRepositories,
   mandates,
 } from './repositories/mandates.js';
+import {
+  payoutMethods,
+  recipientIdentities,
+  recipientPii,
+  recipientRepositories,
+  recipients,
+} from './repositories/recipients.js';
 import {
   apiTokens,
   members,
@@ -54,9 +63,20 @@ interface Tenant {
   readonly contractAddress: string;
   readonly bookingId: string;
   readonly bookingPayoutId: Buffer;
+  readonly journalId: string;
+  readonly accountId: string;
+  readonly recipientId: string;
+  readonly methodId: string;
 }
 
-const REPOSITORIES = { ...tenancyRepositories, ...mandateRepositories, payoutBookings };
+const REPOSITORIES = {
+  ...tenancyRepositories,
+  ...mandateRepositories,
+  ...ledgerRepositories,
+  ...recipientRepositories,
+  ...auditRepositories,
+  payoutBookings,
+};
 
 let database: TestDatabase;
 let db: Database;
@@ -107,39 +127,93 @@ async function tenant(name: string): Promise<Tenant> {
   const eventTxHash = randomBytes(32);
   const bookingPayoutId = randomBytes(32);
   const roleAddress = `G${name}`;
-  const { eventId, depositId, bookingId } = await indexing(first, async (tx) => {
-    const event = await chainEvents.record(tx, {
-      mandateInstanceId: instanceId,
+  const { eventId, depositId, journalId, accountId, bookingId } = await indexing(
+    first,
+    async (tx) => {
+      const event = await chainEvents.record(tx, {
+        mandateInstanceId: instanceId,
+        chain: 'stellar',
+        txHash: eventTxHash,
+        eventIndex: 0n,
+        ledger: 1n,
+        eventType: 'deposit',
+        payload: {},
+        finalizedAt: new Date(),
+      });
+      const recorded = await deposits.record(tx, {
+        mandateInstanceId: instanceId,
+        fundingSourceId: sourceId,
+        chainEventId: event.id ?? '',
+        amount: tokenAmount(100n, 'USDC', 'stellar'),
+        fromAddress: 'GFROM',
+      });
+      await instanceRoles.grant(tx, {
+        mandateInstanceId: instanceId,
+        role: 'agent',
+        address: roleAddress,
+        eventId: event.id ?? '',
+      });
+      const booking = await payoutBookings.apply(tx, {
+        mandateInstanceId: instanceId,
+        chain: 'stellar',
+        contractAddress,
+        payoutId: bookingPayoutId,
+        eventId: event.id ?? '',
+        eventType: 'payout_requested',
+      });
+      const posted = await ledger.post(tx, {
+        mandateInstanceId: instanceId,
+        chainEventId: event.id ?? '',
+        entries: [
+          { kind: 'external', amount: -100n },
+          { kind: 'balance', amount: 100n },
+        ],
+      });
+      await ledger.recordState(tx, {
+        mandateInstanceId: instanceId,
+        ledger: 1n,
+        balance: 100n,
+        pending: 0n,
+        committed: 0n,
+        spent: 0n,
+      });
+      const accounts = await ledger.accounts(tx, instanceId);
+      return {
+        eventId: event.id ?? '',
+        depositId: recorded.id ?? '',
+        journalId: posted.journalId ?? '',
+        accountId: accounts[0]?.id ?? '',
+        bookingId: booking.id,
+      };
+    },
+  );
+  const { recipientId, methodId } = await db.tenant(first).transaction(async (tx) => {
+    const recipient = await recipients.create(tx, {
+      recipientRef: randomBytes(32),
+      country: 'NG',
+    });
+    await recipientPii.put(tx, recipient.id, {
+      ciphertext: randomBytes(16),
+      nonce: randomBytes(12),
+    });
+    await recipientIdentities.upsert(tx, {
+      recipientId: recipient.id,
       chain: 'stellar',
-      txHash: eventTxHash,
-      eventIndex: 0n,
-      ledger: 1n,
-      eventType: 'deposit',
-      payload: {},
-      finalizedAt: new Date(),
+      provider: 'self',
+      providerRef: `ref-${name}`,
+      state: 'verified',
     });
-    const recorded = await deposits.record(tx, {
-      mandateInstanceId: instanceId,
-      fundingSourceId: sourceId,
-      chainEventId: event.id ?? '',
-      amount: tokenAmount(100n, 'USDC', 'stellar'),
-      fromAddress: 'GFROM',
-    });
-    await instanceRoles.grant(tx, {
-      mandateInstanceId: instanceId,
-      role: 'agent',
-      address: roleAddress,
-      eventId: event.id ?? '',
-    });
-    const booking = await payoutBookings.apply(tx, {
-      mandateInstanceId: instanceId,
+    const method = await payoutMethods.create(tx, {
+      recipientId: recipient.id,
+      method: 'stellar_wallet',
+      rail: 'wallet',
       chain: 'stellar',
-      contractAddress,
-      payoutId: bookingPayoutId,
-      eventId: event.id ?? '',
-      eventType: 'payout_requested',
+      destinationAddress: `G${randomUUID()}`,
+      destinationTag: null,
+      details: null,
     });
-    return { eventId: event.id ?? '', depositId: recorded.id ?? '', bookingId: booking.id };
+    await audit.record(tx, { action: 'project.created', actor: { kind: 'system' } });
+    return { recipientId: recipient.id, methodId: method.id };
   });
   return {
     first,
@@ -156,6 +230,10 @@ async function tenant(name: string): Promise<Tenant> {
     contractAddress,
     bookingId,
     bookingPayoutId,
+    journalId,
+    accountId,
+    recipientId,
+    methodId,
   };
 }
 
@@ -470,6 +548,156 @@ const cases: Record<string, () => Promise<void>> = {
     expect(page.items.map((deposit) => deposit.id)).toContain(a.depositId);
     expect(page.items.map((deposit) => deposit.id)).not.toContain(b.depositId);
   },
+  'recipients.list': async () => {
+    const page = await acrossA(async (tx) => recipients.list(tx, { limit: 100 }));
+    expect(page.items.map((recipient) => recipient.id)).toContain(a.recipientId);
+    expect(page.items.map((recipient) => recipient.id)).not.toContain(b.recipientId);
+  },
+  'recipients.get': async () => {
+    expect(await acrossA(async (tx) => recipients.get(tx, b.recipientId))).toBeUndefined();
+  },
+  'recipients.create': async () => {
+    const created = await asA(async (tx) =>
+      recipients.create(tx, { recipientRef: randomBytes(32), country: 'KE' }),
+    );
+    expect(await ownerOf('ujira.recipients', 'id', created.id)).toBe(a.first.principalId);
+  },
+  'recipients.setStatus': async () => {
+    expect(await asA(async (tx) => recipients.setStatus(tx, b.recipientId, 'erased'))).toBe(false);
+  },
+  'recipientPii.put': async () => {
+    // The same refusal whether B's recipient has personal data stored or not,
+    // so the answer says nothing about what B holds.
+    const value = { ciphertext: randomBytes(16), nonce: randomBytes(12) };
+    for (const recipientId of [b.recipientId, randomUUID()]) {
+      const attempt = asA(async (tx) => recipientPii.put(tx, recipientId, value));
+      expect(await codeOf(attempt)).toBe('23503');
+    }
+  },
+  'recipientPii.get': async () => {
+    expect(await asA(async (tx) => recipientPii.get(tx, b.recipientId))).toBeUndefined();
+  },
+  'recipientIdentities.list': async () => {
+    expect(await acrossA(async (tx) => recipientIdentities.list(tx, b.recipientId))).toEqual([]);
+  },
+  'recipientIdentities.upsert': async () => {
+    const attempt = asA(async (tx) =>
+      recipientIdentities.upsert(tx, {
+        recipientId: b.recipientId,
+        chain: 'stellar',
+        provider: 'self',
+        providerRef: 'intruder',
+        state: 'verified',
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'payoutMethods.list': async () => {
+    const page = await acrossA(async (tx) => payoutMethods.list(tx, { limit: 100 }));
+    expect(page.items.map((method) => method.id)).toContain(a.methodId);
+    expect(page.items.map((method) => method.id)).not.toContain(b.methodId);
+  },
+  'payoutMethods.get': async () => {
+    expect(await acrossA(async (tx) => payoutMethods.get(tx, b.methodId))).toBeUndefined();
+  },
+  'payoutMethods.create': async () => {
+    const attempt = asA(async (tx) =>
+      payoutMethods.create(tx, {
+        recipientId: b.recipientId,
+        method: 'stellar_wallet',
+        rail: 'wallet',
+        chain: 'stellar',
+        destinationAddress: 'GINTRUDER',
+        destinationTag: null,
+        details: null,
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'payoutMethods.disable': async () => {
+    expect(await asA(async (tx) => payoutMethods.disable(tx, b.methodId))).toBe(false);
+  },
+  'ledger.accounts': async () => {
+    expect(await acrossA(async (tx) => ledger.accounts(tx, b.instanceId))).toEqual([]);
+  },
+  'ledger.post': async () => {
+    // Naming B's instance and event is refused, and no account opens for it.
+    const attempt = indexing(a.first, async (tx) =>
+      ledger.post(tx, {
+        mandateInstanceId: b.instanceId,
+        chainEventId: b.eventId,
+        entries: [
+          { kind: 'external', amount: -5n },
+          { kind: 'balance', amount: 5n },
+        ],
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+    const balance = await admin.query<{ balance: string }>(
+      'select balance from ujira.ledger_accounts where id = $1',
+      [b.accountId],
+    );
+    expect(balance.rows[0]?.balance).toMatch(/^-?100$/);
+  },
+  'ledger.reverse': async () => {
+    expect(await indexing(a.first, async (tx) => ledger.reverse(tx, b.journalId))).toBeUndefined();
+  },
+  'ledger.entries': async () => {
+    const page = await acrossA(async (tx) => ledger.entries(tx, b.accountId, { limit: 100 }));
+    expect(page.items).toEqual([]);
+  },
+  'ledger.recordState': async () => {
+    const attempt = indexing(a.first, async (tx) =>
+      ledger.recordState(tx, {
+        mandateInstanceId: b.instanceId,
+        ledger: 99n,
+        balance: 0n,
+        pending: 0n,
+        committed: 0n,
+        spent: 0n,
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'ledger.reconciliation': async () => {
+    expect(await acrossA(async (tx) => ledger.reconciliation(tx, b.instanceId))).toBeUndefined();
+    expect(await acrossA(async (tx) => ledger.reconciliation(tx, a.instanceId))).toBeDefined();
+  },
+  // The chain a row joins comes from the context, so a writer can only ever
+  // reach its own: B's head does not move, and the rows land on A.
+  'audit.record': async () => {
+    const before = await admin.query<{ last_seq: string }>(
+      'select last_seq from ujira.audit_heads where principal_id = $1',
+      [b.first.principalId],
+    );
+    const written = await asA(async (tx) =>
+      audit.record(tx, { action: 'project.changed', actor: { kind: 'system' } }),
+    );
+    expect(await ownerOf('ujira.audit_log', 'id', written.id)).toBe(a.first.principalId);
+    const after = await admin.query<{ last_seq: string }>(
+      'select last_seq from ujira.audit_heads where principal_id = $1',
+      [b.first.principalId],
+    );
+    expect(after.rows).toEqual(before.rows);
+  },
+  'audit.list': async () => {
+    const page = await acrossA(async (tx) => audit.list(tx, { limit: 100 }));
+    expect(page.items.length).toBeGreaterThan(0);
+    const owners = await admin.query<{ principal_id: string }>(
+      'select distinct principal_id from ujira.audit_log where id = any($1::uuid[])',
+      [page.items.map((item) => item.id)],
+    );
+    expect(owners.rows).toEqual([{ principal_id: a.first.principalId }]);
+  },
+  'audit.verify': async () => {
+    const counted = await admin.query<{ count: string }>(
+      'select count(*)::text as count from ujira.audit_log where principal_id = $1',
+      [a.first.principalId],
+    );
+    const verification = await acrossA(async (tx) => audit.verify(tx));
+    expect(verification.rows.toString()).toBe(counted.rows[0]?.count);
+    expect(verification.firstBreak).toBeNull();
+  },
 };
 
 describe('cross-tenant matrix', () => {
@@ -480,10 +708,10 @@ describe('cross-tenant matrix', () => {
   it('fails when a method is added without a case', () => {
     const grown = {
       ...REPOSITORIES,
-      ledger: { post: () => undefined, note: 'not a method' },
+      invoices: { post: () => undefined, note: 'not a method' },
     };
     expect(caseProblems(grown, Object.keys(cases))).toEqual([
-      'ledger.post has no cross-tenant case',
+      'invoices.post has no cross-tenant case',
     ]);
     expect(caseProblems(REPOSITORIES, [...Object.keys(cases), 'projects.delete'])).toEqual([
       'projects.delete is not a repository method',

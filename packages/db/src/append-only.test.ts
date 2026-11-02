@@ -13,7 +13,9 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
 import type { Database } from './database.js';
+import { audit } from './repositories/audit.js';
 import { entryPoints, type CreatedPrincipal } from './repositories/entry-points.js';
+import { ledger } from './repositories/ledger.js';
 import { chainEvents, deposits, mandateInstances, mandates } from './repositories/mandates.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
 import {
@@ -26,13 +28,20 @@ import {
 const adminUrl = inject('dbAdminUrl');
 const roleUrls = inject('dbRoleUrls');
 
-// Every append only table with a row in it, and the statements to try.
-const TABLES = ['ujira.chain_events', 'ujira.deposits'];
+// Every append only table with a row in it, and a change to try on each.
+const CHANGES: Readonly<Record<string, string>> = {
+  'ujira.audit_log': `action = 'changed.action'`,
+  'ujira.chain_events': `event_type = 'changed'`,
+  'ujira.deposits': `from_address = 'changed'`,
+  'ujira.ledger_journals': 'created_at = now()',
+  'ujira.ledger_entries': 'created_at = now()',
+  'ujira.mandate_state_snapshots': 'taken_at = now()',
+};
+const TABLES = Object.keys(CHANGES);
 
 function mutations(table: string): readonly (readonly [string, string])[] {
-  const change = table === 'ujira.deposits' ? `from_address = 'changed'` : `event_type = 'changed'`;
   return [
-    ['update', `update ${table} set ${change}`],
+    ['update', `update ${table} set ${CHANGES[table] ?? ''}`],
     ['delete', `delete from ${table}`],
     ['truncate', `truncate ${table} cascade`],
   ];
@@ -113,7 +122,28 @@ beforeAll(async () => {
       amount: tokenAmount(1n, 'USDC', 'stellar'),
       fromAddress: 'GFROM',
     });
+    await ledger.post(tx, {
+      mandateInstanceId: instance.id,
+      chainEventId: id ?? '',
+      entries: [
+        { kind: 'external', amount: -1n },
+        { kind: 'balance', amount: 1n },
+      ],
+    });
+    await ledger.recordState(tx, {
+      mandateInstanceId: instance.id,
+      ledger: 1n,
+      balance: 1n,
+      pending: 0n,
+      committed: 0n,
+      spent: 0n,
+    });
   });
+  await db
+    .tenant(tenant)
+    .transaction(async (tx) =>
+      audit.record(tx, { action: 'project.created', actor: { kind: 'system' } }),
+    );
 });
 
 afterAll(async () => {
@@ -155,6 +185,8 @@ describe('append only tables', () => {
   });
 
   it.each(TABLES)('%s refuses the same from the indexer and the owner', async (table) => {
+    const before = await count(table);
+    expect(Number(before)).toBeGreaterThan(0);
     for (const [name, statement] of mutations(table)) {
       await as('ujira_indexer', async (client) => {
         expect(await codeOf(client.query(statement)), `indexer ${name}`).toBe('42501');
@@ -170,6 +202,6 @@ describe('append only tables', () => {
         await admin.end();
       }
     }
-    expect(await count(table)).toBe('1');
+    expect(await count(table)).toBe(before);
   });
 });
