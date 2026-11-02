@@ -147,7 +147,12 @@ export function setup(
       ]),
     ),
     sponsorship,
-    alerts: { lowBalance: () => undefined, stuck: () => undefined, divergence: () => undefined },
+    alerts: {
+      lowBalance: () => undefined,
+      stuck: () => undefined,
+      divergence: () => undefined,
+      batch: () => undefined,
+    },
     clock: { nowSeconds },
     config: () => config,
   };

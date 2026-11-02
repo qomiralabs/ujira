@@ -143,6 +143,14 @@ export function identityRow(
     status: 'verified',
     assurance: 'document_zk',
     expiresAt: null,
+    providerRef: null,
+    providerStatus: null,
+    flowRef: null,
+    nullifierHmac: null,
+    pendingSession: null,
+    failureReason: null,
+    rawSha256: null,
+    lastCheckedAt: null,
     ...patch,
   };
 }

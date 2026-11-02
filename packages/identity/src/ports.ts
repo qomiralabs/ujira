@@ -58,6 +58,47 @@ export interface IdentityStore {
   ): Promise<DestinationVerificationRecord | null>;
 }
 
+/** The fields a provider result or a new session may change. */
+export type IdentityUpdate = Partial<
+  Pick<
+    IdentityRecord,
+    | 'status'
+    | 'assurance'
+    | 'expiresAt'
+    | 'providerRef'
+    | 'providerStatus'
+    | 'flowRef'
+    | 'nullifierHmac'
+    | 'pendingSession'
+    | 'failureReason'
+    | 'rawSha256'
+    | 'lastCheckedAt'
+  >
+>;
+
+/** Writes to recipient identities, implemented beside IdentityStore. */
+export interface IdentityWriteStore {
+  /**
+   * Platform operation: a provider callback carries no tenant, so the row
+   * is found by its id and brings its own scope for every later call.
+   */
+  identityById(identityId: Uuid): Promise<IdentityRecord | null>;
+  /** Unique per recipient, provider and provider account: throws IdentityConflictError. */
+  createIdentity(row: IdentityRecord): Promise<void>;
+  /**
+   * Matches the tenant as well as the id. A verified row whose nullifier
+   * HMAC another verified row of the principal holds throws
+   * IdentityConflictError, as the unique index does.
+   */
+  updateIdentity(
+    scope: TenantScope,
+    identityId: Uuid,
+    patch: IdentityUpdate,
+  ): Promise<IdentityRecord>;
+  /** The principal's verified row with this nullifier HMAC, in any of their projects. */
+  verifiedByNullifier(principalId: Uuid, nullifierHmac: string): Promise<IdentityRecord | null>;
+}
+
 /** What each rail declares about itself, read from the chain adapter's capabilities. */
 export interface RailCatalog {
   rail(network: NetworkId, rail: RailId): RailCapability | null;

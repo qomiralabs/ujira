@@ -13,8 +13,12 @@ import {
   CallTimeoutError,
   IDENTITY_ERROR_CODES,
   IdentityConfigError,
+  IdentityConflictError,
   IdentityInputError,
   IdentityTenantMismatchError,
+  ProviderUnavailableError,
+  SelfCreditsExhaustedError,
+  SelfSessionRefusedError,
   isIdentityError,
   issuesOf,
 } from './errors.js';
@@ -43,6 +47,14 @@ describe('identity errors', () => {
       'IDENTITY_ATTESTATION_MESSAGE_INVALID',
     ],
     [new AttestationSigningError('X'), 'AttestationSigningError', 'IDENTITY_SIGNING_FAILED'],
+    [new IdentityConflictError(), 'IdentityConflictError', 'IDENTITY_CONFLICT'],
+    [new ProviderUnavailableError(), 'ProviderUnavailableError', 'IDENTITY_PROVIDER_UNAVAILABLE'],
+    [
+      new SelfCreditsExhaustedError(),
+      'SelfCreditsExhaustedError',
+      'IDENTITY_SELF_CREDITS_EXHAUSTED',
+    ],
+    [new SelfSessionRefusedError('revoked'), 'SelfSessionRefusedError', 'IDENTITY_SESSION_REFUSED'],
   ];
 
   it('every error class has code and name', () => {

@@ -228,7 +228,12 @@ function harness() {
       ]),
     ),
     sponsorship,
-    alerts: { lowBalance: () => undefined, stuck: () => undefined, divergence: () => undefined },
+    alerts: {
+      lowBalance: () => undefined,
+      stuck: () => undefined,
+      divergence: () => undefined,
+      batch: () => undefined,
+    },
     clock: { nowSeconds: clock },
     config: () => config,
   };

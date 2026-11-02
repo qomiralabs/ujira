@@ -66,7 +66,12 @@ describe('the types carry no vendor encoding', () => {
 
   it('payloads are typed intents over plain encodings', () => {
     expectTypeOf<SignPayload['kind']>().toEqualTypeOf<
-      'stellar_tx' | 'stellar_fee_bump' | 'stellar_auth_entry' | 'sep10_challenge' | 'attestation'
+      | 'stellar_tx'
+      | 'stellar_fee_bump'
+      | 'stellar_reserve_sandwich'
+      | 'stellar_auth_entry'
+      | 'sep10_challenge'
+      | 'attestation'
     >();
     expectTypeOf<SignPayload['network']>().toEqualTypeOf<NetworkId>();
     expectTypeOf<Extract<SignPayload, { kind: 'stellar_tx' }>['xdr']>().toEqualTypeOf<string>();

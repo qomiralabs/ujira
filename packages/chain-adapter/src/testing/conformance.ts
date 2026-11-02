@@ -17,6 +17,7 @@ import type { TokenAmount } from '@ujira/core';
 import { describe, expect, it } from 'vitest';
 
 import { ChainAdapterError } from '../errors.js';
+import { NETWORK_IDS } from '../networks.js';
 import type { ExternalSignerRole, SignerRef } from '../signer.js';
 import type {
   AdapterStore,
@@ -379,6 +380,38 @@ export function describeChainAdapter(
           ),
         );
         expect(bad.toJSON()).toMatchObject({ code: 'INVALID_INPUT', reason: 'MEMO_NOT_ID' });
+      });
+    });
+
+    describe('attestation messages', () => {
+      it('builds the 47 byte message for its own network only', async () => {
+        const { h, m } = await setup();
+        const recipient = must(m.recipients[0], 'a recipient');
+        const fields = {
+          mandate: m.ref,
+          recipientRef: recipient.recipientRef,
+          countryPolicyHash: bytes32('countries'),
+          policyEpoch: 0n,
+          validUntil: await now(h),
+          destination: { address: recipient.address, tag: 7n },
+        };
+        const message = h.adapter.attestationMessage(fields);
+        expect(message.length).toBe(47);
+        expect(h.adapter.attestationMessage(fields)).toEqual(message);
+        const untagged = h.adapter.attestationMessage({
+          ...fields,
+          destination: { address: recipient.address, tag: null },
+        });
+        expect(untagged).not.toEqual(message);
+        const other = must(
+          NETWORK_IDS.find((n) => n !== h.adapter.network),
+          'another network',
+        );
+        const elsewhere = { ...fields, mandate: { ...m.ref, network: other } };
+        const refused = await refusalOf(
+          Promise.resolve().then(() => h.adapter.attestationMessage(elsewhere)),
+        );
+        expect(refused.code).toBe('INVALID_INPUT');
       });
     });
 

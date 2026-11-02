@@ -109,5 +109,9 @@ describe('fault injection', () => {
     expect(faults.anchor).toEqual(anchor);
     faults.anchorScript(null);
     expect(faults.anchor).toBe(null);
+    faults.batchEventsLimit(4);
+    expect(faults.eventsLimit).toBe(4);
+    faults.batchEventsLimit(null);
+    expect(faults.eventsLimit).toBe(null);
   });
 });
