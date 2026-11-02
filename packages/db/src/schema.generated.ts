@@ -226,6 +226,24 @@ export interface UjiraMigrations {
   run_on: Timestamp;
 }
 
+export interface UjiraPayoutMethods {
+  chain: string;
+  created_at: Generated<Timestamp>;
+  destination_address: string;
+  destination_tag: Numeric | null;
+  details_ciphertext: Buffer | null;
+  details_nonce: Buffer | null;
+  has_tag: Generated<boolean>;
+  id: Generated<string>;
+  method: string;
+  principal_id: string;
+  project_id: string;
+  rail: string;
+  recipient_id: string;
+  status: Generated<string>;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface UjiraPrincipalMembers {
   created_at: Generated<Timestamp>;
   principal_id: string;
@@ -249,6 +267,40 @@ export interface UjiraProjects {
   id: Generated<string>;
   name: string;
   principal_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface UjiraRecipientIdentities {
+  chain: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  principal_id: string;
+  project_id: string;
+  provider: string;
+  provider_ref: string;
+  recipient_id: string;
+  state: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface UjiraRecipientPii {
+  ciphertext: Buffer;
+  created_at: Generated<Timestamp>;
+  nonce: Buffer;
+  principal_id: string;
+  project_id: string;
+  recipient_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface UjiraRecipients {
+  country: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  principal_id: string;
+  project_id: string;
+  recipient_ref: Buffer;
+  status: Generated<string>;
   updated_at: Generated<Timestamp>;
 }
 
@@ -286,9 +338,13 @@ export interface Schema {
   'ujira.mandate_instances': UjiraMandateInstances;
   'ujira.mandate_state_snapshots': UjiraMandateStateSnapshots;
   'ujira.mandates': UjiraMandates;
+  'ujira.payout_methods': UjiraPayoutMethods;
   'ujira.principal_members': UjiraPrincipalMembers;
   'ujira.principals': UjiraPrincipals;
   'ujira.projects': UjiraProjects;
+  'ujira.recipient_identities': UjiraRecipientIdentities;
+  'ujira.recipient_pii': UjiraRecipientPii;
+  'ujira.recipients': UjiraRecipients;
   'ujira.settlement_tokens': UjiraSettlementTokens;
   'ujira.status_transitions': UjiraStatusTransitions;
 }

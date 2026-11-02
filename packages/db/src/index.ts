@@ -54,6 +54,21 @@ export {
   type Reconciliation,
 } from './repositories/ledger.js';
 export {
+  payoutMethods,
+  recipientIdentities,
+  recipientPii,
+  recipients,
+  type EncryptedValue,
+  type IdentityState,
+  type IdentityUpdate,
+  type NewPayoutMethod,
+  type PayoutMethod,
+  type PayoutMethodKind,
+  type Recipient,
+  type RecipientIdentity,
+  type RecipientStatus,
+} from './repositories/recipients.js';
+export {
   executors,
   routingConfig,
   type ExecutorLease,

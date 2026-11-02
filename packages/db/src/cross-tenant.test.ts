@@ -26,6 +26,13 @@ import {
   mandates,
 } from './repositories/mandates.js';
 import {
+  payoutMethods,
+  recipientIdentities,
+  recipientPii,
+  recipientRepositories,
+  recipients,
+} from './repositories/recipients.js';
+import {
   apiTokens,
   members,
   principals,
@@ -53,9 +60,16 @@ interface Tenant {
   readonly roleAddress: string;
   readonly journalId: string;
   readonly accountId: string;
+  readonly recipientId: string;
+  readonly methodId: string;
 }
 
-const REPOSITORIES = { ...tenancyRepositories, ...mandateRepositories, ...ledgerRepositories };
+const REPOSITORIES = {
+  ...tenancyRepositories,
+  ...mandateRepositories,
+  ...ledgerRepositories,
+  ...recipientRepositories,
+};
 
 let database: TestDatabase;
 let db: Database;
@@ -146,6 +160,33 @@ async function tenant(name: string): Promise<Tenant> {
       accountId: accounts[0]?.id ?? '',
     };
   });
+  const { recipientId, methodId } = await db.tenant(first).transaction(async (tx) => {
+    const recipient = await recipients.create(tx, {
+      recipientRef: randomBytes(32),
+      country: 'NG',
+    });
+    await recipientPii.put(tx, recipient.id, {
+      ciphertext: randomBytes(16),
+      nonce: randomBytes(12),
+    });
+    await recipientIdentities.upsert(tx, {
+      recipientId: recipient.id,
+      chain: 'stellar',
+      provider: 'self',
+      providerRef: `ref-${name}`,
+      state: 'verified',
+    });
+    const method = await payoutMethods.create(tx, {
+      recipientId: recipient.id,
+      method: 'stellar_wallet',
+      rail: 'wallet',
+      chain: 'stellar',
+      destinationAddress: `G${randomUUID()}`,
+      destinationTag: null,
+      details: null,
+    });
+    return { recipientId: recipient.id, methodId: method.id };
+  });
   return {
     first,
     second: { principalId: created.principalId, projectId: secondId },
@@ -160,6 +201,8 @@ async function tenant(name: string): Promise<Tenant> {
     roleAddress,
     journalId,
     accountId,
+    recipientId,
+    methodId,
   };
 }
 
@@ -430,6 +473,75 @@ const cases: Record<string, () => Promise<void>> = {
     const page = await acrossA(async (tx) => deposits.list(tx, { limit: 100 }));
     expect(page.items.map((deposit) => deposit.id)).toContain(a.depositId);
     expect(page.items.map((deposit) => deposit.id)).not.toContain(b.depositId);
+  },
+  'recipients.list': async () => {
+    const page = await acrossA(async (tx) => recipients.list(tx, { limit: 100 }));
+    expect(page.items.map((recipient) => recipient.id)).toContain(a.recipientId);
+    expect(page.items.map((recipient) => recipient.id)).not.toContain(b.recipientId);
+  },
+  'recipients.get': async () => {
+    expect(await acrossA(async (tx) => recipients.get(tx, b.recipientId))).toBeUndefined();
+  },
+  'recipients.create': async () => {
+    const created = await asA(async (tx) =>
+      recipients.create(tx, { recipientRef: randomBytes(32), country: 'KE' }),
+    );
+    expect(await ownerOf('ujira.recipients', 'id', created.id)).toBe(a.first.principalId);
+  },
+  'recipients.setStatus': async () => {
+    expect(await asA(async (tx) => recipients.setStatus(tx, b.recipientId, 'erased'))).toBe(false);
+  },
+  'recipientPii.put': async () => {
+    // The same refusal whether B's recipient has personal data stored or not,
+    // so the answer says nothing about what B holds.
+    const value = { ciphertext: randomBytes(16), nonce: randomBytes(12) };
+    for (const recipientId of [b.recipientId, randomUUID()]) {
+      const attempt = asA(async (tx) => recipientPii.put(tx, recipientId, value));
+      expect(await codeOf(attempt)).toBe('23503');
+    }
+  },
+  'recipientPii.get': async () => {
+    expect(await asA(async (tx) => recipientPii.get(tx, b.recipientId))).toBeUndefined();
+  },
+  'recipientIdentities.list': async () => {
+    expect(await acrossA(async (tx) => recipientIdentities.list(tx, b.recipientId))).toEqual([]);
+  },
+  'recipientIdentities.upsert': async () => {
+    const attempt = asA(async (tx) =>
+      recipientIdentities.upsert(tx, {
+        recipientId: b.recipientId,
+        chain: 'stellar',
+        provider: 'self',
+        providerRef: 'intruder',
+        state: 'verified',
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'payoutMethods.list': async () => {
+    const page = await acrossA(async (tx) => payoutMethods.list(tx, { limit: 100 }));
+    expect(page.items.map((method) => method.id)).toContain(a.methodId);
+    expect(page.items.map((method) => method.id)).not.toContain(b.methodId);
+  },
+  'payoutMethods.get': async () => {
+    expect(await acrossA(async (tx) => payoutMethods.get(tx, b.methodId))).toBeUndefined();
+  },
+  'payoutMethods.create': async () => {
+    const attempt = asA(async (tx) =>
+      payoutMethods.create(tx, {
+        recipientId: b.recipientId,
+        method: 'stellar_wallet',
+        rail: 'wallet',
+        chain: 'stellar',
+        destinationAddress: 'GINTRUDER',
+        destinationTag: null,
+        details: null,
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'payoutMethods.disable': async () => {
+    expect(await asA(async (tx) => payoutMethods.disable(tx, b.methodId))).toBe(false);
   },
   'ledger.accounts': async () => {
     expect(await acrossA(async (tx) => ledger.accounts(tx, b.instanceId))).toEqual([]);
