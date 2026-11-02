@@ -49,6 +49,8 @@ export interface RpcTransaction {
   readonly ledger?: number;
   /** Base64 TransactionResult once included. */
   readonly resultXdr?: string;
+  /** Base64 TransactionMeta once included, which lists any restored entries. */
+  readonly resultMetaXdr?: string;
 }
 
 export type RawSimulation = Api.RawSimulateTransactionResponse;
@@ -228,10 +230,12 @@ export function createStellarRpc(options: JsonRpcOptions): StellarRpc {
         if (!TX_STATUSES.has(status)) throw new TypeError('malformed RPC result');
         const ledger = optionalInt(result, 'ledger');
         const resultXdr = result['resultXdr'];
+        const resultMetaXdr = result['resultMetaXdr'];
         return {
           status: status as RpcTransaction['status'],
           ...(ledger === undefined ? {} : { ledger }),
           ...(typeof resultXdr === 'string' ? { resultXdr } : {}),
+          ...(typeof resultMetaXdr === 'string' ? { resultMetaXdr } : {}),
         };
       });
     },
