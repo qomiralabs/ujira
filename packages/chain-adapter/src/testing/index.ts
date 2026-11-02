@@ -111,12 +111,17 @@ export {
   TEST_INNER_SOURCE,
   testAuthEntryXdr,
   testFeeBumpXdr,
+  testInvokeXdr,
+  testReserveSandwichXdr,
   testSep10ChallengeXdr,
   testTransactionXdr,
 } from './stellar.js';
 export type {
+  SandwichStep,
   TestAuthEntryOptions,
   TestFeeBumpOptions,
+  TestInvokeOptions,
+  TestSandwichOptions,
   TestSep10Options,
   TestTransactionOptions,
 } from './stellar.js';

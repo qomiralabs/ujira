@@ -43,6 +43,7 @@ export function signedBytes(payload: SignPayload): Uint8Array {
   switch (payload.kind) {
     case 'stellar_tx':
     case 'stellar_fee_bump':
+    case 'stellar_reserve_sandwich':
     case 'sep10_challenge':
       return utf8(payload.xdr);
     case 'stellar_auth_entry':
