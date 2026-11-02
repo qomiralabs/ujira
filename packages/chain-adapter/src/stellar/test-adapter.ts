@@ -111,6 +111,7 @@ export function setup(
     readonly usdc?: string;
     readonly deny?: boolean;
     readonly submitTimeoutMs?: number;
+    readonly nodeEnv?: string;
   } = {},
 ): TestSetup {
   const fixture = loadReadFixture();
@@ -165,6 +166,7 @@ export function setup(
     requests,
     wait: { attempts: 3, intervalMs: 0, sleep: () => Promise.resolve() },
     ...(options.submitTimeoutMs === undefined ? {} : { submitTimeoutMs: options.submitTimeoutMs }),
+    ...(options.nodeEnv === undefined ? {} : { nodeEnv: options.nodeEnv }),
     newRequestId: () => `req-${String((id += 1))}`,
   });
   return {

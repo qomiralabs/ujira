@@ -8,6 +8,8 @@
 // port types come from @ujira/chain-adapter; payloads are decoded only
 // through its pure codecs subpath.
 
+export { verifyAttesterStartup } from './attester-startup.js';
+export type { AttesterStartupOptions } from './attester-startup.js';
 export { LOCAL_SEED_VARIABLE } from './keys.js';
 export { LocalAttesterSigner, LocalSigner } from './local-signer.js';
 export type { LocalSignerOptions } from './local-signer.js';
