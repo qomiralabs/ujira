@@ -16,6 +16,7 @@ import {
   newScope,
   railCapability,
   recipientRow,
+  verificationRow,
 } from './fixtures.js';
 import { InMemoryIdentityStore, tenantKey } from './memory-store.js';
 
@@ -74,6 +75,21 @@ describe('InMemoryIdentityStore', () => {
     store.putIdentity(first).putIdentity(anchorA).putIdentity(anchorB).putIdentity(elsewhere);
     store.putIdentity(second);
     expect(await store.identities(scope, recipientId)).toEqual([anchorA, anchorB, second]);
+  });
+
+  it('the latest verification of a method is the last recorded, within its tenant', async () => {
+    const scope = newScope();
+    const store = new InMemoryIdentityStore();
+    const method = methodRow(scope, newId());
+    const first = verificationRow(method, { level: 'wallet_session', signerKey: null });
+    const second = verificationRow(method);
+    const otherMethod = verificationRow(methodRow(scope, newId()));
+    store.putVerification(first).putVerification(second).putVerification(otherMethod);
+    expect(await store.latestVerification(scope, method.id)).toBe(second);
+    expect(await store.verification(scope, first.id)).toBe(first);
+    expect(await store.latestVerification(newScope(), method.id)).toBeNull();
+    expect(await store.verification(newScope(), first.id)).toBeNull();
+    expect(await store.latestVerification(scope, newId())).toBeNull();
   });
 
   it('tenant keys differ when either half differs', () => {

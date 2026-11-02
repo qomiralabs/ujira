@@ -113,6 +113,23 @@ export interface InstalledPackage {
 // A registry version, as opposed to a `file:`, `link:` or git specifier.
 const REGISTRY_VERSION = /^\d+\.\d+\.\d+(?:[-+][\w.+-]*)?$/;
 
+// Pairs each listed version with a folder. pnpm lists a release once even
+// when peer dependencies install it in several folders, so with more folders
+// than versions the order cannot be trusted, and each folder is paired with
+// the listed version its own package.json gives. A folder that gives none of
+// them is paired with the first, so the checks in resolveListing report it.
+function pairFolders(entry: PnpmLicenseEntry, inspector: ManifestInspector): [string, string][] {
+  if (entry.paths.length === entry.versions.length) {
+    return entry.versions.map((version, i) => [version, entry.paths[i] ?? '']);
+  }
+  return entry.paths.map((path) => {
+    const real = inspector.realpath(path);
+    const declared = real === undefined ? undefined : inspector.manifest(real)?.['version'];
+    const version = entry.versions.find((listed) => listed === declared) ?? entry.versions[0];
+    return [version ?? '', path];
+  });
+}
+
 // Resolves each listed version to the package folder that holds it and reads
 // that folder's package.json, so a version is never trusted on its position
 // in the list alone. Our own workspace projects are skipped only when the path
@@ -128,14 +145,19 @@ export function resolveListing(
   const byDir = new Map(workspaces.map((project) => [project.dir, project]));
   for (const entry of entries) {
     const label = entry.name;
-    if (entry.versions.length === 0 || entry.versions.length !== entry.paths.length) {
+    if (entry.versions.length === 0 || entry.paths.length < entry.versions.length) {
       problems.push(
         `${label}: pnpm listed ${String(entry.versions.length)} version(s) and ${String(entry.paths.length)} path(s); cannot tell which path holds which version`,
       );
       continue;
     }
-    entry.versions.forEach((version, i) => {
-      const path = entry.paths[i] ?? '';
+    const pairs = pairFolders(entry, inspector);
+    for (const version of entry.versions) {
+      if (!pairs.some(([paired]) => paired === version)) {
+        problems.push(`${label}@${version}: listed by pnpm but held by none of its folders`);
+      }
+    }
+    pairs.forEach(([version, path]) => {
       const where = `${label}@${version}`;
       const real = path === '' ? undefined : inspector.realpath(path);
       if (real === undefined) {

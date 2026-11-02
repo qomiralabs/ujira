@@ -4,8 +4,9 @@
 // @ujira/chain-adapter/testing: the fake chain every service above the
 // adapter is tested against. An in-memory ledger with test tokens, the
 // mandate factory and the mandate itself, which behaves exactly as the
-// mandate spec says and passes the shared contract vectors. Test code only;
-// nothing here signs or reaches a network.
+// mandate spec says and passes the shared contract vectors, and unsigned
+// Stellar envelopes for any account a test names. Test code only; nothing
+// here reaches a network.
 
 export {
   accountAddress,
@@ -26,7 +27,68 @@ export {
 } from './attestation.js';
 export type { AttestationFieldBytes, AttestationSubject } from './attestation.js';
 export { ed25519PublicKey, ed25519Sign, ed25519Verify, hexOf, isBytes32, sha256 } from './bytes.js';
+export {
+  act,
+  deployMandate,
+  describeChainAdapter,
+  drive,
+  finalReceipt,
+  must,
+  payRequest,
+  refusalOf,
+} from './conformance.js';
+export type {
+  AdapterHarness,
+  AdapterHarnessFactory,
+  ChainFaults,
+  ConformanceOptions,
+  PayOptions,
+  SuiteMandate,
+  SuiteMandateOptions,
+} from './conformance.js';
 export { MandateEngine } from './engine.js';
+export { FakeChainAdapter, signFakeRequest } from './fake-adapter.js';
+export type { FakeChainAdapterPorts } from './fake-adapter.js';
+export {
+  FAKE_GENESIS,
+  FAKE_TX_FEE,
+  FakeNetwork,
+  PUBNET_PASSPHRASE,
+  tenantRefOf,
+} from './fake-network.js';
+export type {
+  FakeDeposit,
+  FakeNetworkOptions,
+  FakeTx,
+  StoredRequest,
+  TestAccount,
+} from './fake-network.js';
+export { FakeAlerts, FakeSigner, FakeSponsorship } from './fake-ports.js';
+export type { RecordedAlert, Reservation } from './fake-ports.js';
+export {
+  FakeAdapterStore,
+  LIVE_SUBMISSION_STATES,
+  STORE_RULES,
+  SUBMISSION_TRANSITIONS,
+  isLiveSubmission,
+} from './fake-store.js';
+export type {
+  FakeAdapterStoreOptions,
+  FakeExecutorAccount,
+  StoreRule,
+  SubmissionMove,
+} from './fake-store.js';
+export { FAKE_SCOPES, createFakeWorld, fakeAdapterHarness, fakeChainFaults } from './fake-world.js';
+export type { FakeWorld, FakeWorldOptions } from './fake-world.js';
+export { FakeFaults, SimulatedCrash } from './faults.js';
+export type { AnchorScript, AnchorStep, CrashPoint, FaultRates, RandomFault } from './faults.js';
+export { STORE_CHECKS, describeAdapterStore, runAdapterStoreChecks } from './store-contract.js';
+export type {
+  StoreCheck,
+  StoreCheckResult,
+  StoreHarness,
+  StoreHarnessFactory,
+} from './store-contract.js';
 export type { MandateEngineInit } from './engine.js';
 export { MandateFactory } from './factory.js';
 export type { MandateFactoryOptions } from './factory.js';
@@ -43,6 +105,21 @@ export { FakeLedger, TESTNET_PASSPHRASE } from './ledger.js';
 export type { FakeLedgerOptions, LedgerContract, NestedViews } from './ledger.js';
 export { feeCap } from './rules.js';
 export * from './spec.js';
+export {
+  TEST_CONTRACT,
+  TEST_DESTINATION,
+  TEST_INNER_SOURCE,
+  testAuthEntryXdr,
+  testFeeBumpXdr,
+  testSep10ChallengeXdr,
+  testTransactionXdr,
+} from './stellar.js';
+export type {
+  TestAuthEntryOptions,
+  TestFeeBumpOptions,
+  TestSep10Options,
+  TestTransactionOptions,
+} from './stellar.js';
 export { FakeToken } from './token.js';
 export type {
   FakeTokenOptions,

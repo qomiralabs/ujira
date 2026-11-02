@@ -43,6 +43,7 @@ function fakeAdapter(network: NetworkId, overrides: Partial<ChainAdapter> = {}):
     health: unsupported,
     parseAddress: unsupported,
     parseDestination: unsupported,
+    attestationMessage: unsupported,
     readMandate: unsupported,
     prepareMandateAction: unsupported,
     submitSigned: unsupported,
