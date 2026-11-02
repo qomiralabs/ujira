@@ -158,6 +158,12 @@ export interface UjiraFundingSources {
   project_id: string;
 }
 
+export interface UjiraJobsWorkerHeartbeats {
+  last_seen_at: Generated<Timestamp>;
+  started_at: Generated<Timestamp>;
+  worker_id: string;
+}
+
 export interface UjiraLedgerAccounts {
   asset: string;
   balance: Generated<Numeric>;
@@ -360,6 +366,7 @@ export interface Schema {
   'ops.fee_estimates': OpsFeeEstimates;
   'ops.routing_config_active': OpsRoutingConfigActive;
   'ops.routing_config_versions': OpsRoutingConfigVersions;
+  'ujira_jobs.worker_heartbeats': UjiraJobsWorkerHeartbeats;
   ujira_migrations: UjiraMigrations;
   'ujira.api_tokens': UjiraApiTokens;
   'ujira.audit_heads': UjiraAuditHeads;
