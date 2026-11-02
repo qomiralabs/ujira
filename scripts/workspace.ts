@@ -193,11 +193,56 @@ export function testProjects(
   }));
 }
 
-// The tsconfig files the type-aware lint uses: the root one and one per
-// member. Given to ESLint as an explicit list, so a tsconfig anywhere else in
-// the tree can never change the types lint sees for a file.
-export function lintProjects(root: string): string[] {
+// The type-aware lint keeps every TypeScript program it builds for as long as
+// the process lives, and looks through its project list in order until one
+// holds the file. So one process linting everything peaks at the sum of every
+// member. Each member's files are therefore typed by that member's own
+// tsconfig, and each member is linted by a process of its own, which makes the
+// peak the largest member rather than all of them.
+//
+// The list is explicit, so a tsconfig anywhere else in the tree can never
+// change the types lint sees for a file.
+export const ROOT_LINT_PROJECT = './tsconfig.json';
+
+export interface LintScope {
+  files: string[];
+  project: string[];
+}
+
+export function lintScopes(root: string): LintScope[] {
   const { globs, problems } = readWorkspaceGlobs(root);
   if (problems.length > 0) throw new Error(problems.join('\n'));
-  return ['./tsconfig.json', ...listMembers(root, globs).map((m) => `./${m.path}/tsconfig.json`)];
+  return listMembers(root, globs).map((m) => ({
+    files: [`${m.path}/**`],
+    project: [`./${m.path}/tsconfig.json`],
+  }));
+}
+
+export interface LintRun {
+  label: string;
+  args: string[];
+}
+
+// One ESLint run per member and one for everything else. The last run ignores
+// the members by name rather than their parent folders, so a stray folder
+// under packages/ is still linted, and still refused for having no tsconfig.
+export function lintRuns(root: string, eslintArgs: readonly string[]): LintRun[] {
+  const { globs, problems } = readWorkspaceGlobs(root);
+  if (problems.length > 0) throw new Error(problems.join('\n'));
+  const members = listMembers(root, globs);
+  const base = ['--config', 'eslint.config.js', ...eslintArgs];
+  return [
+    ...members.map((m) => ({ label: m.path, args: [...base, m.path] })),
+    {
+      label: 'root',
+      args: [...base, ...members.flatMap((m) => ['--ignore-pattern', `${m.path}/**`]), '.'],
+    },
+  ];
+}
+
+// Runs every target even after one fails, so one run reports everything wrong,
+// as a single ESLint process did. A run killed by a signal has a null status,
+// and that is a failure too: an out of memory kill must not read as clean.
+export function runLint(runs: readonly LintRun[], exec: (run: LintRun) => number | null): string[] {
+  return runs.filter((run) => exec(run) !== 0).map((run) => run.label);
 }
