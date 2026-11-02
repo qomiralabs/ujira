@@ -286,6 +286,17 @@ export interface UjiraMigrations {
   run_on: Timestamp;
 }
 
+export interface UjiraOutboxEvents {
+  created_at: Generated<Timestamp>;
+  event_type: string;
+  id: Generated<string>;
+  payload: Json;
+  principal_id: string;
+  project_id: string;
+  seq: Generated<Int8>;
+  tx_id: Generated<string>;
+}
+
 export interface UjiraPayoutMethods {
   chain: string;
   created_at: Generated<Timestamp>;
@@ -377,6 +388,32 @@ export interface UjiraStatusTransitions {
   to_status: string;
 }
 
+export interface UjiraWebhookDeliveries {
+  attempt: number;
+  created_at: Generated<Timestamp>;
+  endpoint_id: string;
+  error_code: string | null;
+  event_created_at: Timestamp;
+  event_id: string;
+  id: Generated<string>;
+  principal_id: string;
+  project_id: string;
+  response_status: number | null;
+  status: string;
+}
+
+export interface UjiraWebhookEndpoints {
+  created_at: Generated<Timestamp>;
+  event_types: string[];
+  id: Generated<string>;
+  principal_id: string;
+  project_id: string;
+  secret_ref: string;
+  status: Generated<string>;
+  updated_at: Generated<Timestamp>;
+  url: string;
+}
+
 export interface Schema {
   'ops.chain_cursors': OpsChainCursors;
   'ops.executor_accounts': OpsExecutorAccounts;
@@ -404,6 +441,7 @@ export interface Schema {
   'ujira.mandate_instances': UjiraMandateInstances;
   'ujira.mandate_state_snapshots': UjiraMandateStateSnapshots;
   'ujira.mandates': UjiraMandates;
+  'ujira.outbox_events': UjiraOutboxEvents;
   'ujira.payout_methods': UjiraPayoutMethods;
   'ujira.principal_members': UjiraPrincipalMembers;
   'ujira.principals': UjiraPrincipals;
@@ -413,4 +451,6 @@ export interface Schema {
   'ujira.recipients': UjiraRecipients;
   'ujira.settlement_tokens': UjiraSettlementTokens;
   'ujira.status_transitions': UjiraStatusTransitions;
+  'ujira.webhook_deliveries': UjiraWebhookDeliveries;
+  'ujira.webhook_endpoints': UjiraWebhookEndpoints;
 }

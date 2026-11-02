@@ -101,7 +101,18 @@ describe('grants on ujira', () => {
       expect(mine).toContainEqual({ object: 'schema ujira', grantee: role, privilege: 'USAGE' });
       const relations = mine.filter((grant) => grant.object.startsWith('relation '));
       expect(relations.length).toBeGreaterThan(0);
-      if (role !== 'ujira_app' && role !== 'ujira_indexer') {
+      if (role === 'ujira_retention') {
+        expect(
+          relations
+            .filter((grant) => grant.privilege !== 'SELECT')
+            .map((grant) => `${grant.privilege} ${grant.object}`)
+            .sort(),
+        ).toEqual([
+          'DELETE relation idempotency_keys',
+          'DELETE relation outbox_events',
+          'DELETE relation webhook_deliveries',
+        ]);
+      } else if (role !== 'ujira_app' && role !== 'ujira_indexer') {
         expect(relations.filter((grant) => grant.privilege !== 'SELECT')).toEqual([]);
       }
     }
@@ -109,12 +120,19 @@ describe('grants on ujira', () => {
 
   it('gives the roles with no tables of their own yet read access to the reference data only', async () => {
     const all = await grants();
-    for (const role of ['ujira_retention', 'ujira_auth']) {
-      const relations = all
-        .filter((grant) => grant.grantee === role && grant.object.startsWith('relation '))
+    const reads = (role: string): string[] =>
+      all
+        .filter(
+          (grant) =>
+            grant.grantee === role &&
+            grant.object.startsWith('relation ') &&
+            grant.privilege === 'SELECT',
+        )
         .map((grant) => grant.object)
         .sort();
-      expect(relations).toEqual([
+    // The retention role reads its own tables by column, which is not listed here.
+    for (const role of ['ujira_retention', 'ujira_auth']) {
+      expect(reads(role)).toEqual([
         'relation chains',
         'relation currencies',
         'relation currency_scales',
