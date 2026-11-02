@@ -48,14 +48,8 @@ export type {
 } from './conformance.js';
 export { MandateEngine } from './engine.js';
 export { FakeChainAdapter, signFakeRequest } from './fake-adapter.js';
-export type { FakeChainAdapterPorts } from './fake-adapter.js';
-export {
-  FAKE_GENESIS,
-  FAKE_TX_FEE,
-  FakeNetwork,
-  PUBNET_PASSPHRASE,
-  tenantRefOf,
-} from './fake-network.js';
+export type { FakeChainAdapterOptions, FakeChainAdapterPorts } from './fake-adapter.js';
+export { FAKE_GENESIS, FAKE_TX_FEE, FakeNetwork, PUBNET_PASSPHRASE } from './fake-network.js';
 export type {
   FakeDeposit,
   FakeNetworkOptions,
@@ -111,12 +105,17 @@ export {
   TEST_INNER_SOURCE,
   testAuthEntryXdr,
   testFeeBumpXdr,
+  testInvokeXdr,
+  testReserveSandwichXdr,
   testSep10ChallengeXdr,
   testTransactionXdr,
 } from './stellar.js';
 export type {
+  SandwichStep,
   TestAuthEntryOptions,
   TestFeeBumpOptions,
+  TestInvokeOptions,
+  TestSandwichOptions,
   TestSep10Options,
   TestTransactionOptions,
 } from './stellar.js';

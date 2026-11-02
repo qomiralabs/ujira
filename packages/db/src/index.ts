@@ -10,7 +10,43 @@
 // the generated schema types. A caller that needs a query needs a
 // repository method, which arrives with the tables.
 
-export { createDatabase, type Database, type DatabaseRole } from './database.js';
+export {
+  createDatabase,
+  type Database,
+  type DatabaseRole,
+  type ProjectContext,
+  type TenantSession,
+} from './database.js';
+export {
+  MAX_PAGE_SIZE,
+  PageRequestError,
+  type Page,
+  type PageRequest,
+} from './repositories/page.js';
+export {
+  apiTokens,
+  members,
+  principals,
+  projects,
+  type ApiToken,
+  type Member,
+  type MemberRole,
+  type NewApiToken,
+  type Principal,
+  type Project,
+} from './repositories/tenancy.js';
+export {
+  entryPoints,
+  type CreatedPrincipal,
+  type NewPrincipal,
+  type TokenRecord,
+} from './repositories/entry-points.js';
+export {
+  executors,
+  routingConfig,
+  type ExecutorLease,
+  type RoutingConfig,
+} from './repositories/ops.js';
 export {
   CONNECTION_BUDGET,
   loadDatabaseConfig,
