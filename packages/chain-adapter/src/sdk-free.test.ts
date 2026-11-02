@@ -3,10 +3,10 @@
 
 // Two chain packages, each pinned exactly and each fenced to its folders.
 // The Stellar base library (XDR and keys, no network code) is for the
-// codecs and the test fakes. The Stellar SDK, with its RPC client, is for
-// the Stellar adapter in src/stellar, which ships as its own entry. Nothing
-// else imports anything chain specific, so the root entry and the public
-// types cannot lean on a chain library.
+// codecs, the Stellar transaction builder and the test fakes. The Stellar SDK,
+// with its RPC client, is for the Stellar adapter in src/stellar, which ships
+// as its own entry. Nothing else imports anything chain specific, so the root
+// entry and the public types cannot lean on a chain library.
 
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
@@ -19,7 +19,7 @@ const PACKAGE_DIR = path.resolve(import.meta.dirname, '..');
 const SRC = path.join(PACKAGE_DIR, 'src');
 const BASE_LIBRARY = '@stellar/stellar-base';
 // Folders under src that may import the base library.
-const BASE_LIBRARY_FOLDERS = ['codecs', 'testing'];
+const BASE_LIBRARY_FOLDERS = ['codecs', 'stellar', 'testing'];
 const SDK = '@stellar/stellar-sdk';
 // The one folder that may import the SDK or its subpaths.
 const SDK_FOLDER = 'stellar';
@@ -78,7 +78,7 @@ describe('the package is SDK free', () => {
       }
     }
     expect(bad).toEqual([]);
-    // Both folders use it, so a stale entry in the list above is noticed.
+    // Every listed folder uses it, so a stale entry in the list is noticed.
     expect([...baseUsers].sort()).toEqual(BASE_LIBRARY_FOLDERS);
     expect(sdkUsers).toBeGreaterThan(0);
   });

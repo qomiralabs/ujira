@@ -110,6 +110,7 @@ export function setup(
     readonly maxFeePerTxStroops?: string;
     readonly usdc?: string;
     readonly deny?: boolean;
+    readonly submitTimeoutMs?: number;
   } = {},
 ): TestSetup {
   const fixture = loadReadFixture();
@@ -158,6 +159,7 @@ export function setup(
     ports,
     requests,
     wait: { attempts: 3, intervalMs: 0, sleep: () => Promise.resolve() },
+    ...(options.submitTimeoutMs === undefined ? {} : { submitTimeoutMs: options.submitTimeoutMs }),
     newRequestId: () => `req-${String((id += 1))}`,
   });
   return {

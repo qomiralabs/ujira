@@ -102,7 +102,6 @@ describe('createStellarRpc', () => {
       [{ result: { latestLedger: 1, entries: {} } }, (r) => r.getLedgerEntries([], OPTS)],
       [{ result: { latestLedger: 1, entries: [3] } }, (r) => r.getLedgerEntries([], OPTS)],
       [{ result: {} }, (r) => r.simulateTransaction('tx', OPTS)],
-      [{ result: { status: 'LOST', hash: 'h' } }, (r) => r.sendTransaction('tx', OPTS)],
       [{ result: { status: 'MAYBE' } }, (r) => r.getTransaction('h', OPTS)],
       [{ error: { code: -32602, message: 'invalid params' } }, (r) => r.getLatestLedger(OPTS)],
       [[], (r) => r.getLatestLedger(OPTS)],
@@ -111,6 +110,27 @@ describe('createStellarRpc', () => {
     for (const [body, call] of bad) {
       await expect(call(answering(body).rpc)).rejects.toBeInstanceOf(ChainUnavailableError);
     }
+  });
+
+  it('never says a send did not land once the endpoint has taken it', async () => {
+    const taken: unknown[] = [
+      { result: { status: 'LOST', hash: 'h' } },
+      { result: { status: 'PENDING' } },
+      { error: { code: -32603, message: 'internal' } },
+      [],
+      'not json',
+    ];
+    for (const body of taken) {
+      const send = answering(body).rpc.sendTransaction('tx', OPTS);
+      await expect(send).rejects.toBeInstanceOf(SubmissionUnknownError);
+      await expect(send).rejects.toMatchObject({ landed: 'unknown' });
+    }
+    const failed = answering({}, 502).rpc.sendTransaction('tx', OPTS);
+    await expect(failed).rejects.toBeInstanceOf(SubmissionUnknownError);
+    // A refusal from the rate limiter is the one answer that says it was not taken.
+    await expect(answering({}, 429).rpc.sendTransaction('tx', OPTS)).rejects.toBeInstanceOf(
+      RpcRateLimitedError,
+    );
   });
 
   it('maps HTTP failures, rate limits and timeouts, and never quotes the URL', async () => {

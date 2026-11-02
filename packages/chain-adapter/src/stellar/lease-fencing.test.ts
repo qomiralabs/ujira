@@ -48,6 +48,7 @@ describe('executor lease fencing', { timeout: 30_000 }, () => {
         ports: t.ports,
         wait: { attempts: 1, intervalMs: 0, sleep: () => Promise.resolve() },
         leaseSeconds: 60,
+        submitTimeoutMs: 1000,
       },
       OPTS,
       (session) => {
@@ -69,6 +70,7 @@ describe('executor lease fencing', { timeout: 30_000 }, () => {
       ports: t.ports,
       wait: { attempts: 1, intervalMs: 0, sleep: () => Promise.resolve() },
       leaseSeconds: 60,
+      submitTimeoutMs: 1000,
     };
     await expect(
       ExecutorSession.run(ctx, OPTS, () => Promise.reject(new Error('work failed'))),

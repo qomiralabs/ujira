@@ -141,14 +141,22 @@ export function createStellarRpc(options: JsonRpcOptions): StellarRpc {
       throw new ChainUnavailableError({ network, cause: error });
     }
     if (response.status === HTTP_TOO_MANY_REQUESTS) throw new RpcRateLimitedError({ network });
-    if (!response.ok) throw new ChainUnavailableError({ network });
+    // Past this point the endpoint took the request, so a send may have gone
+    // through whatever came back. Only a read can call this an outage.
+    const lost = (cause?: unknown) => {
+      const options = { network, ...(cause === undefined ? {} : { cause }) };
+      return landed === 'unknown'
+        ? new SubmissionUnknownError(options)
+        : new ChainUnavailableError(options);
+    };
+    if (!response.ok) throw lost();
     let body: unknown;
     try {
       body = await response.json();
     } catch (error) {
-      throw new ChainUnavailableError({ network, cause: error });
+      throw lost(error);
     }
-    if (!isObject(body) || !isObject(body['result'])) throw new ChainUnavailableError({ network });
+    if (!isObject(body) || !isObject(body['result'])) throw lost();
     return body['result'];
   }
 
@@ -200,16 +208,17 @@ export function createStellarRpc(options: JsonRpcOptions): StellarRpc {
 
     async sendTransaction(txXdr, opts) {
       const result = await call('sendTransaction', { transaction: txXdr }, opts, 'unknown');
-      return parse(() => {
-        const status = result['status'];
-        if (!SEND_STATUSES.has(status)) throw new TypeError('malformed RPC result');
-        const errorResultXdr = result['errorResultXdr'];
-        return {
-          status: status as RpcSendStatus,
-          hash: str(result, 'hash'),
-          ...(typeof errorResultXdr === 'string' ? { errorResultXdr } : {}),
-        };
-      });
+      const status = result['status'];
+      const hash = result['hash'];
+      if (!SEND_STATUSES.has(status) || typeof hash !== 'string') {
+        throw new SubmissionUnknownError({ network });
+      }
+      const errorResultXdr = result['errorResultXdr'];
+      return {
+        status: status as RpcSendStatus,
+        hash,
+        ...(typeof errorResultXdr === 'string' ? { errorResultXdr } : {}),
+      };
     },
 
     async getTransaction(hash, opts) {

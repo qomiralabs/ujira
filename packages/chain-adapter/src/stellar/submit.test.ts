@@ -1,13 +1,15 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-import { Address, Keypair, TransactionBuilder, xdr } from '@stellar/stellar-sdk/base';
+import { Address, Keypair, Memo, TransactionBuilder, xdr } from '@stellar/stellar-sdk/base';
 import type { FeeBumpTransaction, Transaction } from '@stellar/stellar-sdk/base';
 import { describe, expect, it } from 'vitest';
 
 import {
   ChainUnavailableError,
   InvalidInputError,
+  MemoOnContractCallError,
+  RpcRateLimitedError,
   RpcTimeoutError,
   SignedPayloadMismatchError,
   SigningRequestExpiredError,
@@ -203,6 +205,78 @@ describe('submitSigned for an account signer', { timeout: 30_000 }, () => {
     );
     expect([...lost.store.submissions.values()][0]).toMatchObject({ state: 'unknown' });
     expect(lost.sponsorship.calls.map((c) => c.kind)).toEqual(['reserve']);
+  });
+
+  it('goes through the one builder and submit path', async () => {
+    const t = setup();
+    const request = await prepare(t, { op: 'pause' });
+    await submit(t, request.requestId, sign(request, t.principal));
+    const bump = TransactionBuilder.fromXdr(t.rpc.sent[0] ?? '', passphrase) as FeeBumpTransaction;
+    expect(bump.innerTransaction.memo.type).toBe('none');
+    // The sponsor pays the resource fee and an inclusion fee for each of the
+    // inner operation and the bump, and the fee was reserved as that much.
+    expect(BigInt(bump.fee)).toBe(t.rpc.resourceFee + 200n);
+    expect(request.summary.estimatedFee?.amount).toBe(t.rpc.resourceFee + 200n);
+  });
+
+  it('refuses a stored request that carries a memo before the sponsor signs anything', async () => {
+    const t = setup();
+    const built = await prepare(t, { op: 'pause' });
+    if (built.kind !== 'stellar_transaction') throw new Error('expected a transaction');
+    const original = TransactionBuilder.fromXdr(built.xdr, passphrase) as Transaction;
+    const withMemo = TransactionBuilder.cloneFrom(original, {
+      fee: '100',
+      networkPassphrase: passphrase,
+      memo: Memo.text('nope'),
+    }).build();
+    const stored = await t.requests.load(t.scope, built.requestId);
+    if (stored === null) throw new Error('expected a stored request');
+    await t.requests.save({ ...stored.request, requestId: 'memo', payload: withMemo.toXdr() });
+    withMemo.sign(t.principal);
+    await expect(submit(t, 'memo', withMemo.toXdr())).rejects.toBeInstanceOf(
+      MemoOnContractCallError,
+    );
+    expect(t.rpc.sent).toHaveLength(0);
+    expect(t.store.submissions.size).toBe(0);
+    expect(t.sponsorship.calls.map((c) => c.kind)).toEqual(['reserve', 'release']);
+  });
+
+  it('treats a send with no answer by the deadline as unknown and keeps the reservation', async () => {
+    const t = setup({ submitTimeoutMs: 1 });
+    t.rpc.sendTransaction = () => new Promise(() => undefined);
+    const request = await prepare(t, { op: 'pause' });
+    const refused = submit(t, request.requestId, sign(request, t.principal));
+    await expect(refused).rejects.toBeInstanceOf(RpcTimeoutError);
+    await expect(refused).rejects.toMatchObject({ landed: 'unknown' });
+    expect([...t.store.submissions.values()][0]).toMatchObject({ state: 'unknown' });
+    expect(t.sponsorship.calls.map((c) => c.kind)).toEqual(['reserve']);
+  });
+
+  it('records a send the transport refused with nothing sent as failed, and passes the caller signal', async () => {
+    const t = setup();
+    t.rpc.sendResult = () => {
+      throw new RpcRateLimitedError({ network: NETWORK });
+    };
+    const request = await prepare(t, { op: 'pause' });
+    const caller = new AbortController();
+    await expect(
+      t.adapter.submitSigned(
+        {
+          scope: t.scope,
+          requestId: request.requestId,
+          signed: sign(request, t.principal),
+          correlationId: 'c',
+        },
+        { correlationId: 'c', signal: caller.signal },
+      ),
+    ).rejects.toBeInstanceOf(RpcRateLimitedError);
+    expect([...t.store.submissions.values()][0]).toMatchObject({
+      state: 'failed',
+      errorCode: 'RPC_RATE_LIMITED',
+    });
+    expect(t.sponsorship.calls.map((c) => c.kind)).toEqual(['reserve', 'release']);
+    caller.abort();
+    expect(t.rpc.sendOptions[0]?.signal?.aborted).toBe(true);
   });
 
   it('stops before signing anything when sponsorship is denied', async () => {

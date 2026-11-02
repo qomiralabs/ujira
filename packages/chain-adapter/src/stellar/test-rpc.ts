@@ -15,7 +15,7 @@ import { Address, SorobanDataBuilder, TransactionBuilder, xdr } from '@stellar/s
 import type { Transaction } from '@stellar/stellar-sdk/base';
 
 import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
-import type { Bytes32, TenantScope } from '../types.js';
+import type { Bytes32, CallOptions, TenantScope } from '../types.js';
 import { addressXdr } from './address-xdr.js';
 import { mandateAddressOf } from './mandate-address.js';
 import type {
@@ -154,6 +154,7 @@ export class FakeRpc implements StellarRpc {
   readonly reads = new Map<string, RawSimulation>();
   readonly simulated: Transaction[] = [];
   readonly sent: string[] = [];
+  readonly sendOptions: CallOptions[] = [];
   readonly txs = new Map<string, RpcTransaction>();
   readonly calls: string[] = [];
   latest: RpcLatestLedger = { sequence: 5_500_000, closeTime: 1_793_500_000n };
@@ -242,9 +243,10 @@ export class FakeRpc implements StellarRpc {
     return Promise.resolve(this.success(tx, this.retval(call)));
   }
 
-  sendTransaction(txXdr: string): Promise<RpcSendResult> {
+  sendTransaction(txXdr: string, opts: CallOptions): Promise<RpcSendResult> {
     this.calls.push('sendTransaction');
     this.sent.push(txXdr);
+    this.sendOptions.push(opts);
     return Promise.resolve(this.sendResult(txXdr));
   }
 

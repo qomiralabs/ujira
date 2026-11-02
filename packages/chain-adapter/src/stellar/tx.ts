@@ -4,12 +4,16 @@
 // Transaction plumbing shared by reads, actions and the restore step:
 // network passphrases, sequence reads, simulation with error mapping, and
 // signatures from the signer port attached as Stellar expects them.
+//
+// Every transaction is built by the one contract call builder, so none can
+// carry a memo. That builder runs on the Stellar base library, whose XDR
+// classes are not the SDK's, so values cross between the two as base64 only.
 
+import { xdr as baseXdr } from '@stellar/stellar-base';
 import {
-  Account,
   Keypair,
   Networks,
-  Operation,
+  SorobanDataBuilder,
   TransactionBuilder,
   xdr,
 } from '@stellar/stellar-sdk/base';
@@ -27,6 +31,8 @@ import type { NetworkId, StellarNetworkId } from '../networks.js';
 import type { SignatureResult } from '../signer.js';
 import type { CallOptions } from '../types.js';
 import type { Invocation } from './calls.js';
+import { buildContractCallTransaction } from './contract-call.js';
+import type { ContractCall } from './contract-call.js';
 import type { RpcTransaction, StellarRpc } from './rpc.js';
 import { callFailure } from './sim-errors.js';
 
@@ -69,33 +75,64 @@ export interface BuildOptions {
   /** The source's current sequence; the transaction uses the next one. */
   readonly sequence: bigint;
   readonly maxTime: bigint;
-  readonly auth?: readonly xdr.SorobanAuthorizationEntry[];
+  /** Base64 SorobanTransactionData, from a simulation once there has been one. */
+  readonly sorobanData?: string;
 }
 
-export function builder(build: BuildOptions): TransactionBuilder {
-  return new TransactionBuilder(new Account(build.source, build.sequence.toString()), {
-    fee: INCLUSION_FEE.toString(),
-    networkPassphrase: PASSPHRASES[build.network],
-    timebounds: { minTime: 0, maxTime: Number(build.maxTime) },
+const NO_SOROBAN_DATA = new SorobanDataBuilder().build().toXdr('base64');
+
+function built(call: ContractCall, build: BuildOptions): Transaction {
+  const envelope = buildContractCallTransaction({
+    network: build.network,
+    source: build.source,
+    sequence: build.sequence,
+    inclusionFee: INCLUSION_FEE,
+    timeBounds: { minTime: 0n, maxTime: build.maxTime },
+    sorobanData: build.sorobanData ?? NO_SOROBAN_DATA,
+    call,
   });
+  return TransactionBuilder.fromXdr(envelope, PASSPHRASES[build.network]) as Transaction;
 }
 
-export function invokeTx(inv: Invocation, build: BuildOptions): Transaction {
-  return builder(build)
-    .addOperation(
-      Operation.invokeContractFunction({
-        contract: inv.contract,
-        function: inv.fn,
-        args: [...inv.args],
-        auth: [...(build.auth ?? [])],
-      }),
-    )
-    .build();
+/** A contract call, with any authorization entries it carries. */
+export function invokeTx(
+  inv: Invocation,
+  build: BuildOptions,
+  auth: readonly xdr.SorobanAuthorizationEntry[] = [],
+): Transaction {
+  return built(
+    {
+      kind: 'invoke',
+      contract: inv.contract,
+      method: inv.fn,
+      args: inv.args.map((arg) => baseXdr.ScVal.fromXDR(arg.toXdr('base64'), 'base64')),
+      auth: auth.map((entry) =>
+        baseXdr.SorobanAuthorizationEntry.fromXDR(entry.toXdr('base64'), 'base64'),
+      ),
+    },
+    build,
+  );
 }
 
-/** A read only call, simulated and never sent. */
+/** A restore or an extension of the footprint in `build.sorobanData`. */
+export function footprintTx(
+  call: Extract<ContractCall, { readonly kind: 'restore' | 'extend_ttl' }>,
+  build: BuildOptions,
+): Transaction {
+  return built(call, build);
+}
+
+/** What a transaction takes from its simulation, to be built again ready to sign. */
+export function simulatedData(sim: Simulated): string {
+  return sim.transactionData.build().toXdr('base64');
+}
+
+/**
+ * A read only call, simulated and never sent. It needs no sequence and its
+ * time bound is never checked, so the lowest the builder accepts will do.
+ */
 export function readTx(network: StellarNetworkId, inv: Invocation): Transaction {
-  return invokeTx(inv, { network, source: SIMULATION_SOURCE, sequence: 0n, maxTime: 0n });
+  return invokeTx(inv, { network, source: SIMULATION_SOURCE, sequence: 0n, maxTime: 1n });
 }
 
 /**

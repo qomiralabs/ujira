@@ -15,6 +15,7 @@ import {
   ChainUnavailableError,
   ExecutorUnfundedError,
   SubmissionRejectedError,
+  isChainAdapterError,
 } from '../errors.js';
 import type { StellarNetworkId } from '../networks.js';
 import type {
@@ -26,6 +27,7 @@ import type {
   UnixSeconds,
 } from '../types.js';
 import type { RpcTransaction, StellarRpc } from './rpc.js';
+import { submitEnvelope } from './submit.js';
 import { accountSequence, attach, txHash, waitForTransaction } from './tx.js';
 import type { WaitOptions } from './tx.js';
 
@@ -35,6 +37,8 @@ export interface ExecutorContext {
   readonly ports: AdapterPorts;
   readonly wait: WaitOptions;
   readonly leaseSeconds: number;
+  /** How long a send may take before its outcome counts as unknown. */
+  readonly submitTimeoutMs: number;
 }
 
 export interface SendRecord {
@@ -146,7 +150,7 @@ export class ExecutorSession {
  * envelope, and anything unanswered is left unknown for reconciliation.
  */
 export async function sendAndRecord(
-  ctx: Pick<ExecutorContext, 'network' | 'rpc' | 'ports'>,
+  ctx: Pick<ExecutorContext, 'network' | 'rpc' | 'ports' | 'submitTimeoutMs'>,
   scope: TenantScope,
   hash: string,
   envelopeXdr: string,
@@ -155,9 +159,27 @@ export async function sendAndRecord(
   const { network, rpc, ports } = ctx;
   let result;
   try {
-    result = await rpc.sendTransaction(envelopeXdr, opts);
+    result = await submitEnvelope(
+      {
+        send: (envelope, signal) =>
+          rpc.sendTransaction(envelope, {
+            ...opts,
+            signal: opts.signal === undefined ? signal : AbortSignal.any([signal, opts.signal]),
+          }),
+      },
+      envelopeXdr,
+      { network, timeoutMs: ctx.submitTimeoutMs },
+    );
   } catch (error) {
-    await ports.store.updateSubmission(scope, network, hash, { state: 'unknown' });
+    // Refused with nothing sent is final for this envelope. Anything else may
+    // have reached the network, so it stays open for reconciliation.
+    const refused = isChainAdapterError(error) && error.landed === 'no';
+    await ports.store.updateSubmission(
+      scope,
+      network,
+      hash,
+      refused ? { state: 'failed', errorCode: error.code } : { state: 'unknown' },
+    );
     throw error;
   }
   if (result.status === 'PENDING' || result.status === 'DUPLICATE') {

@@ -6,16 +6,17 @@
 // member's transaction never fails on an archive and never pays for one.
 // The restored entries are then extended by the policy in restore-policy.ts.
 
-import { Address, Operation, SorobanDataBuilder, xdr } from '@stellar/stellar-sdk/base';
+import { Address, SorobanDataBuilder, xdr } from '@stellar/stellar-sdk/base';
 import type { Transaction } from '@stellar/stellar-sdk/base';
-import { Api, assembleTransaction } from '@stellar/stellar-sdk/rpc';
+import { Api } from '@stellar/stellar-sdk/rpc';
 
 import type { CallOptions, TenantScope } from '../types.js';
+import { extendTtl, restoreArchived } from './contract-call.js';
 import type { ExecutorContext, ExecutorSession } from './executor.js';
 import { extensionPlan } from './restore-policy.js';
 import type { RestoredEntry } from './restore-policy.js';
 import { asAddress, asU64, asVariant, field, fieldsOf } from './scval.js';
-import { builder, simulate } from './tx.js';
+import { footprintTx, simulate, simulatedData } from './tx.js';
 import type { Simulated } from './tx.js';
 
 /** The entries a simulation found archived, each once. */
@@ -112,21 +113,19 @@ export async function restoreAndExtend(
     correlationId: req.correlationId,
   };
   const prepare = async (
-    op: xdr.Operation,
+    call: Parameters<typeof footprintTx>[0],
     data: xdr.SorobanTransactionData,
   ): Promise<Transaction> => {
     const maxTime =
       ports.clock.nowSeconds() + BigInt(ports.config()[network]?.executor.txValiditySeconds ?? 60);
-    const tx = builder({ network, source: session.address, sequence: session.sequence, maxTime })
-      .addOperation(op)
-      .setSorobanData(data)
-      .build();
+    const build = { network, source: session.address, sequence: session.sequence, maxTime };
+    const tx = footprintTx(call, { ...build, sorobanData: data.toXdr('base64') });
     const sim = await simulate(rpc, network, tx, req.target.mandate, opts);
-    return assembleTransaction(tx, sim).build();
+    return footprintTx(call, { ...build, sorobanData: simulatedData(sim) });
   };
 
   const restore = await prepare(
-    Operation.restoreFootprint({}),
+    restoreArchived() as Parameters<typeof footprintTx>[0],
     new SorobanDataBuilder().setReadWrite([...req.keys]).build(),
   );
   await session.send(restore, { ...record, op: 'restore' }, opts, true);
@@ -147,7 +146,7 @@ export async function restoreAndExtend(
   );
   for (const group of plan) {
     const extend = await prepare(
-      Operation.extendFootprintTtl({ extendTo: group.extendTo }),
+      extendTtl(group.extendTo) as Parameters<typeof footprintTx>[0],
       new SorobanDataBuilder()
         .setReadOnly(group.keys.map((id) => xdr.LedgerKey.fromXdr(id, 'base64')))
         .build(),

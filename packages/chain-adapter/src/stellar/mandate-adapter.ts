@@ -12,9 +12,8 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { TransactionBuilder, xdr } from '@stellar/stellar-sdk/base';
-import type { Transaction } from '@stellar/stellar-sdk/base';
-import { assembleTransaction } from '@stellar/stellar-sdk/rpc';
+import { xdr } from '@stellar/stellar-sdk/base';
+import type { FeeBumpTransaction, Transaction } from '@stellar/stellar-sdk/base';
 
 import type { StellarNetworkConfig } from '../config.js';
 import {
@@ -51,6 +50,7 @@ import type {
 } from '../types.js';
 import { addressXdr } from './address-xdr.js';
 import { invocationOf } from './calls.js';
+import { wrapInFeeBump } from './contract-call.js';
 import { ExecutorSession, sendAndRecord } from './executor.js';
 import type { ExecutorContext } from './executor.js';
 import type {
@@ -66,7 +66,6 @@ import { asAddress } from './scval.js';
 import { MandateTrust } from './trust.js';
 import {
   INCLUSION_FEE,
-  PASSPHRASES,
   SIMULATION_SOURCE,
   accountSequence,
   attach,
@@ -76,6 +75,7 @@ import {
   returned,
   signedBy,
   simulate,
+  simulatedData,
   txHash,
 } from './tx.js';
 import type { Simulated, WaitOptions } from './tx.js';
@@ -89,6 +89,8 @@ export interface StellarMandateAdapterOptions {
   /** How the restore step waits for its transactions. */
   readonly wait?: WaitOptions;
   readonly executorLeaseSeconds?: number;
+  /** How long a send may take before its outcome counts as unknown. */
+  readonly submitTimeoutMs?: number;
   readonly instanceTtlExtendLedgers?: number;
   readonly newRequestId?: () => string;
 }
@@ -100,6 +102,7 @@ export type StellarMandateOperations = Pick<
 
 const SPEC_VERSION = 1;
 const DEFAULT_LEASE_SECONDS = 120;
+const DEFAULT_SUBMIT_TIMEOUT_MS = 30_000;
 
 /** How the restore step waits for each of its transactions to land. */
 export const DEFAULT_WAIT: WaitOptions = {
@@ -152,6 +155,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       ports: options.ports,
       wait: options.wait ?? DEFAULT_WAIT,
       leaseSeconds: options.executorLeaseSeconds ?? DEFAULT_LEASE_SECONDS,
+      submitTimeoutMs: options.submitTimeoutMs ?? DEFAULT_SUBMIT_TIMEOUT_MS,
     };
     this.#ttlExtendLedgers = options.instanceTtlExtendLedgers ?? INSTANCE_TTL_EXTEND_LEDGERS;
     this.#newRequestId = options.newRequestId ?? randomUUID;
@@ -247,12 +251,13 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       sequence = await accountSequence(this.#rpc, signer, opts);
       if (sequence === null) throw invalid(network, 'signer (account_not_found)');
     }
-    const tx = invokeTx(inv, {
+    const build = {
       network,
       source: viaWallet ? SIMULATION_SOURCE : signer,
       sequence: sequence ?? 0n,
       maxTime: validUntil,
-    });
+    };
+    const tx = invokeTx(inv, build);
     let sim = await simulate(this.#rpc, network, tx, inv.contract, opts);
     const archived = archivedKeys(sim);
     if (archived.length > 0) {
@@ -305,7 +310,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     } as const;
     const signerRef = { network, value: signer };
     if (!viaWallet) {
-      const assembled = assembleTransaction(tx, sim).build();
+      const assembled = invokeTx(inv, { ...build, sorobanData: simulatedData(sim) }, auth);
       await this.#requests.save({
         ...base,
         kind: 'stellar_transaction',
@@ -496,12 +501,10 @@ export class StellarMandateAdapter implements StellarMandateOperations {
   ): Promise<string> {
     const { network } = this;
     const sponsor = this.#config().feeSponsor.key.address;
-    const bump = TransactionBuilder.buildFeeBumpTransaction(
-      sponsor,
-      INCLUSION_FEE.toString(),
-      inner,
-      PASSPHRASES[network],
-    );
+    const bump = parseEnvelope(
+      wrapInFeeBump({ network, inner: inner.toXdr(), feeSource: sponsor, fee: INCLUSION_FEE }),
+      network,
+    ) as FeeBumpTransaction;
     const signature = await this.#ports.signer.sign(
       { kind: 'fee_sponsor', network },
       { kind: 'stellar_fee_bump', network, xdr: bump.toXdr() },
@@ -528,24 +531,21 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       throw new SubmissionRejectedError({ network });
     const target = asAddress(xdr.ScVal.scvAddress(func.invokeContract.contractAddress));
     return ExecutorSession.run(this.#executor, opts, async (session) => {
-      const tx = invokeTx(
-        {
-          contract: target,
-          fn: func.invokeContract.functionName.toString(),
-          args: func.invokeContract.args,
-        },
-        {
-          network,
-          source: session.address,
-          sequence: session.sequence,
-          maxTime: this.#ports.clock.nowSeconds() + BigInt(config.executor.txValiditySeconds),
-          auth: [entry],
-        },
-      );
+      const inv = {
+        contract: target,
+        fn: func.invokeContract.functionName.toString(),
+        args: func.invokeContract.args,
+      };
+      const build = {
+        network,
+        source: session.address,
+        sequence: session.sequence,
+        maxTime: this.#ports.clock.nowSeconds() + BigInt(config.executor.txValiditySeconds),
+      };
       // Simulated again with the signature in place, so the footprint covers
       // what the wallet's own check reads.
-      const sim = await simulate(this.#rpc, network, tx, target, opts);
-      const assembled = assembleTransaction(tx, sim).build();
+      const sim = await simulate(this.#rpc, network, invokeTx(inv, build, [entry]), target, opts);
+      const assembled = invokeTx(inv, { ...build, sorobanData: simulatedData(sim) }, [entry]);
       if (BigInt(assembled.fee) > config.feeSponsor.maxFeePerTxStroops) {
         throw new SponsorDeniedError({ network });
       }
