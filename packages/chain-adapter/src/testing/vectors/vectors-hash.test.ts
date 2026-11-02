@@ -23,8 +23,8 @@ import {
 } from './vendored.js';
 import type { ReadVendored } from './vendored.js';
 
-// SHA-256 of spec/SOURCE.json: qomiralabs/ujira-contracts at 2cd67bb.
-const PINNED_MANIFEST_SHA256 = '7ee3234ddaa50e69c34e19c950aa70fcb732e19e13d6a7992f32d020a9bf42b8';
+// SHA-256 of spec/SOURCE.json: qomiralabs/ujira-contracts at af7a20e.
+const PINNED_MANIFEST_SHA256 = '78f1fea48edfd756de7b6d65ab058ed71afed2d08a57627b2e434d1b6402bbd1';
 
 const files = listVendored();
 const manifestBytes = readFromDisk(MANIFEST);
@@ -34,9 +34,9 @@ describe('the vendored spec files', () => {
   it('vendored files match the pinned hash', () => {
     expect(sha256Hex(manifestBytes)).toBe(PINNED_MANIFEST_SHA256);
     expect(manifest.repository).toBe('qomiralabs/ujira-contracts');
-    expect(manifest.commit).toBe('2cd67bbea58f214039600206dcb6fef912aba6ca');
+    expect(manifest.commit).toBe('af7a20eeb821b3960f0c286c43cf663eb3370753');
     expect(vendoredProblems(manifest, files, readFromDisk)).toEqual([]);
-    expect(manifest.files).toHaveLength(32);
+    expect(manifest.files).toHaveLength(33);
   });
 
   it('fails after one byte of one vendored file changes', () => {

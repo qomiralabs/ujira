@@ -42,6 +42,12 @@ export {
   type TokenRecord,
 } from './repositories/entry-points.js';
 export {
+  executors,
+  routingConfig,
+  type ExecutorLease,
+  type RoutingConfig,
+} from './repositories/ops.js';
+export {
   CONNECTION_BUDGET,
   loadDatabaseConfig,
   POOL_DEFAULTS,

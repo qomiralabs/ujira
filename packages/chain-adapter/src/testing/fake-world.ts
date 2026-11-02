@@ -8,19 +8,12 @@
 // one for the shared suite.
 
 import type { NetworkId } from '../networks.js';
-import type {
-  Bytes32,
-  ChainAddress,
-  Destination,
-  SigningRequest,
-  TenantScope,
-  Uuid,
-} from '../types.js';
+import type { ChainAddress, Destination, SigningRequest, TenantScope, Uuid } from '../types.js';
 
 import { checkAddress } from './address.js';
 import type { AdapterHarness, ChainFaults } from './conformance.js';
 import { FakeChainAdapter, signFakeRequest } from './fake-adapter.js';
-import { FakeNetwork, tenantRefOf } from './fake-network.js';
+import { FakeNetwork } from './fake-network.js';
 import type { FakeNetworkOptions } from './fake-network.js';
 import { FakeAlerts, FakeSigner, FakeSponsorship } from './fake-ports.js';
 import { FakeAdapterStore } from './fake-store.js';
@@ -154,7 +147,6 @@ export function fakeAdapterHarness(options: FakeWorldOptions = {}): AdapterHarne
       net.advance(seconds);
       return Promise.resolve();
     },
-    tenantRef: (scope) => tenantRefOf(scope) as Bytes32,
     recipientMethod: (destination: Destination) => {
       methods += 1;
       const id = `00000000-0000-4000-9000-${methods.toString().padStart(12, '0')}` as Uuid;

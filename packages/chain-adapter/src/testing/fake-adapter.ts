@@ -117,7 +117,7 @@ import {
   TransportFailure,
   refusal,
 } from './failures.js';
-import { FAKE_TX_FEE, tenantRefOf } from './fake-network.js';
+import { FAKE_TX_FEE, mandateTenantTag } from './fake-network.js';
 import type { FakeNetwork, FakeTx, StoredRequest } from './fake-network.js';
 import { SimulatedCrash } from './faults.js';
 import { feeCap } from './rules.js';
@@ -383,7 +383,7 @@ export class FakeChainAdapter implements ChainAdapter {
       return Promise.resolve({
         mandate: req.mandate,
         trustedFactory: this.#trusted(engine),
-        tenantRefMatches: true,
+        tenantTagMatches: true,
         asset: 'USDC',
         config: this.#configView(c, s.policyEpoch),
         state: {
@@ -414,9 +414,9 @@ export class FakeChainAdapter implements ChainAdapter {
       let mandate: string;
       if (action.op === 'create') {
         if (req.mandate !== null) throw invalid('mandate (not_null)', this.network);
-        const config = this.#engineConfig(action.config);
-        run = (caller) => this.#net.factory.create({ caller }, config, action.salt);
         mandate = this.#net.factory.mandateAddress(action.config.principal.value, action.salt);
+        const config = this.#engineConfig(action.config, mandateTenantTag(req.scope, mandate));
+        run = (caller) => this.#net.factory.create({ caller }, config, action.salt);
       } else {
         if (req.mandate === null) throw invalid('mandate (required)', this.network);
         const engine = this.#mandate(req.scope, req.mandate, true);
@@ -1706,13 +1706,13 @@ export class FakeChainAdapter implements ChainAdapter {
     };
   }
 
-  #engineConfig(c: MandateConfigInput): EngineConfig {
+  #engineConfig(c: MandateConfigInput, tenantTag: string): EngineConfig {
     const values = (list: readonly ChainAddress[]): string[] => list.map((a) => a.value);
     return {
       principal: c.principal.value,
       asset: this.#config().assets.USDC.sac,
       recipientMode: MODES[c.recipientMode],
-      tenantRef: c.tenantRef,
+      tenantTag,
       agents: values(c.agents),
       approvers: values(c.approvers),
       approvalsRequired: c.approvalsRequired,
@@ -1745,7 +1745,7 @@ export class FakeChainAdapter implements ChainAdapter {
       principal: address(c.principal),
       asset: 'USDC',
       recipientMode: modes[c.recipientMode],
-      tenantRef: c.tenantRef as Bytes32,
+      tenantTag: c.tenantTag as Bytes32,
       agents: c.agents.map(address),
       approvers: c.approvers.map(address),
       approvalsRequired: c.approvalsRequired,
@@ -1829,7 +1829,7 @@ export class FakeChainAdapter implements ChainAdapter {
     if (engine === undefined) throw invalid('mandate.address (not_found)', this.network);
     // The tenant check comes first so another tenant learns nothing, not
     // even whether the mandate is trusted.
-    if (engine.tenantRef !== tenantRefOf(scope)) {
+    if (engine.tenantTag !== mandateTenantTag(scope, engine.address)) {
       throw new TenantMismatchError({ network: this.network });
     }
     if (mustTrust && !this.#trusted(engine)) {

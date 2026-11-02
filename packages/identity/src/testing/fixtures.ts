@@ -203,13 +203,13 @@ export function snapshotOf(
   return {
     mandate: instance.mandate,
     trustedFactory: true,
-    tenantRefMatches: true,
+    tenantTagMatches: true,
     asset: 'USDC',
     config: {
       principal: account('principal'),
       asset: 'USDC',
       recipientMode: instance.recipientMode,
-      tenantRef: bytes32Of(`tenant:${instance.scope.projectId}`),
+      tenantTag: bytes32Of(`tenant:${instance.scope.projectId}`),
       agents: [account('agent')],
       approvers: [],
       approvalsRequired: 0,
