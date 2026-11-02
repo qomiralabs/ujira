@@ -236,6 +236,14 @@ export interface DestinationVerificationRecord {
   /** For a forwarder: the wallet verification it was built on. Otherwise null. */
   readonly derivedFrom: Uuid | null;
   readonly recordedAt: UnixSeconds;
+  /** The signing scheme of a wallet signature proof, as data. Otherwise null. */
+  readonly scheme: string | null;
+  /** The single use challenge a wallet signature answered. Otherwise null. */
+  readonly challengeId: Uuid | null;
+  /** The signature itself, kept so the binding can be traced to its evidence. */
+  readonly signature: string | null;
+  /** The partner's reference, required for a partner confirmation. Otherwise null. */
+  readonly partnerRef: string | null;
 }
 
 /** One leg of a payout attempt, as the payouts service recorded it. */

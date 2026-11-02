@@ -56,5 +56,12 @@ export {
   selfWebhookRoute,
 } from './routes/self-webhook.js';
 export type { SelfWebhookHandler } from './routes/self-webhook.js';
+export {
+  WALLET_CHALLENGES_PATH,
+  WALLET_PROOFS_PATH,
+  WALLET_PROOF_NOT_CONFIGURED,
+  walletChallengeRoute,
+  walletProofRoute,
+} from './routes/wallet-proofs.js';
 export { startServer } from './serve.js';
 export type { RunningServer, ServeOptions } from './serve.js';

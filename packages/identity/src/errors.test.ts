@@ -19,6 +19,7 @@ import {
   ProviderUnavailableError,
   SelfCreditsExhaustedError,
   SelfSessionRefusedError,
+  WalletMethodNotFoundError,
   isIdentityError,
   issuesOf,
 } from './errors.js';
@@ -55,6 +56,11 @@ describe('identity errors', () => {
       'IDENTITY_SELF_CREDITS_EXHAUSTED',
     ],
     [new SelfSessionRefusedError('revoked'), 'SelfSessionRefusedError', 'IDENTITY_SESSION_REFUSED'],
+    [
+      new WalletMethodNotFoundError(),
+      'WalletMethodNotFoundError',
+      'IDENTITY_WALLET_METHOD_NOT_FOUND',
+    ],
   ];
 
   it('every error class has code and name', () => {
