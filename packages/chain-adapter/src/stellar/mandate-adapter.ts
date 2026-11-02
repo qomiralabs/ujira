@@ -10,7 +10,7 @@
 // the adapter keeps its own copy of what it built and refuses a signed
 // payload that differs from it in any byte other than the signature.
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { xdr } from '@stellar/stellar-sdk/base';
 import type { FeeBumpTransaction, Transaction } from '@stellar/stellar-sdk/base';
@@ -29,6 +29,7 @@ import {
   isChainAdapterError,
 } from '../errors.js';
 import type { StellarNetworkId } from '../networks.js';
+import { reservationIdOf } from '../sponsorship/policy.js';
 import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
 import type {
   AdapterPorts,
@@ -411,10 +412,19 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     const earlier = await this.#requests.claim(req.scope, request.requestId, req.signed);
     if (earlier !== null) return this.#replay(earlier, req.signed, opts);
 
+    // Keyed by what is paid for, which is what the signer looks up before the
+    // sponsor signs. A wallet's entry has no transaction of its own yet: the
+    // channel's is built at send time, so the signed entry stands in for it.
+    const reservationId = reservationIdOf(
+      network,
+      signed.kind === 'tx'
+        ? signed.tx.hash()
+        : createHash('sha256').update(signed.entry.toXdr()).digest(),
+    );
     await this.#ports.sponsorship.reserve({
       scope: request.scope,
       network,
-      reservationId: request.requestId,
+      reservationId,
       intent: INTENTS[request.op] ?? 'admin',
       maxFee: stroops(network, request.fee),
     });
@@ -427,10 +437,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     } catch (error) {
       // Only an outcome that certainly sent nothing gives the reservation back.
       if (isChainAdapterError(error) && error.landed === 'no') {
-        await this.#ports.sponsorship.release({
-          scope: request.scope,
-          reservationId: request.requestId,
-        });
+        await this.#ports.sponsorship.release({ scope: request.scope, reservationId });
       }
       throw error;
     }
