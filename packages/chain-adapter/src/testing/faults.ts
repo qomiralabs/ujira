@@ -87,6 +87,7 @@ export class FakeFaults {
   #signerDown = false;
   #sponsorDenied = false;
   #anchor: AnchorScript | null = null;
+  #batchEvents: number | null = null;
   readonly #refusing = new Set<string>();
 
   constructor(seed = 1) {
@@ -170,6 +171,18 @@ export class FakeFaults {
     this.#signerDown = false;
     this.#sponsorDenied = false;
     this.#refusing.clear();
+  }
+
+  /**
+   * The most contract events one execute batch may emit before the host
+   * refuses it, or null for no limit.
+   */
+  batchEventsLimit(events: number | null): void {
+    this.#batchEvents = events === null ? null : checkCount('events', events);
+  }
+
+  get eventsLimit(): number | null {
+    return this.#batchEvents;
   }
 
   get lagSeconds(): number {
