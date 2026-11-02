@@ -121,6 +121,8 @@ export type {
   TestTransactionOptions,
 } from './stellar.js';
 export { FakeToken } from './token.js';
+export { FakeTtlLedger, MemoryTtlStepStore, RecordingTtlMetrics } from './ttl.js';
+export type { FakeTtlCall } from './ttl.js';
 export type {
   FakeTokenOptions,
   ReceivingState,
