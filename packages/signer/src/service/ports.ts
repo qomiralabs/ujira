@@ -84,3 +84,19 @@ export interface PrincipalRateLimiter {
   /** Counts one request and says whether it is within the limit. */
   take(principalId: string, now: bigint, opts: CallOptions): Promise<boolean>;
 }
+
+/** The tenant and id of an attestation the identity service recorded first. */
+export interface PendingAttestation {
+  readonly principalId: string;
+  readonly projectId: string;
+  readonly attestationId: string;
+}
+
+/**
+ * The record the identity service writes before it asks for a signature. It
+ * answers null for anything else, so with no log at all nothing is signed.
+ */
+export interface AttestationLog {
+  /** The pending row for exactly this 47 byte message, else null. */
+  pending(message: Uint8Array, opts: CallOptions): Promise<PendingAttestation | null>;
+}
