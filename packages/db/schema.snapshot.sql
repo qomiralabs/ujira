@@ -797,6 +797,35 @@ CREATE TABLE ops.executor_accounts (
 ALTER TABLE ops.executor_accounts OWNER TO ujira_owner;
 
 --
+-- Name: fee_estimates; Type: TABLE; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TABLE ops.fee_estimates (
+    network text NOT NULL,
+    op text NOT NULL,
+    leg_count bigint NOT NULL,
+    p95_resource_fee_stroops bigint NOT NULL,
+    p95_rent_stroops bigint NOT NULL,
+    p95_inclusion_fee_stroops bigint NOT NULL,
+    sample_count bigint NOT NULL,
+    window_start timestamp with time zone NOT NULL,
+    window_end timestamp with time zone NOT NULL,
+    computed_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT fee_estimates_inclusion_fee_not_negative CHECK ((p95_inclusion_fee_stroops >= 0)),
+    CONSTRAINT fee_estimates_leg_count_range CHECK (((leg_count >= 1) AND (leg_count <= 4))),
+    CONSTRAINT fee_estimates_network_format CHECK ((network ~ '^[a-z0-9-]+:[A-Za-z0-9-]+$'::text)),
+    CONSTRAINT fee_estimates_op_known CHECK ((op = ANY (ARRAY['request'::text, 'request_batch'::text, 'execute'::text, 'execute_batch'::text, 'approve'::text, 'reject'::text, 'cancel'::text, 'cancel_batch'::text]))),
+    CONSTRAINT fee_estimates_rent_not_negative CHECK ((p95_rent_stroops >= 0)),
+    CONSTRAINT fee_estimates_rent_within_resource_fee CHECK ((p95_rent_stroops <= p95_resource_fee_stroops)),
+    CONSTRAINT fee_estimates_resource_fee_not_negative CHECK ((p95_resource_fee_stroops >= 0)),
+    CONSTRAINT fee_estimates_sample_count_positive CHECK ((sample_count > 0)),
+    CONSTRAINT fee_estimates_window_ordered CHECK ((window_end > window_start))
+);
+
+
+ALTER TABLE ops.fee_estimates OWNER TO ujira_owner;
+
+--
 -- Name: routing_config_active; Type: TABLE; Schema: ops; Owner: ujira_owner
 --
 
@@ -1515,6 +1544,14 @@ ALTER TABLE ONLY ops.chain_cursors
 
 ALTER TABLE ONLY ops.executor_accounts
     ADD CONSTRAINT executor_accounts_pkey PRIMARY KEY (network, account_ref);
+
+
+--
+-- Name: fee_estimates fee_estimates_pkey; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.fee_estimates
+    ADD CONSTRAINT fee_estimates_pkey PRIMARY KEY (network, op, leg_count);
 
 
 --
@@ -3726,6 +3763,14 @@ GRANT SELECT,INSERT,UPDATE ON TABLE ops.chain_cursors TO ujira_ops;
 --
 
 GRANT SELECT,INSERT,UPDATE ON TABLE ops.executor_accounts TO ujira_ops;
+
+
+--
+-- Name: TABLE fee_estimates; Type: ACL; Schema: ops; Owner: ujira_owner
+--
+
+GRANT SELECT ON TABLE ops.fee_estimates TO ujira_app;
+GRANT SELECT,INSERT,UPDATE ON TABLE ops.fee_estimates TO ujira_ops;
 
 
 --

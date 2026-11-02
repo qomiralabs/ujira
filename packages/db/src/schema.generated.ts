@@ -43,6 +43,19 @@ export interface OpsExecutorAccounts {
   next_sequence: Generated<Int8>;
 }
 
+export interface OpsFeeEstimates {
+  computed_at: Generated<Timestamp>;
+  leg_count: Int8;
+  network: string;
+  op: string;
+  p95_inclusion_fee_stroops: Int8;
+  p95_rent_stroops: Int8;
+  p95_resource_fee_stroops: Int8;
+  sample_count: Int8;
+  window_end: Timestamp;
+  window_start: Timestamp;
+}
+
 export interface OpsRoutingConfigActive {
   only_row: Generated<boolean>;
   updated_at: Generated<Timestamp>;
@@ -364,6 +377,7 @@ export interface UjiraStatusTransitions {
 export interface Schema {
   'ops.chain_cursors': OpsChainCursors;
   'ops.executor_accounts': OpsExecutorAccounts;
+  'ops.fee_estimates': OpsFeeEstimates;
   'ops.routing_config_active': OpsRoutingConfigActive;
   'ops.routing_config_versions': OpsRoutingConfigVersions;
   ujira_migrations: UjiraMigrations;
