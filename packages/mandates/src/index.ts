@@ -11,11 +11,17 @@ export {
   allowsManagedAgent,
   assertCustodyAllowed,
   assertMayAddManagedAgent,
+  createMemoryManagedAgentKeys,
   createMemoryManagedAgentMandates,
   recipientModesOffered,
   withCustodyGuard,
 } from './custody.js';
-export type { CustodyGuardDeps, ManagedAgentMandates, RecipientMode } from './custody.js';
+export type {
+  CustodyGuardDeps,
+  ManagedAgentKeys,
+  ManagedAgentMandates,
+  RecipientMode,
+} from './custody.js';
 export {
   CustodyGuardError,
   MANDATE_POLICY_ERROR_CODES,

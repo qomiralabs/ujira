@@ -37,11 +37,12 @@ import {
   PolicyStoreError,
   PolicyStoreTimeoutError,
   createMemoryGuardianOptOutStore,
+  createMemoryManagedAgentKeys,
   onRoleRemoved,
   planMandateCreation,
   reconcileOperationsGuardian,
 } from './index.js';
-import type { GuardianOptOutStore, GuardianPolicyDeps } from './index.js';
+import type { CreationDeps, GuardianOptOutStore, GuardianPolicyDeps } from './index.js';
 
 const OPTS = { signal: new AbortController().signal };
 
@@ -64,11 +65,15 @@ function removals(events: readonly EngineEvent[]) {
     });
 }
 
-function deps(store: GuardianOptOutStore = createMemoryGuardianOptOutStore()): GuardianPolicyDeps {
-  return { networks: () => networks(), optOuts: store };
+function deps(store: GuardianOptOutStore = createMemoryGuardianOptOutStore()): CreationDeps {
+  return {
+    networks: () => networks(),
+    optOuts: store,
+    managedAgents: createMemoryManagedAgentKeys(),
+  };
 }
 
-async function mandateWithGuardian(d: GuardianPolicyDeps) {
+async function mandateWithGuardian(d: CreationDeps) {
   const w = world();
   const plan = await planMandateCreation(
     { key: key(), network: NETWORK, config: principalConfig() },
@@ -147,7 +152,7 @@ describe('guardian-removal', () => {
       recordOptOut: () => new Promise(() => undefined),
       hasOptedOut: () => new Promise(() => undefined),
     };
-    const d: GuardianPolicyDeps = { ...deps(hanging), timeoutMs: 10 };
+    const d: CreationDeps = { ...deps(hanging), timeoutMs: 10 };
     await expect(
       planMandateCreation({ key: key(), network: NETWORK, config: principalConfig() }, d),
     ).rejects.toThrow(PolicyStoreTimeoutError);

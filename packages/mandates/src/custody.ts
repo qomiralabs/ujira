@@ -11,6 +11,7 @@
 import { SignerDeniedError, SignerUnavailableError } from '@ujira/chain-adapter';
 import type {
   CallOptions,
+  ChainAddress,
   MandateConfigInput,
   SignatureResult,
   SignPayload,
@@ -51,6 +52,31 @@ export function assertCustodyAllowed(mode: RecipientMode, managedAgent: boolean)
  */
 export function assertMayAddManagedAgent(onChain: { readonly recipientMode: RecipientMode }): void {
   assertCustodyAllowed(onChain.recipientMode, true);
+}
+
+/**
+ * The agent addresses UJIRA holds keys for, per tenant. Creation asks this
+ * rather than trusting the request alone, so naming a managed key's address
+ * as if it were the principal's own does not get past the guard.
+ */
+export interface ManagedAgentKeys {
+  isManaged(scope: TenantScope, agent: ChainAddress, opts: PortCallOptions): Promise<boolean>;
+}
+
+export function createMemoryManagedAgentKeys(): ManagedAgentKeys & {
+  add(scope: TenantScope, agent: ChainAddress): void;
+} {
+  const held = new Set<string>();
+  const keyOf = (scope: TenantScope, agent: ChainAddress): string =>
+    JSON.stringify([scope.principalId, scope.projectId, agent.network, agent.value]);
+  return {
+    isManaged(scope, agent) {
+      return Promise.resolve(held.has(keyOf(scope, agent)));
+    },
+    add(scope, agent) {
+      held.add(keyOf(scope, agent));
+    },
+  };
 }
 
 /** The recipient modes of every mandate a managed agent key is seated on. */

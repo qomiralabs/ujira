@@ -6,10 +6,12 @@
 
 import type { MandateConfigInput, NetworkId } from '@ujira/chain-adapter';
 
-import { assertCustodyAllowed } from './custody.js';
+import { allowsManagedAgent, assertCustodyAllowed } from './custody.js';
+import type { ManagedAgentKeys } from './custody.js';
 import { OperationsGuardianNotConfiguredError } from './errors.js';
 import { configuredGuardian, hasOptedOut, sameAddress } from './operations-guardian.js';
 import type { GuardianPolicyDeps, OperationsGuardianStatus } from './operations-guardian.js';
+import { callPort } from './ports.js';
 import type { LogicalMandateKey } from './ports.js';
 
 export interface CreateMandateRequest {
@@ -24,7 +26,10 @@ export interface CreateMandateRequest {
    * is the principal choosing, not UJIRA re-adding.
    */
   readonly guardian?: boolean;
-  /** True when one of the agents is a key UJIRA holds for the principal. */
+  /**
+   * True when the managed agent option was chosen. Left out does not vouch
+   * for anything: every agent is still looked up in the managed agent keys.
+   */
   readonly managedAgent?: boolean;
 }
 
@@ -36,7 +41,25 @@ export interface MandateCreationPlan {
   readonly operationsGuardian: OperationsGuardianStatus;
 }
 
-export type CreationDeps = GuardianPolicyDeps;
+export interface CreationDeps extends GuardianPolicyDeps {
+  readonly managedAgents: ManagedAgentKeys;
+}
+
+// Only a mode that forbids a managed agent needs the lookup, and a lookup
+// that fails stops creation, so an outage cannot wave a mandate through.
+async function holdsAgentKey(req: CreateMandateRequest, deps: CreationDeps): Promise<boolean> {
+  if (req.managedAgent === true) return true;
+  if (allowsManagedAgent(req.config.recipientMode)) return false;
+  const scope = { principalId: req.key.principalId, projectId: req.key.projectId };
+  for (const agent of req.config.agents) {
+    const managed = await callPort(
+      (opts) => deps.managedAgents.isManaged(scope, agent, opts),
+      deps.timeoutMs,
+    );
+    if (managed) return true;
+  }
+  return false;
+}
 
 async function includeGuardian(req: CreateMandateRequest, deps: CreationDeps): Promise<boolean> {
   if (req.guardian !== undefined) return req.guardian;
@@ -53,8 +76,8 @@ export async function planMandateCreation(
   req: CreateMandateRequest,
   deps: CreationDeps,
 ): Promise<MandateCreationPlan> {
-  // First, and before any store is read: this refusal never depends on state.
-  assertCustodyAllowed(req.config.recipientMode, req.managedAgent === true);
+  // First, so a refused mandate never reaches the other rules.
+  assertCustodyAllowed(req.config.recipientMode, await holdsAgentKey(req, deps));
   const guardian = configuredGuardian(deps, req.network);
   let guardians = req.config.guardians;
   if (await includeGuardian(req, deps)) {
