@@ -142,8 +142,53 @@ export interface Database {
   readonly close: () => Promise<void>;
 }
 
-function poolFor(role: RoleConnection, config: DatabaseConfig): pg.Pool {
-  return new pg.Pool({
+export interface DatabaseHooks {
+  // A connection the server ended: a restart, a failover, the pooler recycling
+  // it. Told the SQLSTATE only, because the message can name a host. The pool
+  // replaces the connection on demand, so this is for counting, not recovery;
+  // a transaction that was using it fails on its own. Must not throw.
+  readonly onConnectionLost?: (code: string) => void;
+}
+
+// How long close waits for connections to finish closing, so a server that
+// stops answering cannot hang a shutdown.
+const CLOSE_TIMEOUT_MS = 5000;
+
+function lostCode(error: unknown): string {
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' ? code : 'unknown';
+}
+
+// pool.end() resolves when the pool's list of clients is empty, which is before
+// their sockets have closed. This counts them out, so close can mean closed.
+function connectionsClosed(pool: pg.Pool): () => Promise<void> {
+  let open = 0;
+  let wake: (() => void) | undefined;
+  pool.on('connect', () => {
+    open += 1;
+  });
+  pool.on('remove', () => {
+    open -= 1;
+    if (open === 0) wake?.();
+  });
+  return async () => {
+    if (open === 0) return;
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, CLOSE_TIMEOUT_MS);
+      wake = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+    });
+  };
+}
+
+function poolFor(
+  role: RoleConnection,
+  config: DatabaseConfig,
+  onLost: (error: Error) => void,
+): pg.Pool {
+  const pool = new pg.Pool({
     connectionString: role.url,
     max: role.poolSize,
     connectionTimeoutMillis: config.acquireTimeoutMs,
@@ -156,6 +201,12 @@ function poolFor(role: RoleConnection, config: DatabaseConfig): pg.Pool {
     // change every value of that type everywhere, so the lint rules ban
     // setTypeParser across the repository.
   });
+  // pg emits an idle connection's failure on the pool, and an emitter with no
+  // listener for `error` throws, so without this one lost idle connection would
+  // take the whole process down. Nothing was using it and the pool has already
+  // dropped it, so there is nothing to fail.
+  pool.on('error', onLost);
+  return pool;
 }
 
 // Timeouts are sent as transaction local settings in the same statement as
@@ -168,13 +219,20 @@ function timeoutSettings(config: DatabaseConfig): string {
   ].join(', ');
 }
 
-export function createDatabase(config: DatabaseConfig): Database {
-  const pools: Record<DatabaseRole, pg.Pool> = {
-    app: poolFor(config.app, config),
-    worker: poolFor(config.worker, config),
-    reader: poolFor(config.reader, config),
-    migration: poolFor(config.migration, config),
+export function createDatabase(config: DatabaseConfig, hooks: DatabaseHooks = {}): Database {
+  const onLost = (error: Error): void => {
+    hooks.onConnectionLost?.(lostCode(error));
   };
+  const pools: Record<DatabaseRole, pg.Pool> = {
+    app: poolFor(config.app, config, onLost),
+    worker: poolFor(config.worker, config, onLost),
+    reader: poolFor(config.reader, config, onLost),
+    migration: poolFor(config.migration, config, onLost),
+  };
+  const allClosed = Object.values(pools).map((pool) => ({
+    pool,
+    closed: connectionsClosed(pool),
+  }));
 
   let closed = false;
 
@@ -203,6 +261,15 @@ export function createDatabase(config: DatabaseConfig): Database {
     } catch (error) {
       throw toUnavailable(error) ?? error;
     }
+    // A checked out client has no listener of its own, so a connection lost
+    // between two queries of this transaction would throw from the emitter
+    // rather than fail the transaction. The next query here fails instead.
+    let lost: Error | undefined;
+    const onClientError = (error: Error): void => {
+      lost = error;
+      onLost(error);
+    };
+    client.on('error', onClientError);
     let open = false;
     try {
       // One round trip: begin, the tenant context, and the timeouts.
@@ -222,7 +289,9 @@ export function createDatabase(config: DatabaseConfig): Database {
       // without knowing the driver; anything else stays the caller's.
       throw toUnavailable(error) ?? error;
     } finally {
-      client.release();
+      client.removeListener('error', onClientError);
+      // Passing the error destroys the client rather than returning it.
+      client.release(lost);
     }
   }
 
@@ -252,7 +321,12 @@ export function createDatabase(config: DatabaseConfig): Database {
     close: async () => {
       if (closed) return;
       closed = true;
-      await Promise.all(Object.values(pools).map(async (pool) => pool.end()));
+      await Promise.all(
+        allClosed.map(async (entry) => {
+          await entry.pool.end();
+          await entry.closed();
+        }),
+      );
     },
   };
 }

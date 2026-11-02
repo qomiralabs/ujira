@@ -38,6 +38,8 @@ import {
   PolicyStoreTimeoutError,
   createMemoryGuardianOptOutStore,
   createMemoryManagedAgentKeys,
+  createMemoryPrincipalInstances,
+  createMemoryPrincipalKeyReader,
   onRoleRemoved,
   planMandateCreation,
   reconcileOperationsGuardian,
@@ -70,6 +72,10 @@ function deps(store: GuardianOptOutStore = createMemoryGuardianOptOutStore()): C
     networks: () => networks(),
     optOuts: store,
     managedAgents: createMemoryManagedAgentKeys(),
+    principalKeys: {
+      instances: createMemoryPrincipalInstances(),
+      signing: createMemoryPrincipalKeyReader(),
+    },
   };
 }
 

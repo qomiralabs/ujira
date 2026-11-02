@@ -177,12 +177,15 @@ describe('roles', () => {
       'ujira_owner',
       'ujira_reader',
       'ujira_retention',
+      'ujira_signer_attester',
+      'ujira_signer_read',
     ]);
     const nologin = new Set([
       'ujira_owner',
       'ujira_fn_instances',
       'ujira_fn_principals',
       'ujira_fn_tokens',
+      'ujira_signer_read',
     ]);
     for (const role of roles.rows) {
       expect(role.rolsuper, role.rolname).toBe(false);
@@ -199,6 +202,7 @@ describe('roles', () => {
         order by 1`,
     );
     expect(definers.rows).toEqual([
+      { fn: 'ujira.attestation_pending(bytea)', owner: 'ujira_signer_read' },
       { fn: 'ujira.authenticate_token(text)', owner: 'ujira_fn_tokens' },
       { fn: 'ujira.create_principal(text,text,uuid,text)', owner: 'ujira_fn_principals' },
       { fn: 'ujira.resolve_mandate_instance(text,text)', owner: 'ujira_fn_instances' },

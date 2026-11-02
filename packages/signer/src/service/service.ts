@@ -10,12 +10,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 
 import { ChainAdapterError, SignerDeniedError } from '@ujira/chain-adapter';
-import type { SignerProvider, SignerRef, UnixSeconds } from '@ujira/chain-adapter';
+import type { SignPayload, SignerProvider, SignerRef, UnixSeconds } from '@ujira/chain-adapter';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 
-import { parsePayload, parseRef } from '../schemas.js';
+import { parseAttestationFields, parsePayload, parseRef } from '../schemas.js';
 import { MAX_WIRE_BYTES, fromWire, toWire } from '../wire.js';
 
 import { tokenAuthenticator } from './auth.js';
@@ -120,16 +120,22 @@ export function createSignerService(options: SignerServiceOptions): Hono {
     }),
   );
 
-  app.post('/v1/sign', async (c) => {
-    const { requestId, started, log, caller } = begin(c, '/v1/sign');
+  // The one path to a signature: authenticate, read, check, then ask the
+  // backend. The routes differ only in how a request reads as a ref and a
+  // payload.
+  const signRoute = async (
+    c: Context,
+    route: string,
+    read: (raw: Record<string, unknown>) => { ref: SignerRef; payload: SignPayload },
+  ): Promise<Response> => {
+    const { requestId, started, log, caller } = begin(c, route);
     if (caller === null) return unauthenticated(c, log);
     const fields: { -readonly [K in keyof SignerLogFields]: SignerLogFields[K] } = { caller };
     try {
       const body = fromWire(await c.req.text());
       const raw =
         typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
-      const ref = served(parseRef(raw['ref']));
-      const payload = parsePayload(raw['payload']);
+      const { ref, payload } = read(raw);
       fields.refKind = ref.kind;
       fields.network = ref.network;
       fields.payloadKind = payload.kind;
@@ -149,7 +155,27 @@ export function createSignerService(options: SignerServiceOptions): Hono {
     } catch (error) {
       return fail(c, log, error, fields);
     }
-  });
+  };
+
+  app.post('/v1/sign', (c) =>
+    signRoute(c, '/v1/sign', (raw) => ({
+      ref: served(parseRef(raw['ref'])),
+      payload: parsePayload(raw['payload']),
+    })),
+  );
+
+  // The attester's form: structured fields and nothing else, so there is no
+  // way to hand this route bytes to sign.
+  app.post('/v1/attest', (c) =>
+    signRoute(c, '/v1/attest', (raw) => {
+      const fields = parseAttestationFields(raw['fields']);
+      const network = fields.mandate.network;
+      return {
+        ref: served({ kind: 'attester', network }),
+        payload: { kind: 'attestation', network, fields },
+      };
+    }),
+  );
 
   app.get('/v1/address', async (c) => {
     const { requestId, log, caller } = begin(c, '/v1/address');

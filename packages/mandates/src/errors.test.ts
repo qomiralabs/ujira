@@ -16,6 +16,7 @@ import {
   OperationsGuardianNotConfiguredError,
   PolicyStoreError,
   PolicyStoreTimeoutError,
+  PrincipalKeyRiskError,
   callPort,
   isMandatePolicyError,
   keyText,
@@ -27,6 +28,7 @@ describe('mandate policy errors', () => {
     const all: [MandatePolicyError, string][] = [
       [new CustodyGuardError(), 'CustodyGuardError'],
       [new OperationsGuardianNotConfiguredError(), 'OperationsGuardianNotConfiguredError'],
+      [new PrincipalKeyRiskError(['a']), 'PrincipalKeyRiskError'],
       [new PolicyStoreTimeoutError(), 'PolicyStoreTimeoutError'],
       [new PolicyStoreError(new Error('x')), 'PolicyStoreError'],
     ];

@@ -183,6 +183,20 @@ $$;
 ALTER FUNCTION ujira.apply_tenant_policies(target regclass) OWNER TO ujira_owner;
 
 --
+-- Name: attestation_pending(bytea); Type: FUNCTION; Schema: ujira; Owner: ujira_signer_read
+--
+
+CREATE FUNCTION ujira.attestation_pending(p_digest bytea) RETURNS TABLE(principal_id uuid, project_id uuid, attestation_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select null::uuid, null::uuid, null::uuid where false and p_digest is not null
+$$;
+
+
+ALTER FUNCTION ujira.attestation_pending(p_digest bytea) OWNER TO ujira_signer_read;
+
+--
 -- Name: authenticate_token(text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_tokens
 --
 
@@ -1809,6 +1823,8 @@ GRANT USAGE ON SCHEMA ujira TO ujira_auth;
 GRANT USAGE ON SCHEMA ujira TO ujira_indexer;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_principals;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_tokens;
+GRANT USAGE ON SCHEMA ujira TO ujira_signer_read;
+GRANT USAGE ON SCHEMA ujira TO ujira_signer_attester;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_instances;
 
 
@@ -1877,6 +1893,14 @@ GRANT ALL ON FUNCTION ops.release_executor(target_network text, account text, ho
 --
 
 REVOKE ALL ON FUNCTION ujira.apply_tenant_policies(target regclass) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION attestation_pending(p_digest bytea); Type: ACL; Schema: ujira; Owner: ujira_signer_read
+--
+
+REVOKE ALL ON FUNCTION ujira.attestation_pending(p_digest bytea) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.attestation_pending(p_digest bytea) TO ujira_signer_attester;
 
 
 --
