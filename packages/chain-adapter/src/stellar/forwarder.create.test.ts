@@ -117,7 +117,7 @@ describe('forwarder.create.test.ts', () => {
       { ...INPUT, forwarder: SECRET },
       { ...INPUT, secret: SECRET },
     ]) {
-      const err = thrown(() => buildForwarderCreation(bad as never));
+      const err = thrown(() => buildForwarderCreation(bad));
       expect(err).toBeInstanceOf(InvalidInputError);
       expect(JSON.stringify((err as InvalidInputError).toJSON())).not.toContain(SECRET);
     }

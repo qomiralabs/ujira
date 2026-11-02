@@ -197,7 +197,7 @@ export function checkForwarderCreation(
   envelopeXdr: string,
   expected: ForwarderExpectation & { readonly network: StellarNetworkId },
 ): void {
-  const network = checkNetwork(expected.network) as StellarNetworkId;
+  const network = checkNetwork(expected.network);
   const envelope = readXdr(envelopeXdr, 'xdr', (input) =>
     xdr.TransactionEnvelope.fromXDR(input, 'base64'),
   );
