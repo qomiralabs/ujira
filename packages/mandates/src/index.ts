@@ -5,6 +5,24 @@
 // enforces: what a new mandate must contain, which mandates may be created
 // and which may be served.
 
+export {
+  BLOCKED_BY_POLICY,
+  WATCHED_MANDATE_EVENTS,
+  createMemoryComplianceStore,
+  guardSubmission,
+  onMandateEvent,
+  recheckPrincipal,
+  servableInstances,
+} from './compliance.js';
+export type {
+  ComplianceDeps,
+  ComplianceNotice,
+  ComplianceStore,
+  InstanceKey,
+  MemoryComplianceStore,
+  NoncompliantMark,
+  SubmissionDecision,
+} from './compliance.js';
 export { instanceIdOf, planMandateCreation } from './create-mandate.js';
 export type { CreateMandateRequest, CreationDeps, MandateCreationPlan } from './create-mandate.js';
 export {
