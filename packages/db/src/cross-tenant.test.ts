@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
 import type { Database, ProjectContext } from './database.js';
 import type { Schema } from './schema.generated.js';
+import { audit, auditRepositories } from './repositories/audit.js';
 import { entryPoints } from './repositories/entry-points.js';
 import { ledger, ledgerRepositories } from './repositories/ledger.js';
 import {
@@ -69,6 +70,7 @@ const REPOSITORIES = {
   ...mandateRepositories,
   ...ledgerRepositories,
   ...recipientRepositories,
+  ...auditRepositories,
 };
 
 let database: TestDatabase;
@@ -185,6 +187,7 @@ async function tenant(name: string): Promise<Tenant> {
       destinationTag: null,
       details: null,
     });
+    await audit.record(tx, { action: 'project.created', actor: { kind: 'system' } });
     return { recipientId: recipient.id, methodId: method.id };
   });
   return {
@@ -588,6 +591,41 @@ const cases: Record<string, () => Promise<void>> = {
   'ledger.reconciliation': async () => {
     expect(await acrossA(async (tx) => ledger.reconciliation(tx, b.instanceId))).toBeUndefined();
     expect(await acrossA(async (tx) => ledger.reconciliation(tx, a.instanceId))).toBeDefined();
+  },
+  // The chain a row joins comes from the context, so a writer can only ever
+  // reach its own: B's head does not move, and the rows land on A.
+  'audit.record': async () => {
+    const before = await admin.query<{ last_seq: string }>(
+      'select last_seq from ujira.audit_heads where principal_id = $1',
+      [b.first.principalId],
+    );
+    const written = await asA(async (tx) =>
+      audit.record(tx, { action: 'project.changed', actor: { kind: 'system' } }),
+    );
+    expect(await ownerOf('ujira.audit_log', 'id', written.id)).toBe(a.first.principalId);
+    const after = await admin.query<{ last_seq: string }>(
+      'select last_seq from ujira.audit_heads where principal_id = $1',
+      [b.first.principalId],
+    );
+    expect(after.rows).toEqual(before.rows);
+  },
+  'audit.list': async () => {
+    const page = await acrossA(async (tx) => audit.list(tx, { limit: 100 }));
+    expect(page.items.length).toBeGreaterThan(0);
+    const owners = await admin.query<{ principal_id: string }>(
+      'select distinct principal_id from ujira.audit_log where id = any($1::uuid[])',
+      [page.items.map((item) => item.id)],
+    );
+    expect(owners.rows).toEqual([{ principal_id: a.first.principalId }]);
+  },
+  'audit.verify': async () => {
+    const counted = await admin.query<{ count: string }>(
+      'select count(*)::text as count from ujira.audit_log where principal_id = $1',
+      [a.first.principalId],
+    );
+    const verification = await acrossA(async (tx) => audit.verify(tx));
+    expect(verification.rows.toString()).toBe(counted.rows[0]?.count);
+    expect(verification.firstBreak).toBeNull();
   },
 };
 

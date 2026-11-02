@@ -44,6 +44,16 @@ export {
   type TokenRecord,
 } from './repositories/entry-points.js';
 export {
+  audit,
+  AuditScopeError,
+  type AuditActor,
+  type AuditChainBreak,
+  type AuditEntry,
+  type AuditMetadata,
+  type AuditVerification,
+  type NewAuditEntry,
+} from './repositories/audit.js';
+export {
   ledger,
   type LedgerAccount,
   type LedgerAccountKind,

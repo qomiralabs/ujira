@@ -207,6 +207,113 @@ $$;
 ALTER FUNCTION ujira.attestation_pending(p_digest bytea) OWNER TO ujira_signer_read;
 
 --
+-- Name: audit_chain(); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_audit
+--
+
+CREATE FUNCTION ujira.audit_chain() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  head ujira.audit_heads%rowtype;
+begin
+  perform ujira.audit_check_metadata(new.metadata);
+  insert into ujira.audit_heads (principal_id, last_seq, last_hash)
+    values (new.principal_id, 0, decode(repeat('00', 32), 'hex'))
+    on conflict (principal_id) do nothing;
+  select * into head
+    from ujira.audit_heads as h
+   where h.principal_id = new.principal_id
+   for update;
+  new.seq := head.last_seq + 1;
+  new.prev_hash := head.last_hash;
+  new.occurred_at := clock_timestamp();
+  new.row_hash := ujira.audit_row_hash(
+    new.prev_hash::bytea,
+    new.principal_id,
+    new.project_id,
+    new.seq,
+    new.action,
+    new.actor_kind,
+    new.actor_id,
+    new.metadata,
+    new.occurred_at
+  );
+  update ujira.audit_heads as h
+     set last_seq = new.seq,
+         last_hash = new.row_hash
+   where h.principal_id = new.principal_id;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.audit_chain() OWNER TO ujira_fn_audit;
+
+--
+-- Name: audit_check_metadata(jsonb); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.audit_check_metadata(metadata jsonb) RETURNS void
+    LANGUAGE plpgsql STABLE
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  refused text;
+begin
+  if jsonb_typeof(metadata) <> 'object' then
+    raise exception using errcode = 'UJ012', message = 'audit metadata must be an object';
+  end if;
+  select k into refused
+    from jsonb_object_keys(metadata) as k
+   where not exists (select 1 from ujira.audit_metadata_keys as a where a.key = k)
+   limit 1;
+  if refused is not null then
+    raise exception using
+      errcode = 'UJ012',
+      message = format('audit metadata key %L is not on the allowlist', refused);
+  end if;
+  if exists (
+    select 1 from jsonb_each(metadata) as e where jsonb_typeof(e.value) in ('object', 'array')
+  ) then
+    raise exception using errcode = 'UJ012', message = 'audit metadata values must be scalars';
+  end if;
+end
+$$;
+
+
+ALTER FUNCTION ujira.audit_check_metadata(metadata jsonb) OWNER TO ujira_owner;
+
+--
+-- Name: audit_row_hash(bytea, uuid, uuid, bigint, text, text, uuid, jsonb, timestamp with time zone); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.audit_row_hash(prev_hash bytea, principal_id uuid, project_id uuid, seq bigint, action text, actor_kind text, actor_id uuid, metadata jsonb, occurred_at timestamp with time zone) RETURNS bytea
+    LANGUAGE sql IMMUTABLE
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select sha256(
+    prev_hash || convert_to(
+      format(
+        '%L|%L|%L|%L|%L|%L|%L|%L',
+        principal_id,
+        project_id,
+        seq,
+        action,
+        actor_kind,
+        actor_id,
+        metadata::text,
+        extract(epoch from occurred_at)::text
+      ),
+      'UTF8'
+    )
+  )
+$$;
+
+
+ALTER FUNCTION ujira.audit_row_hash(prev_hash bytea, principal_id uuid, project_id uuid, seq bigint, action text, actor_kind text, actor_id uuid, metadata jsonb, occurred_at timestamp with time zone) OWNER TO ujira_owner;
+
+--
 -- Name: authenticate_token(text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_tokens
 --
 
@@ -704,6 +811,59 @@ ALTER TABLE ONLY ujira.api_tokens FORCE ROW LEVEL SECURITY;
 
 
 ALTER TABLE ujira.api_tokens OWNER TO ujira_owner;
+
+--
+-- Name: audit_heads; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.audit_heads (
+    principal_id uuid NOT NULL,
+    last_seq bigint DEFAULT 0 NOT NULL,
+    last_hash ujira.hash32 NOT NULL
+);
+
+ALTER TABLE ONLY ujira.audit_heads FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.audit_heads OWNER TO ujira_owner;
+
+--
+-- Name: audit_log; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.audit_log (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    seq bigint NOT NULL,
+    action text NOT NULL,
+    actor_kind text NOT NULL,
+    actor_id uuid,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() NOT NULL,
+    prev_hash ujira.hash32 NOT NULL,
+    row_hash ujira.hash32 NOT NULL,
+    CONSTRAINT audit_log_action_format CHECK ((action ~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$'::text)),
+    CONSTRAINT audit_log_actor_kind CHECK ((actor_kind = ANY (ARRAY['member'::text, 'token'::text, 'system'::text]))),
+    CONSTRAINT audit_log_actor_whole CHECK (((actor_kind = 'system'::text) = (actor_id IS NULL)))
+);
+
+ALTER TABLE ONLY ujira.audit_log FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.audit_log OWNER TO ujira_owner;
+
+--
+-- Name: audit_metadata_keys; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.audit_metadata_keys (
+    key text NOT NULL,
+    CONSTRAINT audit_metadata_keys_format CHECK ((key ~ '^[a-z][a-z0-9_]{0,63}$'::text))
+);
+
+
+ALTER TABLE ujira.audit_metadata_keys OWNER TO ujira_owner;
 
 --
 -- Name: chain_events; Type: TABLE; Schema: ujira; Owner: ujira_owner
@@ -1276,6 +1436,38 @@ ALTER TABLE ONLY ujira.api_tokens
 
 
 --
+-- Name: audit_heads audit_heads_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.audit_heads
+    ADD CONSTRAINT audit_heads_pkey PRIMARY KEY (principal_id);
+
+
+--
+-- Name: audit_log audit_log_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.audit_log
+    ADD CONSTRAINT audit_log_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: audit_log audit_log_seq; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.audit_log
+    ADD CONSTRAINT audit_log_seq UNIQUE (principal_id, seq);
+
+
+--
+-- Name: audit_metadata_keys audit_metadata_keys_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.audit_metadata_keys
+    ADD CONSTRAINT audit_metadata_keys_pkey PRIMARY KEY (key);
+
+
+--
 -- Name: chain_events chain_events_once; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1700,6 +1892,41 @@ CREATE TRIGGER api_tokens_keep_revoked BEFORE UPDATE ON ujira.api_tokens FOR EAC
 
 
 --
+-- Name: audit_heads audit_heads_no_delete; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER audit_heads_no_delete BEFORE DELETE ON ujira.audit_heads FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: audit_heads audit_heads_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER audit_heads_no_truncate BEFORE TRUNCATE ON ujira.audit_heads FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: audit_log audit_log_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER audit_log_append_only BEFORE DELETE OR UPDATE ON ujira.audit_log FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: audit_log audit_log_chain; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER audit_log_chain BEFORE INSERT ON ujira.audit_log FOR EACH ROW EXECUTE FUNCTION ujira.audit_chain();
+
+
+--
+-- Name: audit_log audit_log_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER audit_log_no_truncate BEFORE TRUNCATE ON ujira.audit_log FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
 -- Name: chain_events chain_events_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1888,6 +2115,22 @@ ALTER TABLE ONLY ops.routing_config_active
 
 ALTER TABLE ONLY ujira.api_tokens
     ADD CONSTRAINT api_tokens_principal_id_project_id_fkey FOREIGN KEY (principal_id, project_id) REFERENCES ujira.projects(principal_id, id);
+
+
+--
+-- Name: audit_heads audit_heads_principal_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.audit_heads
+    ADD CONSTRAINT audit_heads_principal_id_fkey FOREIGN KEY (principal_id) REFERENCES ujira.principals(id);
+
+
+--
+-- Name: audit_log audit_log_principal_id_project_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.audit_log
+    ADD CONSTRAINT audit_log_principal_id_project_id_fkey FOREIGN KEY (principal_id, project_id) REFERENCES ujira.projects(principal_id, id);
 
 
 --
@@ -2129,6 +2372,25 @@ ALTER TABLE ONLY ujira.settlement_tokens
 ALTER TABLE ujira.api_tokens ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: audit_heads audit_chain_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY audit_chain_all ON ujira.audit_heads TO ujira_fn_audit USING (true) WITH CHECK (true);
+
+
+--
+-- Name: audit_heads; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.audit_heads ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: audit_log; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.audit_log ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: api_tokens authenticate; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2357,6 +2619,20 @@ CREATE POLICY owner_all ON ujira.api_tokens TO ujira_owner USING (true) WITH CHE
 
 
 --
+-- Name: audit_heads owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.audit_heads TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: audit_log owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.audit_log TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: chain_events owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2532,6 +2808,13 @@ CREATE POLICY tenant_insert ON ujira.api_tokens FOR INSERT TO ujira_app WITH CHE
 
 
 --
+-- Name: audit_log tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.audit_log FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: chain_events tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2648,6 +2931,20 @@ CREATE POLICY tenant_insert ON ujira.recipients FOR INSERT TO ujira_app WITH CHE
 --
 
 CREATE POLICY tenant_read ON ujira.api_tokens FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: audit_heads tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.audit_heads FOR SELECT TO ujira_app, ujira_reader USING ((principal_id = ujira.current_principal_id()));
+
+
+--
+-- Name: audit_log tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.audit_log FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
 
 
 --
@@ -2774,6 +3071,13 @@ CREATE POLICY tenant_read ON ujira.recipients FOR SELECT TO ujira_app, ujira_rea
 --
 
 CREATE POLICY tenant_update ON ujira.api_tokens FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: audit_log tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.audit_log FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -2918,6 +3222,7 @@ GRANT USAGE ON SCHEMA ujira TO ujira_signer_read;
 GRANT USAGE ON SCHEMA ujira TO ujira_signer_attester;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_instances;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_ledger;
+GRANT USAGE ON SCHEMA ujira TO ujira_fn_audit;
 
 
 --
@@ -2943,6 +3248,7 @@ GRANT ALL ON TYPE ujira.hash32 TO ujira_reader;
 GRANT ALL ON TYPE ujira.hash32 TO ujira_retention;
 GRANT ALL ON TYPE ujira.hash32 TO ujira_auth;
 GRANT ALL ON TYPE ujira.hash32 TO ujira_indexer;
+GRANT ALL ON TYPE ujira.hash32 TO ujira_fn_audit;
 
 
 --
@@ -3003,6 +3309,31 @@ REVOKE ALL ON FUNCTION ujira.apply_tenant_policies(target regclass) FROM PUBLIC;
 
 REVOKE ALL ON FUNCTION ujira.attestation_pending(p_digest bytea) FROM PUBLIC;
 GRANT ALL ON FUNCTION ujira.attestation_pending(p_digest bytea) TO ujira_signer_attester;
+
+
+--
+-- Name: FUNCTION audit_chain(); Type: ACL; Schema: ujira; Owner: ujira_fn_audit
+--
+
+REVOKE ALL ON FUNCTION ujira.audit_chain() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION audit_check_metadata(metadata jsonb); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.audit_check_metadata(metadata jsonb) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.audit_check_metadata(metadata jsonb) TO ujira_fn_audit;
+
+
+--
+-- Name: FUNCTION audit_row_hash(prev_hash bytea, principal_id uuid, project_id uuid, seq bigint, action text, actor_kind text, actor_id uuid, metadata jsonb, occurred_at timestamp with time zone); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.audit_row_hash(prev_hash bytea, principal_id uuid, project_id uuid, seq bigint, action text, actor_kind text, actor_id uuid, metadata jsonb, occurred_at timestamp with time zone) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.audit_row_hash(prev_hash bytea, principal_id uuid, project_id uuid, seq bigint, action text, actor_kind text, actor_id uuid, metadata jsonb, occurred_at timestamp with time zone) TO ujira_fn_audit;
+GRANT ALL ON FUNCTION ujira.audit_row_hash(prev_hash bytea, principal_id uuid, project_id uuid, seq bigint, action text, actor_kind text, actor_id uuid, metadata jsonb, occurred_at timestamp with time zone) TO ujira_app;
+GRANT ALL ON FUNCTION ujira.audit_row_hash(prev_hash bytea, principal_id uuid, project_id uuid, seq bigint, action text, actor_kind text, actor_id uuid, metadata jsonb, occurred_at timestamp with time zone) TO ujira_reader;
 
 
 --
@@ -3157,6 +3488,30 @@ GRANT SELECT,INSERT ON TABLE ops.routing_config_versions TO ujira_ops;
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.api_tokens TO ujira_app;
 GRANT SELECT ON TABLE ujira.api_tokens TO ujira_reader;
 GRANT SELECT ON TABLE ujira.api_tokens TO ujira_fn_tokens;
+
+
+--
+-- Name: TABLE audit_heads; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT ON TABLE ujira.audit_heads TO ujira_app;
+GRANT SELECT ON TABLE ujira.audit_heads TO ujira_reader;
+GRANT SELECT,INSERT,UPDATE ON TABLE ujira.audit_heads TO ujira_fn_audit;
+
+
+--
+-- Name: TABLE audit_log; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.audit_log TO ujira_app;
+GRANT SELECT ON TABLE ujira.audit_log TO ujira_reader;
+
+
+--
+-- Name: TABLE audit_metadata_keys; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT ON TABLE ujira.audit_metadata_keys TO ujira_fn_audit;
 
 
 --
