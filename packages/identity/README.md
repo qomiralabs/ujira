@@ -30,9 +30,21 @@ Checks run in a fixed order and the first failure decides the reason: mandate in
 
 A refusal writes nothing and signs nothing. Every chain and attester call has a timeout (`identity.attestation.callTimeoutMs`); an outage refuses with `PROVIDER_UNAVAILABLE`, a fault or the caller giving up is thrown. A signing failure marks the row failed and throws `AttestationSigningError`.
 
+## Self Pre-KYC
+
+`createSelfVerification(ports)` runs recipient verification with Self. UJIRA never holds the recipient's documents.
+
+- `startSelfSession(ctx, { recipientId, returnUrl })` starts the one Pre-KYC flow of the environment. The flow rules are fixed: minimum age 18, OFAC on, the excluded countries from config, no reveals, high security, backend mode. The identity row id is the session's `externalUuid` and the TTL is 1800 seconds. An unexpired pending session is handed back instead of a new one.
+- `handleWebhook({ rawBody, headers, correlationId })` answers the webhook route. It checks the signature over the exact bytes and the signed time, the environment and the flow id, then dedupes on `<verification_id>-completed` and maps by `external_uuid`. A result older than the one already applied changes nothing, and neither does an error or lapsed session after a final result.
+- A valid result sets `verified`, assurance `document_zk`, for 365 days. A valid result for a person already verified as another recipient of the same principal is stored as `rejected` with `duplicate_person`, and the principal is alerted. `SELF_CREDITS_EXHAUSTED` alerts operations and leaves the recipient pending.
+- Only references, statuses, an HMAC of the nullifier and a SHA-256 of the raw body are stored. The proof, the user context data and the body are discarded.
+- A `sk_test_` key is refused in production and a `sk_live_` key everywhere else.
+
+The webhook signature scheme here (`self-signature: t=<time>,v1=<HMAC-SHA256 of "<time>.<body>">`) and the payload fields are provisional until the Self spike records real deliveries. Self's own verifier plugs in behind `SelfWebhookVerifier`.
+
 ## Ports
 
-The service is given an `IdentityStore`, a `RailCatalog` (`railCatalogFromRegistry` reads the adapters' declared rails), the validated configuration and a clock. Attestation adds the chain calls (`AttestationChain`), the `AttesterSigner`, the `AttestationLog` and the payouts service's legs. The store and the log are implemented in the database package once the identity and attestation tables exist. `@ujira/identity/testing` has in-memory stores, a fake chain that builds the real 47 byte message, a local ed25519 attester, row builders and a ready attestation world with one breaker per check.
+The service is given an `IdentityStore`, a `RailCatalog` (`railCatalogFromRegistry` reads the adapters' declared rails), the validated configuration and a clock. Attestation adds the chain calls (`AttestationChain`), the `AttesterSigner`, the `AttestationLog` and the payouts service's legs. Self adds a `SelfClient`, a `SelfWebhookVerifier`, the `ProviderEventStore` dedupe table, `IdentityAlerts` and the `IdentityWriteStore` side of the store. The stores and the log are implemented in the database package once the identity, event and attestation tables exist. `@ujira/identity/testing` has in-memory stores, a fake chain that builds the real 47 byte message, a local ed25519 attester, row builders and a ready attestation world with one breaker per check.
 
 ## Rules
 

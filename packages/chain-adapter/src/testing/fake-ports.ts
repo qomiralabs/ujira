@@ -206,7 +206,8 @@ export class FakeSponsorship implements SponsorshipPolicy {
 export type RecordedAlert =
   | { readonly kind: 'lowBalance'; readonly event: Parameters<AdapterAlerts['lowBalance']>[0] }
   | { readonly kind: 'stuck'; readonly event: Parameters<AdapterAlerts['stuck']>[0] }
-  | { readonly kind: 'divergence'; readonly event: Parameters<AdapterAlerts['divergence']>[0] };
+  | { readonly kind: 'divergence'; readonly event: Parameters<AdapterAlerts['divergence']>[0] }
+  | { readonly kind: 'batch'; readonly event: Parameters<AdapterAlerts['batch']>[0] };
 
 export class FakeAlerts implements AdapterAlerts {
   readonly #alerts: RecordedAlert[] = [];
@@ -225,5 +226,9 @@ export class FakeAlerts implements AdapterAlerts {
 
   divergence(event: Parameters<AdapterAlerts['divergence']>[0]): void {
     this.#alerts.push({ kind: 'divergence', event });
+  }
+
+  batch(event: Parameters<AdapterAlerts['batch']>[0]): void {
+    this.#alerts.push({ kind: 'batch', event });
   }
 }

@@ -407,6 +407,19 @@ export interface AdapterAlerts {
     readonly detail: string;
     readonly correlationId: string;
   }): void;
+  /**
+   * An execute batch hit the contract events limit, which batches within
+   * the spec limits never should, or held a payout whose agent was removed,
+   * which the payout's principal is told about.
+   */
+  batch(e: {
+    readonly network: NetworkId;
+    readonly kind: 'events_limit' | 'agent_removed';
+    readonly scope: TenantScope;
+    /** The removed agent's payout; null for the events limit. */
+    readonly payoutId: PayoutId | null;
+    readonly correlationId: string;
+  }): void;
 }
 
 // ---------------------------------------------------------------------------
