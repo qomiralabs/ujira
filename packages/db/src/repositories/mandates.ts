@@ -22,22 +22,46 @@ type Tx = Kysely<Schema>;
 const CURRENT_PRINCIPAL = sql<string>`ujira.current_principal_id()`;
 const CURRENT_PROJECT = sql<string>`ujira.current_project_id()`;
 
+export type CountryPolicyMode = 'allow' | 'deny';
+
+// Pay recipients in the listed countries only, or anywhere but them.
+export interface CountryPolicy {
+  readonly mode: CountryPolicyMode;
+  readonly countries: readonly string[];
+}
+
 export interface Mandate {
   readonly id: string;
   readonly projectId: string;
   readonly name: string;
   readonly createdAt: Date;
+  readonly countryPolicy: { readonly mode: string; readonly countries: readonly string[] };
 }
 
-const mandateColumns = ['id', 'project_id', 'name', 'created_at'] as const;
+const mandateColumns = [
+  'id',
+  'project_id',
+  'name',
+  'created_at',
+  'country_policy_mode',
+  'country_policy_list',
+] as const;
 
 function toMandate(row: {
   id: string;
   project_id: string;
   name: string;
   created_at: Date;
+  country_policy_mode: string;
+  country_policy_list: string[];
 }): Mandate {
-  return { id: row.id, projectId: row.project_id, name: row.name, createdAt: row.created_at };
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    name: row.name,
+    createdAt: row.created_at,
+    countryPolicy: { mode: row.country_policy_mode, countries: row.country_policy_list },
+  };
 }
 
 export const mandates = {
@@ -61,10 +85,24 @@ export const mandates = {
     return row === undefined ? undefined : toMandate(row);
   },
 
-  create: async (db: Tx, input: { readonly name: string }): Promise<Mandate> => {
+  // With no policy the list is empty and the mode is allow, which allows nobody.
+  create: async (
+    db: Tx,
+    input: { readonly name: string; readonly countryPolicy?: CountryPolicy },
+  ): Promise<Mandate> => {
     const row = await db
       .insertInto('ujira.mandates')
-      .values({ principal_id: CURRENT_PRINCIPAL, project_id: CURRENT_PROJECT, name: input.name })
+      .values({
+        principal_id: CURRENT_PRINCIPAL,
+        project_id: CURRENT_PROJECT,
+        name: input.name,
+        ...(input.countryPolicy === undefined
+          ? {}
+          : {
+              country_policy_mode: input.countryPolicy.mode,
+              country_policy_list: [...input.countryPolicy.countries],
+            }),
+      })
       .returning(mandateColumns)
       .executeTakeFirstOrThrow();
     return toMandate(row);
@@ -89,6 +127,9 @@ export interface MandateInstance {
   readonly asset: string;
   readonly scale: number;
   readonly createdAt: Date;
+  // 32 bytes of ed25519; null in allowlist mode.
+  readonly attesterPublicKey: Buffer | null;
+  readonly countryPolicyHash: Buffer | null;
 }
 
 export interface NewMandateInstance {
@@ -98,6 +139,8 @@ export interface NewMandateInstance {
   readonly specVersion: string;
   readonly asset: string;
   readonly scale: number;
+  readonly attesterPublicKey?: Buffer | null;
+  readonly countryPolicyHash?: Buffer | null;
 }
 
 const instanceColumns = [
@@ -109,6 +152,8 @@ const instanceColumns = [
   'asset',
   'scale',
   'created_at',
+  'attester_public_key',
+  'country_policy_hash',
 ] as const;
 
 function toInstance(row: {
@@ -120,6 +165,8 @@ function toInstance(row: {
   asset: string;
   scale: number;
   created_at: Date;
+  attester_public_key: Buffer | null;
+  country_policy_hash: Buffer | null;
 }): MandateInstance {
   return {
     id: row.id,
@@ -130,6 +177,8 @@ function toInstance(row: {
     asset: row.asset,
     scale: row.scale,
     createdAt: row.created_at,
+    attesterPublicKey: row.attester_public_key,
+    countryPolicyHash: row.country_policy_hash,
   };
 }
 
@@ -168,6 +217,8 @@ export const mandateInstances = {
         spec_version: input.specVersion,
         asset: input.asset,
         scale: input.scale,
+        attester_public_key: input.attesterPublicKey ?? null,
+        country_policy_hash: input.countryPolicyHash ?? null,
       })
       .returning(instanceColumns)
       .executeTakeFirstOrThrow();

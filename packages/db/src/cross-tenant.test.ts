@@ -62,6 +62,7 @@ interface Tenant {
   readonly journalId: string;
   readonly accountId: string;
   readonly recipientId: string;
+  readonly identityId: string;
   readonly methodId: string;
 }
 
@@ -162,7 +163,7 @@ async function tenant(name: string): Promise<Tenant> {
       accountId: accounts[0]?.id ?? '',
     };
   });
-  const { recipientId, methodId } = await db.tenant(first).transaction(async (tx) => {
+  const { recipientId, identityId, methodId } = await db.tenant(first).transaction(async (tx) => {
     const recipient = await recipients.create(tx, {
       recipientRef: randomBytes(32),
       country: 'NG',
@@ -171,7 +172,7 @@ async function tenant(name: string): Promise<Tenant> {
       ciphertext: randomBytes(16),
       nonce: randomBytes(12),
     });
-    await recipientIdentities.upsert(tx, {
+    const identity = await recipientIdentities.upsert(tx, {
       recipientId: recipient.id,
       chain: 'stellar',
       provider: 'self',
@@ -188,7 +189,7 @@ async function tenant(name: string): Promise<Tenant> {
       details: null,
     });
     await audit.record(tx, { action: 'project.created', actor: { kind: 'system' } });
-    return { recipientId: recipient.id, methodId: method.id };
+    return { recipientId: recipient.id, identityId: identity.id, methodId: method.id };
   });
   return {
     first,
@@ -205,6 +206,7 @@ async function tenant(name: string): Promise<Tenant> {
     journalId,
     accountId,
     recipientId,
+    identityId,
     methodId,
   };
 }
@@ -508,6 +510,42 @@ const cases: Record<string, () => Promise<void>> = {
   },
   'recipientIdentities.list': async () => {
     expect(await acrossA(async (tx) => recipientIdentities.list(tx, b.recipientId))).toEqual([]);
+  },
+  'recipientIdentities.get': async () => {
+    expect(await acrossA(async (tx) => recipientIdentities.get(tx, b.identityId))).toBeUndefined();
+  },
+  'recipientIdentities.open': async () => {
+    const attempt = asA(async (tx) =>
+      recipientIdentities.open(tx, {
+        recipientId: b.recipientId,
+        provider: 'principal',
+        providerAccount: null,
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'recipientIdentities.update': async () => {
+    expect(
+      await asA(async (tx) => recipientIdentities.update(tx, b.identityId, { state: 'revoked' })),
+    ).toBeUndefined();
+  },
+  'recipientIdentities.verifiedByNullifier': async () => {
+    const nullifier = randomBytes(32);
+    await db
+      .tenant(b.first)
+      .transaction(async (tx) =>
+        recipientIdentities.update(tx, b.identityId, { nullifierHmac: nullifier }),
+      );
+    expect(
+      await acrossA(async (tx) => recipientIdentities.verifiedByNullifier(tx, nullifier)),
+    ).toBeUndefined();
+  },
+  'recipientIdentities.erase': async () => {
+    expect(await asA(async (tx) => recipientIdentities.erase(tx, b.recipientId))).toBe(0);
+    const untouched = await db
+      .tenant(b.first)
+      .transaction(async (tx) => recipientIdentities.get(tx, b.identityId));
+    expect(untouched?.state).toBe('verified');
   },
   'recipientIdentities.upsert': async () => {
     const attempt = asA(async (tx) =>

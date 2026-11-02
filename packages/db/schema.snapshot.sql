@@ -95,6 +95,25 @@ $$;
 ALTER FUNCTION ops.active_routing_config() OWNER TO ujira_ops;
 
 --
+-- Name: identity_provider_event_seen(text, text, text); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.identity_provider_event_seen(p_provider text, p_provider_account text, p_event_key text) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select exists (
+    select from ops.identity_provider_events as e
+     where e.provider = p_provider
+       and e.provider_account = p_provider_account
+       and e.event_key = p_event_key
+  )
+$$;
+
+
+ALTER FUNCTION ops.identity_provider_event_seen(p_provider text, p_provider_account text, p_event_key text) OWNER TO ujira_ops;
+
+--
 -- Name: lease_executor(text, text, integer); Type: FUNCTION; Schema: ops; Owner: ujira_ops
 --
 
@@ -127,6 +146,28 @@ $$;
 
 
 ALTER FUNCTION ops.lease_executor(target_network text, holder text, lease_seconds integer) OWNER TO ujira_ops;
+
+--
+-- Name: record_identity_provider_event(text, text, text, bytea); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.record_identity_provider_event(p_provider text, p_provider_account text, p_event_key text, p_raw_sha256 bytea) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  stored boolean;
+begin
+  insert into ops.identity_provider_events (provider, provider_account, event_key, raw_sha256)
+    values (p_provider, p_provider_account, p_event_key, p_raw_sha256)
+    on conflict (provider, provider_account, event_key) do nothing
+    returning true into stored;
+  return coalesce(stored, false);
+end
+$$;
+
+
+ALTER FUNCTION ops.record_identity_provider_event(p_provider text, p_provider_account text, p_event_key text, p_raw_sha256 bytea) OWNER TO ujira_ops;
 
 --
 -- Name: release_executor(text, text, text, bigint); Type: FUNCTION; Schema: ops; Owner: ujira_ops
@@ -741,6 +782,25 @@ CREATE TABLE ops.fee_estimates (
 ALTER TABLE ops.fee_estimates OWNER TO ujira_owner;
 
 --
+-- Name: identity_provider_events; Type: TABLE; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TABLE ops.identity_provider_events (
+    provider text NOT NULL,
+    provider_account text NOT NULL,
+    event_key text NOT NULL,
+    raw_sha256 bytea NOT NULL,
+    received_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT identity_provider_events_account_format CHECK ((provider_account ~ '^[A-Za-z0-9_.:-]{1,128}$'::text)),
+    CONSTRAINT identity_provider_events_digest_length CHECK ((octet_length(raw_sha256) = 32)),
+    CONSTRAINT identity_provider_events_key_format CHECK ((event_key ~ '^[A-Za-z0-9_.:-]{1,200}$'::text)),
+    CONSTRAINT identity_provider_events_provider_format CHECK ((provider ~ '^[a-z0-9_]{1,32}$'::text))
+);
+
+
+ALTER TABLE ops.identity_provider_events OWNER TO ujira_owner;
+
+--
 -- Name: routing_config_active; Type: TABLE; Schema: ops; Owner: ujira_owner
 --
 
@@ -1176,7 +1236,10 @@ CREATE TABLE ujira.mandate_instances (
     asset text NOT NULL,
     scale ujira.scale NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    attester_public_key bytea,
+    country_policy_hash ujira.hash32,
     CONSTRAINT mandate_instances_address_length CHECK (((char_length(contract_address) >= 1) AND (char_length(contract_address) <= 128))),
+    CONSTRAINT mandate_instances_attester_key_length CHECK ((octet_length(attester_public_key) = 32)),
     CONSTRAINT mandate_instances_spec_length CHECK (((char_length(spec_version) >= 1) AND (char_length(spec_version) <= 32)))
 );
 
@@ -1196,6 +1259,10 @@ CREATE TABLE ujira.mandates (
     name text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    country_policy_mode text DEFAULT 'allow'::text NOT NULL,
+    country_policy_list text[] DEFAULT '{}'::text[] NOT NULL,
+    CONSTRAINT mandates_country_policy_list CHECK (((cardinality(country_policy_list) <= 250) AND (array_position(country_policy_list, NULL::text) IS NULL) AND (array_to_string(country_policy_list, ','::text) ~ '^([A-Z]{2}(,[A-Z]{2})*)?$'::text))),
+    CONSTRAINT mandates_country_policy_mode CHECK ((country_policy_mode = ANY (ARRAY['allow'::text, 'deny'::text]))),
     CONSTRAINT mandates_name_length CHECK (((char_length(name) >= 1) AND (char_length(name) <= 200)))
 );
 
@@ -1306,15 +1373,36 @@ CREATE TABLE ujira.recipient_identities (
     project_id uuid NOT NULL,
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     recipient_id uuid NOT NULL,
-    chain text NOT NULL,
+    chain text,
     provider text NOT NULL,
-    provider_ref text NOT NULL,
+    provider_ref text,
     state text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    provider_account text,
+    provider_subject text,
+    provider_status text,
+    assurance text DEFAULT 'none'::text NOT NULL,
+    flow_ref text,
+    nullifier_hmac ujira.hash32,
+    pending_session_id text,
+    pending_session_url text,
+    pending_session_expires_at timestamp with time zone,
+    failure_reason text,
+    raw_sha256 ujira.hash32,
+    last_checked_at timestamp with time zone,
+    expires_at timestamp with time zone,
+    CONSTRAINT recipient_identities_account_length CHECK (((char_length(provider_account) >= 1) AND (char_length(provider_account) <= 128))),
+    CONSTRAINT recipient_identities_assurance CHECK ((assurance = ANY (ARRAY['anchor_kyc'::text, 'document_zk'::text, 'principal_kyc'::text, 'none'::text]))),
+    CONSTRAINT recipient_identities_failure_length CHECK (((char_length(failure_reason) >= 1) AND (char_length(failure_reason) <= 64))),
+    CONSTRAINT recipient_identities_flow_length CHECK (((char_length(flow_ref) >= 1) AND (char_length(flow_ref) <= 200))),
     CONSTRAINT recipient_identities_provider_length CHECK (((char_length(provider) >= 1) AND (char_length(provider) <= 64))),
     CONSTRAINT recipient_identities_ref_length CHECK (((char_length(provider_ref) >= 1) AND (char_length(provider_ref) <= 128))),
-    CONSTRAINT recipient_identities_state CHECK ((state = ANY (ARRAY['pending'::text, 'verified'::text, 'rejected'::text, 'expired'::text])))
+    CONSTRAINT recipient_identities_session_length CHECK (((char_length(pending_session_id) >= 1) AND (char_length(pending_session_id) <= 128))),
+    CONSTRAINT recipient_identities_session_url_length CHECK (((char_length(pending_session_url) >= 1) AND (char_length(pending_session_url) <= 2048))),
+    CONSTRAINT recipient_identities_state CHECK ((state = ANY (ARRAY['pending'::text, 'verified'::text, 'rejected'::text, 'expired'::text, 'revoked'::text]))),
+    CONSTRAINT recipient_identities_status_length CHECK (((char_length(provider_status) >= 1) AND (char_length(provider_status) <= 64))),
+    CONSTRAINT recipient_identities_subject_length CHECK (((char_length(provider_subject) >= 1) AND (char_length(provider_subject) <= 128)))
 );
 
 ALTER TABLE ONLY ujira.recipient_identities FORCE ROW LEVEL SECURITY;
@@ -1422,6 +1510,14 @@ ALTER TABLE ONLY ops.executor_accounts
 
 ALTER TABLE ONLY ops.fee_estimates
     ADD CONSTRAINT fee_estimates_pkey PRIMARY KEY (network, op, leg_count);
+
+
+--
+-- Name: identity_provider_events identity_provider_events_pkey; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.identity_provider_events
+    ADD CONSTRAINT identity_provider_events_pkey PRIMARY KEY (provider, provider_account, event_key);
 
 
 --
@@ -1901,10 +1997,45 @@ CREATE INDEX payout_methods_by_recipient ON ujira.payout_methods USING btree (pr
 
 
 --
+-- Name: recipient_identities_one_per_provider; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE UNIQUE INDEX recipient_identities_one_per_provider ON ujira.recipient_identities USING btree (principal_id, project_id, recipient_id, provider, provider_account) NULLS NOT DISTINCT;
+
+
+--
+-- Name: recipient_identities_provider_ref; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE UNIQUE INDEX recipient_identities_provider_ref ON ujira.recipient_identities USING btree (provider, provider_account, provider_ref) NULLS NOT DISTINCT WHERE (provider_ref IS NOT NULL);
+
+
+--
+-- Name: recipient_identities_verified_nullifier; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE UNIQUE INDEX recipient_identities_verified_nullifier ON ujira.recipient_identities USING btree (principal_id, nullifier_hmac) WHERE ((state = 'verified'::text) AND (nullifier_hmac IS NOT NULL));
+
+
+--
 -- Name: chain_cursors chain_cursors_touch; Type: TRIGGER; Schema: ops; Owner: ujira_owner
 --
 
 CREATE TRIGGER chain_cursors_touch BEFORE UPDATE ON ops.chain_cursors FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
+-- Name: identity_provider_events identity_provider_events_append_only; Type: TRIGGER; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TRIGGER identity_provider_events_append_only BEFORE DELETE OR UPDATE ON ops.identity_provider_events FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: identity_provider_events identity_provider_events_no_truncate; Type: TRIGGER; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TRIGGER identity_provider_events_no_truncate BEFORE TRUNCATE ON ops.identity_provider_events FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
 
 
 --
@@ -3318,11 +3449,27 @@ GRANT ALL ON FUNCTION ops.active_routing_config() TO ujira_app;
 
 
 --
+-- Name: FUNCTION identity_provider_event_seen(p_provider text, p_provider_account text, p_event_key text); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.identity_provider_event_seen(p_provider text, p_provider_account text, p_event_key text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.identity_provider_event_seen(p_provider text, p_provider_account text, p_event_key text) TO ujira_app;
+
+
+--
 -- Name: FUNCTION lease_executor(target_network text, holder text, lease_seconds integer); Type: ACL; Schema: ops; Owner: ujira_ops
 --
 
 REVOKE ALL ON FUNCTION ops.lease_executor(target_network text, holder text, lease_seconds integer) FROM PUBLIC;
 GRANT ALL ON FUNCTION ops.lease_executor(target_network text, holder text, lease_seconds integer) TO ujira_app;
+
+
+--
+-- Name: FUNCTION record_identity_provider_event(p_provider text, p_provider_account text, p_event_key text, p_raw_sha256 bytea); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.record_identity_provider_event(p_provider text, p_provider_account text, p_event_key text, p_raw_sha256 bytea) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.record_identity_provider_event(p_provider text, p_provider_account text, p_event_key text, p_raw_sha256 bytea) TO ujira_app;
 
 
 --
@@ -3510,6 +3657,13 @@ GRANT SELECT,INSERT,UPDATE ON TABLE ops.executor_accounts TO ujira_ops;
 
 GRANT SELECT ON TABLE ops.fee_estimates TO ujira_app;
 GRANT SELECT,INSERT,UPDATE ON TABLE ops.fee_estimates TO ujira_ops;
+
+
+--
+-- Name: TABLE identity_provider_events; Type: ACL; Schema: ops; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ops.identity_provider_events TO ujira_ops;
 
 
 --
