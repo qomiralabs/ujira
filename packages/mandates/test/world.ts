@@ -28,7 +28,7 @@ import type { EngineConfig, MandateEngine } from '@ujira/chain-adapter/testing';
 import { tokenAmount } from '@ujira/core';
 import type { TokenAmount } from '@ujira/core';
 
-import type { LogicalMandateKey, OnChainGuardians } from '../src/index.js';
+import type { InstanceView, LogicalMandateKey, OnChainGuardians } from '../src/index.js';
 
 export const NETWORK: NetworkId = 'stellar:testnet';
 export const NOW = 1_767_225_600n;
@@ -188,4 +188,17 @@ export function createOnChain(w: World, config: MandateConfigInput, salt = 'salt
 
 export function onChainGuardians(mandate: MandateEngine): OnChainGuardians {
   return { network: NETWORK, guardians: mandate.config().guardians.map(at) };
+}
+
+/** The principal key rule's view of a mandate, read from its config() as the indexer would. */
+export function instanceOf(mandate: MandateEngine, instanceId: string): InstanceView {
+  const config = mandate.config();
+  return {
+    instanceId,
+    projectId: key().projectId,
+    principal: at(config.principal),
+    totalBudget: tokenAmount(config.limits.totalBudget, 'USDC', 'stellar'),
+    recovery: config.recovery.map(at),
+    recoveryThreshold: config.recoveryThreshold,
+  };
 }
