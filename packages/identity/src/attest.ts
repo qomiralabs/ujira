@@ -202,7 +202,7 @@ export function createAttestationService(ports: AttestationServicePorts): Attest
       const { state, config: onChain } = snapshot;
       if (
         !snapshot.trustedFactory ||
-        !snapshot.tenantRefMatches ||
+        !snapshot.tenantTagMatches ||
         state.paused ||
         state.revoked ||
         state.expired

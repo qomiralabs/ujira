@@ -11,7 +11,48 @@ export type Generated<T> =
     ? ColumnType<S, I | undefined, U>
     : ColumnType<T, T | undefined, T>;
 
+export type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;
+
+export type Json = JsonValue;
+
+export type JsonArray = JsonValue[];
+
+export interface JsonObject {
+  [x: string]: JsonValue | undefined;
+}
+
+export type JsonPrimitive = boolean | number | string | null;
+
+export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
+
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
+
+export interface OpsChainCursors {
+  cursor: string;
+  network: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface OpsExecutorAccounts {
+  account_ref: string;
+  lease_expires_at: Timestamp | null;
+  lease_holder: string | null;
+  network: string;
+  next_sequence: Generated<Int8>;
+}
+
+export interface OpsRoutingConfigActive {
+  only_row: Generated<boolean>;
+  updated_at: Generated<Timestamp>;
+  version: Int8;
+}
+
+export interface OpsRoutingConfigVersions {
+  created_at: Generated<Timestamp>;
+  created_by: string;
+  document: Json;
+  version: Generated<Int8>;
+}
 
 export interface UjiraApiTokens {
   created_at: Generated<Timestamp>;
@@ -83,6 +124,10 @@ export interface UjiraStatusTransitions {
 }
 
 export interface Schema {
+  'ops.chain_cursors': OpsChainCursors;
+  'ops.executor_accounts': OpsExecutorAccounts;
+  'ops.routing_config_active': OpsRoutingConfigActive;
+  'ops.routing_config_versions': OpsRoutingConfigVersions;
   ujira_migrations: UjiraMigrations;
   'ujira.api_tokens': UjiraApiTokens;
   'ujira.chains': UjiraChains;

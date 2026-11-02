@@ -21,6 +21,15 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
+-- Name: ops; Type: SCHEMA; Schema: -; Owner: ujira_owner
+--
+
+CREATE SCHEMA ops;
+
+
+ALTER SCHEMA ops OWNER TO ujira_owner;
+
+--
 -- Name: ujira; Type: SCHEMA; Schema: -; Owner: ujira_owner
 --
 
@@ -58,6 +67,82 @@ CREATE DOMAIN ujira.scale AS smallint
 
 
 ALTER DOMAIN ujira.scale OWNER TO ujira_owner;
+
+--
+-- Name: active_routing_config(); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.active_routing_config() RETURNS TABLE(version bigint, document jsonb)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select v.version, v.document
+    from ops.routing_config_active as a
+    join ops.routing_config_versions as v on v.version = a.version
+$$;
+
+
+ALTER FUNCTION ops.active_routing_config() OWNER TO ujira_ops;
+
+--
+-- Name: lease_executor(text, text, integer); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.lease_executor(target_network text, holder text, lease_seconds integer) RETURNS TABLE(account_ref text, next_sequence bigint, lease_expires_at timestamp with time zone)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if lease_seconds is null or lease_seconds < 1 or lease_seconds > 3600 then
+    raise exception using
+      errcode = '22023',
+      message = 'a lease lasts from 1 to 3600 seconds';
+  end if;
+  return query
+    update ops.executor_accounts as e
+       set lease_holder = holder,
+           lease_expires_at = clock_timestamp() + make_interval(secs => lease_seconds)
+     where (e.network, e.account_ref) = (
+       select c.network, c.account_ref
+         from ops.executor_accounts as c
+        where c.network = target_network
+          and (c.lease_expires_at is null or c.lease_expires_at < clock_timestamp())
+        order by c.account_ref
+        limit 1
+        for update skip locked
+     )
+    returning e.account_ref, e.next_sequence, e.lease_expires_at;
+end
+$$;
+
+
+ALTER FUNCTION ops.lease_executor(target_network text, holder text, lease_seconds integer) OWNER TO ujira_ops;
+
+--
+-- Name: release_executor(text, text, text, bigint); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.release_executor(target_network text, account text, holder text, sequence_reached bigint) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  released integer;
+begin
+  update ops.executor_accounts as e
+     set lease_holder = null,
+         lease_expires_at = null,
+         next_sequence = greatest(e.next_sequence, sequence_reached)
+   where e.network = target_network
+     and e.account_ref = account
+     and e.lease_holder = holder;
+  get diagnostics released = row_count;
+  return released > 0;
+end
+$$;
+
+
+ALTER FUNCTION ops.release_executor(target_network text, account text, holder text, sequence_reached bigint) OWNER TO ujira_ops;
 
 --
 -- Name: apply_tenant_policies(regclass); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
@@ -335,6 +420,81 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
+-- Name: chain_cursors; Type: TABLE; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TABLE ops.chain_cursors (
+    network text NOT NULL,
+    cursor text NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT chain_cursors_network_format CHECK ((network ~ '^[a-z0-9-]+:[A-Za-z0-9-]+$'::text))
+);
+
+
+ALTER TABLE ops.chain_cursors OWNER TO ujira_owner;
+
+--
+-- Name: executor_accounts; Type: TABLE; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TABLE ops.executor_accounts (
+    network text NOT NULL,
+    account_ref text NOT NULL,
+    lease_holder text,
+    lease_expires_at timestamp with time zone,
+    next_sequence bigint DEFAULT 0 NOT NULL,
+    CONSTRAINT executor_accounts_lease_whole CHECK (((lease_holder IS NULL) = (lease_expires_at IS NULL))),
+    CONSTRAINT executor_accounts_network_format CHECK ((network ~ '^[a-z0-9-]+:[A-Za-z0-9-]+$'::text)),
+    CONSTRAINT executor_accounts_sequence_positive CHECK ((next_sequence >= 0))
+);
+
+
+ALTER TABLE ops.executor_accounts OWNER TO ujira_owner;
+
+--
+-- Name: routing_config_active; Type: TABLE; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TABLE ops.routing_config_active (
+    only_row boolean DEFAULT true NOT NULL,
+    version bigint NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT routing_config_active_one_row CHECK (only_row)
+);
+
+
+ALTER TABLE ops.routing_config_active OWNER TO ujira_owner;
+
+--
+-- Name: routing_config_versions; Type: TABLE; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TABLE ops.routing_config_versions (
+    version bigint NOT NULL,
+    document jsonb NOT NULL,
+    created_by text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT routing_config_created_by_format CHECK ((created_by ~ '^[a-z0-9_.:-]{1,64}$'::text))
+);
+
+
+ALTER TABLE ops.routing_config_versions OWNER TO ujira_owner;
+
+--
+-- Name: routing_config_versions_version_seq; Type: SEQUENCE; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ops.routing_config_versions ALTER COLUMN version ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME ops.routing_config_versions_version_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: ujira_migrations; Type: TABLE; Schema: public; Owner: test
 --
 
@@ -520,6 +680,38 @@ ALTER TABLE ONLY public.ujira_migrations ALTER COLUMN id SET DEFAULT nextval('pu
 
 
 --
+-- Name: chain_cursors chain_cursors_pkey; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.chain_cursors
+    ADD CONSTRAINT chain_cursors_pkey PRIMARY KEY (network);
+
+
+--
+-- Name: executor_accounts executor_accounts_pkey; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.executor_accounts
+    ADD CONSTRAINT executor_accounts_pkey PRIMARY KEY (network, account_ref);
+
+
+--
+-- Name: routing_config_active routing_config_active_pkey; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.routing_config_active
+    ADD CONSTRAINT routing_config_active_pkey PRIMARY KEY (only_row);
+
+
+--
+-- Name: routing_config_versions routing_config_versions_pkey; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.routing_config_versions
+    ADD CONSTRAINT routing_config_versions_pkey PRIMARY KEY (version);
+
+
+--
 -- Name: ujira_migrations ujira_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: test
 --
 
@@ -632,6 +824,27 @@ ALTER TABLE ONLY ujira.status_transitions
 
 
 --
+-- Name: chain_cursors chain_cursors_touch; Type: TRIGGER; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TRIGGER chain_cursors_touch BEFORE UPDATE ON ops.chain_cursors FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
+-- Name: routing_config_active routing_config_active_touch; Type: TRIGGER; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TRIGGER routing_config_active_touch BEFORE UPDATE ON ops.routing_config_active FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
+-- Name: routing_config_versions routing_config_versions_append_only; Type: TRIGGER; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TRIGGER routing_config_versions_append_only BEFORE DELETE OR UPDATE ON ops.routing_config_versions FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
 -- Name: api_tokens api_tokens_keep_revoked; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
 --
 
@@ -664,6 +877,14 @@ CREATE TRIGGER principals_touch BEFORE UPDATE ON ujira.principals FOR EACH ROW E
 --
 
 CREATE TRIGGER projects_touch BEFORE UPDATE ON ujira.projects FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
+-- Name: routing_config_active routing_config_active_version_fkey; Type: FK CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.routing_config_active
+    ADD CONSTRAINT routing_config_active_version_fkey FOREIGN KEY (version) REFERENCES ops.routing_config_versions(version);
 
 
 --
@@ -864,6 +1085,14 @@ CREATE POLICY tenant_update ON ujira.projects FOR UPDATE TO ujira_app USING (((p
 
 
 --
+-- Name: SCHEMA ops; Type: ACL; Schema: -; Owner: ujira_owner
+--
+
+GRANT USAGE ON SCHEMA ops TO ujira_ops;
+GRANT USAGE ON SCHEMA ops TO ujira_app;
+
+
+--
 -- Name: SCHEMA ujira; Type: ACL; Schema: -; Owner: ujira_owner
 --
 
@@ -910,6 +1139,30 @@ GRANT ALL ON TYPE ujira.scale TO ujira_reader;
 GRANT ALL ON TYPE ujira.scale TO ujira_retention;
 GRANT ALL ON TYPE ujira.scale TO ujira_auth;
 GRANT ALL ON TYPE ujira.scale TO ujira_indexer;
+
+
+--
+-- Name: FUNCTION active_routing_config(); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.active_routing_config() FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.active_routing_config() TO ujira_app;
+
+
+--
+-- Name: FUNCTION lease_executor(target_network text, holder text, lease_seconds integer); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.lease_executor(target_network text, holder text, lease_seconds integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.lease_executor(target_network text, holder text, lease_seconds integer) TO ujira_app;
+
+
+--
+-- Name: FUNCTION release_executor(target_network text, account text, holder text, sequence_reached bigint); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.release_executor(target_network text, account text, holder text, sequence_reached bigint) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.release_executor(target_network text, account text, holder text, sequence_reached bigint) TO ujira_app;
 
 
 --
@@ -1005,6 +1258,34 @@ GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_indexer;
 --
 
 REVOKE ALL ON FUNCTION ujira.touch() FROM PUBLIC;
+
+
+--
+-- Name: TABLE chain_cursors; Type: ACL; Schema: ops; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE ops.chain_cursors TO ujira_ops;
+
+
+--
+-- Name: TABLE executor_accounts; Type: ACL; Schema: ops; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE ops.executor_accounts TO ujira_ops;
+
+
+--
+-- Name: TABLE routing_config_active; Type: ACL; Schema: ops; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE ops.routing_config_active TO ujira_ops;
+
+
+--
+-- Name: TABLE routing_config_versions; Type: ACL; Schema: ops; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ops.routing_config_versions TO ujira_ops;
 
 
 --

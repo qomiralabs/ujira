@@ -50,7 +50,7 @@ export interface EngineConfig {
   readonly principal: string;
   readonly asset: string;
   readonly recipientMode: RecipientMode;
-  readonly tenantRef: string;
+  readonly tenantTag: string;
   readonly agents: readonly string[];
   readonly approvers: readonly string[];
   readonly approvalsRequired: number;

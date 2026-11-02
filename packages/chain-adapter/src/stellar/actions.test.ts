@@ -13,7 +13,6 @@ import {
   MandateUntrustedError,
   SponsorDeniedError,
   SubmissionRejectedError,
-  TenantMismatchError,
 } from '../errors.js';
 import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
 import type {
@@ -207,7 +206,6 @@ describe('prepareMandateAction', { timeout: 30_000 }, () => {
         principal: at(t.principal.publicKey()),
         asset: 'USDC',
         recipientMode: 'both',
-        tenantRef: tenantRefOf(t.scope),
         agents: [],
         approvers: [],
         approvalsRequired: 0,
@@ -264,12 +262,6 @@ describe('prepareMandateAction', { timeout: 30_000 }, () => {
       ),
     ).rejects.toBeInstanceOf(InvalidInputError);
 
-    await expect(
-      t.adapter.prepareMandateAction(
-        request(t, { ...action, config: { ...action.config, tenantRef: REF } }),
-        OPTS,
-      ),
-    ).rejects.toBeInstanceOf(TenantMismatchError);
     await expect(
       t.adapter.prepareMandateAction(
         request(t, {
