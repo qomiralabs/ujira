@@ -36,7 +36,7 @@ export type SubmissionFate =
   /** Not seen, and nothing here can prove what happened. The mandate's record decides. */
   | { readonly kind: 'unknown' };
 
-function feeChargedOf(tx: RpcTransaction): bigint | null {
+export function feeChargedOf(tx: Pick<RpcTransaction, 'resultXdr'>): bigint | null {
   if (tx.resultXdr === undefined) return null;
   try {
     return xdr.TransactionResult.fromXdr(tx.resultXdr, 'base64').feeCharged;

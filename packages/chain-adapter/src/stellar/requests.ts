@@ -20,10 +20,12 @@ export interface StoredSigningRequest {
   readonly requestId: string;
   readonly scope: TenantScope;
   readonly network: NetworkId;
-  readonly op: MandateAction['op'];
+  readonly op: MandateAction['op'] | 'request' | 'request_batch';
   /** The mandate's C address; for create, the address it will be deployed at. */
   readonly mandate: string | null;
   readonly payoutId: PayoutId | null;
+  /** The payout attempt it is for, where it is a payout's. */
+  readonly attempt?: number | null;
   /** The address that signs: a G principal's account or a C smart wallet. */
   readonly signer: string;
   readonly kind: 'stellar_transaction' | 'stellar_auth_entry';

@@ -39,6 +39,77 @@ afterEach(() => {
 });
 
 describe('createStellarRpc', () => {
+  it('reads a page of contract events, from a ledger or a cursor', async () => {
+    const event = {
+      type: 'contract',
+      contractId: 'CSOURCE',
+      txHash: 'ab',
+      id: '1-2',
+      ledger: 12,
+      ledgerClosedAt: '2026-11-02T00:00:00Z',
+      inSuccessfulContractCall: true,
+      topic: ['AAA='],
+      value: 'BBB=',
+    };
+    const first = answering({ result: { events: [event], cursor: 'next', latestLedger: 20 } });
+    expect(await first.rpc.getEvents({ startLedger: 5, limit: 10 }, OPTS)).toEqual({
+      events: [event],
+      cursor: 'next',
+      latestLedger: 20,
+    });
+    expect(first.seen[0]?.params).toEqual({
+      startLedger: 5,
+      filters: [{ type: 'contract' }],
+      pagination: { limit: 10 },
+    });
+    const later = answering({ result: { latestLedger: 21, cursor: '' } });
+    expect(await later.rpc.getEvents({ cursor: 'next', limit: 10 }, OPTS)).toEqual({
+      events: [],
+      cursor: null,
+      latestLedger: 21,
+    });
+    expect(later.seen[0]?.params).toEqual({
+      filters: [{ type: 'contract' }],
+      pagination: { limit: 10, cursor: 'next' },
+    });
+    // An event nothing says succeeded did not.
+    const unsaid = { ...event } as Record<string, unknown>;
+    delete unsaid['inSuccessfulContractCall'];
+    const silent = answering({ result: { events: [unsaid], latestLedger: 22 } });
+    const page = await silent.rpc.getEvents({ startLedger: 5, limit: 10 }, OPTS);
+    expect(page.events[0]?.inSuccessfulContractCall).toBe(false);
+  });
+
+  it.each([
+    ['events that are not a list', { events: 'x', latestLedger: 1 }],
+    ['an event that is not an object', { events: ['x'], latestLedger: 1 }],
+    ['an event with no topics', { events: [{ type: 'contract' }], latestLedger: 1 }],
+    [
+      'a topic that is not text',
+      {
+        events: [
+          {
+            type: 'contract',
+            contractId: 'C',
+            txHash: 'h',
+            id: '1-1',
+            ledger: 1,
+            ledgerClosedAt: 't',
+            topic: [1],
+            value: 'v',
+          },
+        ],
+        latestLedger: 1,
+      },
+    ],
+    ['no latest ledger', { events: [] }],
+  ])('treats %s as an outage of the endpoint', async (_name, result) => {
+    const { rpc } = answering({ result });
+    await expect(rpc.getEvents({ startLedger: 1, limit: 1 }, OPTS)).rejects.toMatchObject({
+      code: 'CHAIN_UNAVAILABLE',
+    });
+  });
+
   it('reads the latest ledger and ledger entries', async () => {
     const latest = answering({ result: { sequence: 12, closeTime: '1793483385' } });
     expect(await latest.rpc.getLatestLedger(OPTS)).toEqual({

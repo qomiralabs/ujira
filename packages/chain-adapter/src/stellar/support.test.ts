@@ -50,10 +50,14 @@ describe('the stellar entry', { timeout: 30_000 }, () => {
       'StellarMandateAdapter',
       'accountBalance',
       'createMemorySigningRequestStore',
+      'createStellarEventIntake',
       'createStellarRpc',
       'extensionPlan',
       'fateOf',
+      'ledgerEventOf',
       'mandateAddressOf',
+      'scanLedgerEvents',
+      'stellarTenantTag',
     ]);
   });
 

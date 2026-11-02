@@ -192,6 +192,13 @@ describe('the attester policy', () => {
     );
   });
 
+  it('refuses a look-alike mandate, which is in no index, even with a pending row', async () => {
+    // The index holds only what a trusted factory announced, so a contract
+    // deployed directly is absent from it whatever it stores.
+    const { attester } = setup({ mode: null });
+    expect(await codeOf(attester.signAttestation(fields(), OPTS))).toBe('SIGNER_DENIED');
+  });
+
   it('fails closed with no pending attestation', async () => {
     expect(await codeOf(setup({ recorded: null }).attester.signAttestation(fields(), OPTS))).toBe(
       'SIGNER_DENIED',

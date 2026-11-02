@@ -140,9 +140,35 @@ export interface ChainAdapterRegistry {
 // ---------------------------------------------------------------------------
 // Ports the adapter is given. Implemented outside it, faked in tests.
 
+/** A contract a trusted factory announced as a mandate, from its mandate_created. */
+export interface MandateRegistration {
+  readonly network: NetworkId;
+  readonly contractId: string;
+  /** The contract the ledger recorded as the source of the event. */
+  readonly factory: string;
+  readonly tenantTag: Bytes32;
+  /** Its tag differs from the tag of the tenant that claims it. Nothing of it counts. */
+  readonly flagged: boolean;
+}
+
+/**
+ * The contracts accepted as mandates. A contract cannot prove which factory
+ * deployed it, so this is the only thing the adapter takes as proof. What the
+ * contract stores or runs can be compared with it and never replaces it.
+ */
+export interface MandateRegistry {
+  registered(
+    network: NetworkId,
+    contractId: string,
+    opts: CallOptions,
+  ): Promise<MandateRegistration | null>;
+}
+
 export interface AdapterPorts {
   /** Implemented in the db repository layer. */
   readonly store: AdapterStore;
+  /** Written only by event intake, from a trusted factory's mandate_created. */
+  readonly registry: MandateRegistry;
   /** Every key UJIRA holds signs through it; the adapter never sees key material. */
   readonly signer: SignerProvider;
   /** createSponsorshipPolicy over the database ledger, or a stand in under test. */
@@ -333,6 +359,14 @@ export interface AdapterStore {
     txHash: string,
     patch: SubmissionPatch,
   ): Promise<void>;
+  /** The landed submission that executed this payout on its own, if one is stored. */
+  landedSubmission(key: {
+    readonly scope: TenantScope;
+    readonly network: NetworkId;
+    /** Chain encoded, as in SubmissionRecord. */
+    readonly mandate: string;
+    readonly payoutId: PayoutId;
+  }): Promise<SubmissionRecord | null>;
   liveSubmission(key: {
     readonly scope: TenantScope;
     readonly network: NetworkId;
@@ -968,6 +1002,20 @@ export type DeadProof =
       readonly kind: 'deadline_passed';
       readonly network: NetworkId;
       readonly finalTime: UnixSeconds;
+      readonly at: { readonly ledgerOrBlock: bigint; readonly finality: 'final' };
+    }
+  /** Requested, but past its own expiry at a final ledger, so it can never execute. */
+  | {
+      readonly kind: 'payout_lapsed';
+      readonly network: NetworkId;
+      readonly expiresAt: UnixSeconds;
+      readonly finalTime: UnixSeconds;
+      readonly at: { readonly ledgerOrBlock: bigint; readonly finality: 'final' };
+    }
+  /** Its agent was removed after the request, so the mandate refuses to execute it. */
+  | {
+      readonly kind: 'agent_removed';
+      readonly network: NetworkId;
       readonly at: { readonly ledgerOrBlock: bigint; readonly finality: 'final' };
     };
 

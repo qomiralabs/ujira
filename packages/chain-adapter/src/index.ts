@@ -127,3 +127,17 @@ export type {
 export { tenantRefOf, tenantTagOf } from './tenant-ref.js';
 export { CHAIN_ADAPTER_INTERFACE_VERSION } from './types.js';
 export type * from './types.js';
+
+export { createEventIntake } from './intake.js';
+export type {
+  EventBooking,
+  EventIntake,
+  EventIntakeOptions,
+  EventIntakeStore,
+  EventJson,
+  IgnoredReason,
+  IntakeOutcome,
+  LedgerEvent,
+  MandateTenant,
+  NewRegistration,
+} from './intake.js';

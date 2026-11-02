@@ -1,25 +1,23 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-// Whether a mandate can be trusted, read from its own ledger entry. A mandate
-// cannot prove who deployed it: its constructor takes the factory as an
-// argument, and anyone could deploy the same code naming a trusted factory.
-// So the factory it names is only the start. A mandate is trusted when it
-// names a factory in the trusted list, runs exactly the code that factory
-// deploys, pays fees to that factory's fee address and settles in an asset
-// that factory supports. Such a contract runs the reviewed rules whoever
-// deployed it, which is what a call against it needs to know. It says nothing
-// about the contract's events: one deployed directly never got a mandate_created
-// from the factory, so only registration from that event may book events.
-// Factory facts are fixed for the factory's life, so they are read once and
-// kept.
+// Whether a contract is a mandate. It cannot prove who deployed it: its
+// constructor takes the factory as an argument, and anyone can deploy the same
+// code with no signature from the principal it names, storing a trusted
+// factory, that factory's fee address and a supported asset. So nothing it
+// stores or runs is a reason to trust it. It is trusted only when it was
+// registered from a trusted factory's mandate_created. A direct deploy never
+// gets one, which is what tells the two apart. The stored facts are still
+// compared, since a mandate that disagrees with its factory is wrong either
+// way, but passing them proves nothing. Factory facts are fixed for the
+// factory's life, so they are read once and kept.
 
 import { Address, xdr } from '@stellar/stellar-sdk/base';
 
 import { InvalidInputError, MandateUntrustedError, TenantMismatchError } from '../errors.js';
 import type { NetworkId } from '../networks.js';
 import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
-import type { Bytes32, CallOptions, MandateRef, TenantScope } from '../types.js';
+import type { Bytes32, CallOptions, MandateRef, MandateRegistry, TenantScope } from '../types.js';
 import { addressXdr } from './address-xdr.js';
 import type { StellarRpc } from './rpc.js';
 import { asAddress, asBytes32, asU32, asVec, field, fieldsOf, unit } from './scval.js';
@@ -80,6 +78,7 @@ export class MandateTrust {
     private readonly network: NetworkId,
     private readonly rpc: StellarRpc,
     private readonly trusted: () => readonly string[],
+    private readonly registry: MandateRegistry,
   ) {}
 
   /** The mandate's fixed facts, after the tenant and trust checks. */
@@ -108,14 +107,22 @@ export class MandateTrust {
     // mandate, not even whether it is trusted.
     // The tag is recomputed for this address, so one copied from another
     // mandate of the same tenant does not pass either.
-    if (facts.tenantTag !== tenantTagOf(tenantRefOf(scope), addressXdr(mandate))) {
-      throw new TenantMismatchError({ network });
+    const tag = tenantTagOf(tenantRefOf(scope), addressXdr(mandate));
+    if (facts.tenantTag !== tag) throw new TenantMismatchError({ network });
+    const registration = await this.registry.registered(network, mandate, opts);
+    if (
+      registration === null ||
+      registration.flagged ||
+      registration.tenantTag !== tag ||
+      registration.factory !== facts.factory ||
+      !(await this.#agreesWithFactory(facts, opts))
+    ) {
+      throw new MandateUntrustedError({ network });
     }
-    if (!(await this.isTrusted(facts, opts))) throw new MandateUntrustedError({ network });
     return facts;
   }
 
-  async isTrusted(facts: MandateInstance, opts: CallOptions): Promise<boolean> {
+  async #agreesWithFactory(facts: MandateInstance, opts: CallOptions): Promise<boolean> {
     if (!this.trusted().includes(facts.factory)) return false;
     const factory = await this.factory(facts.factory, opts);
     return (

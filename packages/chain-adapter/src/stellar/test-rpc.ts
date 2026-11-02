@@ -20,6 +20,7 @@ import { addressXdr } from './address-xdr.js';
 import { mandateAddressOf } from './mandate-address.js';
 import type {
   RawSimulation,
+  RpcEventPage,
   RpcLatestLedger,
   RpcLedgerEntry,
   RpcSendResult,
@@ -128,6 +129,10 @@ export function invoked(tx: Transaction): {
 }
 
 const CALLER_FUNCTIONS = new Set([
+  'request_payout',
+  'request_payouts',
+  'execute',
+  'execute_batch',
   'pause',
   'approve',
   'reject',
@@ -192,6 +197,10 @@ export class FakeRpc implements StellarRpc {
     }
     upgradeRecorded(rpc, fixture);
     return rpc;
+  }
+
+  getEvents(): Promise<RpcEventPage> {
+    return Promise.resolve({ events: [], cursor: null, latestLedger: this.latest.sequence });
   }
 
   getLatestLedger(): Promise<RpcLatestLedger> {

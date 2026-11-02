@@ -95,6 +95,29 @@ $$;
 ALTER FUNCTION ops.active_routing_config() OWNER TO ujira_ops;
 
 --
+-- Name: flag_mandate(text, text); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.flag_mandate(target_network text, contract text) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  flagged integer;
+begin
+  update ops.mandate_registry as r
+     set flagged_at = coalesce(r.flagged_at, clock_timestamp())
+   where r.network = target_network
+     and r.contract_id = contract;
+  get diagnostics flagged = row_count;
+  return flagged > 0;
+end
+$$;
+
+
+ALTER FUNCTION ops.flag_mandate(target_network text, contract text) OWNER TO ujira_ops;
+
+--
 -- Name: lease_executor(text, text, integer); Type: FUNCTION; Schema: ops; Owner: ujira_ops
 --
 
@@ -127,6 +150,46 @@ $$;
 
 
 ALTER FUNCTION ops.lease_executor(target_network text, holder text, lease_seconds integer) OWNER TO ujira_ops;
+
+--
+-- Name: register_mandate(text, text, text, bytea, bytea, bigint, bigint); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.register_mandate(target_network text, contract text, factory text, tag bytea, tx bytea, event_at bigint, at_ledger bigint) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  added integer;
+begin
+  insert into ops.mandate_registry
+    (network, contract_id, factory_id, tenant_tag, tx_hash, event_index, ledger)
+  values (target_network, contract, factory, tag, tx, event_at, at_ledger)
+  on conflict (network, contract_id) do nothing;
+  get diagnostics added = row_count;
+  return added > 0;
+end
+$$;
+
+
+ALTER FUNCTION ops.register_mandate(target_network text, contract text, factory text, tag bytea, tx bytea, event_at bigint, at_ledger bigint) OWNER TO ujira_ops;
+
+--
+-- Name: registered_mandate(text, text); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.registered_mandate(target_network text, contract text) RETURNS TABLE(factory_id text, tenant_tag bytea, flagged boolean)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select r.factory_id, r.tenant_tag, r.flagged_at is not null
+    from ops.mandate_registry as r
+   where r.network = target_network
+     and r.contract_id = contract
+$$;
+
+
+ALTER FUNCTION ops.registered_mandate(target_network text, contract text) OWNER TO ujira_ops;
 
 --
 -- Name: release_executor(text, text, text, bigint); Type: FUNCTION; Schema: ops; Owner: ujira_ops
@@ -741,6 +804,32 @@ CREATE TABLE ops.fee_estimates (
 ALTER TABLE ops.fee_estimates OWNER TO ujira_owner;
 
 --
+-- Name: mandate_registry; Type: TABLE; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TABLE ops.mandate_registry (
+    network text NOT NULL,
+    contract_id text NOT NULL,
+    factory_id text NOT NULL,
+    tenant_tag bytea NOT NULL,
+    tx_hash bytea NOT NULL,
+    event_index bigint NOT NULL,
+    ledger bigint NOT NULL,
+    flagged_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT mandate_registry_contract_length CHECK (((char_length(contract_id) >= 1) AND (char_length(contract_id) <= 128))),
+    CONSTRAINT mandate_registry_factory_length CHECK (((char_length(factory_id) >= 1) AND (char_length(factory_id) <= 128))),
+    CONSTRAINT mandate_registry_index_positive CHECK ((event_index >= 0)),
+    CONSTRAINT mandate_registry_ledger_positive CHECK ((ledger >= 0)),
+    CONSTRAINT mandate_registry_network_format CHECK ((network ~ '^[a-z0-9-]+:[A-Za-z0-9-]+$'::text)),
+    CONSTRAINT mandate_registry_tag_length CHECK ((octet_length(tenant_tag) = 32)),
+    CONSTRAINT mandate_registry_tx_length CHECK ((octet_length(tx_hash) = 32))
+);
+
+
+ALTER TABLE ops.mandate_registry OWNER TO ujira_owner;
+
+--
 -- Name: routing_config_active; Type: TABLE; Schema: ops; Owner: ujira_owner
 --
 
@@ -1205,6 +1294,30 @@ ALTER TABLE ONLY ujira.mandates FORCE ROW LEVEL SECURITY;
 ALTER TABLE ujira.mandates OWNER TO ujira_owner;
 
 --
+-- Name: payout_bookings; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.payout_bookings (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    mandate_instance_id uuid NOT NULL,
+    chain text NOT NULL,
+    contract_address text NOT NULL,
+    payout_id ujira.hash32 NOT NULL,
+    last_event_id uuid NOT NULL,
+    last_event_type text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT payout_bookings_type_length CHECK (((char_length(last_event_type) >= 1) AND (char_length(last_event_type) <= 64)))
+);
+
+ALTER TABLE ONLY ujira.payout_bookings FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.payout_bookings OWNER TO ujira_owner;
+
+--
 -- Name: payout_methods; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1422,6 +1535,14 @@ ALTER TABLE ONLY ops.executor_accounts
 
 ALTER TABLE ONLY ops.fee_estimates
     ADD CONSTRAINT fee_estimates_pkey PRIMARY KEY (network, op, leg_count);
+
+
+--
+-- Name: mandate_registry mandate_registry_pkey; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.mandate_registry
+    ADD CONSTRAINT mandate_registry_pkey PRIMARY KEY (network, contract_id);
 
 
 --
@@ -1753,6 +1874,30 @@ ALTER TABLE ONLY ujira.mandates
 
 
 --
+-- Name: payout_bookings payout_bookings_once; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.payout_bookings
+    ADD CONSTRAINT payout_bookings_once UNIQUE (chain, contract_address, payout_id);
+
+
+--
+-- Name: payout_bookings payout_bookings_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.payout_bookings
+    ADD CONSTRAINT payout_bookings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payout_bookings payout_bookings_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.payout_bookings
+    ADD CONSTRAINT payout_bookings_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
 -- Name: payout_methods payout_methods_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1891,6 +2036,20 @@ CREATE INDEX deposits_by_instance ON ujira.deposits USING btree (principal_id, p
 --
 
 CREATE INDEX ledger_entries_by_journal ON ujira.ledger_entries USING btree (principal_id, project_id, journal_id);
+
+
+--
+-- Name: mandate_instances_contract_key; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE UNIQUE INDEX mandate_instances_contract_key ON ujira.mandate_instances USING btree (principal_id, project_id, id, chain, contract_address);
+
+
+--
+-- Name: payout_bookings_by_instance; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX payout_bookings_by_instance ON ujira.payout_bookings USING btree (principal_id, project_id, mandate_instance_id, id);
 
 
 --
@@ -2080,6 +2239,13 @@ CREATE TRIGGER mandate_state_snapshots_no_truncate BEFORE TRUNCATE ON ujira.mand
 --
 
 CREATE TRIGGER mandates_touch BEFORE UPDATE ON ujira.mandates FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
+-- Name: payout_bookings payout_bookings_touch; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER payout_bookings_touch BEFORE UPDATE ON ujira.payout_bookings FOR EACH ROW EXECUTE FUNCTION ujira.touch();
 
 
 --
@@ -2331,6 +2497,22 @@ ALTER TABLE ONLY ujira.mandates
 
 
 --
+-- Name: payout_bookings payout_bookings_principal_id_project_id_last_event_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.payout_bookings
+    ADD CONSTRAINT payout_bookings_principal_id_project_id_last_event_id_fkey FOREIGN KEY (principal_id, project_id, last_event_id) REFERENCES ujira.chain_events(principal_id, project_id, id);
+
+
+--
+-- Name: payout_bookings payout_bookings_principal_id_project_id_mandate_instance_i_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.payout_bookings
+    ADD CONSTRAINT payout_bookings_principal_id_project_id_mandate_instance_i_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id, chain, contract_address) REFERENCES ujira.mandate_instances(principal_id, project_id, id, chain, contract_address);
+
+
+--
 -- Name: payout_methods payout_methods_chain_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2523,6 +2705,13 @@ CREATE POLICY indexer_insert ON ujira.mandate_state_snapshots FOR INSERT TO ujir
 
 
 --
+-- Name: payout_bookings indexer_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY indexer_insert ON ujira.payout_bookings FOR INSERT TO ujira_indexer WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: chain_events indexer_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2579,10 +2768,24 @@ CREATE POLICY indexer_read ON ujira.mandate_state_snapshots FOR SELECT TO ujira_
 
 
 --
+-- Name: payout_bookings indexer_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY indexer_read ON ujira.payout_bookings FOR SELECT TO ujira_indexer USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: mandate_instance_roles indexer_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY indexer_update ON ujira.mandate_instance_roles FOR UPDATE TO ujira_indexer USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: payout_bookings indexer_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY indexer_update ON ujira.payout_bookings FOR UPDATE TO ujira_indexer USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -2740,6 +2943,13 @@ CREATE POLICY owner_all ON ujira.mandates TO ujira_owner USING (true) WITH CHECK
 
 
 --
+-- Name: payout_bookings owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.payout_bookings TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: payout_methods owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2787,6 +2997,12 @@ CREATE POLICY owner_all ON ujira.recipient_pii TO ujira_owner USING (true) WITH 
 
 CREATE POLICY owner_all ON ujira.recipients TO ujira_owner USING (true) WITH CHECK (true);
 
+
+--
+-- Name: payout_bookings; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.payout_bookings ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: payout_methods; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
@@ -2919,6 +3135,13 @@ CREATE POLICY tenant_insert ON ujira.mandate_state_snapshots FOR INSERT TO ujira
 --
 
 CREATE POLICY tenant_insert ON ujira.mandates FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: payout_bookings tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.payout_bookings FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -3055,6 +3278,13 @@ CREATE POLICY tenant_read ON ujira.mandates FOR SELECT TO ujira_app, ujira_reade
 
 
 --
+-- Name: payout_bookings tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.payout_bookings FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
 -- Name: payout_methods tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3188,6 +3418,13 @@ CREATE POLICY tenant_update ON ujira.mandates FOR UPDATE TO ujira_app USING (((p
 
 
 --
+-- Name: payout_bookings tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.payout_bookings FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: payout_methods tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3242,6 +3479,7 @@ CREATE POLICY tenant_update ON ujira.recipients FOR UPDATE TO ujira_app USING ((
 
 GRANT USAGE ON SCHEMA ops TO ujira_ops;
 GRANT USAGE ON SCHEMA ops TO ujira_app;
+GRANT USAGE ON SCHEMA ops TO ujira_indexer;
 
 
 --
@@ -3318,11 +3556,36 @@ GRANT ALL ON FUNCTION ops.active_routing_config() TO ujira_app;
 
 
 --
+-- Name: FUNCTION flag_mandate(target_network text, contract text); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.flag_mandate(target_network text, contract text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.flag_mandate(target_network text, contract text) TO ujira_indexer;
+
+
+--
 -- Name: FUNCTION lease_executor(target_network text, holder text, lease_seconds integer); Type: ACL; Schema: ops; Owner: ujira_ops
 --
 
 REVOKE ALL ON FUNCTION ops.lease_executor(target_network text, holder text, lease_seconds integer) FROM PUBLIC;
 GRANT ALL ON FUNCTION ops.lease_executor(target_network text, holder text, lease_seconds integer) TO ujira_app;
+
+
+--
+-- Name: FUNCTION register_mandate(target_network text, contract text, factory text, tag bytea, tx bytea, event_at bigint, at_ledger bigint); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.register_mandate(target_network text, contract text, factory text, tag bytea, tx bytea, event_at bigint, at_ledger bigint) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.register_mandate(target_network text, contract text, factory text, tag bytea, tx bytea, event_at bigint, at_ledger bigint) TO ujira_indexer;
+
+
+--
+-- Name: FUNCTION registered_mandate(target_network text, contract text); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.registered_mandate(target_network text, contract text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.registered_mandate(target_network text, contract text) TO ujira_app;
+GRANT ALL ON FUNCTION ops.registered_mandate(target_network text, contract text) TO ujira_indexer;
 
 
 --
@@ -3513,6 +3776,13 @@ GRANT SELECT,INSERT,UPDATE ON TABLE ops.fee_estimates TO ujira_ops;
 
 
 --
+-- Name: TABLE mandate_registry; Type: ACL; Schema: ops; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE ops.mandate_registry TO ujira_ops;
+
+
+--
 -- Name: TABLE routing_config_active; Type: ACL; Schema: ops; Owner: ujira_owner
 --
 
@@ -3690,6 +3960,15 @@ GRANT SELECT ON TABLE ujira.mandate_instances TO ujira_indexer;
 
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.mandates TO ujira_app;
 GRANT SELECT ON TABLE ujira.mandates TO ujira_reader;
+
+
+--
+-- Name: TABLE payout_bookings; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT ON TABLE ujira.payout_bookings TO ujira_app;
+GRANT SELECT ON TABLE ujira.payout_bookings TO ujira_reader;
+GRANT SELECT,INSERT,UPDATE ON TABLE ujira.payout_bookings TO ujira_indexer;
 
 
 --

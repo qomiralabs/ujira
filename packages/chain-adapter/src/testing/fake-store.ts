@@ -179,6 +179,25 @@ export class FakeAdapterStore implements AdapterStore {
     return Promise.resolve();
   }
 
+  landedSubmission(key: {
+    readonly scope: TenantScope;
+    readonly network: NetworkId;
+    readonly mandate: string;
+    readonly payoutId: PayoutId;
+  }): Promise<SubmissionRecord | null> {
+    const found = this.submissions.find(
+      (s) =>
+        s.state === 'landed' &&
+        s.op === 'execute' &&
+        s.network === key.network &&
+        s.mandate === key.mandate &&
+        s.payoutId === key.payoutId &&
+        s.scope.principalId === key.scope.principalId &&
+        s.scope.projectId === key.scope.projectId,
+    );
+    return Promise.resolve(found ?? null);
+  }
+
   liveSubmission(key: {
     readonly scope: TenantScope;
     readonly network: NetworkId;
