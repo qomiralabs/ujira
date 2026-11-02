@@ -145,7 +145,7 @@ export interface AdapterPorts {
   readonly store: AdapterStore;
   /** Every key UJIRA holds signs through it; the adapter never sees key material. */
   readonly signer: SignerProvider;
-  /** Implemented in payouts, with counters in the database. */
+  /** createSponsorshipPolicy over the database ledger, or a stand in under test. */
   readonly sponsorship: SponsorshipPolicy;
   readonly alerts: AdapterAlerts;
   readonly clock: { nowSeconds(): UnixSeconds };
@@ -368,7 +368,10 @@ export type SponsoredIntent =
   | 'cancel'
   | 'withdraw'
   | 'admin'
-  | 'trustline';
+  | 'trustline'
+  | 'recipient_activation'
+  /** UJIRA's own transaction, booked for the record and never reserved by a tenant. */
+  | 'executor';
 
 export interface SponsorshipPolicy {
   /** Throws SponsorDeniedError on a rate limit or cap. Idempotent per reservationId. */
@@ -378,14 +381,30 @@ export interface SponsorshipPolicy {
     readonly reservationId: string;
     readonly intent: SponsoredIntent;
     readonly maxFee: NativeAmount;
+    /** For recipient_activation: who is activated. One per recipient per network, one per account ever. */
+    readonly activation?: { readonly recipientId: string; readonly account: string };
   }): Promise<void>;
   /** The counters are per principal rows, so the tenant comes with every call. */
   settle(r: {
     readonly scope: TenantScope;
     readonly reservationId: string;
     readonly actualFee: NativeAmount;
+    /** The rent the transaction paid, booked with it. */
+    readonly rent?: NativeAmount;
   }): Promise<void>;
   release(r: { readonly scope: TenantScope; readonly reservationId: string }): Promise<void>;
+  /**
+   * Records what UJIRA paid for a transaction of its own, such as an executor
+   * call, so all its spend sums from one place. Idempotent per reservationId.
+   */
+  book(r: {
+    readonly scope: TenantScope;
+    readonly network: NetworkId;
+    readonly reservationId: string;
+    readonly intent: SponsoredIntent;
+    readonly actualFee: NativeAmount;
+    readonly rent?: NativeAmount;
+  }): Promise<void>;
 }
 
 export interface AdapterAlerts {

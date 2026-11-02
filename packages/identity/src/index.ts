@@ -30,6 +30,7 @@ export {
   ProviderUnavailableError,
   SelfCreditsExhaustedError,
   SelfSessionRefusedError,
+  WalletMethodNotFoundError,
   IdentityConfigError,
   IdentityError,
   IdentityInputError,
@@ -37,7 +38,7 @@ export {
   isIdentityError,
 } from './errors.js';
 export type { IdentityErrorCode, SessionRefusal } from './errors.js';
-export { evidenceAccepted, sameDestination } from './evidence.js';
+export { evidenceAccepted, levelAcceptedForMode, sameDestination } from './evidence.js';
 export type { AttestedMode } from './evidence.js';
 export { canonicalCountryList, countryAllowed, countryPolicyHash } from './policy.js';
 export { NOT_RECEIVABLE_REASONS, railCatalogFromRegistry } from './ports.js';
@@ -95,6 +96,31 @@ export type {
   SignatureFailure,
   WebhookHeaders,
 } from './self/signature.js';
+export { WALLET_PROOF_PURPOSE } from './wallet-proof/ports.js';
+export type {
+  VerifyWalletProofRequest,
+  WalletChallenge,
+  WalletChallengeRecord,
+  WalletChallengeRequest,
+  WalletProofChain,
+  WalletProofInvalidReason,
+  WalletProofPorts,
+  WalletProofStore,
+  WalletProofVerdict,
+} from './wallet-proof/ports.js';
+export {
+  WALLET_CHALLENGE_TTL_SECONDS,
+  WALLET_PROOF_REFUSALS,
+  createWalletProofFlow,
+} from './wallet-proof/service.js';
+export type {
+  CreateWalletChallengeRequest,
+  IssuedWalletChallenge,
+  SubmitWalletProofRequest,
+  SubmitWalletProofResult,
+  WalletProofFlow,
+  WalletProofRefusal,
+} from './wallet-proof/service.js';
 export { createIdentityService } from './service.js';
 export {
   ASSURANCE_LEVELS,

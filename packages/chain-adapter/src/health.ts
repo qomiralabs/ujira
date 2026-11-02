@@ -7,6 +7,31 @@ import type { ChainHealth } from './types.js';
 /** The reason a network reports while its signer is down. */
 export const SIGNER_DOWN = 'SIGNER_DOWN';
 
+/** The reasons a network reports while its fee sponsor is short. */
+export const SPONSOR_LOW = 'SPONSOR_LOW';
+export const SPONSOR_UNFUNDED = 'SPONSOR_UNFUNDED';
+
+/**
+ * Folds the fee sponsor's balance into the network's health. Below its minimum
+ * nothing sponsored can go out, but reads and executor work still can, so the
+ * network is degraded rather than down. Merely low changes no state: it is a
+ * reason for operations to act while everything still works.
+ */
+export function withSponsorHealth(
+  health: Omit<ChainHealth, 'sponsorFunded'>,
+  funding: 'funded' | 'low' | 'unfunded',
+): ChainHealth {
+  if (funding === 'funded') return { ...health, sponsorFunded: true };
+  const unfunded = funding === 'unfunded';
+  const reason = unfunded ? SPONSOR_UNFUNDED : SPONSOR_LOW;
+  return {
+    ...health,
+    sponsorFunded: !unfunded,
+    state: unfunded && health.state === 'healthy' ? 'degraded' : health.state,
+    reasons: health.reasons.includes(reason) ? health.reasons : [...health.reasons, reason],
+  };
+}
+
 /**
  * Folds the signer's health into the network's. With no signer nothing can
  * be submitted, but reads, quotes and deposit scans still work, so a signer

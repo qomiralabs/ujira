@@ -23,9 +23,9 @@ import type { TenantScope, UnixSeconds, Uuid } from '../types.js';
 import * as entry from './index.js';
 import { DEFAULT_WAIT } from './mandate-adapter.js';
 import { keypairSigner, memoryStore, recordingSponsorship } from './test-ports.js';
-import { NETWORK, OPTS } from './test-adapter.js';
+import { NETWORK, OPTS, addAccount } from './test-adapter.js';
 import { FIXTURE_FACTORY, FakeRpc, loadReadFixture } from './test-rpc.js';
-import { PASSPHRASES, attach, readTx, returned, simulate } from './tx.js';
+import { PASSPHRASES, accountBalance, attach, readTx, returned, simulate } from './tx.js';
 
 const scope: TenantScope = {
   principalId: '11111111-1111-4111-8111-111111111111' as Uuid,
@@ -48,6 +48,7 @@ describe('the stellar entry', { timeout: 30_000 }, () => {
       'INSTANCE_TTL_EXTEND_LEDGERS',
       'RECORD_TTL_MARGIN_SECONDS',
       'StellarMandateAdapter',
+      'accountBalance',
       'createMemorySigningRequestStore',
       'createStellarRpc',
       'extensionPlan',
@@ -85,6 +86,16 @@ describe('attach', { timeout: 30_000 }, () => {
         publicKey: key.rawPublicKey(),
       });
     }).toThrow(SignerDeniedError);
+  });
+});
+
+describe('accountBalance', { timeout: 30_000 }, () => {
+  it('reads the balance of an account, and nothing for one that is missing', async () => {
+    const rpc = FakeRpc.fromFixture(loadReadFixture(), { principal: Keypair.random().publicKey() });
+    const key = Keypair.random().publicKey();
+    expect(await accountBalance(rpc, key, OPTS)).toBeNull();
+    addAccount(rpc, key, 1n);
+    expect(await accountBalance(rpc, key, OPTS)).toBe(100_000_000n);
   });
 });
 

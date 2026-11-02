@@ -25,11 +25,12 @@ import { defineWebhookRoute } from '../route.js';
 import { V1_ROUTES, v1Routes } from './index.js';
 import { SELF_WEBHOOK_PATH } from './self-webhook.js';
 import type { SelfWebhookHandler } from './self-webhook.js';
+import { WALLET_PROOF_NOT_CONFIGURED } from './wallet-proofs.js';
 
 function served(handler: SelfWebhookHandler, bodyLimitBytes?: number) {
   const logger = memoryLogger();
   const app = createApp({
-    routes: v1Routes({ selfWebhook: handler }),
+    routes: v1Routes({ selfWebhook: handler, walletProof: WALLET_PROOF_NOT_CONFIGURED }),
     authenticate: refuseAllCredentials,
     logger,
     ...(bodyLimitBytes === undefined ? {} : { bodyLimitBytes }),

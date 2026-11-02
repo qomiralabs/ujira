@@ -97,6 +97,7 @@ export {
 export type { TokenFailureReason } from './failures.js';
 export { FakeLedger, TESTNET_PASSPHRASE } from './ledger.js';
 export type { FakeLedgerOptions, LedgerContract, NestedViews } from './ledger.js';
+export { InMemoryRentStore } from './rent-store.js';
 export { feeCap } from './rules.js';
 export * from './spec.js';
 export {
@@ -119,6 +120,8 @@ export type {
   TestSep10Options,
   TestTransactionOptions,
 } from './stellar.js';
+export { createMemorySponsorshipLedger, describeSponsorshipLedger } from './sponsorship-ledger.js';
+export type { SponsorshipLedgerHarness } from './sponsorship-ledger.js';
 export { FakeToken } from './token.js';
 export type {
   FakeTokenOptions,
