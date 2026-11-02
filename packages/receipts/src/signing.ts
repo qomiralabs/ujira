@@ -12,6 +12,7 @@ import { createPublicKey, verify } from 'node:crypto';
 import type { CallOptions, SignatureResult } from '@ujira/chain-adapter';
 import { z } from 'zod';
 
+import { withDeadline } from './deadline.js';
 import { documentSha256 } from './document.js';
 import {
   ReceiptOptionsInvalidError,
@@ -120,39 +121,6 @@ const ResultSchema = z.object({
 });
 
 /**
- * Runs `call` with a signal that fires at the deadline or when the caller
- * aborts, and stops waiting at that moment even if the signer ignores the
- * signal. A late answer or failure from the signer is dropped by the race.
- */
-async function withDeadline<T>(
-  call: (signal: AbortSignal) => Promise<T>,
-  timeoutMs: number,
-  outer: AbortSignal | undefined,
-): Promise<T> {
-  const timeout = AbortSignal.timeout(timeoutMs);
-  const signal = outer === undefined ? timeout : AbortSignal.any([outer, timeout]);
-  const reason = (): Error =>
-    timeout.aborted
-      ? new ReceiptSigningTimeoutError('the signer did not answer in time')
-      : new ReceiptSigningAbortedError('signing was aborted by the caller', {
-          cause: signal.reason,
-        });
-  if (signal.aborted) throw reason();
-  let onAbort: (() => void) | undefined;
-  const stopped = new Promise<never>((_resolve, reject) => {
-    onAbort = () => {
-      reject(reason());
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
-  try {
-    return await Promise.race([Promise.resolve().then(() => call(signal)), stopped]);
-  } finally {
-    if (onAbort !== undefined) signal.removeEventListener('abort', onAbort);
-  }
-}
-
-/**
  * Signs a receipt through the signer port and returns the signature to
  * store with it. Throws ReceiptSigningTimeoutError at the deadline,
  * ReceiptSigningAbortedError when the caller aborts, and
@@ -178,6 +146,11 @@ export async function signReceipt(
     (signal) => signer.signReceipt(fields, { correlationId: options.correlationId, signal }),
     timeoutMs,
     options.signal,
+    {
+      timeout: () => new ReceiptSigningTimeoutError('the signer did not answer in time'),
+      aborted: (reason) =>
+        new ReceiptSigningAbortedError('signing was aborted by the caller', { cause: reason }),
+    },
   );
   const result = ResultSchema.safeParse(answer);
   if (!result.success) {
