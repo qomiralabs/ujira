@@ -129,7 +129,7 @@ class KmsKeys {
     const publicKey = await this.#publicKeyOf(keyId, ref.network, opts);
     const message = messageFor(ref, payload, encodeAccountAddress(publicKey));
     const started = this.#now();
-    const { signature } = await this.#call(ref.network, () =>
+    const { signature, requestId } = await this.#call(ref.network, () =>
       this.#client.sign(keyId, message, { signal: this.#signal(opts) }),
     );
     // Checked before it leaves, as the port promises every caller.
@@ -138,7 +138,12 @@ class KmsKeys {
     }
     this.#latency.record(this.#now() - started);
     this.#reason = null;
-    return { kind: 'ed25519', signature: Uint8Array.from(signature), publicKey };
+    return {
+      kind: 'ed25519',
+      signature: Uint8Array.from(signature),
+      publicKey,
+      ...(requestId === undefined ? {} : { requestId }),
+    };
   }
 
   health(): SignerHealth {

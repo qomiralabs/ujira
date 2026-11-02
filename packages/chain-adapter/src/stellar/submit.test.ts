@@ -18,6 +18,7 @@ import {
   SubmissionUnknownError,
 } from '../errors.js';
 import type { ChainAddress, MandateAction, SigningRequest } from '../types.js';
+import { reservationIdOf } from '../sponsorship/policy.js';
 import { NETWORK, OPTS, setup } from './test-adapter.js';
 import type { TestSetup } from './test-adapter.js';
 import { invoked } from './test-rpc.js';
@@ -74,7 +75,10 @@ describe('submitSigned for an account signer', { timeout: 30_000 }, () => {
       state: 'broadcast',
       correlationId: 'c',
     });
-    expect(t.sponsorship.calls).toEqual([{ kind: 'reserve', id: request.requestId }]);
+    // Reserved under the key the signer looks up: the network and the inner hash.
+    expect(t.sponsorship.calls).toEqual([
+      { kind: 'reserve', id: reservationIdOf(NETWORK, bump.innerTransaction.hash()) },
+    ]);
   });
 
   it('changed operation after signing is rejected', async () => {
