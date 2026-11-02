@@ -18,6 +18,36 @@ export {
   type TenantSession,
 } from './database.js';
 export {
+  MAX_PAGE_SIZE,
+  PageRequestError,
+  type Page,
+  type PageRequest,
+} from './repositories/page.js';
+export {
+  apiTokens,
+  members,
+  principals,
+  projects,
+  type ApiToken,
+  type Member,
+  type MemberRole,
+  type NewApiToken,
+  type Principal,
+  type Project,
+} from './repositories/tenancy.js';
+export {
+  entryPoints,
+  type CreatedPrincipal,
+  type NewPrincipal,
+  type TokenRecord,
+} from './repositories/entry-points.js';
+export {
+  executors,
+  routingConfig,
+  type ExecutorLease,
+  type RoutingConfig,
+} from './repositories/ops.js';
+export {
   CONNECTION_BUDGET,
   loadDatabaseConfig,
   POOL_DEFAULTS,

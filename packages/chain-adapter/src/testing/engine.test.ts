@@ -66,7 +66,7 @@ function config(asset: string, overrides: Partial<EngineConfig> = {}): EngineCon
     principal,
     asset,
     recipientMode: 'ALLOWLIST',
-    tenantRef: ref('tenant'),
+    tenantTag: ref('tenant'),
     agents: [agent],
     approvers: [],
     approvalsRequired: 0,

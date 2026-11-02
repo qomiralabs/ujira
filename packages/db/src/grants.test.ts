@@ -88,7 +88,7 @@ describe('grants on ujira', () => {
     expect(found.rows.map((row) => row.rolname)).toEqual([...PLATFORM_ROLES].sort());
   });
 
-  it('gives each service role usage on the schema and read access to the reference data only', async () => {
+  it('gives every service role usage on the schema and the reader nothing but reads', async () => {
     const all = await grants();
     for (const role of [
       'ujira_app',
@@ -100,8 +100,21 @@ describe('grants on ujira', () => {
       const mine = all.filter((grant) => grant.grantee === role);
       expect(mine).toContainEqual({ object: 'schema ujira', grantee: role, privilege: 'USAGE' });
       const relations = mine.filter((grant) => grant.object.startsWith('relation '));
-      expect(relations.every((grant) => grant.privilege === 'SELECT')).toBe(true);
-      expect(relations.map((grant) => grant.object).sort()).toEqual([
+      expect(relations.length).toBeGreaterThan(0);
+      if (role !== 'ujira_app') {
+        expect(relations.filter((grant) => grant.privilege !== 'SELECT')).toEqual([]);
+      }
+    }
+  });
+
+  it('gives the roles with no tables of their own yet read access to the reference data only', async () => {
+    const all = await grants();
+    for (const role of ['ujira_retention', 'ujira_auth', 'ujira_indexer']) {
+      const relations = all
+        .filter((grant) => grant.grantee === role && grant.object.startsWith('relation '))
+        .map((grant) => grant.object)
+        .sort();
+      expect(relations).toEqual([
         'relation chains',
         'relation currencies',
         'relation currency_scales',
@@ -111,16 +124,29 @@ describe('grants on ujira', () => {
     }
   });
 
-  it('lets service roles call the context functions and nothing else', async () => {
-    const executable = (await grants())
-      .filter((grant) => grant.grantee === 'ujira_app' && grant.privilege === 'EXECUTE')
-      .map((grant) => grant.object)
-      .sort();
-    expect(executable).toEqual([
+  it('lets service roles call the context functions and the two entry points, and nothing else', async () => {
+    const executable = (role: string) =>
+      grants().then((all) =>
+        all
+          .filter((grant) => grant.grantee === role && grant.privilege === 'EXECUTE')
+          .map((grant) => grant.object)
+          .sort(),
+      );
+    const context = [
       'function ujira.current_principal_id()',
       'function ujira.current_project_id()',
       'function ujira.project_scope_all()',
+    ];
+    expect(await executable('ujira_app')).toEqual([
+      'function ujira.authenticate_token(text)',
+      'function ujira.create_principal(text,text,uuid,text)',
+      ...context,
     ]);
+    expect(await executable('ujira_auth')).toEqual([
+      'function ujira.authenticate_token(text)',
+      ...context,
+    ]);
+    expect(await executable('ujira_reader')).toEqual(context);
   });
 });
 
@@ -138,27 +164,65 @@ describe('roles', () => {
     expect(roles.rows.map((role) => role.rolname)).toEqual([
       'ujira_app',
       'ujira_auth',
+      'ujira_fn_principals',
+      'ujira_fn_tokens',
       'ujira_indexer',
       'ujira_migrator',
+      'ujira_ops',
       'ujira_owner',
       'ujira_reader',
       'ujira_retention',
     ]);
+    const nologin = new Set(['ujira_owner', 'ujira_fn_principals', 'ujira_fn_tokens']);
     for (const role of roles.rows) {
       expect(role.rolsuper, role.rolname).toBe(false);
       expect(role.rolbypassrls, role.rolname).toBe(false);
-      expect(role.rolcanlogin, role.rolname).toBe(role.rolname !== 'ujira_owner');
+      expect(role.rolcanlogin, role.rolname).toBe(!nologin.has(role.rolname));
     }
   });
 
-  it('the owner role owns the schema and everything in it', async () => {
+  it('each security definer function is owned by its own narrow role, and nothing else is', async () => {
+    const definers = await client.query<{ fn: string; owner: string }>(
+      `select p.oid::regprocedure::text as fn, pg_get_userbyid(p.proowner) as owner
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'ujira' and p.prosecdef
+        order by 1`,
+    );
+    expect(definers.rows).toEqual([
+      { fn: 'ujira.authenticate_token(text)', owner: 'ujira_fn_tokens' },
+      { fn: 'ujira.create_principal(text,text,uuid,text)', owner: 'ujira_fn_principals' },
+    ]);
+    // Each holds only what its one function needs, and never CREATE.
+    const rights = await client.query<{ grantee: string; object: string; privilege: string }>(
+      `select pg_get_userbyid(a.grantee) as grantee, c.relname as object, a.privilege_type as privilege
+         from pg_class c
+         join pg_namespace n on n.oid = c.relnamespace,
+              aclexplode(c.relacl) a
+        where n.nspname = 'ujira' and pg_get_userbyid(a.grantee) like 'ujira\\_fn\\_%'
+        order by 1, 2, 3`,
+    );
+    expect(rights.rows).toEqual([
+      { grantee: 'ujira_fn_principals', object: 'principal_members', privilege: 'INSERT' },
+      { grantee: 'ujira_fn_principals', object: 'principals', privilege: 'INSERT' },
+      { grantee: 'ujira_fn_principals', object: 'projects', privilege: 'INSERT' },
+      { grantee: 'ujira_fn_tokens', object: 'api_tokens', privilege: 'SELECT' },
+    ]);
+    const create = await client.query<{ role: string }>(
+      `select r.rolname as role from pg_roles r
+        where r.rolname like 'ujira\\_fn\\_%' and has_schema_privilege(r.oid, 'ujira', 'CREATE')`,
+    );
+    expect(create.rows).toEqual([]);
+  });
+
+  it('the owner role owns the schema and everything in it but the definer functions', async () => {
     const owners = await client.query<{ owner: string }>(
       `select distinct pg_get_userbyid(owner) as owner from (
          select nspowner as owner from pg_namespace where nspname = 'ujira'
          union all
          select c.relowner from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'ujira'
          union all
-         select p.proowner from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'ujira'
+         select p.proowner from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'ujira' and not p.prosecdef
          union all
          select t.typowner from pg_type t join pg_namespace n on n.oid = t.typnamespace where n.nspname = 'ujira'
        ) as everything`,

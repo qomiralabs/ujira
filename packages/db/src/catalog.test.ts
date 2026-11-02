@@ -135,7 +135,7 @@ describe('catalog', () => {
   it('fails a foreign key to a tenant table that does not carry both tenant columns', () => {
     expect(problemsOf('fixture_loose_child')).toEqual([
       expect.stringMatching(
-        /^ujira\.fixture_loose_child: foreign key \S+ to ujira\.fixture_parent does not carry principal_id and project_id$/,
+        /^ujira\.fixture_loose_child: foreign key \S+ to ujira\.fixture_parent does not carry its tenant columns$/,
       ),
     ]);
   });

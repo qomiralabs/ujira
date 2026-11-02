@@ -102,7 +102,7 @@ export function config(c: EngineConfig): EngineConfig {
     principal: checkAddress('principal', c.principal),
     asset: checkAddress('asset', c.asset),
     recipientMode: recipientMode(c.recipientMode),
-    tenantRef: bytes32('tenantRef', c.tenantRef),
+    tenantTag: bytes32('tenantTag', c.tenantTag),
     agents: addresses('agents', c.agents),
     approvers: addresses('approvers', c.approvers),
     approvalsRequired: u32('approvalsRequired', c.approvalsRequired),
