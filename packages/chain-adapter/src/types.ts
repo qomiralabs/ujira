@@ -754,6 +754,8 @@ export interface FundingInstructions {
   readonly asset: TokenAsset;
   /** Token contract, shown so the principal can verify it. */
   readonly assetContract: string;
+  /** The asset's issuer, where the chain has one. */
+  readonly assetIssuer?: string;
   readonly label: string;
   readonly memoRequired: false;
   readonly warnings: readonly (
@@ -770,10 +772,22 @@ export interface PrepareFundingRequest {
   readonly amount: TokenAmount;
 }
 
+/** A forwarding account, and the mandate its deposits are swept into. */
+export interface ForwardingRoute {
+  readonly fundingSourceId: string;
+  readonly mandateInstanceId: string;
+  /** The account that received the deposit. */
+  readonly forwarder: string;
+  /** Chain encoded. */
+  readonly mandate: string;
+}
+
 export interface WatchedMandate {
   readonly scope: TenantScope;
   readonly mandate: MandateRef;
   readonly asset: TokenAsset;
+  /** Set when the address asked about is a forwarding account, not the mandate. */
+  readonly forwarding?: ForwardingRoute;
 }
 
 export interface DepositScanRequest {
@@ -801,6 +815,10 @@ export interface Deposit {
   readonly blockHash: string | null;
   readonly closedAt: UnixSeconds;
   readonly finality: Finality;
+  /** The chain's id for the operation, where it has one. A sweep is keyed on it. */
+  readonly operationId?: string;
+  /** Set for the settlement asset on a forwarding account: it is to be swept. */
+  readonly forwarding?: ForwardingRoute;
 }
 
 export interface DepositScanPage {

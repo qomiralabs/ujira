@@ -141,3 +141,6 @@ export type {
   MandateTenant,
   NewRegistration,
 } from './intake.js';
+
+export { sweepDepositOf } from './deposit-event.js';
+export type { SweepDepositEvent } from './deposit-event.js';

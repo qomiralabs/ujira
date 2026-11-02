@@ -16,6 +16,7 @@ import type {
   AdapterAlerts,
   Bytes32,
   LegKey,
+  MandateRegistration,
   PayRequest,
   PayoutId,
   UnixSeconds,
@@ -99,6 +100,7 @@ export interface PayWorld extends TestSetup {
     MandateErrorName | ((tx: Transaction) => RawSimulation | undefined)
   >;
   readonly alerts: Parameters<AdapterAlerts['batch']>[0][];
+  readonly divergences: Parameters<AdapterAlerts['divergence']>[0][];
 }
 
 export function trustline(
@@ -126,8 +128,17 @@ export function trustline(
   });
 }
 
-export function payWorld(options: { readonly mirror?: ExecutionMirror } = {}): PayWorld {
-  const t = setup();
+export function payWorld(
+  options: {
+    readonly mirror?: ExecutionMirror;
+    readonly registered?: boolean;
+    readonly registration?: Partial<MandateRegistration>;
+  } = {},
+): PayWorld {
+  const t = setup({
+    ...(options.registered === undefined ? {} : { registered: options.registered }),
+    ...(options.registration === undefined ? {} : { registration: options.registration }),
+  });
   const agent = Keypair.random();
   const recipient = Keypair.random().publicKey();
   addAccount(t.rpc, recipient, 1n);
@@ -140,6 +151,7 @@ export function payWorld(options: { readonly mirror?: ExecutionMirror } = {}): P
   const views = new Map<string, xdr.ScVal>();
   const refused: PayWorld['refused'] = new Map();
   const alerts: PayWorld['alerts'] = [];
+  const divergences: PayWorld['divergences'] = [];
   t.rpc.onSimulate = (tx) => {
     if (tx.operations[0]?.type !== 'invokeHostFunction') return undefined;
     const call = invoked(tx);
@@ -182,7 +194,11 @@ export function payWorld(options: { readonly mirror?: ExecutionMirror } = {}): P
     ports: {
       ...t.ports,
       signer,
-      alerts: { ...t.ports.alerts, batch: (e) => alerts.push(e) },
+      alerts: {
+        ...t.ports.alerts,
+        batch: (e) => alerts.push(e),
+        divergence: (e) => divergences.push(e),
+      },
     },
     requests: t.requests,
     methods: { destination: (_scope, id) => Promise.resolve(t.methods.get(id) ?? null) },
@@ -204,6 +220,7 @@ export function payWorld(options: { readonly mirror?: ExecutionMirror } = {}): P
     views,
     refused,
     alerts,
+    divergences,
   };
 }
 
