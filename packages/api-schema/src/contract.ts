@@ -17,6 +17,9 @@ export const PROBLEM_TITLES: Readonly<Record<ProblemCode, string>> = Object.free
   LIMIT_OUT_OF_RANGE: 'The limit must be from 1 to 200',
   INVALID_AMOUNT: 'The amount is not an integer count of minor units',
   INVALID_REQUEST: 'The request is not valid',
+  WEBHOOK_SIGNATURE_INVALID: 'The webhook signature is not valid',
+  WEBHOOK_PAYLOAD_INVALID: 'The webhook body is not valid',
+  WEBHOOK_REJECTED: 'The webhook is for another environment or flow',
   TOKEN_MALFORMED: 'The API key is missing or malformed',
   TOKEN_INVALID: 'The API key is not valid',
   TOKEN_ENVIRONMENT_MISMATCH: 'The API key is for another environment',
@@ -36,6 +39,7 @@ export const PROBLEM_TITLES: Readonly<Record<ProblemCode, string>> = Object.free
   DB_UNAVAILABLE: 'The service is temporarily unavailable',
   CHAIN_UNAVAILABLE: 'The network is temporarily unavailable',
   REQUEST_TIMEOUT: 'The request took too long',
+  WEBHOOK_UNAVAILABLE: 'This webhook cannot be received right now',
 });
 
 export interface FieldError {
