@@ -35,7 +35,44 @@ export interface TokenRecord {
   readonly revokedAt: Date | null;
 }
 
+export interface ResolvedInstance {
+  readonly principalId: string;
+  readonly projectId: string;
+  readonly mandateInstanceId: string;
+  readonly asset: string;
+  readonly scale: number;
+}
+
 export const entryPoints = {
+  // The tenant of a deployed contract, or undefined when it is not one of
+  // ours. This is how the indexer learns which context to write an event under,
+  // so only the indexer's login may call it.
+  resolveMandateInstance: async (
+    db: Tx,
+    chain: string,
+    contractAddress: string,
+  ): Promise<ResolvedInstance | undefined> => {
+    const result = await sql<{
+      principal_id: string;
+      project_id: string;
+      mandate_instance_id: string;
+      asset: string;
+      scale: number;
+    }>`
+      select principal_id, project_id, mandate_instance_id, asset, scale
+        from ujira.resolve_mandate_instance(${chain}, ${contractAddress})
+    `.execute(db);
+    const row = result.rows[0];
+    if (row === undefined) return undefined;
+    return {
+      principalId: row.principal_id,
+      projectId: row.project_id,
+      mandateInstanceId: row.mandate_instance_id,
+      asset: row.asset,
+      scale: row.scale,
+    };
+  },
+
   // The principal, its first project and its owner, all or none.
   createPrincipal: async (db: Tx, input: NewPrincipal): Promise<CreatedPrincipal> => {
     const result = await sql<{ principal_id: string; project_id: string }>`

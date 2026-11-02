@@ -40,6 +40,7 @@ export {
   entryPoints,
   type CreatedPrincipal,
   type NewPrincipal,
+  type ResolvedInstance,
   type TokenRecord,
 } from './repositories/entry-points.js';
 export {
@@ -48,6 +49,25 @@ export {
   type ExecutorLease,
   type RoutingConfig,
 } from './repositories/ops.js';
+export {
+  chainEvents,
+  deposits,
+  fundingSources,
+  instanceRoles,
+  mandateInstances,
+  mandates,
+  type ChainEvent,
+  type Deposit,
+  type FundingSource,
+  type InstanceRole,
+  type Mandate,
+  type MandateInstance,
+  type MandateRole,
+  type NewChainEvent,
+  type NewDeposit,
+  type NewMandateInstance,
+  type RoleGrant,
+} from './repositories/mandates.js';
 export {
   CONNECTION_BUDGET,
   loadDatabaseConfig,

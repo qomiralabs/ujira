@@ -25,6 +25,8 @@ export type JsonPrimitive = boolean | number | string | null;
 
 export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 
+export type Numeric = ColumnType<string, number | string, number | string>;
+
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
 export interface OpsChainCursors {
@@ -66,6 +68,21 @@ export interface UjiraApiTokens {
   secret_sha256: Buffer;
 }
 
+export interface UjiraChainEvents {
+  chain: string;
+  created_at: Generated<Timestamp>;
+  event_index: Int8;
+  event_type: string;
+  finalized_at: Timestamp;
+  id: Generated<string>;
+  ledger: Int8;
+  mandate_instance_id: string;
+  payload: Json;
+  principal_id: string;
+  project_id: string;
+  tx_hash: Buffer;
+}
+
 export interface UjiraChains {
   code: string;
 }
@@ -78,6 +95,63 @@ export interface UjiraCurrencies {
 export interface UjiraCurrencyScales {
   currency: string;
   scale: number;
+}
+
+export interface UjiraDeposits {
+  amount: Numeric;
+  asset: string;
+  chain: string;
+  chain_event_id: string;
+  created_at: Generated<Timestamp>;
+  from_address: string;
+  funding_source_id: string | null;
+  id: Generated<string>;
+  mandate_instance_id: string;
+  principal_id: string;
+  project_id: string;
+  scale: number;
+}
+
+export interface UjiraFundingSources {
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  kind: string;
+  mandate_instance_id: string;
+  principal_id: string;
+  project_id: string;
+}
+
+export interface UjiraMandateInstanceRoles {
+  address: string;
+  granted_event_id: string;
+  mandate_instance_id: string;
+  principal_id: string;
+  project_id: string;
+  revoked_event_id: string | null;
+  role: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface UjiraMandateInstances {
+  asset: string;
+  chain: string;
+  contract_address: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  mandate_id: string;
+  principal_id: string;
+  project_id: string;
+  scale: number;
+  spec_version: string;
+}
+
+export interface UjiraMandates {
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  name: string;
+  principal_id: string;
+  project_id: string;
+  updated_at: Generated<Timestamp>;
 }
 
 export interface UjiraMigrations {
@@ -103,7 +177,9 @@ export interface UjiraPrincipals {
 }
 
 export interface UjiraProjects {
+  chain_fallback: Generated<string>;
   created_at: Generated<Timestamp>;
+  funding_hold_max_seconds: Generated<Int8>;
   id: Generated<string>;
   name: string;
   principal_id: string;
@@ -130,9 +206,15 @@ export interface Schema {
   'ops.routing_config_versions': OpsRoutingConfigVersions;
   ujira_migrations: UjiraMigrations;
   'ujira.api_tokens': UjiraApiTokens;
+  'ujira.chain_events': UjiraChainEvents;
   'ujira.chains': UjiraChains;
   'ujira.currencies': UjiraCurrencies;
   'ujira.currency_scales': UjiraCurrencyScales;
+  'ujira.deposits': UjiraDeposits;
+  'ujira.funding_sources': UjiraFundingSources;
+  'ujira.mandate_instance_roles': UjiraMandateInstanceRoles;
+  'ujira.mandate_instances': UjiraMandateInstances;
+  'ujira.mandates': UjiraMandates;
   'ujira.principal_members': UjiraPrincipalMembers;
   'ujira.principals': UjiraPrincipals;
   'ujira.projects': UjiraProjects;
