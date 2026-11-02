@@ -8,6 +8,7 @@
 
 export { StellarMandateAdapter } from './mandate-adapter.js';
 export type { StellarMandateAdapterOptions, StellarMandateOperations } from './mandate-adapter.js';
+export { mandateAddressOf } from './mandate-address.js';
 export { createMemorySigningRequestStore } from './requests.js';
 export type {
   LoadedSigningRequest,

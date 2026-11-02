@@ -18,6 +18,7 @@ import { assembleTransaction } from '@stellar/stellar-sdk/rpc';
 
 import type { StellarNetworkConfig } from '../config.js';
 import {
+  InternalError,
   InvalidInputError,
   MandateUntrustedError,
   SignedPayloadMismatchError,
@@ -30,9 +31,10 @@ import {
   isChainAdapterError,
 } from '../errors.js';
 import type { StellarNetworkId } from '../networks.js';
-import { tenantRefOf } from '../tenant-ref.js';
+import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
 import type {
   AdapterPorts,
+  Bytes32,
   CallOptions,
   ChainAdapter,
   MandateActionRequest,
@@ -47,6 +49,7 @@ import type {
   TenantScope,
   UnixSeconds,
 } from '../types.js';
+import { addressXdr } from './address-xdr.js';
 import { invocationOf } from './calls.js';
 import { ExecutorSession, sendAndRecord } from './executor.js';
 import type { ExecutorContext } from './executor.js';
@@ -57,10 +60,10 @@ import type {
 } from './requests.js';
 import { archivedKeys, restoreAndExtend } from './restore.js';
 import { INSTANCE_TTL_EXTEND_LEDGERS, STELLAR_LEDGER_SECONDS } from './restore-policy.js';
+import { mandateAddressOf } from './mandate-address.js';
 import type { StellarRpc } from './rpc.js';
 import { asAddress } from './scval.js';
 import { MandateTrust } from './trust.js';
-import type { MandateInstance } from './trust.js';
 import {
   INCLUSION_FEE,
   PASSPHRASES,
@@ -203,6 +206,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
         network,
         factory: instance.factory,
         policyEpoch: state.policyEpoch,
+        tenantRef: tenantRefOf(req.scope),
       }),
       state,
       observedAt: {
@@ -228,9 +232,10 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     if (caller !== undefined && (caller.network !== network || caller.value !== signer)) {
       throw invalid(network, 'caller (not_signer)');
     }
-    const instance = await this.#mandateFor(req, opts);
+    const target = await this.#targetFor(req, opts);
     const inv = invocationOf(action, {
-      mandate: instance?.address ?? '',
+      mandate: target.address,
+      tenantTag: target.tenantTag,
       caller: signer,
       assetContract: config.assets.USDC.sac,
     });
@@ -257,7 +262,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
           session,
           {
             scope: req.scope,
-            target: { mandate: instance?.address ?? inv.contract, asset: config.assets.USDC.sac },
+            target: { mandate: target.address, asset: config.assets.USDC.sac },
             keys: archived,
             instanceTtlExtendLedgers: this.#ttlExtendLedgers,
             correlationId: opts.correlationId,
@@ -270,7 +275,12 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     const auth = (sim.result?.auth ?? []).map((entry) =>
       checkedEntry(network, entry, signer, viaWallet),
     );
-    const mandate = action.op === 'create' ? asAddress(returned(sim)) : (instance?.address ?? null);
+    // The tag in this call is bound to the address worked out above. If the
+    // factory would deploy anywhere else the tag would be wrong for good, so
+    // nothing is handed out to sign.
+    if (action.op === 'create' && asAddress(returned(sim)) !== target.address) {
+      throw new InternalError({ network });
+    }
     const fee = BigInt(sim.minResourceFee) + INCLUSION_FEE * 2n;
     if (fee > config.feeSponsor.maxFeePerTxStroops) throw new SponsorDeniedError({ network });
     const summary: SigningSummary = {
@@ -286,7 +296,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       scope: req.scope,
       network,
       op: action.op,
-      mandate,
+      mandate: target.address,
       payoutId: 'payoutId' in action ? action.payoutId : null,
       signer,
       fee,
@@ -354,7 +364,11 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     return resolved.value;
   }
 
-  async #mandateFor(req: MandateActionRequest, opts: CallOptions): Promise<MandateInstance | null> {
+  /** The mandate a request acts on: verified on chain, or for create, the one it will deploy. */
+  async #targetFor(
+    req: MandateActionRequest,
+    opts: CallOptions,
+  ): Promise<{ readonly address: string; readonly tenantTag: Bytes32 }> {
     const { network } = this;
     const { action } = req;
     if (action.op !== 'create') {
@@ -363,12 +377,18 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     }
     if (req.mandate !== null) throw invalid(network, 'mandate (not_null)');
     if (action.factory.network !== network) throw invalid(network, 'factory.network (mismatch)');
-    if (action.config.tenantRef !== tenantRefOf(req.scope))
-      throw new TenantMismatchError({ network });
+    const tenantRef = tenantRefOf(req.scope);
+    if (action.config.tenantRef !== tenantRef) throw new TenantMismatchError({ network });
     if (!(await this.#trust.isTrustedFactory(action.factory.value, opts))) {
       throw new MandateUntrustedError({ network });
     }
-    return null;
+    const address = mandateAddressOf(
+      network,
+      action.factory.value,
+      action.config.principal.value,
+      action.salt,
+    );
+    return { address, tenantTag: tenantTagOf(tenantRef, addressXdr(address)) };
   }
 
   // -------------------------------------------------------------------------

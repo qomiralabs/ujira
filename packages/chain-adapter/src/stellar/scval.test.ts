@@ -137,7 +137,7 @@ describe('mandate views', () => {
       principal: address('p', G),
       asset: address('a', C),
       recipient_mode: u32('m', mode),
-      tenant_ref: bytes32('t', `0x${'11'.repeat(32)}` as Bytes32),
+      tenant_tag: bytes32('t', `0x${'11'.repeat(32)}` as Bytes32),
       agents: vec([address('x', G)]),
       approvers: vec([]),
       approvals_required: u32('n', 0),
@@ -155,7 +155,12 @@ describe('mandate views', () => {
       agent_epoch: u32('a', 0),
       ...overrides,
     });
-  const ctx = { network: 'stellar:testnet' as const, factory: C, policyEpoch: 2 };
+  const ctx = {
+    network: 'stellar:testnet' as const,
+    factory: C,
+    policyEpoch: 2,
+    tenantRef: `0x${'44'.repeat(32)}` as Bytes32,
+  };
 
   it('reads the config with an attester and a proposed principal', () => {
     const view = configViewOf(config(2), ctx);
@@ -163,6 +168,8 @@ describe('mandate views', () => {
     expect(view.attester).toEqual(new Uint8Array(32).fill(3));
     expect(view.proposedPrincipal?.value).toBe(C);
     expect(view.policyEpoch).toBe(2);
+    // The reference the request brought, never read from the chain.
+    expect(view.tenantRef).toBe(ctx.tenantRef);
     expect(view.limits.payoutTtlSeconds).toBe(3600);
   });
 

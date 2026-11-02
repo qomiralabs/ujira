@@ -5,13 +5,17 @@ import { Address, xdr } from '@stellar/stellar-sdk/base';
 import { describe, expect, it } from 'vitest';
 
 import {
+  InternalError,
   InvalidInputError,
   MandateUntrustedError,
   TenantMismatchError,
   UnsupportedError,
 } from '../errors.js';
+import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
 import type { TenantScope, Uuid } from '../types.js';
+import { addressXdr } from './address-xdr.js';
 import { StellarMandateAdapter } from './mandate-adapter.js';
+import { fieldsOf, struct, unit } from './scval.js';
 import { OPTS, setup } from './test-adapter.js';
 import { FIXTURE_FACTORY } from './test-rpc.js';
 import { instanceKey } from './trust.js';
@@ -75,6 +79,7 @@ describe('readMandate', { timeout: 30_000 }, () => {
       'GAKNCMAXVSDXSSCG544P4E4CADBRGDHCCQX75U5KCTPHHOGDW6RPQQFG',
     ]);
     expect(snapshot.config.recipientMode).toBe('allowlist');
+    expect(snapshot.config.tenantRef).toBe(tenantRefOf(t.scope));
     expect(snapshot.config.approvalsRequired).toBe(1);
     expect(snapshot.config.limits.totalBudget).toMatchObject({
       amount: 10_000_000_000n,
@@ -179,6 +184,42 @@ describe('readMandate', { timeout: 30_000 }, () => {
     await expect(
       t.adapter.readMandate({ scope: other, mandate: t.mandate }, OPTS),
     ).rejects.toBeInstanceOf(TenantMismatchError);
+  });
+
+  it('refuses a tag copied from another mandate of the same tenant', async () => {
+    const t = setup();
+    const copied = tenantTagOf(tenantRefOf(t.scope), addressXdr(OTHER_FACTORY));
+    rewriteInstance(t.rpc, t.mandate.address.value, (instance) => {
+      const fixed = (instance.storage ?? []).find(
+        (e) => e.key.toXdr('base64') === unit('Fixed').toXdr('base64'),
+      );
+      if (fixed === undefined) throw new Error('no fixed entry');
+      return withStored(
+        'Fixed',
+        struct({
+          ...Object.fromEntries(fieldsOf(fixed.val)),
+          tenant_tag: xdr.ScVal.scvBytes(Buffer.from(copied.slice(2), 'hex')),
+        }),
+      )(instance);
+    });
+    await expect(
+      t.adapter.readMandate({ scope: t.scope, mandate: t.mandate }, OPTS),
+    ).rejects.toBeInstanceOf(TenantMismatchError);
+  });
+
+  it('refuses a mandate that still stores the reference rather than the tag', async () => {
+    const t = setup();
+    rewriteInstance(t.rpc, t.mandate.address.value, (instance) => {
+      const fixed = (instance.storage ?? []).find(
+        (e) => e.key.toXdr('base64') === unit('Fixed').toXdr('base64'),
+      );
+      if (fixed === undefined) throw new Error('no fixed entry');
+      const kept = [...fieldsOf(fixed.val)].filter(([name]) => name !== 'tenant_tag');
+      return withStored('Fixed', struct(Object.fromEntries(kept)))(instance);
+    });
+    await expect(
+      t.adapter.readMandate({ scope: t.scope, mandate: t.mandate }, OPTS),
+    ).rejects.toBeInstanceOf(InternalError);
   });
 
   it('refuses an unknown address, another network and a malformed address', async () => {

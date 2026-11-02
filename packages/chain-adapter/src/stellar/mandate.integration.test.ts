@@ -7,6 +7,10 @@
 // else, CI included, it is skipped. Secret keys are read into memory through
 // the CLI and never printed. With UJIRA_RECORD_FIXTURES=1 it also writes the
 // raw RPC answers of one read to fixtures/, for the offline read tests.
+//
+// The adapter writes the per mandate tenant tag. Until the factory is deployed
+// again with the wasm that takes it, this fails at create on testnet, because
+// the deployed wasm still expects the reference under its old field name.
 
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';

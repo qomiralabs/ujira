@@ -7,16 +7,20 @@
 // So the factory it names is only the start. A mandate is trusted when it
 // names a factory in the trusted list, runs exactly the code that factory
 // deploys, pays fees to that factory's fee address and settles in an asset
-// that factory supports. Such a contract behaves exactly as one the factory
-// created, whoever deployed it. Factory facts are fixed for the factory's
-// life, so they are read once and kept.
+// that factory supports. Such a contract runs the reviewed rules whoever
+// deployed it, which is what a call against it needs to know. It says nothing
+// about the contract's events: one deployed directly never got a mandate_created
+// from the factory, so only registration from that event may book events.
+// Factory facts are fixed for the factory's life, so they are read once and
+// kept.
 
 import { Address, xdr } from '@stellar/stellar-sdk/base';
 
 import { InvalidInputError, MandateUntrustedError, TenantMismatchError } from '../errors.js';
 import type { NetworkId } from '../networks.js';
-import { tenantRefOf } from '../tenant-ref.js';
+import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
 import type { Bytes32, CallOptions, MandateRef, TenantScope } from '../types.js';
+import { addressXdr } from './address-xdr.js';
 import type { StellarRpc } from './rpc.js';
 import { asAddress, asBytes32, asU32, asVec, field, fieldsOf, unit } from './scval.js';
 
@@ -25,7 +29,7 @@ export interface MandateInstance {
   readonly factory: string;
   readonly asset: string;
   readonly feeAddress: string;
-  readonly tenantRef: Bytes32;
+  readonly tenantTag: Bytes32;
   readonly recipientMode: number;
   readonly wasmHash: string;
 }
@@ -96,13 +100,17 @@ export class MandateTrust {
       factory: asAddress(field(fixed, 'factory')),
       asset: asAddress(field(fixed, 'asset')),
       feeAddress: asAddress(field(fixed, 'fee_address')),
-      tenantRef: asBytes32(field(fixed, 'tenant_ref')),
+      tenantTag: asBytes32(field(fixed, 'tenant_tag')),
       recipientMode: asU32(field(fixed, 'recipient_mode')),
       wasmHash: instance.wasmHash,
     };
     // The tenant comes first, so another tenant learns nothing about the
     // mandate, not even whether it is trusted.
-    if (facts.tenantRef !== tenantRefOf(scope)) throw new TenantMismatchError({ network });
+    // The tag is recomputed for this address, so one copied from another
+    // mandate of the same tenant does not pass either.
+    if (facts.tenantTag !== tenantTagOf(tenantRefOf(scope), addressXdr(mandate))) {
+      throw new TenantMismatchError({ network });
+    }
     if (!(await this.isTrusted(facts, opts))) throw new MandateUntrustedError({ network });
     return facts;
   }

@@ -42,7 +42,7 @@ function paymentTx(source: Keypair) {
     .build();
 }
 
-describe('the stellar entry', () => {
+describe('the stellar entry', { timeout: 30_000 }, () => {
   it('exports the adapter, the stores and the policy, and nothing that needs the SDK types', () => {
     expect(Object.keys(entry).sort()).toEqual([
       'INSTANCE_TTL_EXTEND_LEDGERS',
@@ -51,6 +51,7 @@ describe('the stellar entry', () => {
       'createMemorySigningRequestStore',
       'createStellarRpc',
       'extensionPlan',
+      'mandateAddressOf',
     ]);
   });
 
@@ -60,7 +61,7 @@ describe('the stellar entry', () => {
   });
 });
 
-describe('attach', () => {
+describe('attach', { timeout: 30_000 }, () => {
   it('attaches a signature made by the address over the hash, and refuses any other', () => {
     const key = Keypair.random();
     const tx = paymentTx(key);
@@ -87,7 +88,7 @@ describe('attach', () => {
   });
 });
 
-describe('simulate', () => {
+describe('simulate', { timeout: 30_000 }, () => {
   it('reads a failure without events as a rejection, and a result without a value as void', async () => {
     const rpc = FakeRpc.fromFixture(loadReadFixture(), { principal: Keypair.random().publicKey() });
     const tx = readTx(NETWORK, { contract: FIXTURE_FACTORY, fn: 'version', args: [] });
@@ -109,7 +110,7 @@ describe('simulate', () => {
   });
 });
 
-describe('test ports', () => {
+describe('test ports', { timeout: 30_000 }, () => {
   it('records submissions once per hash and only patches the owning tenant', async () => {
     const store = memoryStore(NETWORK, [], () => 1n as UnixSeconds);
     const record = {

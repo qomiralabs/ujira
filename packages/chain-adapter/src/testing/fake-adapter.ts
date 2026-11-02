@@ -17,7 +17,6 @@ import { money, moneyAt, tokenAmount } from '@ujira/core';
 import type { Chain, TokenAmount } from '@ujira/core';
 import { z } from 'zod';
 
-import { attestationMessage as buildAttestationMessage } from '../codecs/attestation.js';
 import { isAccountAddress, isContractAddress } from '../codecs/strkey.js';
 import type { StellarNetworkConfig } from '../config.js';
 import {
@@ -43,6 +42,7 @@ import { chainOf } from '../networks.js';
 import type { NetworkId } from '../networks.js';
 import { formatReceiptRef, parseReceiptRef } from '../receipt-ref.js';
 import type { AttestationFields, SignerProvider, SignerRef } from '../signer.js';
+import { stellarAttestationMessage } from '../stellar/attestation-message.js';
 import { parseStellarDestination } from '../stellar/parse-destination.js';
 import { CHAIN_ADAPTER_INTERFACE_VERSION } from '../types.js';
 import type {
@@ -339,10 +339,10 @@ export class FakeChainAdapter implements ChainAdapter {
     return parseStellarDestination(this.network, raw);
   }
 
-  // The same bytes the Stellar adapter builds, so attestations signed against
-  // the fake verify in the fake mandate exactly as real ones would on chain.
+  // The real encoder, not a copy: an attestation the fake accepts must be
+  // one the mandate on a real network would verify.
   attestationMessage(fields: AttestationFields): Uint8Array {
-    return buildAttestationMessage(fields);
+    return stellarAttestationMessage(fields);
   }
 
   // -------------------------------------------------------------------------

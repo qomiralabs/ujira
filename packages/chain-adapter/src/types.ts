@@ -478,6 +478,11 @@ export interface MandateConfigInput {
   /** Resolved to the network's token contract by the adapter. */
   readonly asset: TokenAsset;
   readonly recipientMode: 'allowlist' | 'attested' | 'both';
+  /**
+   * The tenant's own reference, which never reaches the chain. The mandate
+   * stores a tag derived from it and the mandate's address, and the adapter
+   * computes that tag itself.
+   */
   readonly tenantRef: Bytes32;
   readonly agents: readonly ChainAddress[];
   readonly approvers: readonly ChainAddress[];
@@ -653,7 +658,7 @@ export interface MandateSnapshot {
   readonly mandate: MandateRef;
   /** Created by a factory the config trusts for this mandate version. */
   readonly trustedFactory: boolean;
-  /** The on chain tenant reference matches the request scope. */
+  /** The tag the mandate stores is the one recomputed from the request scope and its address. */
   readonly tenantRefMatches: boolean;
   readonly asset: TokenAsset;
   readonly config: MandateConfigView;

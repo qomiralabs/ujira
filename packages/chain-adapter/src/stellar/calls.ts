@@ -10,7 +10,13 @@ import type { xdr } from '@stellar/stellar-sdk/base';
 import type { TokenAmount } from '@ujira/core';
 
 import { InvalidInputError } from '../errors.js';
-import type { LimitsInput, MandateAction, MandateConfigInput, RoleName } from '../types.js';
+import type {
+  Bytes32,
+  LimitsInput,
+  MandateAction,
+  MandateConfigInput,
+  RoleName,
+} from '../types.js';
 import {
   address,
   bytes,
@@ -31,8 +37,10 @@ export interface Invocation {
 }
 
 export interface CallContext {
-  /** The mandate's C address; unused for create. */
+  /** The mandate's C address; for create, the address it will be deployed at. */
   readonly mandate: string;
+  /** The tag bound to that address. Only create sends it; it is never sent as a reference. */
+  readonly tenantTag: Bytes32;
   /** The signing address, passed as `caller` where the call takes one. */
   readonly caller: string;
   /** The settlement asset's token contract. */
@@ -74,7 +82,11 @@ export function limitsScVal(limits: LimitsInput): xdr.ScVal {
   });
 }
 
-export function configScVal(config: MandateConfigInput, assetContract: string): xdr.ScVal {
+export function configScVal(
+  config: MandateConfigInput,
+  assetContract: string,
+  tenantTag: Bytes32,
+): xdr.ScVal {
   if ((config.asset as unknown) !== 'USDC') {
     throw new InvalidInputError({ issues: ['config.asset (invalid)'] });
   }
@@ -86,7 +98,7 @@ export function configScVal(config: MandateConfigInput, assetContract: string): 
     principal: address('config.principal', config.principal.value),
     asset: address('config.asset', assetContract),
     recipient_mode: u32('config.recipientMode', mode),
-    tenant_ref: bytes32('config.tenantRef', config.tenantRef),
+    tenant_tag: bytes32('tenantTag', tenantTag),
     agents: addresses('config.agents', config.agents),
     approvers: addresses('config.approvers', config.approvers),
     approvals_required: u32('config.approvalsRequired', config.approvalsRequired),
@@ -120,7 +132,10 @@ export function invocationOf(action: MandateAction, ctx: CallContext): Invocatio
       return {
         contract: action.factory.value,
         fn: 'create',
-        args: [configScVal(action.config, ctx.assetContract), bytes32('salt', action.salt)],
+        args: [
+          configScVal(action.config, ctx.assetContract, ctx.tenantTag),
+          bytes32('salt', action.salt),
+        ],
       };
     case 'pause':
     case 'sweep':

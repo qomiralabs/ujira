@@ -7,6 +7,7 @@ import { tokenAmount } from '@ujira/core';
 import { describe, expect, it } from 'vitest';
 
 import {
+  InternalError,
   InvalidInputError,
   MandateRuleError,
   MandateUntrustedError,
@@ -14,7 +15,7 @@ import {
   SubmissionRejectedError,
   TenantMismatchError,
 } from '../errors.js';
-import { tenantRefOf } from '../tenant-ref.js';
+import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
 import type {
   Bytes32,
   ChainAddress,
@@ -24,6 +25,9 @@ import type {
   SigningRequest,
   UnixSeconds,
 } from '../types.js';
+import { addressXdr } from './address-xdr.js';
+import { mandateAddressOf } from './mandate-address.js';
+import { asBytes32, field, fieldsOf } from './scval.js';
 import { NETWORK, OPTS, addAccount, setup } from './test-adapter.js';
 import type { TestSetup } from './test-adapter.js';
 import { FIXTURE_FACTORY, invoked } from './test-rpc.js';
@@ -218,10 +222,47 @@ describe('prepareMandateAction', { timeout: 30_000 }, () => {
       },
     };
     const signing = await t.adapter.prepareMandateAction(request(t, action), OPTS);
-    expect(callOf(signing)).toMatchObject({ contract: FIXTURE_FACTORY, fn: 'create' });
+    const call = callOf(signing);
+    expect(call).toMatchObject({ contract: FIXTURE_FACTORY, fn: 'create' });
     expect(signing.summary.mandate).toBeUndefined();
+    const deployed = mandateAddressOf(NETWORK, FIXTURE_FACTORY, t.principal.publicKey(), REF);
     const stored = await t.requests.load(t.scope, signing.requestId);
-    expect(stored?.request.mandate).toBe(Address.contract(Buffer.alloc(32, 7)).toString());
+    expect(stored?.request.mandate).toBe(deployed);
+
+    // The tag goes on chain, bound to that address. The reference never does.
+    const reference = tenantRefOf(t.scope);
+    const [configArg] = call.args;
+    if (configArg === undefined) throw new Error('create takes a config');
+    const fields = fieldsOf(configArg);
+    expect(asBytes32(field(fields, 'tenant_tag'))).toBe(
+      tenantTagOf(reference, addressXdr(deployed)),
+    );
+    expect(fields.has('tenant_ref')).toBe(false);
+    if (signing.kind !== 'stellar_transaction') throw new Error('expected a transaction');
+    expect(Buffer.from(signing.xdr, 'base64').toString('hex')).not.toContain(reference.slice(2));
+
+    // A factory that would deploy elsewhere would strand the tag, so nothing is handed out.
+    const elsewhere = setup();
+    const moved = {
+      ...action,
+      config: { ...action.config, principal: at(elsewhere.principal.publicKey()) },
+    };
+    elsewhere.rpc.onSimulate = (tx) =>
+      elsewhere.rpc.success(tx, Address.contract(Buffer.alloc(32, 7)).toScVal());
+    await expect(
+      elsewhere.adapter.prepareMandateAction(request(elsewhere, moved), OPTS),
+    ).rejects.toBeInstanceOf(InternalError);
+    expect(await elsewhere.requests.load(elsewhere.scope, 'req-1')).toBeNull();
+
+    await expect(
+      t.adapter.prepareMandateAction(request(t, { ...action, salt: '0x12' as Bytes32 }), OPTS),
+    ).rejects.toBeInstanceOf(InvalidInputError);
+    await expect(
+      t.adapter.prepareMandateAction(
+        request(t, { ...action, config: { ...action.config, principal: at('Gnope') } }),
+        OPTS,
+      ),
+    ).rejects.toBeInstanceOf(InvalidInputError);
 
     await expect(
       t.adapter.prepareMandateAction(

@@ -4,12 +4,45 @@
 import { describe, expect, it } from 'vitest';
 
 import { InvalidInputError } from './errors.js';
-import { tenantRefOf } from './tenant-ref.js';
-import type { TenantScope, Uuid } from './types.js';
+import { addressXdr } from './stellar/address-xdr.js';
+import { tenantRefOf, tenantTagOf } from './tenant-ref.js';
+import type { Bytes32, TenantScope, Uuid } from './types.js';
 
 const scope = (principalId: string, projectId: string): TenantScope => ({
   principalId: principalId as Uuid,
   projectId: projectId as Uuid,
+});
+
+describe('tenantTagOf', () => {
+  // The worked example the contracts publish with the derivation.
+  const reference = tenantRefOf(
+    scope('0b2f3c1e-6a4d-4e8b-9c71-5d2a8f3e4b10', '7c9e2a41-3b8f-4d6c-a1e5-92f04b7d8c33'),
+  );
+  const mandate = 'CDUKSTCG3XKTPTHMNRJZIW23J3T5DKHASDPQ3CIRKQ4YJH3PDOFFULZA';
+
+  it('matches the published worked example', () => {
+    expect(reference).toBe('0xb9f99412a39e190d3fd7c4401d98c5d8c94acae7612d698335ed637039fe6dee');
+    expect(Buffer.from(addressXdr(mandate)).toString('hex')).toBe(
+      '0000001200000001e8a94c46ddd537ccec6c53945b5b4ee7d1a8e090df0d89115439849f6f1b8a5a',
+    );
+    expect(tenantTagOf(reference, addressXdr(mandate))).toBe(
+      '0x2fff3250f540e461e527ed738e3436117a83261d8c9d9ea10f6262dff8c6e447',
+    );
+  });
+
+  it('gives two mandates of one tenant unrelated tags', () => {
+    const other = 'CAAVOGDGGM7JOLDS3CIQNPGSJOYFI54CJSAQQEFQKW7CES5UYIAZOYUQ';
+    expect(tenantTagOf(reference, addressXdr(other))).not.toBe(
+      tenantTagOf(reference, addressXdr(mandate)),
+    );
+  });
+
+  it('refuses a reference that is not 32 bytes of lowercase hex', () => {
+    expect(() => tenantTagOf('0x12' as Bytes32, addressXdr(mandate))).toThrow(InvalidInputError);
+    expect(() => tenantTagOf(7 as unknown as Bytes32, addressXdr(mandate))).toThrow(
+      InvalidInputError,
+    );
+  });
 });
 
 describe('tenantRefOf', () => {
