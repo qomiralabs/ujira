@@ -13,6 +13,11 @@
 // suite notices a store that does not enforce it.
 
 import { InvalidInputError } from '../errors.js';
+import {
+  LIVE_SUBMISSION_STATES,
+  SUBMISSION_TRANSITIONS,
+  isLiveSubmission,
+} from '../submission-states.js';
 import type { NetworkId } from '../networks.js';
 import type {
   AdapterStore,
@@ -43,28 +48,7 @@ export const STORE_RULES = Object.freeze([
 
 export type StoreRule = (typeof STORE_RULES)[number];
 
-/** States in which a submission can still land, and so blocks another. */
-export const LIVE_SUBMISSION_STATES: readonly SubmissionState[] = Object.freeze([
-  'built',
-  'broadcast',
-  'unknown',
-]);
-
-/** Every move a submission may make. Anything else is backward or sideways. */
-export const SUBMISSION_TRANSITIONS: Readonly<Record<SubmissionState, readonly SubmissionState[]>> =
-  Object.freeze({
-    built: ['broadcast'],
-    broadcast: ['landed', 'failed', 'unknown', 'expired', 'replaced'],
-    unknown: ['landed', 'failed', 'expired'],
-    landed: [],
-    failed: [],
-    expired: [],
-    replaced: [],
-  });
-
-export function isLiveSubmission(state: SubmissionState): boolean {
-  return LIVE_SUBMISSION_STATES.includes(state);
-}
+export { LIVE_SUBMISSION_STATES, SUBMISSION_TRANSITIONS, isLiveSubmission };
 
 export interface FakeExecutorAccount {
   readonly address: ChainAddress;

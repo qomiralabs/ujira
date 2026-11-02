@@ -49,6 +49,7 @@ describe('executor lease fencing', { timeout: 30_000 }, () => {
         wait: { attempts: 1, intervalMs: 0, sleep: () => Promise.resolve() },
         leaseSeconds: 60,
         submitTimeoutMs: 1000,
+        lowBalanceAlerted: new Set(),
       },
       OPTS,
       (session) => {
