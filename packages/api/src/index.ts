@@ -30,7 +30,13 @@ export type { ApiErrorOptions } from './errors.js';
 export { errorNameOf, jsonLogger, memoryLogger, stdoutLogger } from './log.js';
 export type { LogFields, LogLevel, LogRecord, Logger, RequestLog } from './log.js';
 export { OPENAPI_PATH, buildOpenApiDocument, withOpenApiRoute } from './openapi.js';
-export { contractRoute, definePublicRoute, defineTenantRoute, queryParser } from './route.js';
+export {
+  contractRoute,
+  definePublicRoute,
+  defineTenantRoute,
+  defineWebhookRoute,
+  queryParser,
+} from './route.js';
 export type {
   Access,
   HttpMethod,
@@ -40,7 +46,15 @@ export type {
   RouteInput,
   SuccessStatus,
   TenantRequestContext,
+  WebhookInput,
 } from './route.js';
-export { V1_ROUTES } from './routes/index.js';
+export { V1_ROUTES, v1Routes } from './routes/index.js';
+export type { RouteDependencies } from './routes/index.js';
+export {
+  SELF_WEBHOOK_NOT_CONFIGURED,
+  SELF_WEBHOOK_PATH,
+  selfWebhookRoute,
+} from './routes/self-webhook.js';
+export type { SelfWebhookHandler } from './routes/self-webhook.js';
 export { startServer } from './serve.js';
 export type { RunningServer, ServeOptions } from './serve.js';
