@@ -101,7 +101,7 @@ describe('grants on ujira', () => {
       expect(mine).toContainEqual({ object: 'schema ujira', grantee: role, privilege: 'USAGE' });
       const relations = mine.filter((grant) => grant.object.startsWith('relation '));
       expect(relations.length).toBeGreaterThan(0);
-      if (role !== 'ujira_app') {
+      if (role !== 'ujira_app' && role !== 'ujira_indexer') {
         expect(relations.filter((grant) => grant.privilege !== 'SELECT')).toEqual([]);
       }
     }
@@ -109,7 +109,7 @@ describe('grants on ujira', () => {
 
   it('gives the roles with no tables of their own yet read access to the reference data only', async () => {
     const all = await grants();
-    for (const role of ['ujira_retention', 'ujira_auth', 'ujira_indexer']) {
+    for (const role of ['ujira_retention', 'ujira_auth']) {
       const relations = all
         .filter((grant) => grant.grantee === role && grant.object.startsWith('relation '))
         .map((grant) => grant.object)
@@ -124,7 +124,7 @@ describe('grants on ujira', () => {
     }
   });
 
-  it('lets service roles call the context functions and the two entry points, and nothing else', async () => {
+  it('lets service roles call the context functions and their own entry points, and nothing else', async () => {
     const executable = (role: string) =>
       grants().then((all) =>
         all
@@ -147,6 +147,10 @@ describe('grants on ujira', () => {
       ...context,
     ]);
     expect(await executable('ujira_reader')).toEqual(context);
+    expect(await executable('ujira_indexer')).toEqual([
+      ...context,
+      'function ujira.resolve_mandate_instance(text,text)',
+    ]);
   });
 });
 
@@ -164,6 +168,7 @@ describe('roles', () => {
     expect(roles.rows.map((role) => role.rolname)).toEqual([
       'ujira_app',
       'ujira_auth',
+      'ujira_fn_instances',
       'ujira_fn_principals',
       'ujira_fn_tokens',
       'ujira_indexer',
@@ -173,7 +178,12 @@ describe('roles', () => {
       'ujira_reader',
       'ujira_retention',
     ]);
-    const nologin = new Set(['ujira_owner', 'ujira_fn_principals', 'ujira_fn_tokens']);
+    const nologin = new Set([
+      'ujira_owner',
+      'ujira_fn_instances',
+      'ujira_fn_principals',
+      'ujira_fn_tokens',
+    ]);
     for (const role of roles.rows) {
       expect(role.rolsuper, role.rolname).toBe(false);
       expect(role.rolbypassrls, role.rolname).toBe(false);
@@ -191,6 +201,7 @@ describe('roles', () => {
     expect(definers.rows).toEqual([
       { fn: 'ujira.authenticate_token(text)', owner: 'ujira_fn_tokens' },
       { fn: 'ujira.create_principal(text,text,uuid,text)', owner: 'ujira_fn_principals' },
+      { fn: 'ujira.resolve_mandate_instance(text,text)', owner: 'ujira_fn_instances' },
     ]);
     // Each holds only what its one function needs, and never CREATE.
     const rights = await client.query<{ grantee: string; object: string; privilege: string }>(
@@ -202,6 +213,7 @@ describe('roles', () => {
         order by 1, 2, 3`,
     );
     expect(rights.rows).toEqual([
+      { grantee: 'ujira_fn_instances', object: 'mandate_instances', privilege: 'SELECT' },
       { grantee: 'ujira_fn_principals', object: 'principal_members', privilege: 'INSERT' },
       { grantee: 'ujira_fn_principals', object: 'principals', privilege: 'INSERT' },
       { grantee: 'ujira_fn_principals', object: 'projects', privilege: 'INSERT' },

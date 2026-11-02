@@ -399,6 +399,23 @@ $$;
 ALTER FUNCTION ujira.project_scope_all() OWNER TO ujira_owner;
 
 --
+-- Name: resolve_mandate_instance(text, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_instances
+--
+
+CREATE FUNCTION ujira.resolve_mandate_instance(target_chain text, target_address text) RETURNS TABLE(principal_id uuid, project_id uuid, mandate_instance_id uuid, asset text, scale smallint)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select i.principal_id, i.project_id, i.id, i.asset, i.scale::smallint
+    from ujira.mandate_instances as i
+   where i.chain = target_chain
+     and i.contract_address = target_address
+$$;
+
+
+ALTER FUNCTION ujira.resolve_mandate_instance(target_chain text, target_address text) OWNER TO ujira_fn_instances;
+
+--
 -- Name: touch(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -553,6 +570,33 @@ ALTER TABLE ONLY ujira.api_tokens FORCE ROW LEVEL SECURITY;
 ALTER TABLE ujira.api_tokens OWNER TO ujira_owner;
 
 --
+-- Name: chain_events; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.chain_events (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    mandate_instance_id uuid NOT NULL,
+    chain text NOT NULL,
+    tx_hash ujira.hash32 NOT NULL,
+    event_index bigint NOT NULL,
+    ledger bigint NOT NULL,
+    event_type text NOT NULL,
+    payload jsonb NOT NULL,
+    finalized_at timestamp with time zone NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT chain_events_index_positive CHECK ((event_index >= 0)),
+    CONSTRAINT chain_events_ledger_positive CHECK ((ledger >= 0)),
+    CONSTRAINT chain_events_type_length CHECK (((char_length(event_type) >= 1) AND (char_length(event_type) <= 64)))
+);
+
+ALTER TABLE ONLY ujira.chain_events FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.chain_events OWNER TO ujira_owner;
+
+--
 -- Name: chains; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -588,6 +632,116 @@ CREATE TABLE ujira.currency_scales (
 
 
 ALTER TABLE ujira.currency_scales OWNER TO ujira_owner;
+
+--
+-- Name: deposits; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.deposits (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    mandate_instance_id uuid NOT NULL,
+    funding_source_id uuid,
+    chain_event_id uuid NOT NULL,
+    amount ujira.amount NOT NULL,
+    asset text NOT NULL,
+    chain text NOT NULL,
+    scale ujira.scale NOT NULL,
+    from_address text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT deposits_amount_positive CHECK (((amount)::numeric > (0)::numeric)),
+    CONSTRAINT deposits_from_length CHECK (((char_length(from_address) >= 1) AND (char_length(from_address) <= 128)))
+);
+
+ALTER TABLE ONLY ujira.deposits FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.deposits OWNER TO ujira_owner;
+
+--
+-- Name: funding_sources; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.funding_sources (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    mandate_instance_id uuid NOT NULL,
+    kind text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT funding_sources_kind CHECK ((kind = 'stablecoin_deposit'::text))
+);
+
+ALTER TABLE ONLY ujira.funding_sources FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.funding_sources OWNER TO ujira_owner;
+
+--
+-- Name: mandate_instance_roles; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.mandate_instance_roles (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    mandate_instance_id uuid NOT NULL,
+    role text NOT NULL,
+    address text NOT NULL,
+    granted_event_id uuid NOT NULL,
+    revoked_event_id uuid,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT mandate_instance_roles_address_length CHECK (((char_length(address) >= 1) AND (char_length(address) <= 128))),
+    CONSTRAINT mandate_instance_roles_role CHECK ((role = ANY (ARRAY['agent'::text, 'approver'::text, 'guardian'::text, 'executor'::text, 'recovery'::text])))
+);
+
+ALTER TABLE ONLY ujira.mandate_instance_roles FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.mandate_instance_roles OWNER TO ujira_owner;
+
+--
+-- Name: mandate_instances; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.mandate_instances (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    mandate_id uuid NOT NULL,
+    chain text NOT NULL,
+    contract_address text NOT NULL,
+    spec_version text NOT NULL,
+    asset text NOT NULL,
+    scale ujira.scale NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT mandate_instances_address_length CHECK (((char_length(contract_address) >= 1) AND (char_length(contract_address) <= 128))),
+    CONSTRAINT mandate_instances_spec_length CHECK (((char_length(spec_version) >= 1) AND (char_length(spec_version) <= 32)))
+);
+
+ALTER TABLE ONLY ujira.mandate_instances FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.mandate_instances OWNER TO ujira_owner;
+
+--
+-- Name: mandates; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.mandates (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    name text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT mandates_name_length CHECK (((char_length(name) >= 1) AND (char_length(name) <= 200)))
+);
+
+ALTER TABLE ONLY ujira.mandates FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.mandates OWNER TO ujira_owner;
 
 --
 -- Name: principal_members; Type: TABLE; Schema: ujira; Owner: ujira_owner
@@ -635,6 +789,10 @@ CREATE TABLE ujira.projects (
     name text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    chain_fallback text DEFAULT 'off'::text NOT NULL,
+    funding_hold_max_seconds bigint DEFAULT 1209600 NOT NULL,
+    CONSTRAINT projects_chain_fallback CHECK ((chain_fallback = ANY (ARRAY['off'::text, 'verified_methods'::text]))),
+    CONSTRAINT projects_funding_hold_range CHECK (((funding_hold_max_seconds >= 3600) AND (funding_hold_max_seconds <= 2592000))),
     CONSTRAINT projects_name_length CHECK (((char_length(name) >= 1) AND (char_length(name) <= 200)))
 );
 
@@ -744,6 +902,30 @@ ALTER TABLE ONLY ujira.api_tokens
 
 
 --
+-- Name: chain_events chain_events_once; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.chain_events
+    ADD CONSTRAINT chain_events_once UNIQUE (chain, tx_hash, event_index);
+
+
+--
+-- Name: chain_events chain_events_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.chain_events
+    ADD CONSTRAINT chain_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: chain_events chain_events_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.chain_events
+    ADD CONSTRAINT chain_events_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
 -- Name: chains chains_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -765,6 +947,118 @@ ALTER TABLE ONLY ujira.currencies
 
 ALTER TABLE ONLY ujira.currency_scales
     ADD CONSTRAINT currency_scales_pkey PRIMARY KEY (currency, scale);
+
+
+--
+-- Name: deposits deposits_per_event; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.deposits
+    ADD CONSTRAINT deposits_per_event UNIQUE (principal_id, project_id, chain_event_id);
+
+
+--
+-- Name: deposits deposits_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.deposits
+    ADD CONSTRAINT deposits_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: deposits deposits_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.deposits
+    ADD CONSTRAINT deposits_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
+-- Name: funding_sources funding_sources_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_sources
+    ADD CONSTRAINT funding_sources_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: funding_sources funding_sources_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_sources
+    ADD CONSTRAINT funding_sources_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
+-- Name: mandate_instance_roles mandate_instance_roles_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_instance_roles
+    ADD CONSTRAINT mandate_instance_roles_pkey PRIMARY KEY (principal_id, project_id, mandate_instance_id, role, address);
+
+
+--
+-- Name: mandate_instances mandate_instances_address_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_instances
+    ADD CONSTRAINT mandate_instances_address_key UNIQUE (chain, contract_address);
+
+
+--
+-- Name: mandate_instances mandate_instances_chain_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_instances
+    ADD CONSTRAINT mandate_instances_chain_key UNIQUE (principal_id, project_id, id, chain);
+
+
+--
+-- Name: mandate_instances mandate_instances_per_asset; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_instances
+    ADD CONSTRAINT mandate_instances_per_asset UNIQUE (principal_id, project_id, mandate_id, chain, asset);
+
+
+--
+-- Name: mandate_instances mandate_instances_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_instances
+    ADD CONSTRAINT mandate_instances_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: mandate_instances mandate_instances_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_instances
+    ADD CONSTRAINT mandate_instances_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
+-- Name: mandate_instances mandate_instances_unit_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_instances
+    ADD CONSTRAINT mandate_instances_unit_key UNIQUE (principal_id, project_id, id, chain, asset, scale);
+
+
+--
+-- Name: mandates mandates_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandates
+    ADD CONSTRAINT mandates_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: mandates mandates_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandates
+    ADD CONSTRAINT mandates_tenant_key UNIQUE (principal_id, project_id, id);
 
 
 --
@@ -824,6 +1118,20 @@ ALTER TABLE ONLY ujira.status_transitions
 
 
 --
+-- Name: chain_events_by_instance; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX chain_events_by_instance ON ujira.chain_events USING btree (principal_id, project_id, mandate_instance_id, ledger, event_index);
+
+
+--
+-- Name: deposits_by_instance; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX deposits_by_instance ON ujira.deposits USING btree (principal_id, project_id, mandate_instance_id, created_at);
+
+
+--
 -- Name: chain_cursors chain_cursors_touch; Type: TRIGGER; Schema: ops; Owner: ujira_owner
 --
 
@@ -849,6 +1157,48 @@ CREATE TRIGGER routing_config_versions_append_only BEFORE DELETE OR UPDATE ON op
 --
 
 CREATE TRIGGER api_tokens_keep_revoked BEFORE UPDATE ON ujira.api_tokens FOR EACH ROW EXECUTE FUNCTION ujira.keep_token_revoked();
+
+
+--
+-- Name: chain_events chain_events_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER chain_events_append_only BEFORE DELETE OR UPDATE ON ujira.chain_events FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: chain_events chain_events_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER chain_events_no_truncate BEFORE TRUNCATE ON ujira.chain_events FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: deposits deposits_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER deposits_append_only BEFORE DELETE OR UPDATE ON ujira.deposits FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: deposits deposits_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER deposits_no_truncate BEFORE TRUNCATE ON ujira.deposits FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: mandate_instance_roles mandate_instance_roles_touch; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER mandate_instance_roles_touch BEFORE UPDATE ON ujira.mandate_instance_roles FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
+-- Name: mandates mandates_touch; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER mandates_touch BEFORE UPDATE ON ujira.mandates FOR EACH ROW EXECUTE FUNCTION ujira.touch();
 
 
 --
@@ -896,11 +1246,107 @@ ALTER TABLE ONLY ujira.api_tokens
 
 
 --
+-- Name: chain_events chain_events_principal_id_project_id_mandate_instance_id_c_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.chain_events
+    ADD CONSTRAINT chain_events_principal_id_project_id_mandate_instance_id_c_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id, chain) REFERENCES ujira.mandate_instances(principal_id, project_id, id, chain);
+
+
+--
 -- Name: currency_scales currency_scales_currency_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
 ALTER TABLE ONLY ujira.currency_scales
     ADD CONSTRAINT currency_scales_currency_fkey FOREIGN KEY (currency) REFERENCES ujira.currencies(code);
+
+
+--
+-- Name: deposits deposits_asset_chain_scale_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.deposits
+    ADD CONSTRAINT deposits_asset_chain_scale_fkey FOREIGN KEY (asset, chain, scale) REFERENCES ujira.settlement_tokens(asset, chain, token_scale);
+
+
+--
+-- Name: deposits deposits_principal_id_project_id_chain_event_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.deposits
+    ADD CONSTRAINT deposits_principal_id_project_id_chain_event_id_fkey FOREIGN KEY (principal_id, project_id, chain_event_id) REFERENCES ujira.chain_events(principal_id, project_id, id);
+
+
+--
+-- Name: deposits deposits_principal_id_project_id_funding_source_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.deposits
+    ADD CONSTRAINT deposits_principal_id_project_id_funding_source_id_fkey FOREIGN KEY (principal_id, project_id, funding_source_id) REFERENCES ujira.funding_sources(principal_id, project_id, id);
+
+
+--
+-- Name: deposits deposits_principal_id_project_id_mandate_instance_id_chain_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.deposits
+    ADD CONSTRAINT deposits_principal_id_project_id_mandate_instance_id_chain_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id, chain, asset, scale) REFERENCES ujira.mandate_instances(principal_id, project_id, id, chain, asset, scale);
+
+
+--
+-- Name: funding_sources funding_sources_principal_id_project_id_mandate_instance_i_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_sources
+    ADD CONSTRAINT funding_sources_principal_id_project_id_mandate_instance_i_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id) REFERENCES ujira.mandate_instances(principal_id, project_id, id);
+
+
+--
+-- Name: mandate_instance_roles mandate_instance_roles_principal_id_project_id_granted_eve_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_instance_roles
+    ADD CONSTRAINT mandate_instance_roles_principal_id_project_id_granted_eve_fkey FOREIGN KEY (principal_id, project_id, granted_event_id) REFERENCES ujira.chain_events(principal_id, project_id, id);
+
+
+--
+-- Name: mandate_instance_roles mandate_instance_roles_principal_id_project_id_mandate_ins_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_instance_roles
+    ADD CONSTRAINT mandate_instance_roles_principal_id_project_id_mandate_ins_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id) REFERENCES ujira.mandate_instances(principal_id, project_id, id);
+
+
+--
+-- Name: mandate_instance_roles mandate_instance_roles_principal_id_project_id_revoked_eve_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_instance_roles
+    ADD CONSTRAINT mandate_instance_roles_principal_id_project_id_revoked_eve_fkey FOREIGN KEY (principal_id, project_id, revoked_event_id) REFERENCES ujira.chain_events(principal_id, project_id, id);
+
+
+--
+-- Name: mandate_instances mandate_instances_asset_chain_scale_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_instances
+    ADD CONSTRAINT mandate_instances_asset_chain_scale_fkey FOREIGN KEY (asset, chain, scale) REFERENCES ujira.settlement_tokens(asset, chain, token_scale);
+
+
+--
+-- Name: mandate_instances mandate_instances_principal_id_project_id_mandate_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_instances
+    ADD CONSTRAINT mandate_instances_principal_id_project_id_mandate_id_fkey FOREIGN KEY (principal_id, project_id, mandate_id) REFERENCES ujira.mandates(principal_id, project_id, id);
+
+
+--
+-- Name: mandates mandates_principal_id_project_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandates
+    ADD CONSTRAINT mandates_principal_id_project_id_fkey FOREIGN KEY (principal_id, project_id) REFERENCES ujira.projects(principal_id, id);
 
 
 --
@@ -941,6 +1387,12 @@ CREATE POLICY authenticate ON ujira.api_tokens FOR SELECT TO ujira_fn_tokens USI
 
 
 --
+-- Name: chain_events; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.chain_events ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: principal_members create_principal; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -962,10 +1414,131 @@ CREATE POLICY create_principal ON ujira.projects FOR INSERT TO ujira_fn_principa
 
 
 --
+-- Name: deposits; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.deposits ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: funding_sources; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.funding_sources ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: chain_events indexer_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY indexer_insert ON ujira.chain_events FOR INSERT TO ujira_indexer WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: deposits indexer_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY indexer_insert ON ujira.deposits FOR INSERT TO ujira_indexer WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: mandate_instance_roles indexer_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY indexer_insert ON ujira.mandate_instance_roles FOR INSERT TO ujira_indexer WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: chain_events indexer_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY indexer_read ON ujira.chain_events FOR SELECT TO ujira_indexer USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: deposits indexer_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY indexer_read ON ujira.deposits FOR SELECT TO ujira_indexer USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: mandate_instance_roles indexer_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY indexer_read ON ujira.mandate_instance_roles FOR SELECT TO ujira_indexer USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: mandate_instance_roles indexer_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY indexer_update ON ujira.mandate_instance_roles FOR UPDATE TO ujira_indexer USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: mandate_instance_roles; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.mandate_instance_roles ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: mandate_instances; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.mandate_instances ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: mandates; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.mandates ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: api_tokens owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY owner_all ON ujira.api_tokens TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: chain_events owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.chain_events TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: deposits owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.deposits TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: funding_sources owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.funding_sources TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: mandate_instance_roles owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.mandate_instance_roles TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: mandate_instances owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.mandate_instances TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: mandates owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.mandates TO ujira_owner USING (true) WITH CHECK (true);
 
 
 --
@@ -1008,10 +1581,59 @@ ALTER TABLE ujira.principals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ujira.projects ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: mandate_instances resolve_instance; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY resolve_instance ON ujira.mandate_instances FOR SELECT TO ujira_fn_instances USING (true);
+
+
+--
 -- Name: api_tokens tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY tenant_insert ON ujira.api_tokens FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: chain_events tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.chain_events FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: deposits tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.deposits FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: funding_sources tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.funding_sources FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: mandate_instance_roles tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.mandate_instance_roles FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: mandate_instances tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.mandate_instances FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: mandates tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.mandates FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -1033,6 +1655,48 @@ CREATE POLICY tenant_insert ON ujira.projects FOR INSERT TO ujira_app WITH CHECK
 --
 
 CREATE POLICY tenant_read ON ujira.api_tokens FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: chain_events tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.chain_events FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: deposits tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.deposits FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: funding_sources tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.funding_sources FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: mandate_instance_roles tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.mandate_instance_roles FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: mandate_instances tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.mandate_instances FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: mandates tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.mandates FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
 
 
 --
@@ -1061,6 +1725,48 @@ CREATE POLICY tenant_read ON ujira.projects FOR SELECT TO ujira_app, ujira_reade
 --
 
 CREATE POLICY tenant_update ON ujira.api_tokens FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: chain_events tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.chain_events FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: deposits tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.deposits FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: funding_sources tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.funding_sources FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: mandate_instance_roles tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.mandate_instance_roles FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: mandate_instances tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.mandate_instances FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: mandates tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.mandates FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -1103,6 +1809,7 @@ GRANT USAGE ON SCHEMA ujira TO ujira_auth;
 GRANT USAGE ON SCHEMA ujira TO ujira_indexer;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_principals;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_tokens;
+GRANT USAGE ON SCHEMA ujira TO ujira_fn_instances;
 
 
 --
@@ -1254,6 +1961,14 @@ GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_indexer;
 
 
 --
+-- Name: FUNCTION resolve_mandate_instance(target_chain text, target_address text); Type: ACL; Schema: ujira; Owner: ujira_fn_instances
+--
+
+REVOKE ALL ON FUNCTION ujira.resolve_mandate_instance(target_chain text, target_address text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.resolve_mandate_instance(target_chain text, target_address text) TO ujira_indexer;
+
+
+--
 -- Name: FUNCTION touch(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1298,6 +2013,15 @@ GRANT SELECT ON TABLE ujira.api_tokens TO ujira_fn_tokens;
 
 
 --
+-- Name: TABLE chain_events; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT ON TABLE ujira.chain_events TO ujira_app;
+GRANT SELECT ON TABLE ujira.chain_events TO ujira_reader;
+GRANT SELECT,INSERT ON TABLE ujira.chain_events TO ujira_indexer;
+
+
+--
 -- Name: TABLE chains; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1328,6 +2052,49 @@ GRANT SELECT ON TABLE ujira.currency_scales TO ujira_reader;
 GRANT SELECT ON TABLE ujira.currency_scales TO ujira_retention;
 GRANT SELECT ON TABLE ujira.currency_scales TO ujira_auth;
 GRANT SELECT ON TABLE ujira.currency_scales TO ujira_indexer;
+
+
+--
+-- Name: TABLE deposits; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT ON TABLE ujira.deposits TO ujira_app;
+GRANT SELECT ON TABLE ujira.deposits TO ujira_reader;
+GRANT SELECT,INSERT ON TABLE ujira.deposits TO ujira_indexer;
+
+
+--
+-- Name: TABLE funding_sources; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.funding_sources TO ujira_app;
+GRANT SELECT ON TABLE ujira.funding_sources TO ujira_reader;
+
+
+--
+-- Name: TABLE mandate_instance_roles; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT ON TABLE ujira.mandate_instance_roles TO ujira_app;
+GRANT SELECT ON TABLE ujira.mandate_instance_roles TO ujira_reader;
+GRANT SELECT,INSERT,UPDATE ON TABLE ujira.mandate_instance_roles TO ujira_indexer;
+
+
+--
+-- Name: TABLE mandate_instances; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.mandate_instances TO ujira_app;
+GRANT SELECT ON TABLE ujira.mandate_instances TO ujira_reader;
+GRANT SELECT ON TABLE ujira.mandate_instances TO ujira_fn_instances;
+
+
+--
+-- Name: TABLE mandates; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE ujira.mandates TO ujira_app;
+GRANT SELECT ON TABLE ujira.mandates TO ujira_reader;
 
 
 --
