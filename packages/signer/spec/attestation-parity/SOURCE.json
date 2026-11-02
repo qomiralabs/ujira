@@ -1,0 +1,7 @@
+{
+  "repository": "qomiralabs/ujira-contracts",
+  "commit": "ed7938ff724d2b742174e0624297eee59b97b1c7",
+  "path": "spikes/attestation-parity/fixture.json",
+  "sha256": "daa0022f7156c1e13bfa618f41280cdaf03057e14360abe0a040eee8ac5e958c",
+  "note": "Copied byte for byte. Test only: every key in the fixture is derived from a public label."
+}

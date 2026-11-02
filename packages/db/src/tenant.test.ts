@@ -55,6 +55,11 @@ describe('beginWithTenant', () => {
     expect(beginWithTenant(context({ scope }))).toContain(`set_config('ujira.scope', '${scope}'`);
   });
 
+  it('opens scope all read only, and scope project read write', () => {
+    expect(beginWithTenant(context({ scope: 'all' })).startsWith('begin read only;')).toBe(true);
+    expect(beginWithTenant(context({ scope: 'project' })).startsWith('begin;')).toBe(true);
+  });
+
   it.each([
     ['an empty principal', { principalId: '' }],
     ['an empty project', { projectId: '' }],

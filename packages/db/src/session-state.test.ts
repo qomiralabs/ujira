@@ -236,3 +236,29 @@ describe('the type prefixed literal code review proved live', () => {
     expect(holdsSessionState("select table'a\\'; set role app")).toBe(true);
   });
 });
+
+describe("an update's set clause", () => {
+  // The SET of an UPDATE assigns columns of a row and changes nothing about
+  // the session. The guard read it as a session level SET, so every update
+  // the query layer sent was refused, which the tenant context tests found.
+  it.each([
+    'update ujira.notes set principal_id = $1, project_id = $2 where body = $3',
+    'update "ujira"."notes" set "body" = $1 where "id" = $2',
+    'update only ujira.notes set body = $1',
+    'update ujira.notes as n set body = $1 from ujira.other o where o.id = n.id',
+    'update ujira.notes n set body = $1',
+    'insert into ujira.notes (id, body) values ($1, $2) on conflict (id) do update set body = excluded.body',
+    'with moved as (update ujira.notes set body = $1 returning id) select id from moved',
+  ])('allows %s', (sql) => {
+    expect(holdsSessionState(sql)).toBe(false);
+  });
+
+  it.each([
+    "update ujira.notes set body = 'x'; set ujira.principal_id = 'attacker'",
+    "update ujira.notes set body = 'x'; set role app",
+    "insert into ujira.notes values (1) on conflict do nothing; set ujira.scope = 'all'",
+    "select 1 from updates set_x; set ujira.principal_id = 'attacker'",
+  ])('still refuses a session set that follows one: %s', (sql) => {
+    expect(holdsSessionState(sql)).toBe(true);
+  });
+});

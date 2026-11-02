@@ -80,7 +80,9 @@ jobs:
   verify:
     name: Verify
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # Runs take just under 10 minutes on the current tree. This limit is here to
+    # catch a hang, so bring the duration down rather than raising it again.
+    timeout-minutes: 15
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -178,50 +180,12 @@ jobs:
             exit 1
           fi
 
-      # This ceiling has been raised once already, from the runner's default
-      # of about 2 GB to 6 GB, in #338. If you are here to raise it again,
-      # the growth is the problem rather than the number.
-      #
-      # The type aware lint builds one TypeScript program per workspace
-      # member and holds them all at once, so its peak memory grows with the
-      # workspace. Two different measurements on two different machines,
-      # which must not be blurred:
-      #
-      #   growth, peak resident size on one developer machine, same command:
-      #   2,099,462,144 bytes at e3f6990 to 2,543,484,928 bytes with the
-      #   embed package added, 21.1 percent for one member. The raw counts
-      #   are here on purpose: both are 1.96 and 2.37 when rounded to two
-      #   places, and a ratio of two rounded numbers cannot be trusted to a
-      #   tenth of a percent. Dividing the rounded pair gives 18.5, which is
-      #   arithmetically perfect and wrong.
-      #
-      #   headroom, on this runner: V8 printed a total heap of about 2,057
-      #   MB as the ceiling it died against, with roughly 2,018 MB live.
-      #
-      #   the runner's own peak, which is the figure that matters and the
-      #   only one not written down here, because the step below prints it
-      #   on every run and a number in a comment goes stale against an
-      #   instrument that re-measures it. For the record, its first reading
-      #   was 3,030,596 kB at a27b10f, about 22 percent above the local
-      #   figure, so everyone reasoning from the developer machine had
-      #   roughly half a member less margin than they believed. Read the
-      #   current one from the step, not from here.
-      #
-      # The first says how fast it grows, the second says how little room
-      # was left, the third says where we actually are. Not one of them is
-      # the other.
-      #
-      # Raising the ceiling is a stopgap. The fix is to build the programs
-      # lazily rather than eagerly, which changes the shared ESLint
-      # configuration and belongs in its own change, #343.
-      #
-      # The raise also removed the only thing reporting the growth: before
-      # it, the lint announced each step by dying. So the peak is recorded
-      # on every run and asserted well under the ceiling, and #343's trigger
-      # is a reading rather than an outage.
+      # The type aware lint keeps every TypeScript program it builds until its
+      # process ends, so scripts/lint.ts gives each member a process of its own
+      # and the peak is the largest member rather than the sum of them. It runs
+      # on Node's default heap, so a member that outgrows that heap fails here
+      # rather than raising a limit unnoticed.
       - name: Lint
-        env:
-          NODE_OPTIONS: --max-old-space-size=6144
         run: |
           scripts/assert-pnpm.sh
           # The lint's own result must not depend on the measuring tool, so a
@@ -243,20 +207,21 @@ jobs:
       - name: Lint memory headroom
         if: ${{ !cancelled() }}
         env:
-          # 4 GiB, set so that one more member of the current size passes and
-          # a second trips it, which leaves room to act rather than firing at
-          # the outage. The current reading is printed by this step on every
-          # run; read it there rather than from a figure written here.
-          LINT_PEAK_LIMIT_KB: '4194304'
+          # Set above the largest member's reading and below the point where
+          # the default heap runs out, so growth shows here first. The current
+          # reading and the runner's memory are printed by this step on every
+          # run; read them there rather than from a figure written here.
+          LINT_PEAK_LIMIT_KB: '2097152'
         run: |
           if [ ! -f "${RUNNER_TEMP}/lint-peak-kb" ]; then
-            echo "the lint peak was not recorded, so the growth in #343 is unobserved" >&2
+            echo "the lint peak was not recorded, so its growth is unobserved" >&2
             exit 1
           fi
           peak=$(cat "${RUNNER_TEMP}/lint-peak-kb")
           echo "lint peak resident size: ${peak} kB, limit ${LINT_PEAK_LIMIT_KB} kB"
+          echo "runner memory: $(awk '/^MemTotal:/ { print $2 }' /proc/meminfo) kB"
           if [ "$peak" -gt "${LINT_PEAK_LIMIT_KB}" ]; then
-            echo "The type aware lint is over its resident size budget. See #343." >&2
+            echo "The type aware lint is over its resident size budget. A single member is too large; see scripts/lint.ts." >&2
             exit 1
           fi
 

@@ -252,9 +252,25 @@ function hasSessionScopedSetConfig(sql: string): boolean {
   });
 }
 
+// The SET of an UPDATE, and of ON CONFLICT DO UPDATE, assigns columns of a
+// row and changes nothing about the session, but reads exactly like a SET
+// statement to the first pattern above: `update t set body = $1` was refused.
+// These forms are taken out before the patterns run. Only the keyword that
+// belongs to the update goes, so a real SET statement after it, in the same
+// string, is still read and refused.
+const UPDATE_SET_CLAUSES: readonly RegExp[] = [
+  /\bupdate\s+(?:only\s+)?[a-z_][a-z0-9_$]*(?:\.[a-z_][a-z0-9_$]*)?\s*\*?(?:\s+(?:as\s+)?(?!set\b)[a-z_][a-z0-9_$]*)?\s+set\b/g,
+  /\bdo\s+update\s+set\b/g,
+];
+
+function withoutUpdateSetClauses(sql: string): string {
+  return UPDATE_SET_CLAUSES.reduce((text, pattern) => text.replace(pattern, ' update '), sql);
+}
+
 // True when the statement would change state that outlives its transaction.
 export function holdsSessionState(sql: string): boolean {
-  if (BANNED.some((pattern) => pattern.test(stripLiteralsAndComments(sql).toLowerCase()))) {
+  const code = withoutUpdateSetClauses(stripLiteralsAndComments(sql).toLowerCase());
+  if (BANNED.some((pattern) => pattern.test(code))) {
     return true;
   }
   return hasSessionScopedSetConfig(blank(sql, { literals: false }));

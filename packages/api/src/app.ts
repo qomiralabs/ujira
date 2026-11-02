@@ -7,7 +7,8 @@
 //    of every call the handler makes;
 // 2. a deadline, as an AbortSignal the handler passes on;
 // 3. for a tenant route, the credential, then the route's scope;
-// 4. path, query and body, each validated by the route's zod schema;
+// 4. path, query and body, each validated by the route's zod schema, except
+//    that a webhook route gets its body as the bytes that were sent;
 // 5. the handler;
 // 6. the response, validated by its schema, and for a tenant route checked
 //    for any principal or project that is not the caller's;
@@ -25,13 +26,13 @@ import type { Context } from 'hono';
 
 import { AuthenticatedTenantSchema } from './auth.js';
 import type { Authenticate, CallOptions, Tenant } from './auth.js';
-import { readJsonBody } from './body.js';
+import { readJsonBody, readRawBody } from './body.js';
 import { ApiError, RouteRegistryError, toApiError } from './errors.js';
 import { errorNameOf, requestLog } from './log.js';
 import type { Logger, RequestLog } from './log.js';
 import { withOpenApiRoute } from './openapi.js';
 import { fieldErrors } from './route.js';
-import type { Route } from './route.js';
+import type { Route, WebhookInput } from './route.js';
 import { foreignTenantPath } from './tenant-guard.js';
 
 export const API_DEFAULTS = Object.freeze({
@@ -92,6 +93,15 @@ function problemResponse(error: ApiError, requestId: string, extra: Record<strin
       ? extra
       : { ...extra, 'retry-after': String(error.retryAfterSeconds) };
   return respond(body, error.status, requestId, 'application/problem+json', headers);
+}
+
+// Only what the route named, so a credential or a cookie sent to a webhook
+// never reaches its handler.
+function namedHeaders(
+  headers: Headers,
+  names: readonly string[],
+): Record<string, string | undefined> {
+  return Object.fromEntries(names.map((name) => [name, headers.get(name) ?? undefined]));
 }
 
 function honoPath(path: string): string {
@@ -222,7 +232,13 @@ export function createApp(deps: ApiDependencies): Hono {
           const query = route.parseQuery(new URL(c.req.url).searchParams);
           if (!query.success) throw new ApiError(query.code, { errors: query.errors });
           let body: unknown = undefined;
-          if (route.body !== null) {
+          if (route.rawBody !== null) {
+            const input: WebhookInput = {
+              rawBody: await readRawBody(c.req.raw, bodyLimit),
+              headers: namedHeaders(c.req.raw.headers, route.rawBody.headers),
+            };
+            body = input;
+          } else if (route.body !== null) {
             const parsed = route.body.safeParse(await readJsonBody(c.req.raw, bodyLimit));
             if (!parsed.success) {
               throw new ApiError('INVALID_REQUEST', { errors: fieldErrors(parsed.error.issues) });

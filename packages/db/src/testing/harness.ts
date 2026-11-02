@@ -41,6 +41,40 @@ export const TEMPLATE_DATABASE = 'ujira_template';
 // file with vitest's `inject`.
 export const ADMIN_URL_KEY = 'dbAdminUrl';
 
+// And the login URL of each role the migrations create, so a test can act
+// as the app or the reader rather than as the superuser, which row level
+// security never applies to.
+export const ROLE_URLS_KEY = 'dbRoleUrls';
+
+export const LOGIN_ROLES = [
+  'ujira_migrator',
+  'ujira_app',
+  'ujira_reader',
+  'ujira_retention',
+  'ujira_auth',
+  'ujira_indexer',
+  'ujira_ops',
+  'ujira_signer_attester',
+] as const;
+
+export type LoginRole = (typeof LOGIN_ROLES)[number];
+
+// The API roles Supabase creates on every project.
+export const PLATFORM_ROLES = ['anon', 'authenticated', 'service_role'] as const;
+
+// The role's login URL, pointed at one test database.
+export function roleUrl(
+  roleUrls: Readonly<Record<string, string>>,
+  role: LoginRole,
+  database: string,
+): string {
+  const url = roleUrls[role];
+  if (url === undefined) {
+    throw new Error(`the global setup published no login for ${role}`);
+  }
+  return withDatabase(url, database);
+}
+
 // Double quotes an identifier. Test database names are derived from a file
 // path, so this is belt and braces rather than the only defence.
 export function quoteIdentifier(name: string): string {
