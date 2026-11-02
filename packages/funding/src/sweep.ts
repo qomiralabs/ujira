@@ -263,7 +263,7 @@ function isPositiveToken(value: unknown): boolean {
   }
 }
 
-function parsed<T>(schema: z.ZodType<T>, value: unknown, root: string): T {
+export function parsed<T>(schema: z.ZodType<T>, value: unknown, root: string): T {
   const result = schema.safeParse(value);
   if (result.success) return result.data;
   // zod messages can quote what they were given, so only paths and codes are kept.

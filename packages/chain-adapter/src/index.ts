@@ -106,6 +106,7 @@ export {
   signerRetryDecision,
 } from './retry.js';
 export type { AlertKind, RetryDecision, RetryRule, SignerErrorCode } from './retry.js';
+export type * from './funding-account.js';
 export type * from './signer.js';
 export { createRentWatch, utcDay } from './stellar/rent-watch.js';
 export type {

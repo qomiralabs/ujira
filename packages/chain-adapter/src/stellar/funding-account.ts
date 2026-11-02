@@ -25,14 +25,16 @@ import {
   SubmissionUnknownError,
   isChainAdapterError,
 } from '../errors.js';
+import type {
+  FundingAccountFlow,
+  FundingAccountRecord,
+  FundingAccountStore,
+} from '../funding-account.js';
 import { reservationIdOf } from '../sponsorship/policy.js';
 import type {
   AdapterPorts,
-  CallOptions,
   NativeAmount,
-  SigningRequest,
   SubmissionRef,
-  SignedSubmission,
   TenantScope,
   UnixSeconds,
 } from '../types.js';
@@ -44,8 +46,9 @@ import {
   checkForwarderCreation,
   confirmForwarder,
   parseForwarderRequest,
+  stellarFundingView,
 } from './forwarder.js';
-import type { ForwarderFault, ForwarderRecord } from './forwarder.js';
+import type { ForwarderFault } from './forwarder.js';
 import type { SigningRequestStore, StoredSigningRequest } from './requests.js';
 import type { RpcLedgerEntry, StellarRpc } from './rpc.js';
 import {
@@ -68,12 +71,6 @@ const OPERATIONS = 4n;
 const VALIDITY_SECONDS = 300n;
 const TESTNET: StellarNetworkId = 'stellar:testnet';
 
-/** One forwarding account per principal and network, whichever project asked. */
-export interface FundingAccountStore {
-  forPrincipal(principalId: string, network: StellarNetworkId): Promise<ForwarderRecord | null>;
-  record(row: ForwarderRecord): Promise<void>;
-}
-
 export interface FundingAccountFlowOptions {
   readonly network: StellarNetworkId;
   readonly rpc: StellarRpc;
@@ -92,26 +89,6 @@ export interface FundingAccountFlowOptions {
   readonly wait: WaitOptions;
   readonly submitTimeoutMs: number;
   readonly newRequestId: () => string;
-}
-
-export interface PrepareFundingAccount {
-  readonly scope: TenantScope;
-  /** The public key the principal's wallet generated. Never a secret. */
-  readonly publicKey: string;
-  /** False while the principal is in business verification, which limits it to testnet. */
-  readonly businessVerified: boolean;
-}
-
-export interface FundingAccountFlow {
-  /** What the wallet signs. Nothing is reserved or sent yet. */
-  prepare(req: PrepareFundingAccount, opts: CallOptions): Promise<SigningRequest>;
-  /** Checks what the wallet signed, reserves the sponsorship, signs as the sponsor and sends. */
-  submit(req: SignedSubmission, opts: CallOptions): Promise<SubmissionRef>;
-  /** Waits for the transaction, reads the account back and records what it found. */
-  confirm(
-    req: { readonly scope: TenantScope; readonly requestId: string },
-    opts: CallOptions,
-  ): Promise<ForwarderRecord>;
 }
 
 function stroops(network: StellarNetworkId, amount: bigint): NativeAmount {
@@ -166,6 +143,13 @@ export function createFundingAccountFlow(options: FundingAccountFlowOptions): Fu
     const tx = parseEnvelope(signed, network);
     return reservationIdOf(network, tx.hash());
   };
+  // The principal's one account stays with the project that made it. Another
+  // project may learn it cannot make a second, but is not given this one to use:
+  // a deposit there would have to be attributed to a project that holds nothing.
+  const ownAccount = async (scope: TenantScope): Promise<FundingAccountRecord | null> => {
+    const known = await accounts.forPrincipal(scope, network);
+    return known?.projectId === scope.projectId ? known : null;
+  };
 
   return {
     async prepare(req, opts) {
@@ -174,7 +158,7 @@ export function createFundingAccountFlow(options: FundingAccountFlowOptions): Fu
       if (!req.businessVerified && network !== TESTNET) {
         throw new SponsorDeniedError({ network });
       }
-      if ((await accounts.forPrincipal(scope.principalId, network)) !== null) {
+      if ((await accounts.forPrincipal(scope, network)) !== null) {
         throw new SponsorDeniedError({ network });
       }
       if ((await accountSequence(rpc, publicKey, opts)) !== null) {
@@ -314,7 +298,7 @@ export function createFundingAccountFlow(options: FundingAccountFlowOptions): Fu
     async confirm(req, opts) {
       const { scope } = req;
       const { request, use } = await fundingRequest(scope, req.requestId);
-      const known = await accounts.forPrincipal(scope.principalId, network);
+      const known = await accounts.forPrincipal(scope, network);
       if (known !== null) return known;
       if (use?.txHash === null || use === null) {
         throw new InvalidInputError({ network, issues: ['requestId (not_submitted)'] });
@@ -375,6 +359,17 @@ export function createFundingAccountFlow(options: FundingAccountFlowOptions): Fu
         actualFee: stroops(network, request.fee),
       });
       return row;
+    },
+
+    account: ownAccount,
+
+    async fundingOptions({ scope, mandate }) {
+      const own = await ownAccount(scope);
+      return stellarFundingView({
+        network,
+        mandate,
+        forwarder: own?.status === 'active' ? own.address : null,
+      });
     },
   };
 }

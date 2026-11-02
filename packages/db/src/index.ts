@@ -37,6 +37,12 @@ export {
   type Project,
 } from './repositories/tenancy.js';
 export {
+  fundingAccounts,
+  type FundingAccount,
+  type FundingAccountStatus,
+  type NewFundingAccount,
+} from './repositories/funding-accounts.js';
+export {
   entryPoints,
   type CreatedPrincipal,
   type NewPrincipal,
