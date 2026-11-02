@@ -644,6 +644,41 @@ $$;
 ALTER FUNCTION ujira.ledger_stamp() OWNER TO ujira_fn_ledger;
 
 --
+-- Name: legs_match_attempt(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.legs_match_attempt() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  target uuid := (to_jsonb(new) ->> tg_argv[0])::uuid;
+  expected numeric;
+  actual numeric;
+begin
+  select a.total_amount into expected
+    from ujira.payout_attempts as a
+   where a.principal_id = new.principal_id
+     and a.project_id = new.project_id
+     and a.id = target;
+  select coalesce(sum(l.amount), 0) into actual
+    from ujira.payout_legs as l
+   where l.principal_id = new.principal_id
+     and l.project_id = new.project_id
+     and l.attempt_id = target;
+  if actual is distinct from expected then
+    raise exception using
+      errcode = 'UJ005',
+      message = format('the legs of an attempt sum to %s and its total is %s', actual, expected);
+  end if;
+  return null;
+end
+$$;
+
+
+ALTER FUNCTION ujira.legs_match_attempt() OWNER TO ujira_owner;
+
+--
 -- Name: payout_instance_matches(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -708,6 +743,44 @@ $$;
 
 
 ALTER FUNCTION ujira.payout_left_its_holds() OWNER TO ujira_owner;
+
+--
+-- Name: payout_leg_stamp(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.payout_leg_stamp() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if not exists (
+    select 1
+      from ujira.payouts as p
+      join ujira.payout_methods as m
+        on m.principal_id = p.principal_id
+       and m.project_id = p.project_id
+       and m.recipient_id = p.recipient_id
+     where p.principal_id = new.principal_id
+       and p.project_id = new.project_id
+       and p.id = new.payout_id
+       and m.id = new.payout_method_id
+       and m.chain = new.chain
+       and m.method = new.method
+  ) then
+    raise exception using
+      errcode = 'UJ015',
+      message = 'the payout method is not one the recipient of this payout has for this leg';
+  end if;
+  new.leg_key := encode(
+    sha256(convert_to('ujira/leg/v1|' || new.payout_id::text || '|' || new.leg_index::text, 'UTF8')),
+    'hex'
+  );
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.payout_leg_stamp() OWNER TO ujira_owner;
 
 --
 -- Name: project_scope_all(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
@@ -935,6 +1008,30 @@ ALTER TABLE ONLY ujira.api_tokens FORCE ROW LEVEL SECURITY;
 
 
 ALTER TABLE ujira.api_tokens OWNER TO ujira_owner;
+
+--
+-- Name: approvals; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.approvals (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    attempt_id uuid NOT NULL,
+    approver text NOT NULL,
+    decision text NOT NULL,
+    signed_message_hash ujira.hash32 NOT NULL,
+    signature bytea NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT approvals_approver_length CHECK (((char_length(approver) >= 1) AND (char_length(approver) <= 128))),
+    CONSTRAINT approvals_decision CHECK ((decision = ANY (ARRAY['approved'::text, 'rejected'::text]))),
+    CONSTRAINT approvals_signature_length CHECK (((octet_length(signature) >= 1) AND (octet_length(signature) <= 512)))
+);
+
+ALTER TABLE ONLY ujira.approvals FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.approvals OWNER TO ujira_owner;
 
 --
 -- Name: audit_heads; Type: TABLE; Schema: ujira; Owner: ujira_owner
@@ -1375,6 +1472,46 @@ ALTER TABLE ONLY ujira.payout_funding_holds FORCE ROW LEVEL SECURITY;
 ALTER TABLE ujira.payout_funding_holds OWNER TO ujira_owner;
 
 --
+-- Name: payout_legs; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.payout_legs (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    payout_id uuid NOT NULL,
+    attempt_id uuid NOT NULL,
+    leg_index integer NOT NULL,
+    payout_method_id uuid NOT NULL,
+    method text NOT NULL,
+    destination_address text NOT NULL,
+    destination_tag ujira.u64,
+    amount ujira.amount NOT NULL,
+    chain text NOT NULL,
+    asset text NOT NULL,
+    scale ujira.scale NOT NULL,
+    fee_amount ujira.amount DEFAULT 0 NOT NULL,
+    leg_key text DEFAULT ''::text NOT NULL,
+    chain_tx_hash text,
+    status text DEFAULT 'planned'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT payout_legs_address_length CHECK (((char_length(destination_address) >= 1) AND (char_length(destination_address) <= 128))),
+    CONSTRAINT payout_legs_amount_positive CHECK (((amount)::numeric > (0)::numeric)),
+    CONSTRAINT payout_legs_fee_not_negative CHECK (((fee_amount)::numeric >= (0)::numeric)),
+    CONSTRAINT payout_legs_index_range CHECK (((leg_index >= 0) AND (leg_index <= 3))),
+    CONSTRAINT payout_legs_key_format CHECK ((leg_key ~ '^[0-9a-f]{64}$'::text)),
+    CONSTRAINT payout_legs_method CHECK ((method = ANY (ARRAY['stellar_wallet'::text, 'bank'::text, 'mobile_money'::text, 'cash_pickup'::text]))),
+    CONSTRAINT payout_legs_status CHECK ((status = ANY (ARRAY['planned'::text, 'submitted'::text, 'settled'::text, 'delivering'::text, 'delivered'::text, 'failed'::text, 'cancelled'::text]))),
+    CONSTRAINT payout_legs_tx_hash_length CHECK (((char_length(chain_tx_hash) >= 1) AND (char_length(chain_tx_hash) <= 128)))
+);
+
+ALTER TABLE ONLY ujira.payout_legs FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.payout_legs OWNER TO ujira_owner;
+
+--
 -- Name: payout_methods; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1716,6 +1853,22 @@ ALTER TABLE ONLY ujira.api_tokens
 
 ALTER TABLE ONLY ujira.api_tokens
     ADD CONSTRAINT api_tokens_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
+-- Name: approvals approvals_per_approver; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.approvals
+    ADD CONSTRAINT approvals_per_approver UNIQUE (principal_id, project_id, attempt_id, approver);
+
+
+--
+-- Name: approvals approvals_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.approvals
+    ADD CONSTRAINT approvals_pkey PRIMARY KEY (id);
 
 
 --
@@ -2071,6 +2224,30 @@ ALTER TABLE ONLY ujira.payout_funding_holds
 
 
 --
+-- Name: payout_legs payout_legs_per_attempt; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.payout_legs
+    ADD CONSTRAINT payout_legs_per_attempt UNIQUE (principal_id, project_id, attempt_id, leg_index);
+
+
+--
+-- Name: payout_legs payout_legs_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.payout_legs
+    ADD CONSTRAINT payout_legs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payout_legs payout_legs_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.payout_legs
+    ADD CONSTRAINT payout_legs_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
 -- Name: payout_methods payout_methods_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2258,6 +2435,27 @@ CREATE INDEX payout_funding_holds_release ON ujira.payout_funding_holds USING bt
 
 
 --
+-- Name: payout_legs_by_key; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX payout_legs_by_key ON ujira.payout_legs USING btree (principal_id, project_id, leg_key);
+
+
+--
+-- Name: payout_legs_by_method; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX payout_legs_by_method ON ujira.payout_legs USING btree (principal_id, project_id, payout_method_id);
+
+
+--
+-- Name: payout_legs_by_payout; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX payout_legs_by_payout ON ujira.payout_legs USING btree (principal_id, project_id, payout_id);
+
+
+--
 -- Name: payout_methods_by_recipient; Type: INDEX; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2318,6 +2516,20 @@ CREATE TRIGGER routing_config_versions_append_only BEFORE DELETE OR UPDATE ON op
 --
 
 CREATE TRIGGER api_tokens_keep_revoked BEFORE UPDATE ON ujira.api_tokens FOR EACH ROW EXECUTE FUNCTION ujira.keep_token_revoked();
+
+
+--
+-- Name: approvals approvals_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER approvals_append_only BEFORE DELETE OR UPDATE ON ujira.approvals FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: approvals approvals_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER approvals_no_truncate BEFORE TRUNCATE ON ujira.approvals FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
 
 
 --
@@ -2482,6 +2694,13 @@ CREATE TRIGGER payout_attempts_instance BEFORE INSERT ON ujira.payout_attempts F
 
 
 --
+-- Name: payout_attempts payout_attempts_match_legs; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE CONSTRAINT TRIGGER payout_attempts_match_legs AFTER INSERT OR UPDATE OF total_amount ON ujira.payout_attempts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ujira.legs_match_attempt('id');
+
+
+--
 -- Name: payout_attempts payout_attempts_no_delete; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2535,6 +2754,48 @@ CREATE CONSTRAINT TRIGGER payout_funding_holds_held AFTER INSERT ON ujira.payout
 --
 
 CREATE TRIGGER payout_funding_holds_instance BEFORE INSERT ON ujira.payout_funding_holds FOR EACH ROW EXECUTE FUNCTION ujira.payout_instance_matches();
+
+
+--
+-- Name: payout_legs payout_legs_match_attempt; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE CONSTRAINT TRIGGER payout_legs_match_attempt AFTER INSERT OR UPDATE OF amount, attempt_id ON ujira.payout_legs DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ujira.legs_match_attempt('attempt_id');
+
+
+--
+-- Name: payout_legs payout_legs_no_delete; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER payout_legs_no_delete BEFORE DELETE ON ujira.payout_legs FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: payout_legs payout_legs_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER payout_legs_no_truncate BEFORE TRUNCATE ON ujira.payout_legs FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: payout_legs payout_legs_stamp; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER payout_legs_stamp BEFORE INSERT OR UPDATE OF payout_id, leg_index, payout_method_id, chain, method ON ujira.payout_legs FOR EACH ROW EXECUTE FUNCTION ujira.payout_leg_stamp();
+
+
+--
+-- Name: payout_legs payout_legs_touch; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER payout_legs_touch BEFORE UPDATE ON ujira.payout_legs FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
+-- Name: payout_legs payout_legs_transition; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER payout_legs_transition BEFORE UPDATE ON ujira.payout_legs FOR EACH ROW EXECUTE FUNCTION ujira.check_transition('payout_leg');
 
 
 --
@@ -2649,6 +2910,14 @@ ALTER TABLE ONLY ops.routing_config_active
 
 ALTER TABLE ONLY ujira.api_tokens
     ADD CONSTRAINT api_tokens_principal_id_project_id_fkey FOREIGN KEY (principal_id, project_id) REFERENCES ujira.projects(principal_id, id);
+
+
+--
+-- Name: approvals approvals_principal_id_project_id_attempt_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.approvals
+    ADD CONSTRAINT approvals_principal_id_project_id_attempt_id_fkey FOREIGN KEY (principal_id, project_id, attempt_id) REFERENCES ujira.payout_attempts(principal_id, project_id, id);
 
 
 --
@@ -2868,6 +3137,22 @@ ALTER TABLE ONLY ujira.payout_funding_holds
 
 
 --
+-- Name: payout_legs payout_legs_principal_id_project_id_payout_id_attempt_id_c_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.payout_legs
+    ADD CONSTRAINT payout_legs_principal_id_project_id_payout_id_attempt_id_c_fkey FOREIGN KEY (principal_id, project_id, payout_id, attempt_id, chain, asset, scale) REFERENCES ujira.payout_attempts(principal_id, project_id, payout_id, id, network, asset, scale);
+
+
+--
+-- Name: payout_legs payout_legs_principal_id_project_id_payout_method_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.payout_legs
+    ADD CONSTRAINT payout_legs_principal_id_project_id_payout_method_id_fkey FOREIGN KEY (principal_id, project_id, payout_method_id) REFERENCES ujira.payout_methods(principal_id, project_id, id);
+
+
+--
 -- Name: payout_methods payout_methods_chain_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3016,6 +3301,12 @@ ALTER TABLE ONLY ujira.settlement_tokens
 --
 
 ALTER TABLE ujira.api_tokens ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: approvals; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.approvals ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: audit_heads audit_chain_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
@@ -3265,6 +3556,13 @@ CREATE POLICY owner_all ON ujira.api_tokens TO ujira_owner USING (true) WITH CHE
 
 
 --
+-- Name: approvals owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.approvals TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: audit_heads owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3370,6 +3668,13 @@ CREATE POLICY owner_all ON ujira.payout_funding_holds TO ujira_owner USING (true
 
 
 --
+-- Name: payout_legs owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.payout_legs TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: payout_methods owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3451,6 +3756,12 @@ ALTER TABLE ujira.payout_batches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ujira.payout_funding_holds ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: payout_legs; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.payout_legs ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: payout_methods; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3523,6 +3834,13 @@ CREATE POLICY tenant_delete ON ujira.payout_funding_holds FOR DELETE TO ujira_ap
 --
 
 CREATE POLICY tenant_insert ON ujira.api_tokens FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: approvals tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.approvals FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -3624,6 +3942,13 @@ CREATE POLICY tenant_insert ON ujira.payout_funding_holds FOR INSERT TO ujira_ap
 
 
 --
+-- Name: payout_legs tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.payout_legs FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: payout_methods tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3684,6 +4009,13 @@ CREATE POLICY tenant_insert ON ujira.recipients FOR INSERT TO ujira_app WITH CHE
 --
 
 CREATE POLICY tenant_read ON ujira.api_tokens FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: approvals tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.approvals FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
 
 
 --
@@ -3792,6 +4124,13 @@ CREATE POLICY tenant_read ON ujira.payout_funding_holds FOR SELECT TO ujira_app,
 
 
 --
+-- Name: payout_legs tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.payout_legs FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
 -- Name: payout_methods tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3859,6 +4198,13 @@ CREATE POLICY tenant_read ON ujira.recipients FOR SELECT TO ujira_app, ujira_rea
 --
 
 CREATE POLICY tenant_update ON ujira.api_tokens FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: approvals tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.approvals FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -3957,6 +4303,13 @@ CREATE POLICY tenant_update ON ujira.payout_batches FOR UPDATE TO ujira_app USIN
 --
 
 CREATE POLICY tenant_update ON ujira.payout_funding_holds FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: payout_legs tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.payout_legs FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -4257,6 +4610,13 @@ REVOKE ALL ON FUNCTION ujira.ledger_stamp() FROM PUBLIC;
 
 
 --
+-- Name: FUNCTION legs_match_attempt(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.legs_match_attempt() FROM PUBLIC;
+
+
+--
 -- Name: FUNCTION payout_instance_matches(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4268,6 +4628,13 @@ REVOKE ALL ON FUNCTION ujira.payout_instance_matches() FROM PUBLIC;
 --
 
 REVOKE ALL ON FUNCTION ujira.payout_left_its_holds() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION payout_leg_stamp(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.payout_leg_stamp() FROM PUBLIC;
 
 
 --
@@ -4340,6 +4707,14 @@ GRANT SELECT,INSERT ON TABLE ops.routing_config_versions TO ujira_ops;
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.api_tokens TO ujira_app;
 GRANT SELECT ON TABLE ujira.api_tokens TO ujira_reader;
 GRANT SELECT ON TABLE ujira.api_tokens TO ujira_fn_tokens;
+
+
+--
+-- Name: TABLE approvals; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.approvals TO ujira_app;
+GRANT SELECT ON TABLE ujira.approvals TO ujira_reader;
 
 
 --
@@ -4542,6 +4917,28 @@ GRANT SELECT ON TABLE ujira.payout_batches TO ujira_reader;
 
 GRANT SELECT,INSERT,DELETE ON TABLE ujira.payout_funding_holds TO ujira_app;
 GRANT SELECT ON TABLE ujira.payout_funding_holds TO ujira_reader;
+
+
+--
+-- Name: TABLE payout_legs; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.payout_legs TO ujira_app;
+GRANT SELECT ON TABLE ujira.payout_legs TO ujira_reader;
+
+
+--
+-- Name: COLUMN payout_legs.chain_tx_hash; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(chain_tx_hash) ON TABLE ujira.payout_legs TO ujira_app;
+
+
+--
+-- Name: COLUMN payout_legs.status; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(status) ON TABLE ujira.payout_legs TO ujira_app;
 
 
 --

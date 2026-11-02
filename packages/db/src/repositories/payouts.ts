@@ -98,6 +98,17 @@ export class LiveAttemptError extends Error {
   }
 }
 
+// An attempt with nothing to pay can never finish, and would hold the payout's one
+// live slot until someone proved it dead.
+export class AttemptWithoutLegsError extends Error {
+  readonly code = 'ATTEMPT_WITHOUT_LEGS';
+
+  constructor() {
+    super('an attempt needs at least one leg');
+    this.name = 'AttemptWithoutLegsError';
+  }
+}
+
 // Recipient mode asks in a token and principal mode in a local currency, so an
 // amount in the other form means the caller has the project's setting wrong.
 export class RequestedAmountModeError extends Error {
@@ -369,7 +380,12 @@ async function createPayout(
   return replayed(winner, hash);
 }
 
-async function assertTransition(db: Tx, machine: string, from: string, to: string): Promise<void> {
+export async function assertTransition(
+  db: Tx,
+  machine: string,
+  from: string,
+  to: string,
+): Promise<void> {
   const allowed = await db
     .selectFrom('ujira.status_transitions')
     .select('machine')
@@ -530,12 +546,25 @@ export const payoutBatches = {
   },
 };
 
+export interface NewPayoutLeg {
+  readonly payoutMethodId: string;
+  readonly method: PayoutMinimumMethod;
+  readonly destinationAddress: string;
+  readonly destinationTag?: bigint | null;
+  // In the attempt's unit, so raw token units.
+  readonly amount: bigint;
+  // What the rail charges on this leg, in the same unit.
+  readonly fee?: bigint;
+}
+
 export interface NewPayoutAttempt {
   readonly payoutId: string;
   readonly mandateInstanceId: string;
   readonly total: TokenAmount;
   readonly deadline: Date;
   readonly onChainPayoutId?: string | null;
+  // In leg order. They must sum to the total, or the commit is refused (UJ005).
+  readonly legs: readonly NewPayoutLeg[];
 }
 
 export interface PayoutAttempt {
@@ -614,6 +643,7 @@ export const payoutAttempts = {
   // Refused with LiveAttemptError unless every earlier attempt of the payout is
   // dead. Of two creates racing, the second waits for the first and then finds it.
   create: async (db: Tx, input: NewPayoutAttempt): Promise<PayoutAttempt> => {
+    if (input.legs.length === 0) throw new AttemptWithoutLegsError();
     const row = await db
       .insertInto('ujira.payout_attempts')
       .values({
@@ -644,6 +674,27 @@ export const payoutAttempts = {
       .returning(attemptColumns)
       .executeTakeFirst();
     if (row === undefined) throw new LiveAttemptError();
+    await db
+      .insertInto('ujira.payout_legs')
+      .values(
+        input.legs.map((leg, index) => ({
+          principal_id: CURRENT_PRINCIPAL,
+          project_id: CURRENT_PROJECT,
+          payout_id: input.payoutId,
+          attempt_id: row.id,
+          leg_index: index,
+          payout_method_id: leg.payoutMethodId,
+          method: leg.method,
+          destination_address: leg.destinationAddress,
+          destination_tag: leg.destinationTag?.toString() ?? null,
+          amount: leg.amount.toString(),
+          chain: input.total.chain,
+          asset: input.total.asset,
+          scale: input.total.scale,
+          fee_amount: (leg.fee ?? 0n).toString(),
+        })),
+      )
+      .execute();
     return toAttempt(row);
   },
 

@@ -55,6 +55,7 @@ export {
   fundingHolds,
   IdempotencyConflictError,
   IllegalTransitionError,
+  AttemptWithoutLegsError,
   LiveAttemptError,
   PAYOUT_STATUS_VALUES,
   payoutAttempts,
@@ -76,8 +77,20 @@ export {
   type PayoutBatch,
   type PayoutStatusReason,
   type PayoutStatusValue,
+  type NewPayoutLeg,
   type ProjectPayoutMinimum,
 } from './repositories/payouts.js';
+export {
+  approvals,
+  LEG_STATUS_VALUES,
+  payoutLegs,
+  type Approval,
+  type ApprovalDecision,
+  type LegStatusValue,
+  type NewApproval,
+  type PayoutLeg,
+  type RecordedApproval,
+} from './repositories/payout-legs.js';
 export {
   entryPoints,
   type CreatedPrincipal,
