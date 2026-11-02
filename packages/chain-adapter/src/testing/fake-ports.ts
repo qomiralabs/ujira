@@ -191,6 +191,27 @@ export class FakeSponsorship implements SponsorshipPolicy {
     return Promise.resolve();
   }
 
+  book(r: {
+    readonly scope: TenantScope;
+    readonly network: NetworkId;
+    readonly reservationId: string;
+    readonly intent: SponsoredIntent;
+    readonly actualFee: NativeAmount;
+  }): Promise<void> {
+    if (!this.#reservations.has(r.reservationId)) {
+      this.#reservations.set(r.reservationId, {
+        scope: r.scope,
+        network: r.network,
+        reservationId: r.reservationId,
+        intent: r.intent,
+        maxFee: r.actualFee,
+        state: 'settled',
+        actualFee: r.actualFee,
+      });
+    }
+    return Promise.resolve();
+  }
+
   release(r: { readonly scope: TenantScope; readonly reservationId: string }): Promise<void> {
     const found = this.#find(r.scope, r.reservationId);
     if (found?.state === 'reserved') found.state = 'released';

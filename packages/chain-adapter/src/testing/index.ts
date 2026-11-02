@@ -119,6 +119,8 @@ export type {
   TestSep10Options,
   TestTransactionOptions,
 } from './stellar.js';
+export { createMemorySponsorshipLedger, describeSponsorshipLedger } from './sponsorship-ledger.js';
+export type { SponsorshipLedgerHarness } from './sponsorship-ledger.js';
 export { FakeToken } from './token.js';
 export type {
   FakeTokenOptions,

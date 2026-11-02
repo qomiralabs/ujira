@@ -149,7 +149,14 @@ export function createSignerService(options: SignerServiceOptions): Hono {
         fields.principalId = decision.tenant.principalId;
         fields.projectId = decision.tenant.projectId;
       }
-      const signature = await provider.sign(ref, payload, callOptions(requestId));
+      // The key manager's id goes in this service's log and stops here: a
+      // caller has no use for it and no way to reach the key manager.
+      const { requestId: keyRequestId, ...signature } = await provider.sign(
+        ref,
+        payload,
+        callOptions(requestId),
+      );
+      if (keyRequestId !== undefined) fields.keyRequestId = keyRequestId;
       log('info', 'sign_ok', { ...fields, status: 200 });
       return reply(c, 200, { signature });
     } catch (error) {

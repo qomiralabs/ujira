@@ -95,11 +95,14 @@ export function memoryStore(
 }
 
 export interface RecordingSponsorship extends SponsorshipPolicy {
-  readonly calls: { readonly kind: 'reserve' | 'settle' | 'release'; readonly id: string }[];
+  readonly calls: {
+    readonly kind: 'reserve' | 'settle' | 'release' | 'book';
+    readonly id: string;
+  }[];
 }
 
 export function recordingSponsorship(deny = false): RecordingSponsorship {
-  const calls: { kind: 'reserve' | 'settle' | 'release'; id: string }[] = [];
+  const calls: { kind: 'reserve' | 'settle' | 'release' | 'book'; id: string }[] = [];
   return {
     calls,
     reserve(r) {
@@ -112,6 +115,10 @@ export function recordingSponsorship(deny = false): RecordingSponsorship {
     },
     release(r) {
       calls.push({ kind: 'release', id: r.reservationId });
+      return Promise.resolve();
+    },
+    book(r) {
+      calls.push({ kind: 'book', id: r.reservationId });
       return Promise.resolve();
     },
   };
