@@ -27,6 +27,8 @@ export interface RpcLedgerEntry {
   readonly lastModifiedLedgerSeq: number;
   /** Absent for entries that do not expire, such as accounts. */
   readonly liveUntilLedgerSeq?: number;
+  /** Base64 LedgerEntryExt, which names the entry's reserve sponsor. Absent on older nodes. */
+  readonly extXdr?: string;
 }
 
 export interface RpcLatestLedger {
@@ -187,11 +189,16 @@ export function createStellarRpc(options: JsonRpcOptions): StellarRpc {
         const entries = list.map((item: unknown): RpcLedgerEntry => {
           if (!isObject(item)) throw new TypeError('malformed RPC result');
           const live = optionalInt(item, 'liveUntilLedgerSeq');
+          const ext = item['extXdr'];
+          if (ext !== undefined && typeof ext !== 'string') {
+            throw new TypeError('malformed RPC result');
+          }
           return {
             key: str(item, 'key'),
             xdr: str(item, 'xdr'),
             lastModifiedLedgerSeq: int(item, 'lastModifiedLedgerSeq'),
             ...(live === undefined ? {} : { liveUntilLedgerSeq: live }),
+            ...(ext === undefined ? {} : { extXdr: ext }),
           };
         });
         return { latestLedger: int(result, 'latestLedger'), entries };

@@ -146,7 +146,11 @@ export function keypairSigner(
     sign: (ref, payload) =>
       Promise.resolve().then(() => {
         const key = keyFor(ref);
-        if (payload.kind !== 'stellar_tx' && payload.kind !== 'stellar_fee_bump') {
+        if (
+          payload.kind !== 'stellar_tx' &&
+          payload.kind !== 'stellar_fee_bump' &&
+          payload.kind !== 'stellar_reserve_sandwich'
+        ) {
           throw new SignerDeniedError({ network });
         }
         const hash = TransactionBuilder.fromXdr(payload.xdr, PASSPHRASES[network]).hash();
