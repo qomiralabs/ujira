@@ -28,7 +28,7 @@ import type { EngineConfig, MandateEngine } from '@ujira/chain-adapter/testing';
 import { tokenAmount } from '@ujira/core';
 import type { TokenAmount } from '@ujira/core';
 
-import type { LogicalMandateKey, OnChainGuardians } from '../src/index.js';
+import type { InstanceView, LogicalMandateKey, OnChainGuardians } from '../src/index.js';
 
 export const NETWORK: NetworkId = 'stellar:testnet';
 export const NOW = 1_767_225_600n;
@@ -99,7 +99,6 @@ export function principalConfig(overrides: Partial<MandateConfigInput> = {}): Ma
     principal: at(PRINCIPAL),
     asset: 'USDC',
     recipientMode: 'allowlist',
-    tenantRef: ref('tenant'),
     agents: [at(AGENT)],
     approvers: [],
     approvalsRequired: 0,
@@ -156,7 +155,7 @@ export function toEngineConfig(config: MandateConfigInput, asset: string): Engin
     principal: config.principal.value,
     asset,
     recipientMode: MODES[config.recipientMode],
-    tenantRef: config.tenantRef,
+    tenantTag: ref('tenant'),
     agents: values(config.agents),
     approvers: values(config.approvers),
     approvalsRequired: config.approvalsRequired,
@@ -188,4 +187,17 @@ export function createOnChain(w: World, config: MandateConfigInput, salt = 'salt
 
 export function onChainGuardians(mandate: MandateEngine): OnChainGuardians {
   return { network: NETWORK, guardians: mandate.config().guardians.map(at) };
+}
+
+/** The principal key rule's view of a mandate, read from its config() as the indexer would. */
+export function instanceOf(mandate: MandateEngine, instanceId: string): InstanceView {
+  const config = mandate.config();
+  return {
+    instanceId,
+    projectId: key().projectId,
+    principal: at(config.principal),
+    totalBudget: tokenAmount(config.limits.totalBudget, 'USDC', 'stellar'),
+    recovery: config.recovery.map(at),
+    recoveryThreshold: config.recoveryThreshold,
+  };
 }

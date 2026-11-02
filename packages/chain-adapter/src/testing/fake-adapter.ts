@@ -37,6 +37,8 @@ import {
   SubmissionRejectedError,
   TenantMismatchError,
 } from '../errors.js';
+import { planBatch } from '../bisect.js';
+import type { BatchSimulation, BatchSimulationPort } from '../bisect.js';
 import { withSignerHealth } from '../health.js';
 import { chainOf } from '../networks.js';
 import type { NetworkId } from '../networks.js';
@@ -115,7 +117,7 @@ import {
   TransportFailure,
   refusal,
 } from './failures.js';
-import { FAKE_TX_FEE, tenantRefOf } from './fake-network.js';
+import { FAKE_TX_FEE, mandateTenantTag } from './fake-network.js';
 import type { FakeNetwork, FakeTx, StoredRequest } from './fake-network.js';
 import { SimulatedCrash } from './faults.js';
 import { feeCap } from './rules.js';
@@ -127,6 +129,16 @@ import type {
   EnginePayoutRecord,
   EnginePayoutRequest,
 } from './types.js';
+
+/** The fake's stand-in for the host's resource limit on contract events. */
+class EventsLimitExceeded extends Error {
+  override readonly name = 'EventsLimitExceeded';
+}
+
+/** How hard the batch planner may search for offenders in one step. */
+export interface FakeChainAdapterOptions {
+  readonly maxBisectRounds?: number;
+}
 
 /** The ports the fake takes; its clock and config come from the network. */
 export interface FakeChainAdapterPorts {
@@ -251,8 +263,14 @@ export class FakeChainAdapter implements ChainAdapter {
   readonly #alerts: AdapterAlerts;
   /** Submissions this process sent, so a replayed signed payload finds its own. */
   readonly #sent = new Map<string, Pending>();
+  readonly #maxBisectRounds: number;
 
-  constructor(net: FakeNetwork, ports: FakeChainAdapterPorts) {
+  constructor(
+    net: FakeNetwork,
+    ports: FakeChainAdapterPorts,
+    options: FakeChainAdapterOptions = {},
+  ) {
+    this.#maxBisectRounds = options.maxBisectRounds ?? 16;
     this.network = net.network;
     this.chain = chainOf(net.network);
     this.#net = net;
@@ -340,8 +358,12 @@ export class FakeChainAdapter implements ChainAdapter {
   }
 
   // The real encoder, not a copy: an attestation the fake accepts must be
-  // one the mandate on a real network would verify.
+  // one the mandate on a real network would verify. The encoder builds for
+  // whatever network the mandate names, so this adapter refuses any other.
   attestationMessage(fields: AttestationFields): Uint8Array {
+    if (fields.mandate.network !== this.network) {
+      throw invalid('mandate.network (mismatch)', this.network);
+    }
     return stellarAttestationMessage(fields);
   }
 
@@ -361,7 +383,7 @@ export class FakeChainAdapter implements ChainAdapter {
       return Promise.resolve({
         mandate: req.mandate,
         trustedFactory: this.#trusted(engine),
-        tenantRefMatches: true,
+        tenantTagMatches: true,
         asset: 'USDC',
         config: this.#configView(c, s.policyEpoch),
         state: {
@@ -392,9 +414,9 @@ export class FakeChainAdapter implements ChainAdapter {
       let mandate: string;
       if (action.op === 'create') {
         if (req.mandate !== null) throw invalid('mandate (not_null)', this.network);
-        const config = this.#engineConfig(action.config);
-        run = (caller) => this.#net.factory.create({ caller }, config, action.salt);
         mandate = this.#net.factory.mandateAddress(action.config.principal.value, action.salt);
+        const config = this.#engineConfig(action.config, mandateTenantTag(req.scope, mandate));
+        run = (caller) => this.#net.factory.create({ caller }, config, action.salt);
       } else {
         if (req.mandate === null) throw invalid('mandate (required)', this.network);
         const engine = this.#mandate(req.scope, req.mandate, true);
@@ -863,7 +885,7 @@ export class FakeChainAdapter implements ChainAdapter {
     if (view.fee > feeCap(view.total, engine.config().maxFeeBps)) {
       throw this.#rule('FEE_EXCEEDS_CAP');
     }
-    const submission = await this.#withExecutor(opts, async (lease, executor) => {
+    const submission = await this.#withExecutor(opts, async (lease, executor, nextSequence) => {
       const run = (): unknown => {
         engine.execute({ caller: executor }, req.payoutId);
         return null;
@@ -876,7 +898,7 @@ export class FakeChainAdapter implements ChainAdapter {
         { op: 'execute', mandate: engine.address, payoutId: req.payoutId, attempt: req.attempt },
         run,
         opts,
-        lease.sequenceOrNonce,
+        nextSequence(),
       );
     });
     return { kind: 'submitted', op: 'execute', submission };
@@ -1108,31 +1130,69 @@ export class FakeChainAdapter implements ChainAdapter {
       );
     });
     if (due.length === 0) return;
-    const ids = due.map((item) => item.payoutId);
-    try {
-      const submission = await this.#withExecutor(opts, async (lease, executor) => {
-        const run = (): unknown => {
-          engine.executeBatch({ caller: executor }, ids);
-          return null;
-        };
-        this.#simulate(run);
-        return this.#signAndSubmit(
+    await this.#withExecutor(opts, async (lease, executor, nextSequence) => {
+      const port: BatchSimulationPort<PayRequest> = {
+        simulate: (batch) => Promise.resolve(this.#simulateBatch(engine, executor, batch)),
+      };
+      const plan = await planBatch(due, port, { maxBisectRounds: this.#maxBisectRounds });
+      for (const alert of plan.alerts) {
+        this.#alerts.batch({
+          network: this.network,
+          kind: alert.kind,
+          scope: req.scope,
+          payoutId: alert.kind === 'agent_removed' ? alert.item.payoutId : null,
+          correlationId: opts.correlationId,
+        });
+      }
+      for (const { item, error } of plan.failed) {
+        steps.set(item.payoutId, this.#itemFailed(this.#mapFailure(error)));
+      }
+      // Deferred items keep whatever step they had; the next call plans them again.
+      for (const batch of plan.batches) {
+        const ids = batch.map((item) => item.payoutId);
+        const submission = await this.#signAndSubmit(
           req.scope,
           { kind: 'executor', network: this.network, keyId: lease.keyId },
           executor,
           { op: 'execute_batch', mandate: engine.address, payoutId: null, attempt: null },
-          run,
+          () => {
+            engine.executeBatch({ caller: executor }, ids);
+            return null;
+          },
           opts,
-          lease.sequenceOrNonce,
+          nextSequence(),
         );
+        submissions.push(submission);
+        for (const id of ids) steps.set(id, { kind: 'submitted', op: 'execute', submission });
+      }
+    });
+  }
+
+  /** One candidate batch on a throwaway copy of the chain, as the network would simulate it. */
+  #simulateBatch(
+    engine: MandateEngine,
+    executor: string,
+    batch: readonly PayRequest[],
+  ): BatchSimulation {
+    const limit = this.#net.faults.eventsLimit;
+    try {
+      this.#net.simulate(() => {
+        const before = this.#net.ledger.events.length;
+        engine.executeBatch(
+          { caller: executor },
+          batch.map((item) => item.payoutId),
+        );
+        if (limit !== null && this.#net.ledger.events.length - before > limit) {
+          throw new EventsLimitExceeded();
+        }
       });
-      submissions.push(submission);
-      for (const id of ids) steps.set(id, { kind: 'submitted', op: 'execute', submission });
+      return { ok: true };
     } catch (error) {
-      // The batch is atomic, so a refusal fails every item in it. Finding
-      // the one item to blame is the batch executor's job, not this one's.
-      if (!(error instanceof MandateRuleError)) throw error;
-      for (const id of ids) steps.set(id, this.#itemFailed(error));
+      if (error instanceof EventsLimitExceeded) return { ok: false, kind: 'events_limit' };
+      const mapped = this.#mapFailure(error);
+      return mapped instanceof MandateRuleError
+        ? { ok: false, kind: 'refused', error: mapped }
+        : { ok: false, kind: 'error', error: mapped };
     }
   }
 
@@ -1420,7 +1480,7 @@ export class FakeChainAdapter implements ChainAdapter {
   /** Leases an executor for one submission and releases it with the next sequence number. */
   async #withExecutor<T>(
     opts: CallOptions,
-    body: (lease: ExecutorLease, executor: string) => Promise<T>,
+    body: (lease: ExecutorLease, executor: string, nextSequence: () => bigint) => Promise<T>,
   ): Promise<T> {
     const config = this.#config();
     const lease = await this.#store.leaseExecutor(
@@ -1434,8 +1494,14 @@ export class FakeChainAdapter implements ChainAdapter {
       if (executor !== lease.address.value) {
         throw new SignerAddressMismatchError({ network: this.network });
       }
-      next = lease.sequenceOrNonce + 1n;
-      const result = await body(lease, executor);
+      // Each submission takes the next sequence; the release writes back
+      // the first one not used.
+      const nextSequence = (): bigint => {
+        const sequence = next;
+        next += 1n;
+        return sequence;
+      };
+      const result = await body(lease, executor, nextSequence);
       await this.#release(lease, next);
       return result;
     } catch (error) {
@@ -1640,13 +1706,13 @@ export class FakeChainAdapter implements ChainAdapter {
     };
   }
 
-  #engineConfig(c: MandateConfigInput): EngineConfig {
+  #engineConfig(c: MandateConfigInput, tenantTag: string): EngineConfig {
     const values = (list: readonly ChainAddress[]): string[] => list.map((a) => a.value);
     return {
       principal: c.principal.value,
       asset: this.#config().assets.USDC.sac,
       recipientMode: MODES[c.recipientMode],
-      tenantRef: c.tenantRef,
+      tenantTag,
       agents: values(c.agents),
       approvers: values(c.approvers),
       approvalsRequired: c.approvalsRequired,
@@ -1679,7 +1745,7 @@ export class FakeChainAdapter implements ChainAdapter {
       principal: address(c.principal),
       asset: 'USDC',
       recipientMode: modes[c.recipientMode],
-      tenantRef: c.tenantRef as Bytes32,
+      tenantTag: c.tenantTag as Bytes32,
       agents: c.agents.map(address),
       approvers: c.approvers.map(address),
       approvalsRequired: c.approvalsRequired,
@@ -1763,7 +1829,7 @@ export class FakeChainAdapter implements ChainAdapter {
     if (engine === undefined) throw invalid('mandate.address (not_found)', this.network);
     // The tenant check comes first so another tenant learns nothing, not
     // even whether the mandate is trusted.
-    if (engine.tenantRef !== tenantRefOf(scope)) {
+    if (engine.tenantTag !== mandateTenantTag(scope, engine.address)) {
       throw new TenantMismatchError({ network: this.network });
     }
     if (mustTrust && !this.#trusted(engine)) {

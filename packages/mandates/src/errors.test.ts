@@ -11,10 +11,12 @@ import { describe, expect, it } from 'vitest';
 
 import { key } from '../test/world.js';
 import {
+  CustodyGuardError,
   MANDATE_POLICY_ERROR_CODES,
   OperationsGuardianNotConfiguredError,
   PolicyStoreError,
   PolicyStoreTimeoutError,
+  PrincipalKeyRiskError,
   callPort,
   isMandatePolicyError,
   keyText,
@@ -24,7 +26,9 @@ import type { MandatePolicyError } from './index.js';
 describe('mandate policy errors', () => {
   it('every error class has code and name', () => {
     const all: [MandatePolicyError, string][] = [
+      [new CustodyGuardError(), 'CustodyGuardError'],
       [new OperationsGuardianNotConfiguredError(), 'OperationsGuardianNotConfiguredError'],
+      [new PrincipalKeyRiskError(['a']), 'PrincipalKeyRiskError'],
       [new PolicyStoreTimeoutError(), 'PolicyStoreTimeoutError'],
       [new PolicyStoreError(new Error('x')), 'PolicyStoreError'],
     ];

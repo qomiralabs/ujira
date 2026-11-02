@@ -26,7 +26,7 @@ const BYTES32_KEYS: ReadonlySet<string> = new Set([
   'payout_id',
   'recipient_ref',
   'task_ref',
-  'tenant_ref',
+  'tenant_tag',
   'country_policy_hash',
   'salt',
 ]);

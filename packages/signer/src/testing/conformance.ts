@@ -38,6 +38,7 @@ import {
   attestationMessage as mandateAttestationMessage,
   testAuthEntryXdr,
   testFeeBumpXdr,
+  testReserveSandwichXdr,
   testSep10ChallengeXdr,
   testTransactionXdr,
 } from '@ujira/chain-adapter/testing';
@@ -112,8 +113,10 @@ function mandateMessage(fields: AttestationFields): Uint8Array {
 }
 
 function expectRaw(result: SignatureResult): void {
-  // Exactly the port's fields: no DER, recovery ID or vendor envelope.
-  expect(Object.keys(result).sort()).toEqual(['kind', 'publicKey', 'signature']);
+  // Exactly the port's fields: no DER, recovery ID or vendor envelope. The
+  // request id is an optional log reference, so it is the one key allowed.
+  const keys = Object.keys(result).filter((key) => key !== 'requestId');
+  expect(keys.sort()).toEqual(['kind', 'publicKey', 'signature']);
   expect(result.kind).toBe('ed25519');
   expect(result.signature).toBeInstanceOf(Uint8Array);
   expect(result.signature).toHaveLength(64);
@@ -179,6 +182,34 @@ export function describeSignerProvider(
       expect(ed25519.verify(sig.signature, signed.hash, decodeAccountAddress(feeSource))).toBe(
         true,
       );
+    });
+
+    it('signs a reserve sandwich as the fee sponsor, and refuses one it is not the source of', async () => {
+      const sponsor = await accountOf(SPONSOR);
+      const asset = { code: 'USDC', issuer: TEST_INNER_SOURCE };
+      const xdr = testReserveSandwichXdr({ sponsor, sponsored: TEST_DESTINATION, asset });
+      const payload: SignPayload = { kind: 'stellar_reserve_sandwich', network: NETWORK, xdr };
+      const result = await provider.sign(SPONSOR, payload, OPTS);
+      expectRaw(result);
+      const signed = decodeTransactionEnvelope(attachEnvelopeSignature(xdr, result), NETWORK);
+      expect(ed25519.verify(result.signature, signed.hash, decodeAccountAddress(sponsor))).toBe(
+        true,
+      );
+      const foreign = testReserveSandwichXdr({
+        sponsor: TEST_INNER_SOURCE,
+        sponsored: TEST_DESTINATION,
+        asset,
+      });
+      expect(
+        await codeOf(
+          provider.sign(
+            SPONSOR,
+            { kind: 'stellar_reserve_sandwich', network: NETWORK, xdr: foreign },
+            OPTS,
+          ),
+        ),
+      ).toBe('SIGNER_DENIED');
+      expect(await codeOf(provider.sign(EXECUTOR, { ...payload }, OPTS))).toBe('SIGNER_DENIED');
     });
 
     it('signs an authorization entry for its own address', async () => {
