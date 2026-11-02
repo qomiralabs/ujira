@@ -25,7 +25,6 @@ import {
   SponsorDeniedError,
   SubmissionRejectedError,
   SubmissionUnknownError,
-  TenantMismatchError,
   UnsupportedError,
   isChainAdapterError,
 } from '../errors.js';
@@ -204,13 +203,12 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     return {
       mandate: req.mandate,
       trustedFactory: true,
-      tenantRefMatches: true,
+      tenantTagMatches: true,
       asset: 'USDC',
       config: configViewOf(returned(configSim), {
         network,
         factory: instance.factory,
         policyEpoch: state.policyEpoch,
-        tenantRef: tenantRefOf(req.scope),
       }),
       state,
       observedAt: {
@@ -382,8 +380,6 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     }
     if (req.mandate !== null) throw invalid(network, 'mandate (not_null)');
     if (action.factory.network !== network) throw invalid(network, 'factory.network (mismatch)');
-    const tenantRef = tenantRefOf(req.scope);
-    if (action.config.tenantRef !== tenantRef) throw new TenantMismatchError({ network });
     if (!(await this.#trust.isTrustedFactory(action.factory.value, opts))) {
       throw new MandateUntrustedError({ network });
     }
@@ -393,7 +389,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       action.config.principal.value,
       action.salt,
     );
-    return { address, tenantTag: tenantTagOf(tenantRef, addressXdr(address)) };
+    return { address, tenantTag: tenantTagOf(tenantRefOf(req.scope), addressXdr(address)) };
   }
 
   // -------------------------------------------------------------------------

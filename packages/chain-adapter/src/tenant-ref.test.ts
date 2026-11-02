@@ -1,6 +1,9 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import { InvalidInputError } from './errors.js';
@@ -28,6 +31,16 @@ describe('tenantTagOf', () => {
     expect(tenantTagOf(reference, addressXdr(mandate))).toBe(
       '0x2fff3250f540e461e527ed738e3436117a83261d8c9d9ea10f6262dff8c6e447',
     );
+  });
+
+  it('is the example the vendored encoding document states', () => {
+    const encoding = readFileSync(
+      path.resolve(import.meta.dirname, '../vendor/attestation-parity/ENCODING.md'),
+      'utf8',
+    );
+    expect(encoding).toContain(`| \`tenant_ref\` | \`${reference.slice(2)}\` |`);
+    const tag = tenantTagOf(reference, addressXdr(mandate));
+    expect(encoding).toContain(`| \`tenant_tag\` | \`${tag.slice(2)}\` |`);
   });
 
   it('gives two mandates of one tenant unrelated tags', () => {
