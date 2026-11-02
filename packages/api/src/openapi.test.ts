@@ -67,6 +67,8 @@ describe('OpenAPI document', () => {
       '/v1/health',
       '/v1/identity/self-webhook',
       OPENAPI_PATH,
+      '/v1/recipients/{id}/methods/{methodId}/wallet-challenges',
+      '/v1/recipients/{id}/methods/{methodId}/wallet-proofs',
     ]);
     const health = doc.paths['/v1/health']?.['get'];
     expect(health?.operationId).toBe('getHealth');
@@ -83,6 +85,8 @@ describe('OpenAPI document', () => {
       'OpenApiDocument',
       'Problem',
       'SelfWebhookAck',
+      'WalletChallenge',
+      'WalletProofAccepted',
     ]);
   });
 

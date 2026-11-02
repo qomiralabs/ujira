@@ -78,6 +78,11 @@ it believes any of it. `POST /v1/identity/self-webhook` is the first:
 `handleWebhook`. The served table uses `SELF_WEBHOOK_NOT_CONFIGURED`, which
 answers 503 `WEBHOOK_UNAVAILABLE` until Self has its secrets and durable stores.
 
+`POST /v1/recipients/{id}/methods/{methodId}/wallet-challenges` and
+`/wallet-proofs` run the identity service's wallet proof flow for a key with
+`recipients:write`. The served table uses `WALLET_PROOF_NOT_CONFIGURED` until
+the flow has its tables and the adapter has its wallet proof methods.
+
 ### What the pipeline does for every route
 
 In order: a request id (the `Request-Id` header, and `call.correlationId` for
