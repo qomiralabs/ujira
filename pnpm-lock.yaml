@@ -375,6 +375,9 @@ importers:
       '@types/pg':
         specifier: 8.23.1
         version: 8.23.1
+      '@ujira/api-schema':
+        specifier: workspace:*
+        version: link:../api-schema
       kysely-codegen:
         specifier: 0.20.0
         version: 0.20.0(kysely@0.29.6)(pg@8.23.1)(typescript@6.0.3)
