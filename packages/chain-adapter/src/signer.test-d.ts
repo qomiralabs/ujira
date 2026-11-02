@@ -59,7 +59,9 @@ describe('the types carry no vendor encoding', () => {
   it('a signature is raw ed25519 bytes and its public key, nothing else', () => {
     expectTypeOf<SignatureResult>().toEqualTypeOf<Ed25519Signature>();
     expectTypeOf<SignatureResult['kind']>().toEqualTypeOf<'ed25519'>();
-    expectTypeOf<keyof SignatureResult>().toEqualTypeOf<'kind' | 'signature' | 'publicKey'>();
+    expectTypeOf<keyof SignatureResult>().toEqualTypeOf<
+      'kind' | 'signature' | 'publicKey' | 'requestId'
+    >();
     expectTypeOf<SignatureResult['signature']>().toEqualTypeOf<Uint8Array>();
     expectTypeOf<SignatureResult['publicKey']>().toEqualTypeOf<Uint8Array>();
   });
