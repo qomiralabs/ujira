@@ -85,6 +85,12 @@ export {
   type RoutingConfig,
 } from './repositories/ops.js';
 export {
+  FEE_ESTIMATE_OPS,
+  feeEstimates,
+  type FeeEstimate,
+  type FeeEstimateOp,
+} from './repositories/fee-estimates.js';
+export {
   chainEvents,
   deposits,
   fundingSources,
