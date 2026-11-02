@@ -19,6 +19,7 @@ export {
   LiquidityUnavailableError,
   MandateRuleError,
   MandateUntrustedError,
+  MemoOnContractCallError,
   QuoteExpiredError,
   QuoteUnavailableError,
   RailActionRequiredError,
@@ -52,6 +53,7 @@ export type {
   Landed,
   WaitFor,
 } from './errors.js';
+export { operationsGuardianOf } from './guardian.js';
 export { SIGNER_DOWN, withSignerHealth } from './health.js';
 export {
   MANDATE_ERRORS,

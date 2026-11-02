@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   Bytes32,
   CountryCode,
+  MandateSnapshot,
   NetworkId,
   RailCapability,
   RailId,
@@ -17,10 +18,15 @@ import type {
   UnixSeconds,
   Uuid,
 } from '@ujira/chain-adapter';
+import { chainOf } from '@ujira/chain-adapter';
 import { accountFromSeed, contractAddress, hexOf, sha256 } from '@ujira/chain-adapter/testing';
+import { tokenAmount } from '@ujira/core';
 
+import { countryPolicyHash } from '../policy.js';
 import type { RailCatalog } from '../ports.js';
 import type {
+  AttemptLegRecord,
+  DestinationVerificationRecord,
   IdentityRecord,
   MandateInstanceRecord,
   PayoutMethodRecord,
@@ -62,6 +68,9 @@ export function country(code: string): CountryCode {
   return code as CountryCode;
 }
 
+/** The countries test mandates allow unless a test says otherwise. */
+export const TEST_COUNTRIES: readonly CountryCode[] = [country('GH'), country('KE'), country('NG')];
+
 export function mandateRow(
   scope: TenantScope,
   patch: Partial<MandateInstanceRecord> = {},
@@ -76,6 +85,8 @@ export function mandateRow(
     },
     status: 'active',
     recipientMode: 'attested',
+    countryPolicy: { mode: 'allow', countries: TEST_COUNTRIES },
+    countryPolicyHash: countryPolicyHash(TEST_COUNTRIES),
     ...patch,
   };
 }
@@ -132,7 +143,108 @@ export function identityRow(
     status: 'verified',
     assurance: 'document_zk',
     expiresAt: null,
+    providerRef: null,
+    providerStatus: null,
+    flowRef: null,
+    nullifierHmac: null,
+    pendingSession: null,
+    failureReason: null,
+    rawSha256: null,
+    lastCheckedAt: null,
     ...patch,
+  };
+}
+
+/** A wallet signature proof for the method's current destination. */
+export function verificationRow(
+  method: PayoutMethodRecord,
+  patch: Partial<DestinationVerificationRecord> = {},
+): DestinationVerificationRecord {
+  return {
+    scope: method.scope,
+    id: newId(),
+    methodId: method.id,
+    level: 'wallet_signature',
+    destination: method.destination,
+    signerKey: method.destination.address.value,
+    derivedFrom: null,
+    recordedAt: TEST_NOW,
+    ...patch,
+  };
+}
+
+/** Leg 0 of a new attempt paying the method, 2.5 of the test asset. */
+export function legRow(
+  instance: MandateInstanceRecord,
+  method: PayoutMethodRecord,
+  patch: Partial<AttemptLegRecord> = {},
+): AttemptLegRecord {
+  return {
+    scope: method.scope,
+    attemptId: newId(),
+    legIndex: 0,
+    mandateInstanceId: instance.id,
+    recipientId: method.recipientId,
+    methodId: method.id,
+    amount: tokenAmount(25_000_000n, 'USDC', chainOf(method.network)),
+    ...patch,
+  };
+}
+
+/** What the chain says about the instance's mandate: live, with this attester. */
+export function snapshotOf(
+  instance: MandateInstanceRecord,
+  attester: Uint8Array | null,
+): MandateSnapshot {
+  const network = instance.mandate.network;
+  const zero = tokenAmount(0n, 'USDC', chainOf(network));
+  const budget = tokenAmount(1_000_000_000n, 'USDC', chainOf(network));
+  const account = (label: string) => ({ network, value: accountOf(label) });
+  return {
+    mandate: instance.mandate,
+    trustedFactory: true,
+    tenantRefMatches: true,
+    asset: 'USDC',
+    config: {
+      principal: account('principal'),
+      asset: 'USDC',
+      recipientMode: instance.recipientMode,
+      tenantRef: bytes32Of(`tenant:${instance.scope.projectId}`),
+      agents: [account('agent')],
+      approvers: [],
+      approvalsRequired: 0,
+      guardians: [],
+      executors: [account('executor')],
+      recovery: [],
+      recoveryThreshold: 0,
+      limits: {
+        totalBudget: budget,
+        perPaymentCap: budget,
+        perRecipientDailyCap: budget,
+        approvalThreshold: zero,
+        payoutTtlSeconds: 3600,
+        expiresAt: (TEST_NOW + 2_592_000n) as UnixSeconds,
+      },
+      attester,
+      countryPolicyHash: instance.countryPolicyHash,
+      maxFeeBps: 0,
+      factory: { network, value: contractOf('factory') },
+      feeAddress: account('fee'),
+      policyEpoch: 3,
+      proposedPrincipal: null,
+    },
+    state: {
+      spent: zero,
+      pending: zero,
+      committed: zero,
+      balance: budget,
+      free: budget,
+      paused: false,
+      revoked: false,
+      expired: false,
+      policyEpoch: 3,
+    },
+    observedAt: { ledgerOrBlock: 1n, time: TEST_NOW, finality: 'final' },
   };
 }
 

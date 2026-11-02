@@ -5,10 +5,20 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
 import {
+  AttestationConflictError,
+  AttestationMessageError,
+  AttestationSigningError,
+  AttestationStateError,
+  CallAbortedError,
+  CallTimeoutError,
   IDENTITY_ERROR_CODES,
   IdentityConfigError,
+  IdentityConflictError,
   IdentityInputError,
   IdentityTenantMismatchError,
+  ProviderUnavailableError,
+  SelfCreditsExhaustedError,
+  SelfSessionRefusedError,
   isIdentityError,
   issuesOf,
 } from './errors.js';
@@ -27,6 +37,24 @@ describe('identity errors', () => {
       'IDENTITY_CONFIG_INVALID',
     ],
     [new IdentityTenantMismatchError(), 'IdentityTenantMismatchError', 'IDENTITY_TENANT_MISMATCH'],
+    [new CallTimeoutError(), 'CallTimeoutError', 'IDENTITY_CALL_TIMEOUT'],
+    [new CallAbortedError(), 'CallAbortedError', 'IDENTITY_CALL_ABORTED'],
+    [new AttestationConflictError(), 'AttestationConflictError', 'IDENTITY_ATTESTATION_CONFLICT'],
+    [new AttestationStateError(), 'AttestationStateError', 'IDENTITY_ATTESTATION_STATE'],
+    [
+      new AttestationMessageError(),
+      'AttestationMessageError',
+      'IDENTITY_ATTESTATION_MESSAGE_INVALID',
+    ],
+    [new AttestationSigningError('X'), 'AttestationSigningError', 'IDENTITY_SIGNING_FAILED'],
+    [new IdentityConflictError(), 'IdentityConflictError', 'IDENTITY_CONFLICT'],
+    [new ProviderUnavailableError(), 'ProviderUnavailableError', 'IDENTITY_PROVIDER_UNAVAILABLE'],
+    [
+      new SelfCreditsExhaustedError(),
+      'SelfCreditsExhaustedError',
+      'IDENTITY_SELF_CREDITS_EXHAUSTED',
+    ],
+    [new SelfSessionRefusedError('revoked'), 'SelfSessionRefusedError', 'IDENTITY_SESSION_REFUSED'],
   ];
 
   it('every error class has code and name', () => {

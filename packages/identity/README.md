@@ -13,9 +13,38 @@ What a payout needs is data, never a chain test:
 
 Checks run in a fixed order and the first failure decides the reason: mandate instance, recipient, payout method, rail, then each needed verification. A provider switched off with `identity.providers.<name>.enabled` refuses with `PROVIDER_UNAVAILABLE`, but only for payouts that need that provider.
 
+## Attestation
+
+`createAttestationService(ports).attest(ctx, { attemptId, legIndex, mandateInstanceId, methodId })` is internal and never a public route. It runs these checks in order, and the first that fails decides the reason (`ATTESTATION_REFUSAL_REASONS`):
+
+1. The instance is active, in attested or both mode, and the attester key on chain is the attester's own key (`MANDATE_INACTIVE`, `WRONG_RECIPIENT_MODE`, `ATTESTER_MISMATCH`).
+2. The leg's recipient is active (`RECIPIENT_INACTIVE`).
+3. The destination comes from an active payout method of that recipient, never from the caller (`DESTINATION_NOT_BOUND`).
+4. The method's latest evidence is accepted for the mode (`DESTINATION_UNVERIFIED`). Attested mode accepts a wallet signature, a partner confirmation, or a forwarder built on a wallet verified by signature or session; both mode accepts any recorded level.
+   4a. `checkDestination` with the destination, the mandate's asset, the leg amount and the proof's signer, read fresh: `DESTINATION_NOT_RECEIVABLE` with its reason, `DESTINATION_UNVERIFIED` for a signer that is no longer current, `PROVIDER_UNAVAILABLE` on an outage.
+5. The identity requirement is met and not expired (`IDENTITY_REQUIRED`, with the eligibility reason as detail).
+6. The recipient's country is in the mandate's policy and is the method's country (`COUNTRY_NOT_ALLOWED`).
+7. The stored list hashes to the stored hash and to the hash on chain (`POLICY_HASH_MISMATCH`). The hash is SHA-256 of the codes, each once, sorted and comma joined (`countryPolicyHash`).
+8. `valid_until = min(now + ttl, identity expiry)`, refused under 60 seconds (`VALIDITY_TOO_SHORT`).
+9. The attestation row is inserted as pending and committed, then the attester signs, then the row is marked signed or failed.
+
+A refusal writes nothing and signs nothing. Every chain and attester call has a timeout (`identity.attestation.callTimeoutMs`); an outage refuses with `PROVIDER_UNAVAILABLE`, a fault or the caller giving up is thrown. A signing failure marks the row failed and throws `AttestationSigningError`.
+
+## Self Pre-KYC
+
+`createSelfVerification(ports)` runs recipient verification with Self. UJIRA never holds the recipient's documents.
+
+- `startSelfSession(ctx, { recipientId, returnUrl })` starts the one Pre-KYC flow of the environment. The flow rules are fixed: minimum age 18, OFAC on, the excluded countries from config, no reveals, high security, backend mode. The identity row id is the session's `externalUuid` and the TTL is 1800 seconds. An unexpired pending session is handed back instead of a new one.
+- `handleWebhook({ rawBody, headers, correlationId })` answers the webhook route. It checks the signature over the exact bytes and the signed time, the environment and the flow id, then dedupes on `<verification_id>-completed` and maps by `external_uuid`. A result older than the one already applied changes nothing, and neither does an error or lapsed session after a final result.
+- A valid result sets `verified`, assurance `document_zk`, for 365 days. A valid result for a person already verified as another recipient of the same principal is stored as `rejected` with `duplicate_person`, and the principal is alerted. `SELF_CREDITS_EXHAUSTED` alerts operations and leaves the recipient pending.
+- Only references, statuses, an HMAC of the nullifier and a SHA-256 of the raw body are stored. The proof, the user context data and the body are discarded.
+- A `sk_test_` key is refused in production and a `sk_live_` key everywhere else.
+
+The webhook signature scheme here (`self-signature: t=<time>,v1=<HMAC-SHA256 of "<time>.<body>">`) and the payload fields are provisional until the Self spike records real deliveries. Self's own verifier plugs in behind `SelfWebhookVerifier`.
+
 ## Ports
 
-The service is given an `IdentityStore`, a `RailCatalog` (`railCatalogFromRegistry` reads the adapters' declared rails), the validated configuration and a clock. The store is implemented in the database package once the recipient and identity tables exist. `@ujira/identity/testing` has an in-memory store and row builders.
+The service is given an `IdentityStore`, a `RailCatalog` (`railCatalogFromRegistry` reads the adapters' declared rails), the validated configuration and a clock. Attestation adds the chain calls (`AttestationChain`), the `AttesterSigner`, the `AttestationLog` and the payouts service's legs. Self adds a `SelfClient`, a `SelfWebhookVerifier`, the `ProviderEventStore` dedupe table, `IdentityAlerts` and the `IdentityWriteStore` side of the store. The stores and the log are implemented in the database package once the identity, event and attestation tables exist. `@ujira/identity/testing` has in-memory stores, a fake chain that builds the real 47 byte message, a local ed25519 attester, row builders and a ready attestation world with one breaker per check.
 
 ## Rules
 

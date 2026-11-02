@@ -4,7 +4,8 @@
 // Addresses on the fake chain are Stellar strkeys: G for an account, C for a
 // contract. The mandate needs their bytes in two places, the attestation
 // message and the check that the attester key is no role account's key, so
-// both read them the way the contract does, as Address::to_xdr.
+// both read them the way the contract does, as Address::to_xdr, through the
+// adapter's own encoder.
 
 import { InvalidInputError } from '../errors.js';
 import {
@@ -15,13 +16,12 @@ import {
   isContractAddress,
   readStrkey,
 } from '../codecs/strkey.js';
+import { addressXdr, scAddressXdr } from '../stellar/address-xdr.js';
 
-import { concat, ed25519PublicKey, sha256, u32be } from './bytes.js';
+import { ed25519PublicKey, sha256, u32be } from './bytes.js';
 
-const SCV_ADDRESS = 18;
-const SC_ADDRESS_TYPE_ACCOUNT = 0;
-const SC_ADDRESS_TYPE_CONTRACT = 1;
-const PUBLIC_KEY_TYPE_ED25519 = 0;
+export { addressXdr };
+
 const ENVELOPE_TYPE_CONTRACT_ID = 8;
 const CONTRACT_ID_PREIMAGE_FROM_ADDRESS = 0;
 
@@ -50,34 +50,10 @@ export function accountFromSeed(seed: Uint8Array): string {
   return accountAddress(ed25519PublicKey(seed));
 }
 
-function payload(address: string, version: number): Uint8Array | undefined {
-  const read = readStrkey(address, version, KEY_BYTES);
-  return typeof read === 'string' ? undefined : read;
-}
-
 /** The ed25519 key of an account address, or null for a contract. */
 export function accountKeyOf(address: string): Uint8Array | null {
-  return payload(address, STRKEY_VERSION.account) ?? null;
-}
-
-// The SCAddress union: its type, then for an account the key type and key,
-// for a contract the contract ID.
-function scAddress(address: string): Uint8Array {
-  const key = payload(address, STRKEY_VERSION.account);
-  if (key !== undefined) {
-    return concat(u32be(SC_ADDRESS_TYPE_ACCOUNT), u32be(PUBLIC_KEY_TYPE_ED25519), key);
-  }
-  const id = payload(address, STRKEY_VERSION.contract);
-  if (id !== undefined) return concat(u32be(SC_ADDRESS_TYPE_CONTRACT), id);
-  throw new InvalidInputError({ issues: ['address (invalid)'] });
-}
-
-/**
- * Address::to_xdr: the ScVal of an address, 44 bytes for an account and 40
- * for a contract.
- */
-export function addressXdr(address: string): Uint8Array {
-  return concat(u32be(SCV_ADDRESS), scAddress(address));
+  const read = readStrkey(address, STRKEY_VERSION.account, KEY_BYTES);
+  return typeof read === 'string' ? null : read;
 }
 
 /**
@@ -90,7 +66,7 @@ export function deployedAddress(networkId: Uint8Array, deployer: string, salt: U
       u32be(ENVELOPE_TYPE_CONTRACT_ID),
       networkId,
       u32be(CONTRACT_ID_PREIMAGE_FROM_ADDRESS),
-      scAddress(deployer),
+      scAddressXdr(deployer),
       salt,
     ),
   );

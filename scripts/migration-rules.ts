@@ -142,6 +142,8 @@ const CREATE_TABLE =
 const CREATE_INDEX =
   /^create (?:unique )?index (concurrently )?(?:if not exists )?(?:(?!on )\S+ )?on (?:only )?([^\s(]+)/;
 const TIMEOUTS = ['lock_timeout', 'statement_timeout'] as const;
+const SET_ROLE = /^set (?:local |session )?role (?!none\b)/;
+const RESET_ROLE = /^(?:reset role|set (?:local |session )?role none)$/;
 
 function sectionProblems(
   file: string,
@@ -201,6 +203,18 @@ function sectionProblems(
         );
       }
     }
+  }
+
+  // The runner records each migration in the same transaction, as the
+  // session user. A role set for the migration's own statements and left in
+  // place makes that record fail, or worse, run as the wrong role.
+  let roleSetAt: number | undefined;
+  for (const statement of statements) {
+    if (SET_ROLE.test(statement.text)) roleSetAt = statement.line;
+    if (RESET_ROLE.test(statement.text)) roleSetAt = undefined;
+  }
+  if (roleSetAt !== undefined) {
+    report(roleSetAt, 'a role set here must be reset with reset role before the section ends');
   }
 
   // A table created earlier in the same section has no readers yet, so
