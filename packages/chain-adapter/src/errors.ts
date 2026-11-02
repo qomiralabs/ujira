@@ -25,6 +25,7 @@ export const CHAIN_ADAPTER_ERROR_CODES = Object.freeze([
   'SIGNER_ADDRESS_MISMATCH',
   'SPONSOR_DENIED',
   'SPONSOR_UNFUNDED',
+  'ACTIVATION_BUDGET_EXHAUSTED',
   'EXECUTOR_UNFUNDED',
   'DESTINATION_INVALID',
   'QUOTE_EXPIRED',
@@ -142,6 +143,11 @@ const DEFAULTS: Readonly<Record<ChainAdapterErrorCode, Defaults>> = {
   },
   SPONSOR_DENIED: { retryable: false, landed: 'no', message: 'Fee sponsorship denied' },
   SPONSOR_UNFUNDED: { retryable: false, landed: 'no', message: 'Fee sponsor is underfunded' },
+  ACTIVATION_BUDGET_EXHAUSTED: {
+    retryable: false,
+    landed: 'no',
+    message: 'Monthly activation budget is spent',
+  },
   EXECUTOR_UNFUNDED: { retryable: false, landed: 'no', message: 'Executor is underfunded' },
   DESTINATION_INVALID: {
     retryable: false,
@@ -249,6 +255,7 @@ const ADAPTER_ERROR_NAMES = [
   'SignerAddressMismatchError',
   'SponsorDeniedError',
   'SponsorUnfundedError',
+  'ActivationBudgetExhaustedError',
   'ExecutorUnfundedError',
   'DestinationInvalidError',
   'QuoteExpiredError',
@@ -555,6 +562,14 @@ export class SponsorUnfundedError extends ChainAdapterError {
   override readonly name = 'SponsorUnfundedError';
   constructor(options?: ChainAdapterErrorOptions) {
     super('SPONSOR_UNFUNDED', options);
+  }
+}
+
+/** The principal's activations and funding accounts reached the month's budget. */
+export class ActivationBudgetExhaustedError extends ChainAdapterError {
+  override readonly name = 'ActivationBudgetExhaustedError';
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('ACTIVATION_BUDGET_EXHAUSTED', options);
   }
 }
 

@@ -23,6 +23,7 @@ export {
 } from './restore-policy.js';
 export type { ExtensionGroup, ExtensionPolicy, RestoredEntry } from './restore-policy.js';
 export { createStellarRpc } from './rpc.js';
+export { accountBalance } from './tx.js';
 export type {
   JsonRpcOptions,
   RpcLatestLedger,

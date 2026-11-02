@@ -69,6 +69,20 @@ export async function accountSequence(
   return data.type === 'account' ? data.account.seqNum : null;
 }
 
+/** The account's balance in stroops, or null when the account does not exist. */
+export async function accountBalance(
+  rpc: StellarRpc,
+  address: string,
+  opts: CallOptions,
+): Promise<bigint | null> {
+  const key = accountKey(address);
+  const { entries } = await rpc.getLedgerEntries([key], opts);
+  const entry = entries.find((e) => e.key === key);
+  if (entry === undefined) return null;
+  const data = xdr.LedgerEntryData.fromXdr(entry.xdr, 'base64');
+  return data.type === 'account' ? data.account.balance : null;
+}
+
 export interface BuildOptions {
   readonly network: StellarNetworkId;
   readonly source: string;
