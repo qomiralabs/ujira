@@ -8,11 +8,12 @@
 // - be owned by ujira_owner, so no login role skips row level security by
 //   owning it;
 // - have row level security enabled and forced;
-// - carry principal_id and project_id, both uuid and not null;
+// - carry its tenant columns as uuid and not null: principal_id and
+//   project_id, unless TENANT_COLUMNS names others for a tenant root;
 // - have a policy for every command granted to a service role, so a grant
 //   can never silently match no rows or every row;
-// - point at another tenant table only through a foreign key that includes
-//   both tenant columns on each side, so a row can never reference another
+// - point at another tenant table only through a foreign key that carries
+//   every tenant column of the target, so a row can never reference another
 //   tenant's row.
 //
 // Every new tenant table is held to this the moment it is migrated, by the
@@ -30,6 +31,24 @@ export const CATALOG_EXCEPTIONS: readonly string[] = [
   'ujira.settlement_tokens',
   'ujira.status_transitions',
 ];
+
+export interface TenantColumns {
+  readonly principal: string;
+  // Null for a table that belongs to a whole principal rather than to one
+  // of its projects.
+  readonly project: string | null;
+}
+
+const DEFAULT_COLUMNS: TenantColumns = { principal: 'principal_id', project: 'project_id' };
+
+// The tenant roots, which carry their tenant under other names: a principal
+// is its own principal, a project its own project, and a member belongs to
+// the whole principal.
+export const TENANT_COLUMNS: Readonly<Record<string, TenantColumns>> = {
+  'ujira.principals': { principal: 'id', project: null },
+  'ujira.projects': { principal: 'principal_id', project: 'id' },
+  'ujira.principal_members': { principal: 'principal_id', project: null },
+};
 
 export const SERVICE_ROLES = [
   'ujira_app',
@@ -66,7 +85,6 @@ interface GrantRow {
   readonly table_oid: number;
   readonly role: string;
   readonly command: string;
-  readonly code: string;
   readonly covered: boolean;
 }
 
@@ -76,6 +94,10 @@ interface ForeignKeyRow {
   readonly target_oid: number;
   readonly source_columns: number[];
   readonly target_columns: number[];
+}
+
+export function tenantColumnsOf(table: string): TenantColumns {
+  return TENANT_COLUMNS[table] ?? DEFAULT_COLUMNS;
 }
 
 export async function catalogProblems(
@@ -99,8 +121,14 @@ export async function catalogProblems(
   const tenant = tables.filter((table) => !exceptions.includes(table.name));
   const tenantOids = new Set(tenant.map((table) => table.oid));
   const nameOf = new Map(tables.map((table) => [table.oid, table.name]));
+  const columnsOf = (oid: number): TenantColumns => tenantColumnsOf(nameOf.get(oid) ?? '');
   const problems: string[] = [];
 
+  const names = new Set<string>([DEFAULT_COLUMNS.principal, 'project_id']);
+  for (const columns of Object.values(TENANT_COLUMNS)) {
+    names.add(columns.principal);
+    if (columns.project !== null) names.add(columns.project);
+  }
   const columns = (
     await client.query<ColumnRow>(
       `select a.attrelid::int as table_oid,
@@ -110,11 +138,13 @@ export async function catalogProblems(
               a.attnum::int as attnum
          from pg_attribute a
         where a.attrelid = any($1::oid[])
-          and a.attname in ('principal_id', 'project_id')
+          and a.attname = any($2::text[])
           and not a.attisdropped`,
-      [[...tenantOids]],
+      [[...tenantOids], [...names]],
     )
   ).rows;
+  const column = (oid: number, name: string): ColumnRow | undefined =>
+    columns.find((row) => row.table_oid === oid && row.column === name);
 
   for (const table of tenant) {
     if (table.owner !== 'ujira_owner') {
@@ -122,13 +152,15 @@ export async function catalogProblems(
     }
     if (!table.rls) problems.push(`${table.name}: row level security is not enabled`);
     if (!table.forced) problems.push(`${table.name}: row level security is not forced`);
-    for (const column of ['principal_id', 'project_id']) {
-      const found = columns.find((row) => row.table_oid === table.oid && row.column === column);
+    const expected = tenantColumnsOf(table.name);
+    for (const name of [expected.principal, expected.project]) {
+      if (name === null) continue;
+      const found = column(table.oid, name);
       if (found === undefined) {
-        problems.push(`${table.name}: has no ${column}`);
+        problems.push(`${table.name}: has no ${name}`);
       } else {
-        if (found.type !== 'uuid') problems.push(`${table.name}: ${column} is not a uuid`);
-        if (!found.not_null) problems.push(`${table.name}: ${column} is nullable`);
+        if (found.type !== 'uuid') problems.push(`${table.name}: ${name} is not a uuid`);
+        if (!found.not_null) problems.push(`${table.name}: ${name} is nullable`);
       }
     }
   }
@@ -137,7 +169,7 @@ export async function catalogProblems(
   // level security, which hides a mistake rather than reporting it.
   const grants = (
     await client.query<GrantRow>(
-      `select t.oid::int as table_oid, r.rolname as role, cmd.command, cmd.code,
+      `select t.oid::int as table_oid, r.rolname as role, cmd.command,
               exists (
                 select 1 from pg_policy p
                  where p.polrelid = t.oid
@@ -177,20 +209,28 @@ export async function catalogProblems(
       [[...tenantOids]],
     )
   ).rows;
-  const tenantColumn = (oid: number, column: string): number | undefined =>
-    columns.find((row) => row.table_oid === oid && row.column === column)?.attnum;
   for (const key of foreignKeys) {
     if (!tenantOids.has(key.target_oid)) continue;
-    const composite = (['principal_id', 'project_id'] as const).every((column) => {
-      const source = tenantColumn(key.source_oid, column);
-      const target = tenantColumn(key.target_oid, column);
-      if (source === undefined || target === undefined) return false;
-      const position = key.source_columns.indexOf(source);
-      return position !== -1 && key.target_columns[position] === target;
+    const source = columnsOf(key.source_oid);
+    const target = columnsOf(key.target_oid);
+    // Each tenant column of the target must be filled from the source's
+    // column of the same kind, in the same position of the key.
+    const pairs: [string | null, string | null][] = [
+      [source.principal, target.principal],
+      [source.project, target.project],
+    ];
+    const composite = pairs.every(([from, to]) => {
+      if (to === null) return true;
+      if (from === null) return false;
+      const sourceAt = column(key.source_oid, from)?.attnum;
+      const targetAt = column(key.target_oid, to)?.attnum;
+      if (sourceAt === undefined || targetAt === undefined) return false;
+      const position = key.source_columns.indexOf(sourceAt);
+      return position !== -1 && key.target_columns[position] === targetAt;
     });
     if (!composite) {
       problems.push(
-        `${nameOf.get(key.source_oid) ?? String(key.source_oid)}: foreign key ${key.name} to ${nameOf.get(key.target_oid) ?? String(key.target_oid)} does not carry principal_id and project_id`,
+        `${nameOf.get(key.source_oid) ?? String(key.source_oid)}: foreign key ${key.name} to ${nameOf.get(key.target_oid) ?? String(key.target_oid)} does not carry its tenant columns`,
       );
     }
   }

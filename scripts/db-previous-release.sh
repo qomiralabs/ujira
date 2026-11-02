@@ -39,6 +39,13 @@ rm -rf "${tree}/packages/db/migrations"
 cp -R "${root}/packages/db/migrations" "${tree}/packages/db/migrations"
 cp "${root}/packages/db/src/migrate.ts" "${tree}/packages/db/src/migrate.ts"
 
+# These two describe the whole schema as of their own commit, down to the
+# exact roles, grants and tables, so any new table fails them by design. That
+# says nothing about whether the earlier code still works, and this commit's
+# own copies check the new schema. What remains is the tests of the repository
+# code, which is what has to survive a deploy.
+rm -f "${tree}/packages/db/src/catalog.test.ts" "${tree}/packages/db/src/grants.test.ts"
+
 cd "$tree"
 pnpm install --frozen-lockfile --ignore-scripts
 # The packages the database package imports load from their built output.
