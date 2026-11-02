@@ -113,8 +113,10 @@ function mandateMessage(fields: AttestationFields): Uint8Array {
 }
 
 function expectRaw(result: SignatureResult): void {
-  // Exactly the port's fields: no DER, recovery ID or vendor envelope.
-  expect(Object.keys(result).sort()).toEqual(['kind', 'publicKey', 'signature']);
+  // Exactly the port's fields: no DER, recovery ID or vendor envelope. The
+  // request id is an optional log reference, so it is the one key allowed.
+  const keys = Object.keys(result).filter((key) => key !== 'requestId');
+  expect(keys.sort()).toEqual(['kind', 'publicKey', 'signature']);
   expect(result.kind).toBe('ed25519');
   expect(result.signature).toBeInstanceOf(Uint8Array);
   expect(result.signature).toHaveLength(64);

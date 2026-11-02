@@ -64,6 +64,13 @@ describe('calling KMS', () => {
     expect(client.calls.filter((c) => c.operation === 'sign')).toHaveLength(1);
   });
 
+  it('names the KMS request on the result, and leaves it off when there is none', async () => {
+    const { client, signer, payload } = await setup();
+    expect((await signer.sign(EXECUTOR, payload, OPTS)).requestId).toBe('fake-request-id');
+    client.omitNextRequestId();
+    expect(await signer.sign(EXECUTOR, payload, OPTS)).not.toHaveProperty('requestId');
+  });
+
   it('makes no signing call for a payload the policy refuses', async () => {
     const { client, signer } = await setup();
     const foreign = testTransactionXdr({
