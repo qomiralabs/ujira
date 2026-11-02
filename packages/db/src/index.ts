@@ -80,8 +80,11 @@ export {
 } from './repositories/recipients.js';
 export {
   executors,
+  rateLimits,
   routingConfig,
   type ExecutorLease,
+  type RateLimitBucket,
+  type RateLimitTaken,
   type RoutingConfig,
 } from './repositories/ops.js';
 export {

@@ -198,6 +198,40 @@ describe('prefix', () => {
   });
 });
 
+describe('last used', () => {
+  it('writes once, then not again for five minutes', async () => {
+    const token = await db
+      .tenant(alpha)
+      .transaction(async (tx) => apiTokens.create(tx, newToken()));
+    expect(token.lastUsedAt).toBeNull();
+    const touch = async (): Promise<boolean> =>
+      db.tenant(alpha).transaction(async (tx) => apiTokens.touchLastUsed(tx, token.id));
+    expect(await touch()).toBe(true);
+    expect(await touch()).toBe(false);
+    const stamped = await db.tenant(alpha).transaction(async (tx) => apiTokens.get(tx, token.id));
+    expect(stamped?.lastUsedAt).toBeInstanceOf(Date);
+
+    // Six minutes on, as far as the row can tell.
+    await db.tenant(alpha).transaction(async (tx) =>
+      sql`
+        update ujira.api_tokens set last_used_at = now() - interval '6 minutes'
+         where id = ${token.id}
+      `.execute(tx),
+    );
+    expect(await touch()).toBe(true);
+  });
+
+  it('can still be written on a token that has been revoked', async () => {
+    const token = await db
+      .tenant(alpha)
+      .transaction(async (tx) => apiTokens.create(tx, newToken()));
+    await db.tenant(alpha).transaction(async (tx) => apiTokens.revoke(tx, token.id));
+    expect(
+      await db.tenant(alpha).transaction(async (tx) => apiTokens.touchLastUsed(tx, token.id)),
+    ).toBe(true);
+  });
+});
+
 describe('rotation lineage', () => {
   it('records which token a rotated one came from', async () => {
     const first = await db

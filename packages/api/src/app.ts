@@ -6,7 +6,8 @@
 // 1. a request id, sent back in Request-Id and used as the correlation id
 //    of every call the handler makes;
 // 2. a deadline, as an AbortSignal the handler passes on;
-// 3. for a tenant route, the credential, then the route's scope;
+// 3. for a tenant route, the credential, the rate limits, then the route's
+//    scope, so a request that will be refused its scope still counts;
 // 4. path, query and body, each validated by the route's zod schema, except
 //    that a webhook route gets its body as the bytes that were sent;
 // 5. the handler;
@@ -25,13 +26,15 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 
 import { AuthenticatedTenantSchema } from './auth.js';
-import type { Authenticate, CallOptions, Tenant } from './auth.js';
+import type { AuthenticatedTenant, Authenticate, CallOptions, Tenant } from './auth.js';
 import { readJsonBody, readRawBody } from './body.js';
 import { ApiError, RouteRegistryError, toApiError } from './errors.js';
 import { errorNameOf, requestLog } from './log.js';
 import type { Logger, RequestLog } from './log.js';
 import { withOpenApiRoute } from './openapi.js';
-import { fieldErrors } from './route.js';
+import { rateLimitHeaders } from './rate-limit.js';
+import type { RateLimit } from './rate-limit.js';
+import { fieldErrors, routeAccessProblems } from './route.js';
 import type { Route, WebhookInput } from './route.js';
 import { foreignTenantPath } from './tenant-guard.js';
 
@@ -43,6 +46,8 @@ export const API_DEFAULTS = Object.freeze({
 export interface ApiDependencies {
   readonly routes: readonly Route[];
   readonly authenticate: Authenticate;
+  /** Required, so a server cannot be built that forgot its limits. */
+  readonly rateLimit: RateLimit;
   readonly logger: Logger;
   readonly requestTimeoutMs?: number;
   readonly bodyLimitBytes?: number;
@@ -168,6 +173,9 @@ interface Outcome {
 
 /** Builds the API. The OpenAPI route is added to the routes given. */
 export function createApp(deps: ApiDependencies): Hono {
+  // Before the document is built, which reads what each route declares.
+  const [problem] = routeAccessProblems(deps.routes);
+  if (problem !== undefined) throw new RouteRegistryError(problem);
   const { routes } = withOpenApiRoute(deps.routes);
   checkRegistry(routes);
   const timeoutMs = deps.requestTimeoutMs ?? API_DEFAULTS.requestTimeoutMs;
@@ -218,13 +226,30 @@ export function createApp(deps: ApiDependencies): Hono {
     }, timeoutMs);
     const call: CallOptions = { signal: controller.signal, correlationId: requestId };
     let tenant: Tenant | null = null;
+    let limitHeaders: Record<string, string> = {};
     let outcome: Outcome;
     try {
       const response = await underDeadline(
         controller.signal,
         async () => {
           if (route.access.kind === 'tenant') {
-            tenant = await authenticateRequest(deps.authenticate, c.req.raw, call, route, log);
+            const caller = await authenticateRequest(deps.authenticate, c.req.raw, call, log);
+            tenant = { principalId: caller.principalId, projectId: caller.projectId };
+            const decision = await deps.rateLimit(
+              { tenant, tokenId: caller.tokenId, group: route.access.rateLimit ?? null },
+              call,
+            );
+            limitHeaders = rateLimitHeaders(decision);
+            if (!decision.allowed) {
+              throw new ApiError('RATE_LIMITED', {
+                retryAfterSeconds: decision.retryAfterSeconds,
+              });
+            }
+            if (!caller.scopes.includes(route.access.scope)) {
+              throw new ApiError('INSUFFICIENT_SCOPE', {
+                detail: `This route needs the ${route.access.scope} scope`,
+              });
+            }
           }
           const params = route.params.safeParse(c.req.param());
           // A malformed id cannot name anything, so it reads as not found.
@@ -264,6 +289,9 @@ export function createApp(deps: ApiDependencies): Hono {
       };
     } finally {
       clearTimeout(timer);
+    }
+    for (const [name, value] of Object.entries(limitHeaders)) {
+      outcome.response.headers.set(name, value);
     }
     accessLog(log, started, route.method, route.path, outcome);
     return outcome.response;
@@ -307,9 +335,8 @@ async function authenticateRequest(
   authenticate: Authenticate,
   request: Request,
   call: CallOptions,
-  route: Route,
   log: RequestLog,
-): Promise<Tenant> {
+): Promise<AuthenticatedTenant> {
   const result = await authenticate(
     {
       authorization: request.headers.get('authorization'),
@@ -327,13 +354,7 @@ async function authenticateRequest(
     });
     throw new ApiError('INTERNAL');
   }
-  const { principalId, projectId, scopes } = checked.data;
-  if (route.access.kind === 'tenant' && !scopes.includes(route.access.scope)) {
-    throw new ApiError('INSUFFICIENT_SCOPE', {
-      detail: `This route needs the ${route.access.scope} scope`,
-    });
-  }
-  return { principalId, projectId };
+  return checked.data;
 }
 
 function checkedResponse(
