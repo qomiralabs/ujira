@@ -4,12 +4,18 @@
 // The price of XLM in USDC, used only inside UJIRA to measure whether a take
 // covers the network cost UJIRA sponsors. It is never shown on a customer line.
 //
-// The DEX is the first source and the oracle the cross-check. A source older
-// than the freshness bound is refused. When two fresh sources disagree by more
-// than the allowed deviation, the higher USDC per XLM wins, since that prices
-// the cost highest and so can only overstate a shortfall, and operations are
-// told. With no fresh source there is no rate: the caller treats the payout as
-// not covered rather than guess.
+// The DEX is the first source, and the oracle the cross-check and the fallback
+// when the DEX is down. Each source has its own freshness bound, since the DEX
+// answers live and the oracle only publishes every few minutes, and a source
+// past its bound is refused. When two fresh sources disagree by more than the
+// allowed deviation, the higher USDC per XLM wins, since that prices the cost
+// highest and so can only overstate a shortfall, and operations are told. With
+// no fresh source there is no rate: the caller treats the payout as not covered
+// rather than guess.
+//
+// A rate can therefore be minutes old. That is acceptable because it only ever
+// feeds a shortfall estimate and the minimum derived from it, never an amount
+// paid to anyone.
 //
 // A rate here is exact integers. It is not a core Rate: core's rates price
 // fiat and settlement tokens, and XLM is neither.
@@ -47,7 +53,7 @@ export interface XlmRateAlerts {
     readonly deviationBps: bigint;
     readonly used: XlmRateSourceName;
   }): void;
-  /** A source failed outright. Stale is routine; a failure is worth a look. */
+  /** A source failed or fell past its bound, with its error code or STALE. */
   xlmRateSourceFailed(e: {
     readonly network: NetworkId;
     readonly source: XlmRateSourceName;
@@ -137,8 +143,15 @@ export function createXlmRateReader(options: XlmRateReaderOptions): XlmRateReade
       try {
         const observed = await source(opts);
         const age = now - observed.observedAt;
-        // A source dated ahead of the clock is no more trustworthy than a stale one.
-        return age > BigInt(maxAgeSeconds) || age < -BigInt(maxAgeSeconds) ? null : observed;
+        const bound = BigInt(maxAgeSeconds[name]);
+        // A source dated ahead of the clock is no more trustworthy than a stale
+        // one. Past its bound the oracle has missed a tick, and the fallback is
+        // gone until it recovers, so that is reported rather than passed over.
+        if (age > bound || age < -bound) {
+          options.alerts.xlmRateSourceFailed({ network, source: name, code: 'STALE' });
+          return null;
+        }
+        return observed;
       } catch (error) {
         options.alerts.xlmRateSourceFailed({
           network,

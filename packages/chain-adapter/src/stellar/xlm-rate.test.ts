@@ -11,9 +11,12 @@ import { RateUnavailableError } from '../errors.js';
 import type { NetworkId } from '../networks.js';
 import type { UnixSeconds } from '../types.js';
 
+import { accountFromSeed } from '../testing/address.js';
+
 import horizonRecorded from './fixtures/pubnet-horizon-strict-receive.json' with { type: 'json' };
 import oracleRecorded from './fixtures/pubnet-reflector-lastprice.json' with { type: 'json' };
 import type { RawSimulation, StellarRpc } from './rpc.js';
+import { networksConfig } from './test-adapter.js';
 import { horizonDexSource, reflectorOracleSource } from './xlm-rate-sources.js';
 import { createXlmRateReader, deviationBps } from './xlm-rate.js';
 import type { XlmRateAlerts, XlmRateObservation, XlmRateSource } from './xlm-rate.js';
@@ -24,12 +27,20 @@ const USDC_ISSUER = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
 const clock = { nowSeconds: () => NOW as UnixSeconds };
 
 function configOf(
-  xlmRate: { maxAgeSeconds?: number; maxDeviationBps?: number; testnetReferenceRate?: string } = {},
+  xlmRate: {
+    maxAgeSeconds?: { stellar_dex: number; reflector: number };
+    maxDeviationBps?: number;
+    testnetReferenceRate?: string;
+  } = {},
 ): NetworksConfig {
   const fees = {
     uncoveredNetworkCost: { monthlyBudgetStroops: 0n },
     networkFee: { marginBps: 1_200 },
-    xlmRate: { maxAgeSeconds: 60, maxDeviationBps: 200, ...xlmRate },
+    xlmRate: {
+      maxAgeSeconds: { stellar_dex: 60, reflector: 360 },
+      maxDeviationBps: 200,
+      ...xlmRate,
+    },
   };
   return {
     'stellar:pubnet': { fees },
@@ -197,7 +208,7 @@ describe('xlmRate', () => {
   it('a source 61 seconds old is refused and the other is used', async () => {
     const staleOracle = reader({
       dex: observed('stellar_dex', 17n, 100n),
-      oracle: observed('reflector', 99n, 100n, 61n),
+      oracle: observed('reflector', 99n, 100n, 361n),
     });
     await expect(staleOracle.read()).resolves.toMatchObject({ source: 'stellar_dex' });
     const staleDex = reader({
@@ -205,8 +216,13 @@ describe('xlmRate', () => {
       oracle: observed('reflector', 18n, 100n),
     });
     await expect(staleDex.read()).resolves.toMatchObject({ source: 'reflector', numerator: 18n });
-    // Stale is routine for a feed that ticks every five minutes, so it is not alerted.
-    expect([...staleOracle.sent, ...staleDex.sent]).toEqual([]);
+    // Either way the fallback or the first source is gone, so operations hear.
+    expect(staleOracle.sent).toEqual([
+      { kind: 'failed', e: { network: 'stellar:pubnet', source: 'reflector', code: 'STALE' } },
+    ]);
+    expect(staleDex.sent).toEqual([
+      { kind: 'failed', e: { network: 'stellar:pubnet', source: 'stellar_dex', code: 'STALE' } },
+    ]);
   });
 
   it('accepts a source exactly at the bound, and refuses one dated far ahead', async () => {
@@ -214,6 +230,99 @@ describe('xlmRate', () => {
     await expect(read()).resolves.toMatchObject({ source: 'stellar_dex' });
     const ahead = reader({ dex: observed('stellar_dex', 17n, 100n, -61n) });
     await expect(ahead.read()).rejects.toBeInstanceOf(RateUnavailableError);
+  });
+
+  it('gives each source its own bound: the DEX 60 seconds and the oracle 360', async () => {
+    const dexAt = reader({ dex: observed('stellar_dex', 17n, 100n, 60n) });
+    await expect(dexAt.read()).resolves.toMatchObject({ source: 'stellar_dex' });
+    const dexPast = reader({ dex: observed('stellar_dex', 17n, 100n, 61n) });
+    await expect(dexPast.read()).rejects.toMatchObject({ code: 'RATE_UNAVAILABLE' });
+
+    const down: XlmRateSource = () => Promise.reject(new RateUnavailableError());
+    const oracleAt = reader({ dex: down, oracle: observed('reflector', 17n, 100n, 360n) });
+    await expect(oracleAt.read()).resolves.toMatchObject({ source: 'reflector' });
+    const oraclePast = reader({ dex: down, oracle: observed('reflector', 17n, 100n, 361n) });
+    await expect(oraclePast.read()).rejects.toMatchObject({ code: 'RATE_UNAVAILABLE' });
+  });
+
+  it('reads both bounds from the configuration', async () => {
+    const tight = configOf({ maxAgeSeconds: { stellar_dex: 10, reflector: 20 } });
+    const dex = reader({ dex: observed('stellar_dex', 17n, 100n, 11n) }, tight);
+    await expect(dex.read()).rejects.toMatchObject({ code: 'RATE_UNAVAILABLE' });
+    const oracle = reader(
+      {
+        dex: observed('stellar_dex', 17n, 100n, 11n),
+        oracle: observed('reflector', 17n, 100n, 20n),
+      },
+      tight,
+    );
+    await expect(oracle.read()).resolves.toMatchObject({ source: 'reflector' });
+  });
+
+  it('defaults to 60 seconds for the DEX and 360 for the oracle', () => {
+    const parsed = networksConfig({
+      sponsor: accountFromSeed(new Uint8Array(32).fill(1)),
+      channel: accountFromSeed(new Uint8Array(32).fill(2)),
+    });
+    expect(parsed['stellar:testnet']?.fees.xlmRate.maxAgeSeconds).toEqual({
+      stellar_dex: 60,
+      reflector: 360,
+    });
+  });
+
+  // Through the real sources: Horizon's call fails, and the oracle answers from
+  // the recorded mainnet response, 100 seconds old, which a single 60 second
+  // bound would have refused.
+  it('the oracle serves as the fallback when Horizon is down', async () => {
+    const at = (nowSeconds: bigint) => {
+      const sent: unknown[] = [];
+      const read = createXlmRateReader({
+        config: configOf,
+        clock: { nowSeconds: () => nowSeconds as UnixSeconds },
+        alerts: {
+          xlmRateDisagreement: (e) => sent.push(e),
+          xlmRateSourceFailed: (e) => sent.push(e),
+        },
+        sources: {
+          'stellar:pubnet': {
+            dex: dexSource(() => Promise.reject(new Error('horizon is down'))),
+            oracle: reflectorOracleSource({
+              network: 'stellar:pubnet',
+              rpc: {
+                simulateTransaction: () =>
+                  Promise.resolve(oracleRecorded.result as unknown as RawSimulation),
+              } as unknown as StellarRpc,
+              feed: oracleRecorded.oracle,
+              xlmContract: oracleRecorded.asset,
+            }),
+          },
+        },
+      });
+      return { read: () => read('stellar:pubnet', OPTS), sent };
+    };
+
+    const down = at(NOW);
+    await expect(down.read()).resolves.toEqual({
+      base: 'XLM',
+      quote: 'USDC',
+      numerator: 16_819_240_715_150n,
+      denominator: 100_000_000_000_000n,
+      source: 'reflector',
+      observedAt: 1_793_597_100n,
+    });
+    expect(down.sent).toEqual([
+      { network: 'stellar:pubnet', source: 'stellar_dex', code: 'RATE_UNAVAILABLE' },
+    ]);
+
+    // Still served at the very end of the oracle's bound, and refused just past it.
+    await expect(at(1_793_597_460n).read()).resolves.toMatchObject({ source: 'reflector' });
+    const late = at(1_793_597_461n);
+    await expect(late.read()).rejects.toMatchObject({ code: 'RATE_UNAVAILABLE' });
+    expect(late.sent).toContainEqual({
+      network: 'stellar:pubnet',
+      source: 'reflector',
+      code: 'STALE',
+    });
   });
 
   it('sources 201 bps apart give the higher USDC per XLM and one alert', async () => {
@@ -260,7 +369,7 @@ describe('xlmRate', () => {
   it('returns RATE_UNAVAILABLE with no fresh source, and with no sources at all', async () => {
     const { read } = reader({
       dex: observed('stellar_dex', 17n, 100n, 120n),
-      oracle: observed('reflector', 17n, 100n, 120n),
+      oracle: observed('reflector', 17n, 100n, 400n),
     });
     await expect(read()).rejects.toMatchObject({ code: 'RATE_UNAVAILABLE' });
     const none = createXlmRateReader({
