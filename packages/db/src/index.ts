@@ -13,6 +13,7 @@
 export {
   createDatabase,
   type Database,
+  type DatabaseHooks,
   type DatabaseRole,
   type ProjectContext,
   type TenantSession,
