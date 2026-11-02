@@ -94,6 +94,12 @@ export interface Ed25519Signature {
   readonly signature: Uint8Array;
   /** The 32 byte public key that made it. */
   readonly publicKey: Uint8Array;
+  /**
+   * The key manager's id for this signing call, when it has one, so a signature
+   * can be found in the key manager's own audit log. An opaque reference for
+   * logs, never part of the signature and never needed to use it.
+   */
+  readonly requestId?: string;
 }
 
 /**

@@ -19,7 +19,11 @@ import type { LocalAttesterSigner, LocalSigner } from './index.js';
 
 describe('the signer port', () => {
   it('SignatureResult carries no DER or vendor fields', () => {
-    expectTypeOf<keyof SignatureResult>().toEqualTypeOf<'kind' | 'signature' | 'publicKey'>();
+    expectTypeOf<keyof SignatureResult>().toEqualTypeOf<
+      'kind' | 'signature' | 'publicKey' | 'requestId'
+    >();
+    // A log reference, optional, and text: it can carry no signature encoding.
+    expectTypeOf<SignatureResult['requestId']>().toEqualTypeOf<string | undefined>();
     expectTypeOf<SignatureResult['kind']>().toEqualTypeOf<'ed25519'>();
     expectTypeOf<SignatureResult['signature']>().toEqualTypeOf<Uint8Array>();
     expectTypeOf<SignatureResult['publicKey']>().toEqualTypeOf<Uint8Array>();

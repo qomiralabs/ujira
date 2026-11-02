@@ -127,14 +127,18 @@ export interface Database {
     work: (db: Kysely<Schema>) => Promise<T>,
   ) => Promise<T>;
   // One project of one principal, read and write.
-  readonly tenant: (context: ProjectContext, role?: 'app' | 'worker') => TenantSession;
+  readonly tenant: (context: ProjectContext) => TenantSession;
   // Every project of the principal, read only: the transaction opens read
   // only, and the policies refuse writes under this scope as well.
   readonly principal: (context: ProjectContext, role?: 'app' | 'reader') => TenantSession;
-  // One transaction as the app role with no tenant context, for the entry
-  // points that run before one exists: creating a principal and
-  // authenticating a token. Nothing else can read or write in it.
-  readonly unscoped: <T>(work: (db: Kysely<Schema>) => Promise<T>) => Promise<T>;
+  // One transaction with no tenant context, for the entry points that run
+  // before one exists: creating a principal, authenticating a token, and
+  // finding which tenant a contract belongs to. Nothing else can read or
+  // write in it.
+  readonly unscoped: <T>(
+    work: (db: Kysely<Schema>) => Promise<T>,
+    role?: 'app' | 'worker',
+  ) => Promise<T>;
   readonly close: () => Promise<void>;
 }
 
@@ -243,8 +247,8 @@ export function createDatabase(config: DatabaseConfig, hooks: DatabaseHooks = {}
   // A transaction with no tenant context. Every policy refuses it with
   // UJ001, so the only things that work in it are the security definer
   // entry points, which is the point: they are how a request gets a context.
-  const unscoped: Database['unscoped'] = async (work) =>
-    inTransaction('app', `begin; select ${timeoutSettings(config)}`, work);
+  const unscoped: Database['unscoped'] = async (work, role = 'app') =>
+    inTransaction(role, `begin; select ${timeoutSettings(config)}`, work);
 
   async function inTransaction<T>(
     role: DatabaseRole,
@@ -309,7 +313,7 @@ export function createDatabase(config: DatabaseConfig, hooks: DatabaseHooks = {}
   return {
     withTenant,
     unscoped,
-    tenant: (context, role = 'app') => sessionFor(role, context, 'project'),
+    tenant: (context) => sessionFor('app', context, 'project'),
     principal: (context, role = 'reader') => sessionFor(role, context, 'all'),
     // Idempotent: a teardown path that closes twice, or a test that closes
     // after an error, must not fail on the second call. pg throws on a

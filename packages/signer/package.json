@@ -32,6 +32,7 @@
     "@hono/node-server": "2.1.5",
     "@noble/curves": "2.4.0",
     "@ujira/chain-adapter": "workspace:*",
+    "@ujira/db": "workspace:*",
     "hono": "4.13.13",
     "zod": "4.6.7"
   }

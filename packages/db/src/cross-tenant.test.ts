@@ -5,8 +5,9 @@
 // repository method runs as tenant A against tenant B's ids and must find
 // nothing, return a page without B's rows, or land its write in A.
 
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 
+import { tokenAmount } from '@ujira/core';
 import type { Kysely } from 'kysely';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
@@ -15,6 +16,15 @@ import type { Database, ProjectContext } from './database.js';
 import type { Schema } from './schema.generated.js';
 import { entryPoints } from './repositories/entry-points.js';
 import { managedSigners } from './repositories/signers.js';
+import {
+  chainEvents,
+  deposits,
+  fundingSources,
+  instanceRoles,
+  mandateInstances,
+  mandateRepositories,
+  mandates,
+} from './repositories/mandates.js';
 import {
   apiTokens,
   members,
@@ -36,7 +46,16 @@ interface Tenant {
   readonly tokenId: string;
   readonly signerId: string;
   readonly agentId: string;
+  readonly mandateId: string;
+  readonly instanceId: string;
+  readonly sourceId: string;
+  readonly eventId: string;
+  readonly eventTxHash: Buffer;
+  readonly depositId: string;
+  readonly roleAddress: string;
 }
+
+const REPOSITORIES = { ...tenancyRepositories, ...mandateRepositories };
 
 let database: TestDatabase;
 let db: Database;
@@ -71,6 +90,50 @@ async function tenant(name: string): Promise<Tenant> {
       consentedByMemberId: ownerUserId,
     }),
   );
+  const { mandateId, instanceId, sourceId } = await db.tenant(first).transaction(async (tx) => {
+    const mandate = await mandates.create(tx, { name: `${name} mandate` });
+    const instance = await mandateInstances.create(tx, {
+      mandateId: mandate.id,
+      chain: 'stellar',
+      contractAddress: `C${randomUUID()}`,
+      specVersion: '1',
+      asset: 'USDC',
+      scale: 7,
+    });
+    const source = await fundingSources.create(tx, {
+      mandateInstanceId: instance.id,
+      kind: 'stablecoin_deposit',
+    });
+    return { mandateId: mandate.id, instanceId: instance.id, sourceId: source.id };
+  });
+  const eventTxHash = randomBytes(32);
+  const roleAddress = `G${name}`;
+  const { eventId, depositId } = await indexing(first, async (tx) => {
+    const event = await chainEvents.record(tx, {
+      mandateInstanceId: instanceId,
+      chain: 'stellar',
+      txHash: eventTxHash,
+      eventIndex: 0n,
+      ledger: 1n,
+      eventType: 'deposit',
+      payload: {},
+      finalizedAt: new Date(),
+    });
+    const recorded = await deposits.record(tx, {
+      mandateInstanceId: instanceId,
+      fundingSourceId: sourceId,
+      chainEventId: event.id ?? '',
+      amount: tokenAmount(100n, 'USDC', 'stellar'),
+      fromAddress: 'GFROM',
+    });
+    await instanceRoles.grant(tx, {
+      mandateInstanceId: instanceId,
+      role: 'agent',
+      address: roleAddress,
+      eventId: event.id ?? '',
+    });
+    return { eventId: event.id ?? '', depositId: recorded.id ?? '' };
+  });
   return {
     first,
     second: { principalId: created.principalId, projectId: secondId },
@@ -78,7 +141,31 @@ async function tenant(name: string): Promise<Tenant> {
     tokenId: token.id,
     signerId: signer.id,
     agentId,
+    mandateId,
+    instanceId,
+    sourceId,
+    eventId,
+    eventTxHash,
+    depositId,
+    roleAddress,
   };
+}
+
+// The mirror tables are written by the indexer, under the tenant's context.
+async function indexing<T>(
+  context: ProjectContext,
+  work: (tx: Kysely<Schema>) => Promise<T>,
+): Promise<T> {
+  return db.withTenant('worker', { ...context, scope: 'project' }, work);
+}
+
+async function codeOf(promise: Promise<unknown>): Promise<string | undefined> {
+  try {
+    await promise;
+    return undefined;
+  } catch (error) {
+    return (error as { code?: string }).code;
+  }
 }
 
 async function ownerOf(table: string, column: string, value: string): Promise<string | undefined> {
@@ -238,27 +325,168 @@ const cases: Record<string, () => Promise<void>> = {
     );
     expect(row.rows[0]?.status).toBe('active');
   },
+  'mandates.list': async () => {
+    const page = await acrossA(async (tx) => mandates.list(tx, { limit: 100 }));
+    expect(page.items.map((mandate) => mandate.id)).toContain(a.mandateId);
+    expect(page.items.map((mandate) => mandate.id)).not.toContain(b.mandateId);
+  },
+  'mandates.get': async () => {
+    expect(await acrossA(async (tx) => mandates.get(tx, b.mandateId))).toBeUndefined();
+  },
+  'mandates.create': async () => {
+    const created = await asA(async (tx) => mandates.create(tx, { name: 'made by a' }));
+    expect(await ownerOf('ujira.mandates', 'id', created.id)).toBe(a.first.principalId);
+  },
+  'mandates.rename': async () => {
+    expect(await asA(async (tx) => mandates.rename(tx, b.mandateId, 'taken'))).toBe(false);
+  },
+  'mandateInstances.list': async () => {
+    const page = await acrossA(async (tx) => mandateInstances.list(tx, { limit: 100 }));
+    expect(page.items.map((instance) => instance.id)).toContain(a.instanceId);
+    expect(page.items.map((instance) => instance.id)).not.toContain(b.instanceId);
+  },
+  'mandateInstances.get': async () => {
+    expect(await acrossA(async (tx) => mandateInstances.get(tx, b.instanceId))).toBeUndefined();
+  },
+  'mandateInstances.create': async () => {
+    // Naming B's mandate is a tenant violation at the composite foreign key.
+    const attempt = asA(async (tx) =>
+      mandateInstances.create(tx, {
+        mandateId: b.mandateId,
+        chain: 'stellar',
+        contractAddress: `C${randomUUID()}`,
+        specVersion: '1',
+        asset: 'USDC',
+        scale: 7,
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'fundingSources.list': async () => {
+    const page = await acrossA(async (tx) => fundingSources.list(tx, { limit: 100 }));
+    expect(page.items.map((source) => source.id)).toContain(a.sourceId);
+    expect(page.items.map((source) => source.id)).not.toContain(b.sourceId);
+  },
+  'fundingSources.get': async () => {
+    expect(await acrossA(async (tx) => fundingSources.get(tx, b.sourceId))).toBeUndefined();
+  },
+  'fundingSources.create': async () => {
+    const attempt = asA(async (tx) =>
+      fundingSources.create(tx, { mandateInstanceId: b.instanceId, kind: 'stablecoin_deposit' }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'chainEvents.record': async () => {
+    const event = {
+      chain: 'stellar',
+      eventIndex: 0n,
+      ledger: 1n,
+      eventType: 'deposit',
+      payload: {},
+      finalizedAt: new Date(),
+    };
+    // Naming B's instance is refused.
+    const attempt = indexing(a.first, async (tx) =>
+      chainEvents.record(tx, {
+        ...event,
+        mandateInstanceId: b.instanceId,
+        txHash: randomBytes(32),
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+    // An event that is already B's stays B's, and A learns nothing of its id.
+    const replay = await indexing(a.first, async (tx) =>
+      chainEvents.record(tx, {
+        ...event,
+        mandateInstanceId: a.instanceId,
+        txHash: b.eventTxHash,
+      }),
+    );
+    expect(replay).toEqual({ created: false, id: undefined });
+  },
+  'chainEvents.get': async () => {
+    expect(await acrossA(async (tx) => chainEvents.get(tx, b.eventId))).toBeUndefined();
+  },
+  'chainEvents.list': async () => {
+    const page = await acrossA(async (tx) => chainEvents.list(tx, b.instanceId, { limit: 100 }));
+    expect(page.items).toEqual([]);
+  },
+  'instanceRoles.list': async () => {
+    const page = await acrossA(async (tx) => instanceRoles.list(tx, b.instanceId, { limit: 100 }));
+    expect(page.items).toEqual([]);
+  },
+  'instanceRoles.grant': async () => {
+    // The same refusal for an address that holds the role on B's instance and
+    // one that does not.
+    for (const address of [b.roleAddress, 'GINTRUDER']) {
+      const attempt = indexing(a.first, async (tx) =>
+        instanceRoles.grant(tx, {
+          mandateInstanceId: b.instanceId,
+          role: 'agent',
+          address,
+          eventId: a.eventId,
+        }),
+      );
+      expect(await codeOf(attempt)).toBe('23503');
+    }
+  },
+  'instanceRoles.revoke': async () => {
+    expect(
+      await indexing(a.first, async (tx) =>
+        instanceRoles.revoke(tx, {
+          mandateInstanceId: b.instanceId,
+          role: 'agent',
+          address: b.roleAddress,
+          eventId: a.eventId,
+        }),
+      ),
+    ).toBe(false);
+  },
+  'deposits.record': async () => {
+    const deposit = {
+      mandateInstanceId: b.instanceId,
+      fundingSourceId: null,
+      amount: tokenAmount(1n, 'USDC', 'stellar'),
+      fromAddress: 'GFROM',
+    };
+    // The same refusal whether the event exists and has its deposit or not, so
+    // the answer says nothing about what B holds.
+    for (const chainEventId of [b.eventId, randomUUID()]) {
+      const attempt = indexing(a.first, async (tx) =>
+        deposits.record(tx, { ...deposit, chainEventId }),
+      );
+      expect(await codeOf(attempt)).toBe('23503');
+    }
+  },
+  'deposits.get': async () => {
+    expect(await acrossA(async (tx) => deposits.get(tx, b.depositId))).toBeUndefined();
+  },
+  'deposits.list': async () => {
+    const page = await acrossA(async (tx) => deposits.list(tx, { limit: 100 }));
+    expect(page.items.map((deposit) => deposit.id)).toContain(a.depositId);
+    expect(page.items.map((deposit) => deposit.id)).not.toContain(b.depositId);
+  },
 };
 
 describe('cross-tenant matrix', () => {
   it('has a case for every repository method, and none for a method that does not exist', () => {
-    expect(caseProblems(tenancyRepositories, Object.keys(cases))).toEqual([]);
+    expect(caseProblems(REPOSITORIES, Object.keys(cases))).toEqual([]);
   });
 
   it('fails when a method is added without a case', () => {
     const grown = {
-      ...tenancyRepositories,
+      ...REPOSITORIES,
       ledger: { post: () => undefined, note: 'not a method' },
     };
     expect(caseProblems(grown, Object.keys(cases))).toEqual([
       'ledger.post has no cross-tenant case',
     ]);
-    expect(caseProblems(tenancyRepositories, [...Object.keys(cases), 'projects.delete'])).toEqual([
+    expect(caseProblems(REPOSITORIES, [...Object.keys(cases), 'projects.delete'])).toEqual([
       'projects.delete is not a repository method',
     ]);
   });
 
-  it.each(methodNames(tenancyRepositories))('%s cannot reach the other tenant', async (name) => {
+  it.each(methodNames(REPOSITORIES))('%s cannot reach the other tenant', async (name) => {
     const run = cases[name];
     expect(run, name).toBeDefined();
     await run?.();

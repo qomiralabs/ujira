@@ -71,6 +71,13 @@ export const createPayoutRoute = defineTenantRoute({
 why it needs no key, its handler gets no tenant, and it must return no tenant
 data.
 
+`defineWebhookRoute` is for a provider's signed delivery. The handler gets the
+exact bytes and only the headers it names, and must check the signature before
+it believes any of it. `POST /v1/identity/self-webhook` is the first:
+`v1Routes({ selfWebhook })` takes anything shaped like the identity service's
+`handleWebhook`. The served table uses `SELF_WEBHOOK_NOT_CONFIGURED`, which
+answers 503 `WEBHOOK_UNAVAILABLE` until Self has its secrets and durable stores.
+
 ### What the pipeline does for every route
 
 In order: a request id (the `Request-Id` header, and `call.correlationId` for
