@@ -13,6 +13,7 @@ import { STRKEY_VERSION, encodeStrkey } from '../codecs/strkey.js';
 import { InvalidInputError } from '../errors.js';
 import type { Bytes32 } from '../types.js';
 
+import { FIXTURE_USDC, loadReadFixture } from './test-rpc.js';
 import { keepAliveKeys } from './ttl-keys.js';
 import type { KeepAliveTarget } from './ttl-keys.js';
 
@@ -50,6 +51,14 @@ function thrown(run: () => unknown): unknown {
   return undefined;
 }
 
+function footprintOf(text: string): {
+  readonly readOnly: xdr.LedgerKey[];
+  readonly readWrite: xdr.LedgerKey[];
+} {
+  const footprint = xdr.SorobanTransactionData.fromXDR(text, 'base64').resources().footprint();
+  return { readOnly: footprint.readOnly(), readWrite: footprint.readWrite() };
+}
+
 describe('ttl.keys.test.ts', () => {
   it('builds the asset contract Balance key for a mandate', () => {
     // LedgerKey CONTRACT_DATA (6) { contract: SC_ADDRESS_TYPE_CONTRACT (1)
@@ -75,6 +84,28 @@ describe('ttl.keys.test.ts', () => {
     const balance = keepAliveKeys(TARGET).find((key) => key.kind === 'balance');
     expect(balance).toBeDefined();
     expect(Buffer.from(balance?.xdr ?? '', 'base64').toString('hex')).toBe(expected);
+    // The same shape as a key the chain itself gave: testnet's simulation of a
+    // mandate's state lists the asset contract's Balance entry in its footprint.
+    const fixture = loadReadFixture();
+    const captured = fixture.calls.flatMap((call) => {
+      const text = call.result['transactionData'];
+      if (typeof text !== 'string') return [];
+      const { readOnly, readWrite } = footprintOf(text);
+      return [...readOnly, ...readWrite]
+        .filter((k) => k.switch().name === 'contractData')
+        .filter((k) => k.contractData().key().switch().name === 'scvVec')
+        .filter((k) => k.contractData().key().vec()?.[0]?.sym().toString() === 'Balance')
+        .map((k) => k.toXDR('base64'));
+    });
+    expect(captured.length).toBeGreaterThan(0);
+    const ours = keepAliveKeys({
+      mandate: fixture.mandate,
+      asset: FIXTURE_USDC,
+      wasmHash: WASM_HASH,
+      allowed: [],
+      daily: [],
+    }).find((key) => key.kind === 'balance');
+    expect(ours?.xdr).toBe(captured[0]);
   });
 
   it('builds the instance and the code keys', () => {
