@@ -56,7 +56,7 @@ export default defineConfig({
           globalSetup: ['src/testing/global-setup.ts'],
         },
         // The conformance suites sign and verify hundreds of times.
-        '@ujira/signer': { testTimeout: 60_000 },
+        '@ujira/signer': { testTimeout: 60_000, hookTimeout: 60_000 },
         '@ujira/payouts': {
           include: ['src/**/*.test.ts', 'spikes/**/*.test.ts'],
           hookTimeout: 180_000,
@@ -143,6 +143,14 @@ export default defineConfig({
         // The chain adapter is the only code that touches a chain, so it
         // carries the same bar.
         'packages/chain-adapter/src/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
+        // The router decides where every payout goes and which configuration
+        // is live, so it carries the same bar as the adapter.
+        'packages/router/src/**': {
           lines: 95,
           functions: 95,
           branches: 95,
