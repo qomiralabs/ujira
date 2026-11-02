@@ -23,9 +23,12 @@ const PERSONAL_DATA = /(?:^|[^a-z])(?:name|email|phone|address|country|document)
 
 // routing_config_versions.document is the routing configuration, a JSON
 // document in the ordinary sense, and the issue that created the table names
-// it. It is the one column allowed past the pattern above, by its full name.
+// it. These are the only columns allowed past the pattern above, by full name.
 export const OPS_COLUMN_EXCEPTIONS: ReadonlySet<string> = new Set([
   'ops.routing_config_versions.document',
+  // The account a signing key controls: a public chain address on UJIRA's own
+  // infrastructure key, about no person.
+  'ops.signing_keys.address',
 ]);
 
 interface OpsColumnRow {

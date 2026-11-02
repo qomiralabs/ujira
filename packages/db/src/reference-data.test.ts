@@ -81,7 +81,19 @@ describe('reference data', () => {
     ).toEqual([{ token_scale: 7, display_scale: 2 }]);
   });
 
-  it('starts with no status machine; each table adds its own', async () => {
-    expect(await rows('select * from ujira.status_transitions')).toEqual([]);
+  it('holds only the status machines of the tables that have landed', async () => {
+    expect(
+      await rows('select distinct machine from ujira.status_transitions order by machine'),
+    ).toEqual([{ machine: 'managed_signer' }]);
+    expect(
+      await rows(
+        `select from_status, to_status from ujira.status_transitions
+          where machine = 'managed_signer' order by from_status, to_status`,
+      ),
+    ).toEqual([
+      { from_status: 'active', to_status: 'retired' },
+      { from_status: 'active', to_status: 'retiring' },
+      { from_status: 'retiring', to_status: 'retired' },
+    ]);
   });
 });

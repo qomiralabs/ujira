@@ -54,6 +54,20 @@ export interface OpsRoutingConfigVersions {
   version: Generated<Int8>;
 }
 
+export interface OpsSigningKeys {
+  address: string | null;
+  anchor_id: string | null;
+  created_at: Generated<Timestamp>;
+  id: Generated<Int8>;
+  key_ref: string;
+  network: string | null;
+  provider: string;
+  public_key: Buffer | null;
+  purpose: string;
+  status: Generated<string>;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface UjiraApiTokens {
   created_at: Generated<Timestamp>;
   expires_at: Timestamp | null;
@@ -78,6 +92,20 @@ export interface UjiraCurrencies {
 export interface UjiraCurrencyScales {
   currency: string;
   scale: number;
+}
+
+export interface UjiraManagedSigners {
+  address: string;
+  agent_id: string;
+  consented_by_member_id: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  key_ref: string;
+  network: string;
+  principal_id: string;
+  project_id: string;
+  status: Generated<string>;
+  updated_at: Generated<Timestamp>;
 }
 
 export interface UjiraMigrations {
@@ -128,11 +156,13 @@ export interface Schema {
   'ops.executor_accounts': OpsExecutorAccounts;
   'ops.routing_config_active': OpsRoutingConfigActive;
   'ops.routing_config_versions': OpsRoutingConfigVersions;
+  'ops.signing_keys': OpsSigningKeys;
   ujira_migrations: UjiraMigrations;
   'ujira.api_tokens': UjiraApiTokens;
   'ujira.chains': UjiraChains;
   'ujira.currencies': UjiraCurrencies;
   'ujira.currency_scales': UjiraCurrencyScales;
+  'ujira.managed_signers': UjiraManagedSigners;
   'ujira.principal_members': UjiraPrincipalMembers;
   'ujira.principals': UjiraPrincipals;
   'ujira.projects': UjiraProjects;
