@@ -32,6 +32,7 @@ import {
 import type { RentPolicy } from './rent-model.js';
 import { decodeRentSettings, rentSettingsFingerprint } from './rent-settings.js';
 import type { SorobanRentSettings } from './rent-settings.js';
+import { INSTANCE_TTL_EXTEND_LEDGERS } from './restore-policy.js';
 import recorded from './testnet-rent-settings.json' with { type: 'json' };
 
 const testnet = decodeRentSettings(
@@ -217,6 +218,12 @@ describe('the rent policy', () => {
   it('uses the spec values for the record margin and the ledger time', () => {
     expect(RECORD_TTL_MARGIN_SECONDS).toBe(SPEC_RECORD_TTL_MARGIN_SECONDS);
     expect(STELLAR_LEDGER_SECONDS).toBe(BigInt(SPEC_STELLAR_LEDGER_SECONDS));
+  });
+
+  // The adapter extends instances by this many ledgers, so this is the
+  // extension the model has to price.
+  it('prices the instance extension the Stellar adapter actually asks for', () => {
+    expect(POLICY.instanceTtlExtendLedgers).toBe(BigInt(INSTANCE_TTL_EXTEND_LEDGERS));
   });
 
   it('prices with whatever the network says now, so mainnet and a governance change differ', () => {
