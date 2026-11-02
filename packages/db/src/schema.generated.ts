@@ -55,7 +55,7 @@ export interface OpsRoutingConfigVersions {
 }
 
 export interface OpsSigningKeys {
-  address: string | null;
+  account: string | null;
   anchor_id: string | null;
   created_at: Generated<Timestamp>;
   id: Generated<Int8>;

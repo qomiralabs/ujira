@@ -112,10 +112,10 @@ create table ops.signing_keys (
       and key_ref !~ '//'
       and key_ref !~ '^S[A-Z2-7]{55}$'
     ),
-  -- The account a signing key controls: a public chain address, about no one.
+  -- The account a signing key controls: a public chain account, about no one.
   -- Null only for the key encryption key, which controls no account.
-  address text
-    constraint signing_keys_address_format check (address ~ '^[A-Za-z0-9]{1,128}$'),
+  account text
+    constraint signing_keys_account_format check (account ~ '^[A-Za-z0-9]{1,128}$'),
   public_key bytea
     constraint signing_keys_public_key_size check (octet_length(public_key) = 32),
   status text not null default 'active'
@@ -129,9 +129,9 @@ create table ops.signing_keys (
   constraint signing_keys_chain_fields check (
     case
       when purpose = 'pii_kek' then
-        network is null and address is null and public_key is null
+        network is null and account is null and public_key is null
       else
-        network is not null and address is not null and public_key is not null
+        network is not null and account is not null and public_key is not null
     end
   )
 );
@@ -152,11 +152,11 @@ as $fn$
 begin
   if new.purpose <> old.purpose or new.network is distinct from old.network
      or new.anchor_id is distinct from old.anchor_id or new.provider <> old.provider
-     or new.key_ref <> old.key_ref or new.address is distinct from old.address
+     or new.key_ref <> old.key_ref or new.account is distinct from old.account
      or new.public_key is distinct from old.public_key then
     raise exception using
       errcode = 'UJ006',
-      message = 'a signing key keeps its purpose, network, anchor, reference and address';
+      message = 'a signing key keeps its purpose, network, anchor, reference and account';
   end if;
   if new.status <> old.status and not (
     (old.status = 'active' and new.status in ('retiring', 'retired'))
@@ -185,7 +185,7 @@ create function ops.active_signing_keys(purposes text[])
     anchor_id text,
     provider text,
     key_ref text,
-    address text,
+    account text,
     public_key bytea
   )
   language sql
@@ -193,7 +193,7 @@ create function ops.active_signing_keys(purposes text[])
   security definer
   set search_path = pg_catalog
 as $fn$
-  select k.purpose, k.network, k.anchor_id, k.provider, k.key_ref, k.address, k.public_key
+  select k.purpose, k.network, k.anchor_id, k.provider, k.key_ref, k.account, k.public_key
     from ops.signing_keys as k
    where k.status = 'active' and k.purpose = any (purposes)
    order by k.id

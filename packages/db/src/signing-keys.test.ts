@@ -34,7 +34,7 @@ interface Row {
   readonly anchor_id: string | null;
   readonly provider: string;
   readonly key_ref: string;
-  readonly address: string | null;
+  readonly account: string | null;
   readonly public_key: Buffer | null;
 }
 
@@ -46,7 +46,7 @@ function row(change: Partial<Row> = {}): Row {
     anchor_id: null,
     provider: 'aws_kms',
     key_ref: `alias/executor-${String(sequence)}`,
-    address: `G${String(sequence).padStart(55, 'A')}`,
+    account: `G${String(sequence).padStart(55, 'A')}`,
     public_key: PUBLIC_KEY,
     ...change,
   };
@@ -54,7 +54,7 @@ function row(change: Partial<Row> = {}): Row {
 
 function insert(values: Row) {
   return ops.query<{ id: string }>(
-    `insert into ops.signing_keys (purpose, network, anchor_id, provider, key_ref, address, public_key)
+    `insert into ops.signing_keys (purpose, network, anchor_id, provider, key_ref, account, public_key)
      values ($1, $2, $3, $4, $5, $6, $7) returning id`,
     [
       values.purpose,
@@ -62,7 +62,7 @@ function insert(values: Row) {
       values.anchor_id,
       values.provider,
       values.key_ref,
-      values.address,
+      values.account,
       values.public_key,
     ],
   );
@@ -106,7 +106,7 @@ describe('ops.signing_keys', () => {
       { column_name: 'anchor_id', data_type: 'text' },
       { column_name: 'provider', data_type: 'text' },
       { column_name: 'key_ref', data_type: 'text' },
-      { column_name: 'address', data_type: 'text' },
+      { column_name: 'account', data_type: 'text' },
       { column_name: 'public_key', data_type: 'bytea' },
       { column_name: 'status', data_type: 'text' },
       { column_name: 'created_at', data_type: 'timestamp with time zone' },
@@ -143,10 +143,10 @@ describe('ops.signing_keys', () => {
   });
 
   it('requires a network, an account and a public key, except on the key encryption key', async () => {
-    for (const change of [{ network: null }, { address: null }, { public_key: null }]) {
+    for (const change of [{ network: null }, { account: null }, { public_key: null }]) {
       expect(await codeOf(insert(row(change)))).toBe('23514');
     }
-    const kek = { purpose: 'pii_kek', network: null, address: null, public_key: null };
+    const kek = { purpose: 'pii_kek', network: null, account: null, public_key: null };
     await insert(row(kek));
     expect(await codeOf(insert(row({ ...kek, network: NETWORK })))).toBe('23514');
     expect(await codeOf(insert(row({ ...kek, public_key: PUBLIC_KEY })))).toBe('23514');
@@ -163,7 +163,7 @@ describe('ops.signing_keys', () => {
   it('keeps one active row per purpose, network, anchor and key', async () => {
     const first = row();
     await insert(first);
-    expect(await codeOf(insert({ ...first, address: 'GOTHER' }))).toBe('23505');
+    expect(await codeOf(insert({ ...first, account: 'GOTHER' }))).toBe('23505');
     // Another key under the same purpose is the executor pool.
     await insert(row());
     const anchored = row({ purpose: 'sep10', anchor_id: 'one.example' });
@@ -171,7 +171,7 @@ describe('ops.signing_keys', () => {
     await insert({ ...anchored, anchor_id: 'two.example' });
     expect(await codeOf(insert(anchored))).toBe('23505');
     // The key encryption key has no network to tell two rows apart by.
-    const kek = row({ purpose: 'pii_kek', network: null, address: null, public_key: null });
+    const kek = row({ purpose: 'pii_kek', network: null, account: null, public_key: null });
     await insert(kek);
     expect(await codeOf(insert(kek))).toBe('23505');
   });
@@ -182,7 +182,7 @@ describe('ops.signing_keys', () => {
     const set = (assignment: string) =>
       ops.query(`update ops.signing_keys set ${assignment} where id = $1`, [id]);
     expect(await codeOf(set(`key_ref = 'alias/other'`))).toBe('UJ006');
-    expect(await codeOf(set(`address = 'GOTHER'`))).toBe('UJ006');
+    expect(await codeOf(set(`account = 'GOTHER'`))).toBe('UJ006');
     // The trigger runs before the check constraint, so this is its refusal.
     expect(await codeOf(set(`status = 'bogus'`))).toBe('UJ004');
     await set(`status = 'retiring'`);
@@ -247,7 +247,7 @@ describe('ops.signing_keys', () => {
     const kek = row({
       purpose: 'pii_kek',
       network: null,
-      address: null,
+      account: null,
       public_key: null,
       key_ref: `alias/kek-${marker}`,
     });
@@ -264,7 +264,7 @@ describe('ops.signing_keys', () => {
         anchorId: null,
         provider: 'aws_kms',
         keyRef: sponsor.key_ref,
-        address: sponsor.address,
+        address: sponsor.account,
         publicKey: Uint8Array.from(PUBLIC_KEY),
       },
       {
@@ -273,7 +273,7 @@ describe('ops.signing_keys', () => {
         anchorId: 'read.example',
         provider: 'aws_kms',
         keyRef: anchor.key_ref,
-        address: anchor.address,
+        address: anchor.account,
         publicKey: Uint8Array.from(PUBLIC_KEY),
       },
       {

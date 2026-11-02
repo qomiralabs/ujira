@@ -183,10 +183,10 @@ export const signingKeys = {
       anchor_id: string | null;
       provider: string;
       key_ref: string;
-      address: string | null;
+      account: string | null;
       public_key: Buffer | null;
     }>`
-      select purpose, network, anchor_id, provider, key_ref, address, public_key
+      select purpose, network, anchor_id, provider, key_ref, account, public_key
         from ops.active_signing_keys(${[...purposes]}::text[])
     `.execute(db);
     return result.rows.map((row) => ({
@@ -195,7 +195,7 @@ export const signingKeys = {
       anchorId: row.anchor_id,
       provider: row.provider,
       keyRef: row.key_ref,
-      address: row.address,
+      address: row.account,
       publicKey: row.public_key === null ? null : Uint8Array.from(row.public_key),
     }));
   },
