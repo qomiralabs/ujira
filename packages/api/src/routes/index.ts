@@ -7,5 +7,20 @@
 
 import type { Route } from '../route.js';
 import { healthRoute } from './health.js';
+import { SELF_WEBHOOK_NOT_CONFIGURED, selfWebhookRoute } from './self-webhook.js';
+import type { SelfWebhookHandler } from './self-webhook.js';
 
-export const V1_ROUTES: readonly Route[] = Object.freeze([healthRoute]);
+/** What the routes are given; each is a port, so no route knows what is behind it. */
+export interface RouteDependencies {
+  readonly selfWebhook: SelfWebhookHandler;
+}
+
+export function v1Routes(deps: RouteDependencies): readonly Route[] {
+  return Object.freeze([healthRoute, selfWebhookRoute(deps.selfWebhook)]);
+}
+
+// The served table until Self has its secrets and durable stores: the webhook
+// is listed and documented, and answers 503 rather than guessing.
+export const V1_ROUTES: readonly Route[] = v1Routes({
+  selfWebhook: SELF_WEBHOOK_NOT_CONFIGURED,
+});

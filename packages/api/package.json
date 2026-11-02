@@ -28,6 +28,7 @@
     "@ujira/api-schema": "workspace:*",
     "@ujira/chain-adapter": "workspace:*",
     "@ujira/db": "workspace:*",
+    "@ujira/identity": "workspace:*",
     "hono": "4.13.13",
     "zod": "4.6.7"
   },
