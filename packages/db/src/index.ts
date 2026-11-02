@@ -92,6 +92,15 @@ export {
   type RecordedApproval,
 } from './repositories/payout-legs.js';
 export {
+  ReceiptRevisionError,
+  receipts,
+  type NewReceipt,
+  type NewReceiptLeg,
+  type Receipt,
+  type ReceiptLeg,
+  type RecordedReceipt,
+} from './repositories/receipts.js';
+export {
   entryPoints,
   type CreatedPrincipal,
   type NewPrincipal,

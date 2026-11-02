@@ -423,6 +423,39 @@ export interface UjiraProjects {
   updated_at: Generated<Timestamp>;
 }
 
+export interface UjiraReceiptLegs {
+  amount: Numeric;
+  asset: string;
+  attempt_id: string;
+  chain: string;
+  chain_tx_hash: string;
+  created_at: Generated<Timestamp>;
+  destination_address: string;
+  destination_tag: Numeric | null;
+  fee_amount: Generated<Numeric>;
+  leg_index: number;
+  principal_id: string;
+  project_id: string;
+  receipt_id: string;
+  scale: number;
+}
+
+export interface UjiraReceipts {
+  asset: string;
+  attempt_id: string;
+  chain: string;
+  chain_receipt_ref: string;
+  created_at: Generated<Timestamp>;
+  fee_amount: Generated<Numeric>;
+  id: Generated<string>;
+  payout_id: string;
+  principal_id: string;
+  project_id: string;
+  revision: number;
+  scale: number;
+  settlement_amount: Numeric;
+}
+
 export interface UjiraRecipientIdentities {
   chain: string;
   created_at: Generated<Timestamp>;
@@ -506,6 +539,8 @@ export interface Schema {
   'ujira.principals': UjiraPrincipals;
   'ujira.project_payout_minimums': UjiraProjectPayoutMinimums;
   'ujira.projects': UjiraProjects;
+  'ujira.receipt_legs': UjiraReceiptLegs;
+  'ujira.receipts': UjiraReceipts;
   'ujira.recipient_identities': UjiraRecipientIdentities;
   'ujira.recipient_pii': UjiraRecipientPii;
   'ujira.recipients': UjiraRecipients;

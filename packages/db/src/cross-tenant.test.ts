@@ -18,6 +18,7 @@ import { audit, auditRepositories } from './repositories/audit.js';
 import { entryPoints } from './repositories/entry-points.js';
 import { ledger, ledgerRepositories } from './repositories/ledger.js';
 import { approvals, legRepositories, payoutLegs } from './repositories/payout-legs.js';
+import { receiptRepositories, receipts } from './repositories/receipts.js';
 import {
   chainEvents,
   deposits,
@@ -77,6 +78,7 @@ interface Tenant {
   readonly attemptId: string;
   readonly heldPayoutId: string;
   readonly legId: string;
+  readonly receiptId: string;
 }
 
 const REPOSITORIES = {
@@ -87,6 +89,7 @@ const REPOSITORIES = {
   ...auditRepositories,
   ...payoutRepositories,
   ...legRepositories,
+  ...receiptRepositories,
 };
 
 let database: TestDatabase;
@@ -207,7 +210,7 @@ async function tenant(name: string): Promise<Tenant> {
     await audit.record(tx, { action: 'project.created', actor: { kind: 'system' } });
     return { recipientId: recipient.id, methodId: method.id };
   });
-  const { payoutId, batchId, attemptId, heldPayoutId, legId } = await db
+  const { payoutId, batchId, attemptId, heldPayoutId, legId, receiptId } = await db
     .tenant(first)
     .transaction(async (tx) => {
       const payoutInput = {
@@ -240,6 +243,22 @@ async function tenant(name: string): Promise<Tenant> {
         ],
       });
       const [leg] = await payoutLegs.forAttempt(tx, attempt.id);
+      const { receipt } = await receipts.record(tx, {
+        payoutId: payout.id,
+        attemptId: attempt.id,
+        revision: 1,
+        chainReceiptRef: `ref-${name}`,
+        settlement: tokenAmount(50_000_000n, 'USDC', 'stellar'),
+        fee: 0n,
+        legs: [
+          {
+            legIndex: 0,
+            destinationAddress,
+            amount: 50_000_000n,
+            chainTxHash: `tx-${name}`,
+          },
+        ],
+      });
       await approvals.record(tx, {
         attemptId: attempt.id,
         approver: `G${name}`,
@@ -264,6 +283,7 @@ async function tenant(name: string): Promise<Tenant> {
         attemptId: attempt.id,
         heldPayoutId: held.payout.id,
         legId: leg?.id ?? '',
+        receiptId: receipt.id,
       };
     });
   return {
@@ -287,6 +307,7 @@ async function tenant(name: string): Promise<Tenant> {
     attemptId,
     heldPayoutId,
     legId,
+    receiptId,
   };
 }
 
@@ -832,6 +853,31 @@ const cases: Record<string, () => Promise<void>> = {
       }),
     );
     expect(await codeOf(attempt)).toBe('23503');
+  },
+  'receipts.record': async () => {
+    const attempt = asA(async (tx) =>
+      receipts.record(tx, {
+        payoutId: b.payoutId,
+        attemptId: b.attemptId,
+        revision: 1,
+        chainReceiptRef: 'taken',
+        settlement: tokenAmount(50_000_000n, 'USDC', 'stellar'),
+        fee: 0n,
+        legs: [],
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'receipts.latest': async () => {
+    expect(await acrossA(async (tx) => receipts.latest(tx, b.payoutId))).toBeUndefined();
+    expect(await acrossA(async (tx) => receipts.latest(tx, a.payoutId))).toBeDefined();
+  },
+  'receipts.revisions': async () => {
+    expect(await acrossA(async (tx) => receipts.revisions(tx, b.payoutId))).toEqual([]);
+  },
+  'receipts.legs': async () => {
+    expect(await acrossA(async (tx) => receipts.legs(tx, b.receiptId))).toEqual([]);
+    expect(await acrossA(async (tx) => receipts.legs(tx, a.receiptId))).toHaveLength(1);
   },
   'approvals.forAttempt': async () => {
     expect(await acrossA(async (tx) => approvals.forAttempt(tx, b.attemptId))).toEqual([]);

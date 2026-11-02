@@ -810,6 +810,52 @@ $$;
 ALTER FUNCTION ujira.project_scope_all() OWNER TO ujira_owner;
 
 --
+-- Name: receipt_is_whole(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.receipt_is_whole() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  target uuid := (to_jsonb(new) ->> tg_argv[0])::uuid;
+  receipt ujira.receipts%rowtype;
+  listed bigint;
+  settled numeric;
+  fees numeric;
+  expected bigint;
+begin
+  select * into receipt
+    from ujira.receipts as r
+   where r.principal_id = new.principal_id
+     and r.project_id = new.project_id
+     and r.id = target;
+  select count(*), coalesce(sum(l.amount), 0), coalesce(sum(l.fee_amount), 0)
+    into listed, settled, fees
+    from ujira.receipt_legs as l
+   where l.principal_id = new.principal_id
+     and l.project_id = new.project_id
+     and l.receipt_id = target;
+  select count(*) into expected
+    from ujira.payout_legs as l
+   where l.principal_id = new.principal_id
+     and l.project_id = new.project_id
+     and l.attempt_id = receipt.attempt_id;
+  if listed <> expected
+     or settled <> receipt.settlement_amount
+     or fees <> receipt.fee_amount then
+    raise exception using
+      errcode = 'UJ016',
+      message = 'a receipt must list every leg of its attempt, and its totals must be their sums';
+  end if;
+  return null;
+end
+$$;
+
+
+ALTER FUNCTION ujira.receipt_is_whole() OWNER TO ujira_owner;
+
+--
 -- Name: resolve_mandate_instance(text, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_instances
 --
 
@@ -1681,6 +1727,65 @@ ALTER TABLE ONLY ujira.projects FORCE ROW LEVEL SECURITY;
 ALTER TABLE ujira.projects OWNER TO ujira_owner;
 
 --
+-- Name: receipt_legs; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.receipt_legs (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    receipt_id uuid NOT NULL,
+    attempt_id uuid NOT NULL,
+    leg_index integer NOT NULL,
+    destination_address text NOT NULL,
+    destination_tag ujira.u64,
+    amount ujira.amount NOT NULL,
+    fee_amount ujira.amount DEFAULT 0 NOT NULL,
+    chain text NOT NULL,
+    asset text NOT NULL,
+    scale ujira.scale NOT NULL,
+    chain_tx_hash text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT receipt_legs_address_length CHECK (((char_length(destination_address) >= 1) AND (char_length(destination_address) <= 128))),
+    CONSTRAINT receipt_legs_amount_positive CHECK (((amount)::numeric > (0)::numeric)),
+    CONSTRAINT receipt_legs_fee_not_negative CHECK (((fee_amount)::numeric >= (0)::numeric)),
+    CONSTRAINT receipt_legs_tx_hash_length CHECK (((char_length(chain_tx_hash) >= 1) AND (char_length(chain_tx_hash) <= 128)))
+);
+
+ALTER TABLE ONLY ujira.receipt_legs FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.receipt_legs OWNER TO ujira_owner;
+
+--
+-- Name: receipts; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.receipts (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    payout_id uuid NOT NULL,
+    attempt_id uuid NOT NULL,
+    revision integer NOT NULL,
+    chain_receipt_ref text NOT NULL,
+    chain text NOT NULL,
+    asset text NOT NULL,
+    scale ujira.scale NOT NULL,
+    settlement_amount ujira.amount NOT NULL,
+    fee_amount ujira.amount DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT receipts_fee_not_negative CHECK (((fee_amount)::numeric >= (0)::numeric)),
+    CONSTRAINT receipts_ref_length CHECK (((char_length(chain_receipt_ref) >= 1) AND (char_length(chain_receipt_ref) <= 512))),
+    CONSTRAINT receipts_revision_positive CHECK ((revision > 0)),
+    CONSTRAINT receipts_settlement_positive CHECK (((settlement_amount)::numeric > (0)::numeric))
+);
+
+ALTER TABLE ONLY ujira.receipts FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.receipts OWNER TO ujira_owner;
+
+--
 -- Name: recipient_identities; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2328,6 +2433,46 @@ ALTER TABLE ONLY ujira.projects
 
 
 --
+-- Name: receipt_legs receipt_legs_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.receipt_legs
+    ADD CONSTRAINT receipt_legs_pkey PRIMARY KEY (principal_id, project_id, receipt_id, leg_index);
+
+
+--
+-- Name: receipts receipts_leg_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.receipts
+    ADD CONSTRAINT receipts_leg_key UNIQUE (principal_id, project_id, id, attempt_id, chain, asset, scale);
+
+
+--
+-- Name: receipts receipts_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.receipts
+    ADD CONSTRAINT receipts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: receipts receipts_revision; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.receipts
+    ADD CONSTRAINT receipts_revision UNIQUE (principal_id, project_id, payout_id, revision);
+
+
+--
+-- Name: receipts receipts_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.receipts
+    ADD CONSTRAINT receipts_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
 -- Name: recipient_identities recipient_identities_per_chain; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2488,6 +2633,20 @@ CREATE INDEX payouts_by_recipient ON ujira.payouts USING btree (principal_id, pr
 --
 
 CREATE INDEX payouts_by_status ON ujira.payouts USING btree (principal_id, project_id, public_status, id);
+
+
+--
+-- Name: receipt_legs_by_leg; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX receipt_legs_by_leg ON ujira.receipt_legs USING btree (principal_id, project_id, attempt_id, leg_index);
+
+
+--
+-- Name: receipts_by_attempt; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX receipts_by_attempt ON ujira.receipts USING btree (principal_id, project_id, attempt_id);
 
 
 --
@@ -2876,6 +3035,48 @@ CREATE TRIGGER projects_touch BEFORE UPDATE ON ujira.projects FOR EACH ROW EXECU
 
 
 --
+-- Name: receipt_legs receipt_legs_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER receipt_legs_append_only BEFORE DELETE OR UPDATE ON ujira.receipt_legs FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: receipt_legs receipt_legs_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER receipt_legs_no_truncate BEFORE TRUNCATE ON ujira.receipt_legs FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: receipt_legs receipt_legs_whole; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE CONSTRAINT TRIGGER receipt_legs_whole AFTER INSERT ON ujira.receipt_legs DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ujira.receipt_is_whole('receipt_id');
+
+
+--
+-- Name: receipts receipts_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER receipts_append_only BEFORE DELETE OR UPDATE ON ujira.receipts FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: receipts receipts_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER receipts_no_truncate BEFORE TRUNCATE ON ujira.receipts FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: receipts receipts_whole; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE CONSTRAINT TRIGGER receipts_whole AFTER INSERT ON ujira.receipts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ujira.receipt_is_whole('id');
+
+
+--
 -- Name: recipient_identities recipient_identities_touch; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3254,6 +3455,30 @@ ALTER TABLE ONLY ujira.project_payout_minimums
 
 ALTER TABLE ONLY ujira.projects
     ADD CONSTRAINT projects_principal_id_fkey FOREIGN KEY (principal_id) REFERENCES ujira.principals(id);
+
+
+--
+-- Name: receipt_legs receipt_legs_principal_id_project_id_attempt_id_leg_index_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.receipt_legs
+    ADD CONSTRAINT receipt_legs_principal_id_project_id_attempt_id_leg_index_fkey FOREIGN KEY (principal_id, project_id, attempt_id, leg_index) REFERENCES ujira.payout_legs(principal_id, project_id, attempt_id, leg_index);
+
+
+--
+-- Name: receipt_legs receipt_legs_principal_id_project_id_receipt_id_attempt_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.receipt_legs
+    ADD CONSTRAINT receipt_legs_principal_id_project_id_receipt_id_attempt_id_fkey FOREIGN KEY (principal_id, project_id, receipt_id, attempt_id, chain, asset, scale) REFERENCES ujira.receipts(principal_id, project_id, id, attempt_id, chain, asset, scale);
+
+
+--
+-- Name: receipts receipts_principal_id_project_id_payout_id_attempt_id_chai_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.receipts
+    ADD CONSTRAINT receipts_principal_id_project_id_payout_id_attempt_id_chai_fkey FOREIGN KEY (principal_id, project_id, payout_id, attempt_id, chain, asset, scale) REFERENCES ujira.payout_attempts(principal_id, project_id, payout_id, id, network, asset, scale);
 
 
 --
@@ -3717,6 +3942,20 @@ CREATE POLICY owner_all ON ujira.projects TO ujira_owner USING (true) WITH CHECK
 
 
 --
+-- Name: receipt_legs owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.receipt_legs TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: receipts owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.receipts TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: recipient_identities owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3796,6 +4035,18 @@ ALTER TABLE ujira.project_payout_minimums ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE ujira.projects ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: receipt_legs; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.receipt_legs ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: receipts; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.receipts ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: recipient_identities; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
@@ -3981,6 +4232,20 @@ CREATE POLICY tenant_insert ON ujira.project_payout_minimums FOR INSERT TO ujira
 --
 
 CREATE POLICY tenant_insert ON ujira.projects FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (NOT ujira.project_scope_all())));
+
+
+--
+-- Name: receipt_legs tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.receipt_legs FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: receipts tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.receipts FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -4173,6 +4438,20 @@ CREATE POLICY tenant_read ON ujira.projects FOR SELECT TO ujira_app, ujira_reade
 
 
 --
+-- Name: receipt_legs tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.receipt_legs FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: receipts tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.receipts FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
 -- Name: recipient_identities tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4352,6 +4631,20 @@ CREATE POLICY tenant_update ON ujira.project_payout_minimums FOR UPDATE TO ujira
 --
 
 CREATE POLICY tenant_update ON ujira.projects FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (id = ujira.current_project_id())));
+
+
+--
+-- Name: receipt_legs tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.receipt_legs FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: receipts tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.receipts FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -4647,6 +4940,13 @@ GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_reader;
 GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_retention;
 GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_auth;
 GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_indexer;
+
+
+--
+-- Name: FUNCTION receipt_is_whole(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.receipt_is_whole() FROM PUBLIC;
 
 
 --
@@ -5032,6 +5332,22 @@ GRANT SELECT ON TABLE ujira.project_payout_minimums TO ujira_reader;
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.projects TO ujira_app;
 GRANT SELECT ON TABLE ujira.projects TO ujira_reader;
 GRANT INSERT ON TABLE ujira.projects TO ujira_fn_principals;
+
+
+--
+-- Name: TABLE receipt_legs; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.receipt_legs TO ujira_app;
+GRANT SELECT ON TABLE ujira.receipt_legs TO ujira_reader;
+
+
+--
+-- Name: TABLE receipts; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.receipts TO ujira_app;
+GRANT SELECT ON TABLE ujira.receipts TO ujira_reader;
 
 
 --

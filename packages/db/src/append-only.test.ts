@@ -19,8 +19,9 @@ import { ledger } from './repositories/ledger.js';
 import { chainEvents, deposits, mandateInstances, mandates } from './repositories/mandates.js';
 import { approvals } from './repositories/payout-legs.js';
 import { payoutAttempts, payouts } from './repositories/payouts.js';
+import { receipts } from './repositories/receipts.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
-import { newAttempt, newPayout, payoutFixture } from './testing/payout-fixture.js';
+import { newAttempt, newPayout, payoutFixture, usdc } from './testing/payout-fixture.js';
 import {
   createTestDatabase,
   roleUrl,
@@ -40,6 +41,8 @@ const CHANGES: Readonly<Record<string, string>> = {
   'ujira.ledger_journals': 'created_at = now()',
   'ujira.ledger_entries': 'created_at = now()',
   'ujira.mandate_state_snapshots': 'taken_at = now()',
+  'ujira.receipts': `chain_receipt_ref = 'changed'`,
+  'ujira.receipt_legs': `chain_tx_hash = 'changed'`,
 };
 const TABLES = Object.keys(CHANGES);
 
@@ -159,6 +162,22 @@ beforeAll(async () => {
       signedMessageHash: randomBytes(32),
       signature: randomBytes(64),
     });
+    await receipts.record(tx, {
+      payoutId: payout.id,
+      attemptId: attempt.id,
+      revision: 1,
+      chainReceiptRef: 'receipt-ref',
+      settlement: attempt.total,
+      fee: 0n,
+      legs: [
+        {
+          legIndex: 0,
+          destinationAddress: fixture.destinationAddress,
+          amount: usdc(attempt.total.amount).amount,
+          chainTxHash: 'tx',
+        },
+      ],
+    });
   });
 });
 
@@ -198,6 +217,24 @@ describe('append only tables', () => {
       }
     }
     expect(await count('ujira.chain_events')).toBe('1');
+  });
+
+  it('receipts and receipt_legs cannot be updated or deleted', async () => {
+    for (const table of ['ujira.receipts', 'ujira.receipt_legs']) {
+      for (const [name, statement] of mutations(table)) {
+        const admin = new pg.Client({ connectionString: database.url });
+        await admin.connect();
+        try {
+          await admin.query('begin');
+          await admin.query('set local role ujira_owner');
+          expect(await codeOf(admin.query(statement)), `owner ${table} ${name}`).toBe('UJ002');
+          await admin.query('rollback');
+        } finally {
+          await admin.end();
+        }
+      }
+      expect(await count(table)).toBe('1');
+    }
   });
 
   it('approvals cannot be updated or deleted', async () => {
