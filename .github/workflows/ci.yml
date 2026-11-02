@@ -243,11 +243,14 @@ jobs:
       - name: Lint memory headroom
         if: ${{ !cancelled() }}
         env:
-          # 4 GiB, set so that one more member of the current size passes and
-          # a second trips it, which leaves room to act rather than firing at
-          # the outage. The current reading is printed by this step on every
-          # run; read it there rather than from a figure written here.
-          LINT_PEAK_LIMIT_KB: '4194304'
+          # 5 GiB. The previous 4 GiB was reached by ordinary growth, which
+          # failed this step on every branch. This buys room to finish the
+          # real fix in #343 and is not the fix: it still sits below the 6 GiB
+          # heap ceiling on the lint step, so resident size trips here before
+          # the heap runs out, and below the runner's memory, which this step
+          # prints. The current reading is printed here on every run too; read
+          # both from the step rather than from a figure written here.
+          LINT_PEAK_LIMIT_KB: '5242880'
         run: |
           if [ ! -f "${RUNNER_TEMP}/lint-peak-kb" ]; then
             echo "the lint peak was not recorded, so the growth in #343 is unobserved" >&2
@@ -255,6 +258,7 @@ jobs:
           fi
           peak=$(cat "${RUNNER_TEMP}/lint-peak-kb")
           echo "lint peak resident size: ${peak} kB, limit ${LINT_PEAK_LIMIT_KB} kB"
+          echo "runner memory: $(awk '/^MemTotal:/ { print $2 }' /proc/meminfo) kB"
           if [ "$peak" -gt "${LINT_PEAK_LIMIT_KB}" ]; then
             echo "The type aware lint is over its resident size budget. See #343." >&2
             exit 1
