@@ -1,11 +1,12 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-// The Stellar SDK, with its RPC and Horizon clients, arrives with the
-// Stellar adapter. Until then the one chain package is the Stellar base
-// library (XDR and keys, no network code), pinned exactly, and only the
-// codecs and the test fakes may load it. Everything else imports nothing
-// chain specific, so the public types cannot lean on a chain library.
+// Two chain packages, each pinned exactly and each fenced to its folders.
+// The Stellar base library (XDR and keys, no network code) is for the
+// codecs, the Stellar transaction builder and the test fakes. The Stellar SDK,
+// with its RPC client, is for the Stellar adapter in src/stellar, which ships
+// as its own entry. Nothing else imports anything chain specific, so the root
+// entry and the public types cannot lean on a chain library.
 
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
@@ -18,7 +19,10 @@ const PACKAGE_DIR = path.resolve(import.meta.dirname, '..');
 const SRC = path.join(PACKAGE_DIR, 'src');
 const BASE_LIBRARY = '@stellar/stellar-base';
 // Folders under src that may import the base library.
-const BASE_LIBRARY_FOLDERS = ['codecs', 'testing'];
+const BASE_LIBRARY_FOLDERS = ['codecs', 'stellar', 'testing'];
+const SDK = '@stellar/stellar-sdk';
+// The one folder that may import the SDK or its subpaths.
+const SDK_FOLDER = 'stellar';
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -42,12 +46,13 @@ describe('the package is SDK free', () => {
     // The same pattern the lint rule bans outside this package.
     expect(chain.map(({ field, name }) => `${field}:${name}`)).toEqual([
       `dependencies:${BASE_LIBRARY}`,
+      `dependencies:${SDK}`,
     ]);
-    expect(chain[0]?.version).toMatch(/^\d+\.\d+\.\d+$/);
+    for (const { version } of chain) expect(version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(Object.keys(manifest['dependencies'] ?? {})).toContain('zod');
   });
 
-  it('imports nothing chain specific outside the codecs and the test fakes', () => {
+  it('imports nothing chain specific outside the codecs, the test fakes and the Stellar adapter', () => {
     const files = sourceFiles(SRC);
     expect(files.length).toBeGreaterThan(5);
     // Relative paths stay inside the package: the codecs folder reaches its
@@ -55,6 +60,7 @@ describe('the package is SDK free', () => {
     const allowed = /^(\.\/|\.\.\/(?!\.\.)|@ujira\/core$|zod$|node:|vitest$|fast-check$|eslint$)/;
     const bad: string[] = [];
     const baseUsers = new Set<string>();
+    let sdkUsers = 0;
     for (const file of files) {
       const folder = path.relative(SRC, file).split(path.sep)[0] ?? '';
       const text = readFileSync(file, 'utf8');
@@ -64,11 +70,16 @@ describe('the package is SDK free', () => {
           baseUsers.add(folder);
           continue;
         }
+        if ((spec === SDK || spec.startsWith(`${SDK}/`)) && folder === SDK_FOLDER) {
+          sdkUsers += 1;
+          continue;
+        }
         if (!allowed.test(spec)) bad.push(`${path.relative(SRC, file)}: ${spec}`);
       }
     }
     expect(bad).toEqual([]);
-    // Both folders use it, so a stale entry in the list above is noticed.
+    // Every listed folder uses it, so a stale entry in the list is noticed.
     expect([...baseUsers].sort()).toEqual(BASE_LIBRARY_FOLDERS);
+    expect(sdkUsers).toBeGreaterThan(0);
   });
 });

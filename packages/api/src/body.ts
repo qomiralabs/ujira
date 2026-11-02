@@ -4,11 +4,12 @@
 import { ApiError } from './errors.js';
 
 /**
- * Reads a JSON request body, stopping as soon as it passes the limit. A
- * Content-Length is not trusted on its own: a chunked body has none, and a
- * body longer than its header still stops at the limit.
+ * Reads a JSON request body as the bytes that were sent, stopping as soon as
+ * it passes the limit. A Content-Length is not trusted on its own: a chunked
+ * body has none, and a body longer than its header still stops at the limit.
+ * A webhook route stops here, because its signature covers these exact bytes.
  */
-export async function readJsonBody(request: Request, limitBytes: number): Promise<unknown> {
+export async function readRawBody(request: Request, limitBytes: number): Promise<Uint8Array> {
   const type = (request.headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase();
   if (type !== 'application/json') throw new ApiError('UNSUPPORTED_MEDIA_TYPE');
   const declared = Number(request.headers.get('content-length') ?? '0');
@@ -35,6 +36,12 @@ export async function readJsonBody(request: Request, limitBytes: number): Promis
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  return bytes;
+}
+
+/** Reads and parses a JSON request body. */
+export async function readJsonBody(request: Request, limitBytes: number): Promise<unknown> {
+  const bytes = await readRawBody(request, limitBytes);
   let text: string;
   try {
     text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);

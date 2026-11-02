@@ -58,6 +58,16 @@ export type SignPayload =
       readonly xdr: string;
     }
   | {
+      /**
+       * The fee sponsor's own transaction that opens or activates an account
+       * with its reserves sponsored: begin sponsoring, optionally create the
+       * account, add the payout asset's trust line, end sponsoring.
+       */
+      readonly kind: 'stellar_reserve_sandwich';
+      readonly network: NetworkId;
+      readonly xdr: string;
+    }
+  | {
       readonly kind: 'stellar_auth_entry';
       readonly network: NetworkId;
       readonly entryXdr: string;
@@ -84,6 +94,12 @@ export interface Ed25519Signature {
   readonly signature: Uint8Array;
   /** The 32 byte public key that made it. */
   readonly publicKey: Uint8Array;
+  /**
+   * The key manager's id for this signing call, when it has one, so a signature
+   * can be found in the key manager's own audit log. An opaque reference for
+   * logs, never part of the signature and never needed to use it.
+   */
+  readonly requestId?: string;
 }
 
 /**

@@ -81,7 +81,10 @@ describe('reference data', () => {
     ).toEqual([{ token_scale: 7, display_scale: 2 }]);
   });
 
-  it('starts with no status machine; each table adds its own', async () => {
-    expect(await rows('select * from ujira.status_transitions')).toEqual([]);
+  // Each table adds its own machine, so this holds however many have landed.
+  it('moves no status to itself in any status machine', async () => {
+    expect(
+      await rows('select * from ujira.status_transitions where from_status = to_status'),
+    ).toEqual([]);
   });
 });

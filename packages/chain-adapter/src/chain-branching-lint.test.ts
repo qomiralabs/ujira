@@ -75,10 +75,10 @@ const TEST_ONLY_SDK = '@testchain/';
 let eslint: ESLint;
 let eslintWithSecondChain: ESLint;
 
-// The first typed lint builds the TypeScript program for the whole
-// workspace, which can take longer than one test's timeout under coverage.
-// Doing it here once keeps that cost out of whichever test happens to run
-// first.
+// The first typed lint of a member builds that member's TypeScript program,
+// which can take longer than one test's timeout under coverage. Doing it here
+// once for every member these tests lint keeps that cost out of whichever test
+// happens to run first.
 beforeAll(async () => {
   eslint = new ESLint({ cwd: REPO_ROOT });
   eslintWithSecondChain = new ESLint({
@@ -97,6 +97,8 @@ beforeAll(async () => {
     },
   });
   await eslint.lintText(`${HEADER}export {};\n`, { filePath: PAYOUTS_FILE });
+  await eslint.lintText(`${HEADER}export {};\n`, { filePath: CORE_FILE });
+  await eslint.lintText(`${HEADER}export {};\n`, { filePath: MONEY_FILE });
   await eslint.lintText(`${HEADER}export {};\n`, { filePath: ADAPTER_FILE });
   await eslint.lintText(`${HEADER}export {};\n`, { filePath: CODECS_FILE });
   await eslintWithSecondChain.lintText(`${HEADER}export {};\n`, { filePath: PAYOUTS_FILE });

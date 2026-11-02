@@ -13,7 +13,7 @@ import {
   isChainAbiModule,
   matchesPackage,
 } from './packages/chain-adapter/src/chain-modules.ts';
-import { lintProjects } from './scripts/workspace.ts';
+import { ROOT_LINT_PROJECT, lintScopes } from './scripts/workspace.ts';
 
 // The year on the copyright line is the year the file was created, so any
 // four digit year is accepted. Everything else must match exactly.
@@ -775,7 +775,7 @@ export default defineConfig(
       parserOptions: {
         // An explicit list rather than the nearest tsconfig to each file, so
         // lint sees the same program as typecheck.
-        project: lintProjects(import.meta.dirname),
+        project: [ROOT_LINT_PROJECT],
         tsconfigRootDir: import.meta.dirname,
         // typescript-eslint treats CI=true as a single run and stops tracking
         // files it was not started with, which breaks the lint tests that
@@ -803,6 +803,12 @@ export default defineConfig(
       'no-implied-eval': 'error',
     },
   },
+  // Listed once per member, so linting one member never builds another's
+  // program. See lintScopes.
+  ...lintScopes(import.meta.dirname).map(({ files, project }) => ({
+    files,
+    languageOptions: { parserOptions: { project } },
+  })),
   {
     // build and snapshot skip the public factory, so code outside the money
     // module must go through money() and the operations instead.

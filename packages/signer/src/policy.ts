@@ -24,6 +24,7 @@ type RefKind = SignerRef['kind'];
 const ALLOWED: Readonly<Record<SignPayload['kind'], ReadonlySet<RefKind>>> = Object.freeze({
   stellar_tx: new Set<RefKind>(['executor', 'managed_agent']),
   stellar_fee_bump: new Set<RefKind>(['fee_sponsor']),
+  stellar_reserve_sandwich: new Set<RefKind>(['fee_sponsor']),
   stellar_auth_entry: new Set<RefKind>(['executor', 'managed_agent']),
   sep10_challenge: new Set<RefKind>(['sep10']),
   attestation: new Set<RefKind>(['attester']),
@@ -53,7 +54,10 @@ function decoded<T>(ref: SignerRef, read: () => T): T {
 export function messageFor(ref: SignerRef, payload: SignPayload, account: string): Uint8Array {
   if (payload.network !== ref.network || !ALLOWED[payload.kind].has(ref.kind)) throw deny(ref);
   switch (payload.kind) {
-    case 'stellar_tx': {
+    // The sandwich is the sponsor's own transaction; its structure is the
+    // chain service's policy to check.
+    case 'stellar_tx':
+    case 'stellar_reserve_sandwich': {
       const tx = decoded(ref, () => decodeTransactionEnvelope(payload.xdr, payload.network));
       if (tx.source.account !== account) throw deny(ref);
       return tx.hash;

@@ -176,6 +176,29 @@ export interface IdentityRecord {
   readonly status: IdentityStatus;
   readonly assurance: Assurance;
   readonly expiresAt: UnixSeconds | null;
+  /** The provider's id for the verification, such as Self's verification id. */
+  readonly providerRef: string | null;
+  /** The provider's own word for the last result, kept for support. Never branched on. */
+  readonly providerStatus: string | null;
+  /** The provider flow and version that produced the result. */
+  readonly flowRef: string | null;
+  /** Hex HMAC of the provider's nullifier. The nullifier itself is never stored. */
+  readonly nullifierHmac: string | null;
+  /** The open session the recipient was sent to, reused until it expires. */
+  readonly pendingSession: PendingSession | null;
+  /** A code such as duplicate_person or session_expired, never a provider message. */
+  readonly failureReason: string | null;
+  /** Hex SHA-256 of the last raw result body. The body itself is discarded. */
+  readonly rawSha256: string | null;
+  /** When the provider completed the result last applied, to drop older ones. */
+  readonly lastCheckedAt: UnixSeconds | null;
+}
+
+export interface PendingSession {
+  readonly sessionId: string;
+  /** The provider's hosted page. Carries no personal data. */
+  readonly url: string;
+  readonly expiresAt: UnixSeconds;
 }
 
 export interface ProjectIdentitySettings {
@@ -213,6 +236,14 @@ export interface DestinationVerificationRecord {
   /** For a forwarder: the wallet verification it was built on. Otherwise null. */
   readonly derivedFrom: Uuid | null;
   readonly recordedAt: UnixSeconds;
+  /** The signing scheme of a wallet signature proof, as data. Otherwise null. */
+  readonly scheme: string | null;
+  /** The single use challenge a wallet signature answered. Otherwise null. */
+  readonly challengeId: Uuid | null;
+  /** The signature itself, kept so the binding can be traced to its evidence. */
+  readonly signature: string | null;
+  /** The partner's reference, required for a partner confirmation. Otherwise null. */
+  readonly partnerRef: string | null;
 }
 
 /** One leg of a payout attempt, as the payouts service recorded it. */

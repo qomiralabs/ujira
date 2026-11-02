@@ -26,6 +26,8 @@ export const RETRY_AFTER_SECONDS: Readonly<Partial<Record<ProblemCode, number>>>
   DB_UNAVAILABLE: 5,
   CHAIN_UNAVAILABLE: 5,
   REQUEST_TIMEOUT: 2,
+  // Providers retry on their own schedule; this only tells them not to hurry.
+  WEBHOOK_UNAVAILABLE: 60,
 });
 
 export interface ApiErrorOptions {
@@ -92,6 +94,7 @@ export const ADAPTER_ERROR_MAP: Readonly<Record<ChainAdapterErrorCode, ProblemCo
     SIGNER_DENIED: 'INTERNAL',
     SIGNER_ADDRESS_MISMATCH: 'INTERNAL',
     SPONSOR_DENIED: 'INTERNAL',
+    ACTIVATION_BUDGET_EXHAUSTED: 'INTERNAL',
     SPONSOR_UNFUNDED: 'INTERNAL',
     EXECUTOR_UNFUNDED: 'INTERNAL',
     DESTINATION_INVALID: 'DESTINATION_INVALID',

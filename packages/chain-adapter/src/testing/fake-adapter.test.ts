@@ -35,6 +35,11 @@ import {
   payRequest,
   refusalOf,
 } from './index.js';
+import type { Bytes32 } from '../types.js';
+import { mandateAddressOf } from '../stellar/mandate-address.js';
+import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
+import { addressXdr } from './address.js';
+import { mandateTenantTag } from './fake-network.js';
 
 describeChainAdapter('FakeChainAdapter', () => fakeAdapterHarness(), { faults: true });
 
@@ -337,6 +342,60 @@ describe('the SEP-31 rail', () => {
 });
 
 describe('input and trust checks', () => {
+  it('refuses a tag copied from another mandate of the same tenant, as the real adapter does', async () => {
+    const { h, m, net } = await world();
+    const snap = await h.adapter.readMandate({ scope: h.scope, mandate: m.ref }, OPTS);
+    const copy = net.factory.create(
+      { caller: m.principal.value },
+      {
+        principal: m.principal.value,
+        asset: net.token.address,
+        recipientMode: 'ALLOWLIST',
+        tenantTag: snap.config.tenantTag,
+        agents: [h.managedAgent.address.value],
+        approvers: [],
+        approvalsRequired: 0,
+        guardians: [],
+        executors: [],
+        recovery: [],
+        recoveryThreshold: 0,
+        limits: {
+          totalBudget: 10n,
+          perPaymentCap: 10n,
+          perRecipientDailyCap: 10n,
+          approvalThreshold: 11n,
+          payoutTtlSeconds: 3_600n,
+          expiresAt: snap.config.limits.expiresAt,
+        },
+        attester: null,
+        countryPolicyHash: snap.config.countryPolicyHash,
+        maxFeeBps: 0,
+      },
+      `0x${'6b'.repeat(32)}`,
+    );
+    const mandate = { ...m.ref, address: { network: net.network, value: copy.address } };
+    await expect(h.adapter.readMandate({ scope: h.scope, mandate }, OPTS)).rejects.toMatchObject({
+      code: 'TENANT_MISMATCH',
+    });
+  });
+
+  it('stores the tag bound to the mandate, never the reference, as the real adapter does', async () => {
+    const { h, m, net } = await world();
+    const snap = await h.adapter.readMandate({ scope: h.scope, mandate: m.ref }, OPTS);
+    const expected = tenantTagOf(tenantRefOf(h.scope), addressXdr(m.ref.address.value));
+    expect(snap.config.tenantTag).toBe(expected);
+    expect(snap.config.tenantTag).not.toBe(tenantRefOf(h.scope));
+    expect(snap.tenantTagMatches).toBe(true);
+    expect('tenantRef' in snap.config).toBe(false);
+
+    // The fake factory and the real adapter put a mandate at the same address.
+    const principal = m.principal.value;
+    const salt = `0x${'5a'.repeat(32)}` as Bytes32;
+    expect(net.factory.mandateAddress(principal, salt)).toBe(
+      mandateAddressOf(net.network, net.factory.address, principal, salt),
+    );
+  });
+
   it('refuses a mandate from an untrusted factory, a wrong network and an unknown address', async () => {
     const { h, m, net } = await world();
     const rogue = new MandateFactory(net.ledger, {
@@ -351,7 +410,10 @@ describe('input and trust checks', () => {
         principal: m.principal.value,
         asset: net.token.address,
         recipientMode: 'ALLOWLIST',
-        tenantRef: h.tenantRef(h.scope),
+        tenantTag: mandateTenantTag(
+          h.scope,
+          rogue.mandateAddress(m.principal.value, snap.config.countryPolicyHash),
+        ),
         agents: [h.managedAgent.address.value],
         approvers: [],
         approvalsRequired: 0,

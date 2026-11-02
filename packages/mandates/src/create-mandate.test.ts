@@ -39,6 +39,9 @@ import {
 import {
   OperationsGuardianNotConfiguredError,
   createMemoryGuardianOptOutStore,
+  createMemoryManagedAgentKeys,
+  createMemoryPrincipalInstances,
+  createMemoryPrincipalKeyReader,
   planMandateCreation,
 } from './index.js';
 import type { CreationDeps } from './index.js';
@@ -50,6 +53,11 @@ function deps(
   return {
     networks: () => current,
     optOuts: createMemoryGuardianOptOutStore(),
+    managedAgents: createMemoryManagedAgentKeys(),
+    principalKeys: {
+      instances: createMemoryPrincipalInstances(),
+      signing: createMemoryPrincipalKeyReader(),
+    },
     setGuardian(g) {
       current = networks(g);
     },

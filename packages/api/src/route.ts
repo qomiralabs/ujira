@@ -6,11 +6,13 @@
 // everything else: authentication, validation, the deadline, response
 // checks, errors and logs. Handlers stay small and cannot skip a step.
 //
-// There are three ways in:
+// There are four ways in:
 // - contractRoute: a read route already described in @ujira/api-schema;
 //   its path, schemas and query rules come from there.
 // - defineTenantRoute: any other route that acts for a tenant.
 // - definePublicRoute: a route with no tenant, which must say why.
+// - defineWebhookRoute: a provider's signed delivery, handed over as the
+//   exact bytes, because parsing first would verify something else.
 
 import { OPENAPI_COMPONENTS, PROBLEM_CODES, ROUTES, parseQuery } from '@ujira/api-schema';
 import type { FieldError, ProblemCode, RouteId, RouteQuery } from '@ujira/api-schema';
@@ -62,6 +64,8 @@ export interface Route {
   readonly query: z.ZodType;
   readonly parseQuery: (search: URLSearchParams) => QueryParse;
   readonly body: z.ZodType | null;
+  /** Set on a webhook route: the body stays bytes, and only these headers are passed on. */
+  readonly rawBody: { readonly headers: readonly string[] } | null;
   readonly response: {
     readonly status: SuccessStatus;
     readonly name: string;
@@ -75,6 +79,14 @@ export interface Route {
     context: RequestContext,
     tenant: Tenant | null,
   ) => Promise<unknown>;
+}
+
+/** What a webhook handler gets instead of a parsed body. */
+export interface WebhookInput {
+  /** The body exactly as sent, unparsed. */
+  readonly rawBody: Uint8Array;
+  /** Only the headers the route declared, by lower case name. */
+  readonly headers: Readonly<Record<string, string | undefined>>;
 }
 
 const NoInput = z.strictObject({});
@@ -184,7 +196,12 @@ function build<
   Q extends z.ZodType,
   B extends z.ZodType,
   R extends z.ZodType,
->(spec: RouteSpec<P, Q, B, R>, access: Access, handle: Route['handle']): Route {
+>(
+  spec: RouteSpec<P, Q, B, R>,
+  access: Access,
+  handle: Route['handle'],
+  rawBody: Route['rawBody'] = null,
+): Route {
   const query = spec.query ?? NoInput;
   const params = spec.params ?? NoInput;
   return Object.freeze({
@@ -197,6 +214,7 @@ function build<
     query,
     parseQuery: queryParser(query),
     body: spec.body ?? null,
+    rawBody,
     response: Object.freeze({
       status: spec.response.status ?? 200,
       name: spec.response.name,
@@ -205,7 +223,7 @@ function build<
     errorStatuses: errorStatuses(
       access,
       Object.keys(params.shape).length > 0,
-      spec.body !== undefined,
+      spec.body !== undefined || rawBody !== null,
       spec.errors ?? [],
     ),
     handle,
@@ -252,6 +270,46 @@ export function definePublicRoute<
   );
 }
 
+const HEADER_NAME = /^[a-z0-9-]{1,64}$/;
+
+/**
+ * A provider's signed delivery, with no key and no tenant. The handler gets
+ * the exact bytes and the headers it names, and nothing else of the request:
+ * it must verify the signature before it believes any of it. `reason` says
+ * what stands in for a key, for the reviewer.
+ */
+export function defineWebhookRoute<R extends z.ZodType>(spec: {
+  readonly id: string;
+  readonly path: `/v1/${string}`;
+  readonly summary: string;
+  readonly reason: string;
+  /** The headers the signature check needs, by lower case name. */
+  readonly headers: readonly string[];
+  readonly response: { readonly name: string; readonly schema: R };
+  readonly errors?: readonly ProblemCode[];
+  readonly handler: (input: WebhookInput, context: RequestContext) => Promise<z.input<R>>;
+}): Route {
+  if (spec.reason.trim().length < 10) {
+    throw new RouteRegistryError(`webhook route ${spec.id} must say what stands in for a key`);
+  }
+  if (spec.headers.length === 0 || !spec.headers.every((name) => HEADER_NAME.test(name))) {
+    throw new RouteRegistryError(`webhook route ${spec.id} must name its headers in lower case`);
+  }
+  return build(
+    {
+      id: spec.id,
+      method: 'POST',
+      path: spec.path,
+      summary: spec.summary,
+      response: spec.response,
+      ...(spec.errors === undefined ? {} : { errors: spec.errors }),
+    },
+    { kind: 'public', reason: spec.reason },
+    (input, context) => spec.handler(input.body as WebhookInput, context),
+    Object.freeze({ headers: Object.freeze([...spec.headers]) }),
+  );
+}
+
 function componentName(schema: z.ZodType, id: string): string {
   const found = OPENAPI_COMPONENTS.find(([, candidate]) => candidate === schema);
   if (found === undefined) {
@@ -289,6 +347,7 @@ export function contractRoute<I extends RouteId>(
     query: contract.query,
     parseQuery: (search: URLSearchParams) => parseQuery(id, search),
     body: null,
+    rawBody: null,
     response: Object.freeze({
       status: 200,
       name: componentName(contract.response, id),

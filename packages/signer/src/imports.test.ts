@@ -23,6 +23,25 @@ const SHIPPED = new Set([
   '@ujira/chain-adapter/codecs',
 ]);
 
+// The HTTP server loads only in the service folder, so a caller that imports
+// RemoteSigner from the package root never loads a server.
+const SERVICE_ONLY = new Set([
+  'hono',
+  'hono/body-limit',
+  '@hono/node-server',
+  'node:http',
+  'node:net',
+]);
+
+function inService(file: string): boolean {
+  return path.relative(SRC, file).startsWith(`service${path.sep}`);
+}
+
+// The vendor SDK loads only in the KMS folder, so nothing else ever carries it.
+function inKms(file: string): boolean {
+  return path.relative(SRC, file).startsWith(`aws-kms${path.sep}`);
+}
+
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(dir, entry.name);
@@ -44,7 +63,16 @@ describe('the signer imports', () => {
       const text = readFileSync(file, 'utf8');
       for (const match of text.matchAll(/^\s*(?:import|export)\b[^'"]*?from\s+'([^']+)'/gm)) {
         const spec = match[1] ?? '';
-        if (!spec.startsWith('./') && !SHIPPED.has(spec)) {
+        const service = inService(file);
+        const kms = inKms(file);
+        const relative = spec.startsWith('./') || ((service || kms) && spec.startsWith('../'));
+        const allowed =
+          SHIPPED.has(spec) ||
+          (service && SERVICE_ONLY.has(spec)) ||
+          (kms && (spec === '@aws-sdk/client-kms' || spec === '@ujira/db/key-manager'));
+        // Outside the service folder nothing reaches into it.
+        const intoService = !service && /(^|\/)service(\/|$)/.test(spec);
+        if ((!relative && !allowed) || intoService) {
           bad.push(`${path.relative(SRC, file)}: ${spec}`);
         }
       }

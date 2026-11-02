@@ -9,6 +9,7 @@ export {
   ADAPTER_LOG_SERIALIZERS,
   CHAIN_ADAPTER_ERROR_CODES,
   CHAIN_ADAPTER_ERROR_MESSAGES,
+  ActivationBudgetExhaustedError,
   DESTINATION_PARSE_REASONS,
   ChainAdapterError,
   ChainUnavailableError,
@@ -20,6 +21,7 @@ export {
   LiquidityUnavailableError,
   MandateRuleError,
   MandateUntrustedError,
+  MemoOnContractCallError,
   QuoteExpiredError,
   QuoteUnavailableError,
   RailActionRequiredError,
@@ -56,7 +58,33 @@ export type {
   WaitFor,
 } from './errors.js';
 export { operationsGuardianOf } from './guardian.js';
-export { SIGNER_DOWN, withSignerHealth } from './health.js';
+export {
+  SIGNER_DOWN,
+  SPONSOR_LOW,
+  SPONSOR_UNFUNDED,
+  withSignerHealth,
+  withSponsorHealth,
+} from './health.js';
+export {
+  createSponsorshipPolicy,
+  createUncoveredBudget,
+  monthOf,
+  reservationIdOf,
+  sponsorshipReservations,
+} from './sponsorship/policy.js';
+export type {
+  ManagedSponsorshipPolicy,
+  SponsorFunding,
+  SponsorshipPolicyOptions,
+} from './sponsorship/policy.js';
+export type {
+  ActivationKey,
+  ReservationState,
+  SponsorshipLedger,
+  SponsorshipQuery,
+  SponsorshipRow,
+  SponsorshipTotals,
+} from './sponsorship/ledger.js';
 export {
   MANDATE_ERRORS,
   MANDATE_ERROR_NAMES,
@@ -69,6 +97,7 @@ export { pinnedKeys, verifyPinnedAddresses } from './key-ref.js';
 export type { PinnedKey } from './key-ref.js';
 export { NETWORK_IDS, chainOf, isNetworkId } from './networks.js';
 export type { NetworkId, StellarNetworkId } from './networks.js';
+export { RAIL_IDS, isRailId } from './rails.js';
 export { RECEIPT_HASH_FORMATS, formatReceiptRef, parseReceiptRef } from './receipt-ref.js';
 export type { ReceiptRefParts } from './receipt-ref.js';
 export { createChainAdapterRegistry } from './registry.js';
@@ -81,5 +110,23 @@ export {
 } from './retry.js';
 export type { AlertKind, RetryDecision, RetryRule, SignerErrorCode } from './retry.js';
 export type * from './signer.js';
+export { createRentWatch, utcDay } from './stellar/rent-watch.js';
+export type {
+  RentAlertKind,
+  RentAlerts,
+  RentMetrics,
+  RentSpendStore,
+  RentWatch,
+  RentWatchOptions,
+} from './stellar/rent-watch.js';
+export { bisectRounds, planBatch } from './bisect.js';
+export type {
+  BatchAlert,
+  BatchPlan,
+  BatchPlanOptions,
+  BatchSimulation,
+  BatchSimulationPort,
+} from './bisect.js';
+export { tenantRefOf, tenantTagOf } from './tenant-ref.js';
 export { CHAIN_ADAPTER_INTERFACE_VERSION } from './types.js';
 export type * from './types.js';
