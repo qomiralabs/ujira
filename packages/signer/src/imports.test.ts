@@ -69,7 +69,7 @@ describe('the signer imports', () => {
         const allowed =
           SHIPPED.has(spec) ||
           (service && SERVICE_ONLY.has(spec)) ||
-          (kms && spec === '@aws-sdk/client-kms');
+          (kms && (spec === '@aws-sdk/client-kms' || spec === '@ujira/db/key-manager'));
         // Outside the service folder nothing reaches into it.
         const intoService = !service && /(^|\/)service(\/|$)/.test(spec);
         if ((!relative && !allowed) || intoService) {
