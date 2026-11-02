@@ -87,5 +87,6 @@ export type {
   BatchSimulation,
   BatchSimulationPort,
 } from './bisect.js';
+export { tenantRefOf, tenantTagOf } from './tenant-ref.js';
 export { CHAIN_ADAPTER_INTERFACE_VERSION } from './types.js';
 export type * from './types.js';

@@ -55,6 +55,36 @@ export interface SponsorshipLedger {
   ): Promise<SponsorshipReservation | null>;
 }
 
+/** The active row of ujira.managed_signers for one tenant, agent and network. */
+export interface ManagedSigner {
+  /** The G account the key controls. */
+  readonly address: string;
+  /** The key manager's id for the key. */
+  readonly keyRef: string;
+  /** The tenant the key manager's own tags say the key belongs to. */
+  readonly keyTags: TenantScope;
+}
+
+export interface ManagedSignerStore {
+  /** The active key for this tenant, agent and network, else null. */
+  active(
+    network: NetworkId,
+    scope: TenantScope,
+    agentId: string,
+    opts: CallOptions,
+  ): Promise<ManagedSigner | null>;
+}
+
+/**
+ * How many agent requests a principal may make. Shared across instances in
+ * production, because the service scales out and one instance's count would
+ * let a principal go over the limit by the number of instances.
+ */
+export interface PrincipalRateLimiter {
+  /** Counts one request and says whether it is within the limit. */
+  take(principalId: string, now: bigint, opts: CallOptions): Promise<boolean>;
+}
+
 /** The tenant and id of an attestation the identity service recorded first. */
 export interface PendingAttestation {
   readonly principalId: string;

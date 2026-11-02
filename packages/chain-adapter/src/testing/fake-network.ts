@@ -15,6 +15,7 @@
 import { parseNetworksConfig } from '../config.js';
 import type { NetworksConfig, StellarNetworkConfig } from '../config.js';
 import { InvalidInputError } from '../errors.js';
+import { tenantRefOf as specTenantRefOf } from '../tenant-ref.js';
 import type { NetworkId } from '../networks.js';
 import type { SignerRef } from '../signer.js';
 import type {
@@ -112,9 +113,12 @@ interface ClosedLedger {
   readonly restore: (() => void) | null;
 }
 
-/** The tenant reference a mandate stores for a scope: SHA-256 over the tenant's two IDs. */
+/**
+ * The tenant reference a mandate stores for a scope. The same derivation the
+ * real adapters check, so a fake mandate and a real one agree on whose it is.
+ */
 export function tenantRefOf(scope: TenantScope): string {
-  return hexOf(sha256(utf8(`ujira:tenant:v1:${scope.principalId}:${scope.projectId}`)));
+  return specTenantRefOf(scope);
 }
 
 function checkDepth(field: string, n: number, max: number): number {

@@ -41,6 +41,10 @@ overrides:
   '@oxc-parser/binding-wasm32-wasi': '-'
   '@oxc-resolver/binding-wasm32-wasi': '-'
   '@tailwindcss/oxide-wasm32-wasi': '-'
+  # The Stellar SDK lists axios for an optional client that only its axios entry
+  # points load. The adapter talks to RPC with fetch, so production carries no
+  # second HTTP client, and none of its advisories.
+  '@stellar/stellar-sdk>axios': '-'
 
 # Supply chain: a version must be 14 days old (in minutes) before it can be
 # installed or locked. `pnpm install --frozen-lockfile` re-checks every

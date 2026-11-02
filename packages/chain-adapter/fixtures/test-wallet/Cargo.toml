@@ -1,0 +1,26 @@
+# A smart wallet for the Stellar adapter's testnet tests: one ed25519 owner
+# key, checked in __check_auth. Test fixture only, never deployed outside
+# testnet.
+[package]
+name = "ujira-test-wallet"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+soroban-sdk = "=29.0.1"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
+
+[workspace]
