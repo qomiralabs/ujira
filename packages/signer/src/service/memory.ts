@@ -8,8 +8,10 @@
 import type { NetworkId } from '@ujira/chain-adapter';
 
 import type {
+  AttestationLog,
   IndexedMandate,
   MandateIndex,
+  PendingAttestation,
   SponsorshipLedger,
   SponsorshipReservation,
 } from './ports.js';
@@ -51,6 +53,31 @@ export function memorySponsorshipLedger(
         row === undefined
           ? null
           : { intent: row.intent, tenant: row.tenant, maxFeeStroops: row.maxFeeStroops },
+      );
+    },
+  };
+}
+
+export interface MemoryPendingAttestation extends PendingAttestation {
+  readonly message: Uint8Array;
+}
+
+/** Empty, it refuses everything, which is how the service runs until the log exists. */
+export function memoryAttestationLog(
+  rows: readonly MemoryPendingAttestation[] = [],
+): AttestationLog {
+  const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString('hex');
+  return {
+    pending: (message) => {
+      const row = rows.find((r) => hex(r.message) === hex(message));
+      return Promise.resolve(
+        row === undefined
+          ? null
+          : {
+              principalId: row.principalId,
+              projectId: row.projectId,
+              attestationId: row.attestationId,
+            },
       );
     },
   };

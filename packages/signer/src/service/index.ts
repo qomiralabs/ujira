@@ -5,6 +5,8 @@
 // few ref kinds under its own policy and its own caller tokens; callers
 // reach it through RemoteSigner from @ujira/signer and never load this.
 
+export { MAX_ATTESTATION_VALIDITY_SECONDS, attestPolicy } from './attest-policy.js';
+export type { AttestPolicyOptions } from './attest-policy.js';
 export { tokenAuthenticator } from './auth.js';
 export type { Authenticate, ServiceCaller } from './auth.js';
 export {
@@ -16,13 +18,15 @@ export {
 export type { ChainNetworkPolicy, ChainPolicyOptions, Sep10Anchor } from './chain-policy.js';
 export { SIGNER_LOG_FIELDS, jsonSignerLogger, memorySignerLogger } from './log.js';
 export type { SignerLogFields, SignerLogLevel, SignerLogRecord, SignerLogger } from './log.js';
-export { memoryMandateIndex, memorySponsorshipLedger } from './memory.js';
-export type { MemoryMandate, MemoryReservation } from './memory.js';
+export { memoryAttestationLog, memoryMandateIndex, memorySponsorshipLedger } from './memory.js';
+export type { MemoryMandate, MemoryPendingAttestation, MemoryReservation } from './memory.js';
 export { backendOnlyPolicy, deny } from './policy.js';
 export type { PolicyContext, PolicyDecision, RefKind, ServicePolicy } from './policy.js';
 export type {
+  AttestationLog,
   IndexedMandate,
   MandateIndex,
+  PendingAttestation,
   RecipientMode,
   SponsorshipIntent,
   SponsorshipLedger,
