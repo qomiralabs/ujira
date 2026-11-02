@@ -17,6 +17,8 @@ import type { SignerProvider, SignerRef } from '../signer.js';
 import type {
   AdapterStore,
   ExecutorLease,
+  MandateRegistration,
+  MandateRegistry,
   SponsorshipPolicy,
   SubmissionRecord,
   UnixSeconds,
@@ -92,6 +94,22 @@ export function memoryStore(
     upsertDelivery: unsupported,
     liveDelivery: unsupported,
   };
+}
+
+export interface TestRegistry extends MandateRegistry {
+  /** Replaced by a test to answer from somewhere else, such as an intake store. */
+  answer: MandateRegistry['registered'];
+}
+
+export function answeringRegistry(registrations: readonly MandateRegistration[]): TestRegistry {
+  const registry: TestRegistry = {
+    answer: (network, contractId) =>
+      Promise.resolve(
+        registrations.find((r) => r.network === network && r.contractId === contractId) ?? null,
+      ),
+    registered: (network, contractId, opts) => registry.answer(network, contractId, opts),
+  };
+  return registry;
 }
 
 export interface RecordingSponsorship extends SponsorshipPolicy {

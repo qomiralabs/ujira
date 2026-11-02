@@ -31,6 +31,7 @@ import {
   projects,
   tenancyRepositories,
 } from './repositories/tenancy.js';
+import { payoutBookings } from './repositories/mandate-registry.js';
 import { caseProblems, methodNames } from './testing/cross-tenant.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
@@ -50,9 +51,12 @@ interface Tenant {
   readonly eventTxHash: Buffer;
   readonly depositId: string;
   readonly roleAddress: string;
+  readonly contractAddress: string;
+  readonly bookingId: string;
+  readonly bookingPayoutId: Buffer;
 }
 
-const REPOSITORIES = { ...tenancyRepositories, ...mandateRepositories };
+const REPOSITORIES = { ...tenancyRepositories, ...mandateRepositories, payoutBookings };
 
 let database: TestDatabase;
 let db: Database;
@@ -77,25 +81,33 @@ async function tenant(name: string): Promise<Tenant> {
       expiresAt: null,
     }),
   );
-  const { mandateId, instanceId, sourceId } = await db.tenant(first).transaction(async (tx) => {
-    const mandate = await mandates.create(tx, { name: `${name} mandate` });
-    const instance = await mandateInstances.create(tx, {
-      mandateId: mandate.id,
-      chain: 'stellar',
-      contractAddress: `C${randomUUID()}`,
-      specVersion: '1',
-      asset: 'USDC',
-      scale: 7,
+  const { mandateId, instanceId, sourceId, contractAddress } = await db
+    .tenant(first)
+    .transaction(async (tx) => {
+      const mandate = await mandates.create(tx, { name: `${name} mandate` });
+      const instance = await mandateInstances.create(tx, {
+        mandateId: mandate.id,
+        chain: 'stellar',
+        contractAddress: `C${randomUUID()}`,
+        specVersion: '1',
+        asset: 'USDC',
+        scale: 7,
+      });
+      const source = await fundingSources.create(tx, {
+        mandateInstanceId: instance.id,
+        kind: 'stablecoin_deposit',
+      });
+      return {
+        mandateId: mandate.id,
+        instanceId: instance.id,
+        sourceId: source.id,
+        contractAddress: instance.contractAddress,
+      };
     });
-    const source = await fundingSources.create(tx, {
-      mandateInstanceId: instance.id,
-      kind: 'stablecoin_deposit',
-    });
-    return { mandateId: mandate.id, instanceId: instance.id, sourceId: source.id };
-  });
   const eventTxHash = randomBytes(32);
+  const bookingPayoutId = randomBytes(32);
   const roleAddress = `G${name}`;
-  const { eventId, depositId } = await indexing(first, async (tx) => {
+  const { eventId, depositId, bookingId } = await indexing(first, async (tx) => {
     const event = await chainEvents.record(tx, {
       mandateInstanceId: instanceId,
       chain: 'stellar',
@@ -119,7 +131,15 @@ async function tenant(name: string): Promise<Tenant> {
       address: roleAddress,
       eventId: event.id ?? '',
     });
-    return { eventId: event.id ?? '', depositId: recorded.id ?? '' };
+    const booking = await payoutBookings.apply(tx, {
+      mandateInstanceId: instanceId,
+      chain: 'stellar',
+      contractAddress,
+      payoutId: bookingPayoutId,
+      eventId: event.id ?? '',
+      eventType: 'payout_requested',
+    });
+    return { eventId: event.id ?? '', depositId: recorded.id ?? '', bookingId: booking.id };
   });
   return {
     first,
@@ -133,6 +153,9 @@ async function tenant(name: string): Promise<Tenant> {
     eventTxHash,
     depositId,
     roleAddress,
+    contractAddress,
+    bookingId,
+    bookingPayoutId,
   };
 }
 
@@ -347,6 +370,49 @@ const cases: Record<string, () => Promise<void>> = {
   },
   'chainEvents.list': async () => {
     const page = await acrossA(async (tx) => chainEvents.list(tx, b.instanceId, { limit: 100 }));
+    expect(page.items).toEqual([]);
+  },
+  'payoutBookings.apply': async () => {
+    const move = { chain: 'stellar', eventType: 'payout_executed' };
+    // Naming B's instance is refused.
+    expect(
+      await codeOf(
+        indexing(a.first, async (tx) =>
+          payoutBookings.apply(tx, {
+            ...move,
+            mandateInstanceId: b.instanceId,
+            contractAddress: b.contractAddress,
+            payoutId: randomBytes(32),
+            eventId: a.eventId,
+          }),
+        ),
+      ),
+    ).toBe('23503');
+    // So is reaching B's booking by its key, and it stays as it was.
+    expect(
+      await codeOf(
+        indexing(a.first, async (tx) =>
+          payoutBookings.apply(tx, {
+            ...move,
+            mandateInstanceId: a.instanceId,
+            contractAddress: b.contractAddress,
+            payoutId: b.bookingPayoutId,
+            eventId: a.eventId,
+          }),
+        ),
+      ),
+    ).toBeDefined();
+    const kept = await admin.query<{ last_event_type: string }>(
+      'select last_event_type from ujira.payout_bookings where id = $1',
+      [b.bookingId],
+    );
+    expect(kept.rows[0]?.last_event_type).toBe('payout_requested');
+  },
+  'payoutBookings.get': async () => {
+    expect(await acrossA(async (tx) => payoutBookings.get(tx, b.bookingId))).toBeUndefined();
+  },
+  'payoutBookings.list': async () => {
+    const page = await acrossA(async (tx) => payoutBookings.list(tx, b.instanceId, { limit: 100 }));
     expect(page.items).toEqual([]);
   },
   'instanceRoles.list': async () => {

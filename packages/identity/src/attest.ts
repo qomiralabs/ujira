@@ -194,9 +194,17 @@ export function createAttestationService(ports: AttestationServicePorts): Attest
       const network = instance.mandate.network;
       const chain = ports.chain(network);
       const [read, key] = await Promise.all([
-        external(ms, ctx, (opts) => chain.readMandate({ scope, mandate: instance.mandate }, opts)),
+        external(ms, ctx, (opts) =>
+          chain.readMandate({ scope, mandate: instance.mandate }, opts),
+        ).catch((error: unknown) => {
+          if (isChainAdapterError(error) && error.code === 'MANDATE_UNTRUSTED') return null;
+          throw error;
+        }),
         external(ms, ctx, (opts) => ports.signer.publicKey(network, opts)),
       ]);
+      // The adapter accepts a contract only when a trusted factory announced it.
+      // Without that this signature would let a look-alike pay out on our word.
+      if (read === null) return refuse('MANDATE_INACTIVE', 'MANDATE_UNTRUSTED');
       if (!read.ok || !key.ok) return refuse('PROVIDER_UNAVAILABLE');
       const snapshot = read.value;
       const { state, config: onChain } = snapshot;

@@ -43,6 +43,18 @@ export interface OpsExecutorAccounts {
   next_sequence: Generated<Int8>;
 }
 
+export interface OpsMandateRegistry {
+  contract_id: string;
+  created_at: Generated<Timestamp>;
+  event_index: Int8;
+  factory_id: string;
+  flagged_at: Timestamp | null;
+  ledger: Int8;
+  network: string;
+  tenant_tag: Buffer;
+  tx_hash: Buffer;
+}
+
 export interface OpsRoutingConfigActive {
   only_row: Generated<boolean>;
   updated_at: Generated<Timestamp>;
@@ -160,6 +172,20 @@ export interface UjiraMigrations {
   run_on: Timestamp;
 }
 
+export interface UjiraPayoutBookings {
+  chain: string;
+  contract_address: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  last_event_id: string;
+  last_event_type: string;
+  mandate_instance_id: string;
+  payout_id: Buffer;
+  principal_id: string;
+  project_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface UjiraPrincipalMembers {
   created_at: Generated<Timestamp>;
   principal_id: string;
@@ -202,6 +228,7 @@ export interface UjiraStatusTransitions {
 export interface Schema {
   'ops.chain_cursors': OpsChainCursors;
   'ops.executor_accounts': OpsExecutorAccounts;
+  'ops.mandate_registry': OpsMandateRegistry;
   'ops.routing_config_active': OpsRoutingConfigActive;
   'ops.routing_config_versions': OpsRoutingConfigVersions;
   ujira_migrations: UjiraMigrations;
@@ -215,6 +242,7 @@ export interface Schema {
   'ujira.mandate_instance_roles': UjiraMandateInstanceRoles;
   'ujira.mandate_instances': UjiraMandateInstances;
   'ujira.mandates': UjiraMandates;
+  'ujira.payout_bookings': UjiraPayoutBookings;
   'ujira.principal_members': UjiraPrincipalMembers;
   'ujira.principals': UjiraPrincipals;
   'ujira.projects': UjiraProjects;

@@ -19,6 +19,7 @@ const TABLES = [
   'ops.executor_accounts',
   'ops.routing_config_versions',
   'ops.routing_config_active',
+  'ops.mandate_registry',
 ];
 
 let database: TestDatabase;
@@ -59,7 +60,7 @@ describe('the ops role', () => {
     });
   });
 
-  it('the other service roles cannot reach the schema at all', async () => {
+  it('the other service roles can read no ops table and call no function of the app', async () => {
     for (const role of [
       'ujira_reader',
       'ujira_retention',
@@ -68,6 +69,9 @@ describe('the ops role', () => {
     ] as const) {
       await as(role, async (client) => {
         expect(await codeOf(client.query('select * from ops.chain_cursors')), role).toBe('42501');
+        expect(await codeOf(client.query('select * from ops.mandate_registry')), role).toBe(
+          '42501',
+        );
         expect(await codeOf(client.query('select * from ops.active_routing_config()')), role).toBe(
           '42501',
         );

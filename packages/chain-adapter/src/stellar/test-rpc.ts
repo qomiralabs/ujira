@@ -20,6 +20,7 @@ import { addressXdr } from './address-xdr.js';
 import { mandateAddressOf } from './mandate-address.js';
 import type {
   RawSimulation,
+  RpcEventPage,
   RpcLatestLedger,
   RpcLedgerEntry,
   RpcSendResult,
@@ -192,6 +193,10 @@ export class FakeRpc implements StellarRpc {
     }
     upgradeRecorded(rpc, fixture);
     return rpc;
+  }
+
+  getEvents(): Promise<RpcEventPage> {
+    return Promise.resolve({ events: [], cursor: null, latestLedger: this.latest.sequence });
   }
 
   getLatestLedger(): Promise<RpcLatestLedger> {
