@@ -182,11 +182,14 @@ describe('roles', () => {
       'ujira_owner',
       'ujira_reader',
       'ujira_retention',
+      'ujira_scheduler',
       'ujira_signer_attester',
       'ujira_signer_read',
+      'ujira_worker',
     ]);
     const nologin = new Set([
       'ujira_owner',
+      'ujira_scheduler',
       'ujira_fn_audit',
       'ujira_fn_instances',
       'ujira_fn_ledger',
