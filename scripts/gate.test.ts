@@ -445,10 +445,14 @@ describe('gate', () => {
         { label: 'last', args: [] },
       ];
       const seen: string[] = [];
-      const status: Record<string, number | null> = { errors: 1, killed: null };
+      const status = new Map<string, number | null>([
+        ['errors', 1],
+        ['killed', null],
+      ]);
       const failed = runLint(runs, (run) => {
         seen.push(run.label);
-        return status[run.label] ?? 0;
+        const result = status.get(run.label);
+        return result === undefined ? 0 : result;
       });
       expect(seen).toEqual(['clean', 'errors', 'killed', 'last']);
       expect(failed).toEqual(['errors', 'killed']);
