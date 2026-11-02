@@ -13,6 +13,7 @@ import { createApp } from './app.js';
 import type { ApiDependencies } from './app.js';
 import type { Authenticate, CallOptions, Tenant } from './auth.js';
 import { ApiError, RouteRegistryError } from './errors.js';
+import { memoryIdempotencyStore } from './idempotency.js';
 import { memoryLogger } from './log.js';
 import type { LogRecord } from './log.js';
 import { allowEveryRequest } from './rate-limit.js';
@@ -200,6 +201,7 @@ function setup(overrides: Partial<ApiDependencies> = {}) {
     routes: [thingRoute(seen), createThing, approvals, ping],
     authenticate,
     rateLimit: allowEveryRequest,
+    idempotency: memoryIdempotencyStore(),
     logger,
     ...overrides,
   });
@@ -207,6 +209,10 @@ function setup(overrides: Partial<ApiDependencies> = {}) {
 }
 
 const bearer = (token: string): Record<string, string> => ({ authorization: `Bearer ${token}` });
+const writer = (): Record<string, string> => ({
+  ...bearer('writer'),
+  'idempotency-key': randomUUID(),
+});
 
 async function problemOf(response: Response): Promise<Problem> {
   expect(response.headers.get('content-type')).toBe('application/problem+json; charset=utf-8');
@@ -336,7 +342,7 @@ describe('validation', () => {
     const { app } = setup();
     const response = await app.request('/v1/things', {
       method: 'POST',
-      headers: { ...bearer('writer'), 'content-type': 'application/json' },
+      headers: { ...writer(), 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'Grace' }),
     });
     expect(response.status).toBe(201);
@@ -348,7 +354,7 @@ describe('validation', () => {
     const post = (body: RequestInit['body'], headers: Record<string, string> = {}) =>
       app.request('/v1/things', {
         method: 'POST',
-        headers: { ...bearer('writer'), 'content-type': 'application/json', ...headers },
+        headers: { ...writer(), 'content-type': 'application/json', ...headers },
         body,
         ...(body instanceof ReadableStream ? { duplex: 'half' } : {}),
       } as RequestInit);
@@ -479,7 +485,7 @@ describe('logs', () => {
     await app.request(`/v1/things/${THING_ID}?behaviour=ok`, { headers: bearer(SECRET_TOKEN) });
     await app.request('/v1/things', {
       method: 'POST',
-      headers: { ...bearer('writer'), 'content-type': 'application/json' },
+      headers: { ...writer(), 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'Grace' }),
     });
     const text = JSON.stringify(logger.records);
@@ -491,7 +497,12 @@ describe('logs', () => {
 
 describe('registry', () => {
   it('refuses a route table it cannot serve as written', () => {
-    const base = { authenticate, rateLimit: allowEveryRequest, logger: memoryLogger() };
+    const base = {
+      authenticate,
+      rateLimit: allowEveryRequest,
+      idempotency: memoryIdempotencyStore(),
+      logger: memoryLogger(),
+    };
     expect(() => createApp({ ...base, routes: [ping, ping] })).toThrow(RouteRegistryError);
     const samePath = definePublicRoute({
       id: 'pingAgain',
@@ -534,6 +545,7 @@ describe('registry', () => {
           signal: new AbortController().signal,
           call: { signal: new AbortController().signal, correlationId: 'req_0123456789' },
           log: { info: () => undefined, warn: () => undefined, error: () => undefined },
+          idempotencyKey: null,
         },
         null,
       ),

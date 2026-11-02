@@ -34,6 +34,12 @@ export interface RequestContext {
   /** Pass to every chain adapter call, so the request id travels with it. */
   readonly call: CallOptions;
   readonly log: RequestLog;
+  /**
+   * The client's key on a tenant write, null anywhere else. A handler that moves
+   * money writes it under a unique constraint of its own, which is what stops a
+   * retry paying twice if a process dies mid request.
+   */
+  readonly idempotencyKey: string | null;
 }
 
 export interface TenantRequestContext extends RequestContext {
@@ -122,6 +128,11 @@ export function routeAccessProblems(routes: readonly Route[]): string[] {
   return problems;
 }
 
+/** Every write a tenant route takes needs an Idempotency-Key. */
+export function requiresIdempotencyKey(route: Pick<Route, 'access' | 'method'>): boolean {
+  return route.access.kind === 'tenant' && route.method !== 'GET';
+}
+
 const NoInput = z.strictObject({});
 type NoInput = typeof NoInput;
 
@@ -183,12 +194,16 @@ function errorStatuses(
   hasParams: boolean,
   hasBody: boolean,
   extra: readonly ProblemCode[],
+  write: boolean,
 ): number[] {
   const codes: ProblemCode[] = ['INVALID_FILTER', 'INTERNAL', 'DB_UNAVAILABLE', ...extra];
   // A path id that does not parse cannot name anything.
   if (hasParams) codes.push('NOT_FOUND');
   if (access.kind === 'tenant') codes.push('TOKEN_INVALID', 'INSUFFICIENT_SCOPE', 'RATE_LIMITED');
   if (hasBody) codes.push('INVALID_REQUEST', 'PAYLOAD_TOO_LARGE', 'UNSUPPORTED_MEDIA_TYPE');
+  if (write) {
+    codes.push('IDEMPOTENCY_KEY_INVALID', 'IDEMPOTENCY_IN_PROGRESS', 'IDEMPOTENCY_KEY_REUSED');
+  }
   return [...new Set(statusesOf(codes))].sort((a, b) => a - b);
 }
 
@@ -258,6 +273,7 @@ function build<
       Object.keys(params.shape).length > 0,
       spec.body !== undefined || rawBody !== null,
       spec.errors ?? [],
+      requiresIdempotencyKey({ access, method: spec.method }),
     ),
     handle,
   });

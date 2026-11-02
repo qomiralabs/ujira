@@ -18,6 +18,7 @@ const app = createApp({
   routes: V1_ROUTES,
   authenticate: access.authenticate,
   rateLimit: access.rateLimit,
+  idempotency: access.idempotency,
   logger: stdoutLogger,
   requestTimeoutMs: config.requestTimeoutMs,
   bodyLimitBytes: config.bodyLimitBytes,

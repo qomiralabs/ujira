@@ -91,7 +91,7 @@ the flow has its tables and the adapter has its wallet proof methods.
 In order: a request id (the `Request-Id` header, and `call.correlationId` for
 adapter calls); a deadline (`signal`, which aborts after the request timeout);
 for tenant routes, the credential, the rate limits and then the route's scope; path, query and
-body validation; the handler; the response, parsed by its schema; for tenant
+body validation; for tenant writes, the `Idempotency-Key`; the handler; the response, parsed by its schema; for tenant
 routes, a check that no `principalId` or `projectId` in the body belongs to
 someone else; and one access log line.
 
@@ -157,6 +157,31 @@ with `rateLimit: 'payout_creation'`. Tenant responses carry `RateLimit-Limit`,
 429 adds `Retry-After`. If the buckets cannot be reached the answer is 503, never
 an unlimited request.
 
+## Idempotency
+
+Every tenant write, meaning anything but a `GET`, needs an `Idempotency-Key` header
+of up to 255 characters from `A-Za-z0-9_.:-`. Without one the answer is
+`400 IDEMPOTENCY_KEY_INVALID`, after the key, the limits and the scope have been
+checked and before the handler runs. A key belongs to one project, for 7 days.
+
+| A request with a key that is    | Gets                                             |
+| ------------------------------- | ------------------------------------------------ |
+| New                             | Runs the handler                                 |
+| The same request, finished      | The stored answer, unchanged                     |
+| The same request, still running | `409 IDEMPOTENCY_IN_PROGRESS` with `Retry-After` |
+| A different request             | `422 IDEMPOTENCY_KEY_REUSED`                     |
+
+"The same request" means the method, the path, the query and the exact body bytes.
+A replay carries `Idempotent-Replayed: true` and the `Request-Id` of the attempt it
+repeats. A 5xx or a 429 is not stored, because it says to try again, so a retry
+runs. A body that fails validation uses up nothing, because nothing ran.
+
+The `unique (principal_id, project_id, idempotency_key)` constraint is what decides
+who wins a key, so all of this holds across instances. It cannot cover a process
+that dies mid request: the lease runs out after two minutes and a retry runs the
+handler again. So **a handler that moves money must also write
+`context.idempotencyKey` under a unique constraint of its own**.
+
 ## Errors
 
 Every failure is an RFC 9457 problem body with a stable `code`, a fixed
@@ -173,8 +198,8 @@ Every failure is an RFC 9457 problem body with a stable `code`, a fixed
   `MANDATE_ERROR_MAP`, which covers every rule in the vendored spec table, `DatabaseUnavailableError` from `@ujira/db` is
   `DB_UNAVAILABLE`, and anything unknown is `INTERNAL`, logged by class name
   only.
-- `DB_UNAVAILABLE`, `CHAIN_UNAVAILABLE`, `REQUEST_TIMEOUT` (503) and
-  `RATE_LIMITED` (429) carry `Retry-After`. An adapter error's `retryAfterMs`
+- `DB_UNAVAILABLE`, `CHAIN_UNAVAILABLE`, `REQUEST_TIMEOUT` (503),
+  `RATE_LIMITED` (429) and `IDEMPOTENCY_IN_PROGRESS` (409) carry `Retry-After`. An adapter error's `retryAfterMs`
   can lengthen it.
 - A path id that does not parse is `NOT_FOUND`. A bad query is
   `INVALID_FILTER` (or, for contract routes, `INVALID_CURSOR` and

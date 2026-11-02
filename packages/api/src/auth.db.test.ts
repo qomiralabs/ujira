@@ -17,6 +17,7 @@ import { z } from 'zod';
 import { createApp } from './app.js';
 import { API_SCOPES } from './auth.js';
 import type { Tenant } from './auth.js';
+import { memoryIdempotencyStore } from './idempotency.js';
 import { memoryLogger } from './log.js';
 import { databaseTokenStore } from './postgres-stores.js';
 import { allowEveryRequest } from './rate-limit.js';
@@ -98,6 +99,7 @@ function served(now?: () => Date) {
       ...(now === undefined ? {} : { now }),
     }),
     rateLimit: allowEveryRequest,
+    idempotency: memoryIdempotencyStore(),
     logger,
   });
   return (token: string) =>

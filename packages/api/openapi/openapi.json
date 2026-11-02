@@ -17,7 +17,7 @@
             }
           },
           "400": {
-            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. IDEMPOTENCY_KEY_INVALID: The Idempotency-Key header is missing or not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -69,7 +69,7 @@
             }
           },
           "400": {
-            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. IDEMPOTENCY_KEY_INVALID: The Idempotency-Key header is missing or not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -135,6 +135,13 @@
               "format": "uuid",
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Unique per write. A retry with the same key and the same request gets the first answer for 7 days; the same key on a different request is refused.",
+            "schema": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,255}$" }
           }
         ],
         "responses": {
@@ -151,7 +158,7 @@
             }
           },
           "400": {
-            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. IDEMPOTENCY_KEY_INVALID: The Idempotency-Key header is missing or not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -173,6 +180,23 @@
           },
           "404": {
             "description": "NOT_FOUND: Not found",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "409": {
+            "description": "IDEMPOTENCY_IN_PROGRESS: A request with this Idempotency-Key is still running",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "422": {
+            "description": "DESTINATION_INVALID: The destination cannot receive this payout. MANDATE_REFUSED: The mandate does not allow this. QUOTE_UNAVAILABLE: No quote is available for this payout right now. WALLET_PROOF_INVALID: The wallet proof is not valid. WALLET_PROOF_EXPIRED: The wallet proof challenge has expired. WALLET_SIGNER_NOT_AUTHORIZED: That key cannot sign for this wallet. DESTINATION_NOT_RECEIVABLE: This destination cannot receive a payout yet. IDEMPOTENCY_KEY_REUSED: This Idempotency-Key was used for a different request",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -237,6 +261,13 @@
               "format": "uuid",
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Unique per write. A retry with the same key and the same request gets the first answer for 7 days; the same key on a different request is refused.",
+            "schema": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,255}$" }
           }
         ],
         "requestBody": {
@@ -278,7 +309,7 @@
             }
           },
           "400": {
-            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. IDEMPOTENCY_KEY_INVALID: The Idempotency-Key header is missing or not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -305,6 +336,16 @@
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
             }
           },
+          "409": {
+            "description": "IDEMPOTENCY_IN_PROGRESS: A request with this Idempotency-Key is still running",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
           "413": {
             "description": "PAYLOAD_TOO_LARGE: The request body is too large",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
@@ -320,7 +361,7 @@
             }
           },
           "422": {
-            "description": "DESTINATION_INVALID: The destination cannot receive this payout. MANDATE_REFUSED: The mandate does not allow this. QUOTE_UNAVAILABLE: No quote is available for this payout right now. WALLET_PROOF_INVALID: The wallet proof is not valid. WALLET_PROOF_EXPIRED: The wallet proof challenge has expired. WALLET_SIGNER_NOT_AUTHORIZED: That key cannot sign for this wallet. DESTINATION_NOT_RECEIVABLE: This destination cannot receive a payout yet",
+            "description": "DESTINATION_INVALID: The destination cannot receive this payout. MANDATE_REFUSED: The mandate does not allow this. QUOTE_UNAVAILABLE: No quote is available for this payout right now. WALLET_PROOF_INVALID: The wallet proof is not valid. WALLET_PROOF_EXPIRED: The wallet proof challenge has expired. WALLET_SIGNER_NOT_AUTHORIZED: That key cannot sign for this wallet. DESTINATION_NOT_RECEIVABLE: This destination cannot receive a payout yet. IDEMPOTENCY_KEY_REUSED: This Idempotency-Key was used for a different request",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -374,7 +415,7 @@
             }
           },
           "400": {
-            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. IDEMPOTENCY_KEY_INVALID: The Idempotency-Key header is missing or not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -418,6 +459,7 @@
               "LIMIT_OUT_OF_RANGE",
               "INVALID_AMOUNT",
               "INVALID_REQUEST",
+              "IDEMPOTENCY_KEY_INVALID",
               "WEBHOOK_SIGNATURE_INVALID",
               "WEBHOOK_PAYLOAD_INVALID",
               "WEBHOOK_REJECTED",
@@ -430,6 +472,7 @@
               "EMBED_SCOPE_VIOLATION",
               "NOT_FOUND",
               "METHOD_NOT_ALLOWED",
+              "IDEMPOTENCY_IN_PROGRESS",
               "PAYLOAD_TOO_LARGE",
               "UNSUPPORTED_MEDIA_TYPE",
               "DESTINATION_INVALID",
@@ -439,6 +482,7 @@
               "WALLET_PROOF_EXPIRED",
               "WALLET_SIGNER_NOT_AUTHORIZED",
               "DESTINATION_NOT_RECEIVABLE",
+              "IDEMPOTENCY_KEY_REUSED",
               "RATE_LIMITED",
               "INTERNAL",
               "DB_UNAVAILABLE",

@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { createApp } from './app.js';
 import { API_SCOPES, refuseAllCredentials } from './auth.js';
 import { RouteRegistryError } from './errors.js';
+import { memoryIdempotencyStore } from './idempotency.js';
 import { memoryLogger } from './log.js';
 import { withOpenApiRoute } from './openapi.js';
 import { allowEveryRequest } from './rate-limit.js';
@@ -87,6 +88,7 @@ describe('the check', () => {
         routes: [route],
         authenticate: refuseAllCredentials,
         rateLimit: allowEveryRequest,
+        idempotency: memoryIdempotencyStore(),
         logger: memoryLogger(),
       }),
     ).toThrow(RouteRegistryError);

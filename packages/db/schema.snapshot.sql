@@ -1079,6 +1079,32 @@ ALTER TABLE ONLY ujira.funding_sources FORCE ROW LEVEL SECURITY;
 ALTER TABLE ujira.funding_sources OWNER TO ujira_owner;
 
 --
+-- Name: idempotency_keys; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.idempotency_keys (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    idempotency_key text NOT NULL,
+    request_sha256 ujira.hash32 NOT NULL,
+    lease_id uuid,
+    lease_expires_at timestamp with time zone,
+    request_id text,
+    response_status bigint,
+    response_body text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    CONSTRAINT idempotency_keys_key_format CHECK ((idempotency_key ~ '^[A-Za-z0-9_.:-]{1,255}$'::text)),
+    CONSTRAINT idempotency_keys_running_or_finished CHECK ((((lease_id IS NOT NULL) AND (lease_expires_at IS NOT NULL) AND (request_id IS NULL) AND (response_status IS NULL) AND (response_body IS NULL)) OR ((lease_id IS NULL) AND (lease_expires_at IS NULL) AND (request_id IS NOT NULL) AND (response_body IS NOT NULL) AND ((response_status >= 200) AND (response_status <= 499)) AND (response_status <> 429))))
+);
+
+ALTER TABLE ONLY ujira.idempotency_keys FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.idempotency_keys OWNER TO ujira_owner;
+
+--
 -- Name: ledger_accounts; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1676,6 +1702,22 @@ ALTER TABLE ONLY ujira.funding_sources
 
 
 --
+-- Name: idempotency_keys idempotency_keys_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.idempotency_keys
+    ADD CONSTRAINT idempotency_keys_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: idempotency_keys idempotency_keys_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.idempotency_keys
+    ADD CONSTRAINT idempotency_keys_tenant_key UNIQUE (principal_id, project_id, idempotency_key);
+
+
+--
 -- Name: ledger_accounts ledger_accounts_per_kind; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1967,6 +2009,13 @@ CREATE INDEX chain_events_by_instance ON ujira.chain_events USING btree (princip
 --
 
 CREATE INDEX deposits_by_instance ON ujira.deposits USING btree (principal_id, project_id, mandate_instance_id, created_at);
+
+
+--
+-- Name: idempotency_keys_expires_at; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX idempotency_keys_expires_at ON ujira.idempotency_keys USING btree (expires_at);
 
 
 --
@@ -2318,6 +2367,14 @@ ALTER TABLE ONLY ujira.funding_sources
 
 
 --
+-- Name: idempotency_keys idempotency_keys_principal_id_project_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.idempotency_keys
+    ADD CONSTRAINT idempotency_keys_principal_id_project_id_fkey FOREIGN KEY (principal_id, project_id) REFERENCES ujira.projects(principal_id, id);
+
+
+--
 -- Name: ledger_accounts ledger_accounts_principal_id_project_id_mandate_instance_i_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2565,6 +2622,12 @@ ALTER TABLE ujira.deposits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ujira.funding_sources ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: idempotency_keys; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.idempotency_keys ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: chain_events indexer_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2782,6 +2845,13 @@ CREATE POLICY owner_all ON ujira.funding_sources TO ujira_owner USING (true) WIT
 
 
 --
+-- Name: idempotency_keys owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.idempotency_keys TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: ledger_accounts owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2964,6 +3034,13 @@ CREATE POLICY tenant_insert ON ujira.funding_sources FOR INSERT TO ujira_app WIT
 
 
 --
+-- Name: idempotency_keys tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.idempotency_keys FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: ledger_accounts tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3097,6 +3174,13 @@ CREATE POLICY tenant_read ON ujira.funding_sources FOR SELECT TO ujira_app, ujir
 
 
 --
+-- Name: idempotency_keys tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.idempotency_keys FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
 -- Name: ledger_accounts tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3227,6 +3311,13 @@ CREATE POLICY tenant_update ON ujira.deposits FOR UPDATE TO ujira_app USING (((p
 --
 
 CREATE POLICY tenant_update ON ujira.funding_sources FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: idempotency_keys tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.idempotency_keys FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -3722,6 +3813,13 @@ GRANT SELECT,INSERT ON TABLE ujira.deposits TO ujira_indexer;
 
 GRANT SELECT,INSERT ON TABLE ujira.funding_sources TO ujira_app;
 GRANT SELECT ON TABLE ujira.funding_sources TO ujira_reader;
+
+
+--
+-- Name: TABLE idempotency_keys; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE ujira.idempotency_keys TO ujira_app;
 
 
 --

@@ -14,6 +14,7 @@ import { z } from 'zod';
 
 import { createApp } from './app.js';
 import type { Tenant } from './auth.js';
+import { memoryIdempotencyStore } from './idempotency.js';
 import { memoryLogger } from './log.js';
 import { allowEveryRequest } from './rate-limit.js';
 import { defineTenantRoute } from './route.js';
@@ -117,12 +118,13 @@ function served(
         : { cacheMaxEntries: options.cacheMaxEntries }),
     }),
     rateLimit: allowEveryRequest,
+    idempotency: memoryIdempotencyStore(),
     logger,
   });
   const post = (headers: Record<string, string>, body: unknown = {}, path = '/v1/payouts') =>
     app.request(path, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...headers },
+      headers: { 'content-type': 'application/json', 'idempotency-key': randomUUID(), ...headers },
       body: JSON.stringify(body),
     });
   const withKey = (token: string, headers: Record<string, string> = {}, body: unknown = {}) =>

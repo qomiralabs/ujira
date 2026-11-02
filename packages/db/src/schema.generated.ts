@@ -166,6 +166,21 @@ export interface UjiraFundingSources {
   project_id: string;
 }
 
+export interface UjiraIdempotencyKeys {
+  created_at: Generated<Timestamp>;
+  expires_at: Timestamp;
+  id: Generated<string>;
+  idempotency_key: string;
+  lease_expires_at: Timestamp | null;
+  lease_id: string | null;
+  principal_id: string;
+  project_id: string;
+  request_id: string | null;
+  request_sha256: Buffer;
+  response_body: string | null;
+  response_status: Int8 | null;
+}
+
 export interface UjiraLedgerAccounts {
   asset: string;
   balance: Generated<Numeric>;
@@ -380,6 +395,7 @@ export interface Schema {
   'ujira.currency_scales': UjiraCurrencyScales;
   'ujira.deposits': UjiraDeposits;
   'ujira.funding_sources': UjiraFundingSources;
+  'ujira.idempotency_keys': UjiraIdempotencyKeys;
   'ujira.ledger_accounts': UjiraLedgerAccounts;
   'ujira.ledger_entries': UjiraLedgerEntries;
   'ujira.ledger_journals': UjiraLedgerJournals;

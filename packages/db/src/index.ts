@@ -79,6 +79,12 @@ export {
   type RecipientStatus,
 } from './repositories/recipients.js';
 export {
+  idempotencyKeys,
+  type FinishedRequest,
+  type NewReservation,
+  type Reservation,
+} from './repositories/idempotency.js';
+export {
   executors,
   rateLimits,
   routingConfig,

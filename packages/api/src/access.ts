@@ -15,8 +15,14 @@ import { refuseAllCredentials } from './auth.js';
 import type { Authenticate } from './auth.js';
 import type { ApiConfig, DeploymentEnvironment } from './config.js';
 import { ApiConfigError } from './errors.js';
+import { memoryIdempotencyStore } from './idempotency.js';
+import type { IdempotencyStore } from './idempotency.js';
 import type { Logger } from './log.js';
-import { databaseBucketStore, databaseTokenStore } from './postgres-stores.js';
+import {
+  databaseBucketStore,
+  databaseIdempotencyStore,
+  databaseTokenStore,
+} from './postgres-stores.js';
 import { allowEveryRequest, createRateLimit } from './rate-limit.js';
 import type { RateLimit } from './rate-limit.js';
 import type { TokenEnvironment } from './token.js';
@@ -28,6 +34,7 @@ export const KEY_ENVIRONMENT: Readonly<Record<DeploymentEnvironment, TokenEnviro
 export interface ApiAccess {
   readonly authenticate: Authenticate;
   readonly rateLimit: RateLimit;
+  readonly idempotency: IdempotencyStore;
   readonly close: () => Promise<void>;
 }
 
@@ -43,6 +50,8 @@ export function apiAccessFromEnv(
     return {
       authenticate: refuseAllCredentials,
       rateLimit: allowEveryRequest,
+      // Never reached, since every key is refused before a write gets this far.
+      idempotency: memoryIdempotencyStore(),
       close: () => Promise.resolve(),
     };
   }
@@ -55,6 +64,7 @@ export function apiAccessFromEnv(
       logger,
     }),
     rateLimit: createRateLimit(databaseBucketStore(db)),
+    idempotency: databaseIdempotencyStore(db),
     close: () => db.close(),
   };
 }

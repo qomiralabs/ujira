@@ -17,6 +17,7 @@ import { z } from 'zod';
 
 import { createApp } from './app.js';
 import type { Authenticate, CallOptions, Tenant } from './auth.js';
+import { memoryIdempotencyStore } from './idempotency.js';
 import { memoryLogger } from './log.js';
 import { databaseBucketStore, databaseTokenStore } from './postgres-stores.js';
 import { bucketKey, createRateLimit, RATE_LIMIT_DEFAULTS, rateLimitHeaders } from './rate-limit.js';
@@ -208,7 +209,13 @@ describe('in the pipeline', () => {
 
   function appWith(rateLimit: RateLimit) {
     const logger = memoryLogger();
-    return createApp({ routes: [readRoute, createPayout], authenticate, rateLimit, logger });
+    return createApp({
+      routes: [readRoute, createPayout],
+      authenticate,
+      rateLimit,
+      idempotency: memoryIdempotencyStore(),
+      logger,
+    });
   }
 
   it('sends the headers on a success', async () => {
@@ -246,6 +253,7 @@ describe('in the pipeline', () => {
       routes: [readRoute],
       authenticate: () => Promise.resolve({ ok: false, code: 'TOKEN_MALFORMED' }),
       rateLimit: createRateLimit(store),
+      idempotency: memoryIdempotencyStore(),
       logger: memoryLogger(),
     });
     expect((await app.request('/v1/things')).status).toBe(401);
@@ -317,6 +325,7 @@ describe('against the database', () => {
         logger,
       }),
       rateLimit: createRateLimit(databaseBucketStore(db), rules),
+      idempotency: memoryIdempotencyStore(),
       logger,
     });
   }
@@ -437,7 +446,10 @@ describe('against the database', () => {
     };
     const app = instance(first, rules);
     const { allowed, seconds } = await burst(12, () =>
-      app.request('/v1/payouts', { method: 'POST', headers: { authorization: `Bearer ${key}` } }),
+      app.request('/v1/payouts', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${key}`, 'idempotency-key': randomUUID() },
+      }),
     );
     expect(allowed).toBeGreaterThanOrEqual(3);
     expect(allowed).toBeLessThanOrEqual(3 + seconds);

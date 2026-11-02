@@ -29,10 +29,28 @@ export {
   toApiError,
 } from './errors.js';
 export type { ApiErrorOptions } from './errors.js';
+export {
+  IDEMPOTENCY_HEADER,
+  IDEMPOTENCY_LEASE_SECONDS,
+  idempotencyKeyOf,
+  isFinalStatus,
+  memoryIdempotencyStore,
+  requestFingerprint,
+} from './idempotency.js';
+export type {
+  FinishRequest,
+  IdempotencyStore,
+  Reservation,
+  ReserveRequest,
+} from './idempotency.js';
 export { errorNameOf, jsonLogger, memoryLogger, stdoutLogger } from './log.js';
 export type { LogFields, LogLevel, LogRecord, Logger, RequestLog } from './log.js';
 export { OPENAPI_PATH, buildOpenApiDocument, withOpenApiRoute } from './openapi.js';
-export { databaseBucketStore, databaseTokenStore } from './postgres-stores.js';
+export {
+  databaseBucketStore,
+  databaseIdempotencyStore,
+  databaseTokenStore,
+} from './postgres-stores.js';
 export {
   RATE_LIMIT_DEFAULTS,
   allowEveryRequest,
@@ -57,6 +75,7 @@ export {
   defineTenantRoute,
   defineWebhookRoute,
   queryParser,
+  requiresIdempotencyKey,
   routeAccessProblems,
 } from './route.js';
 export type {

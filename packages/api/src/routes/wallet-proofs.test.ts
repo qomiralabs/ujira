@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { createApp } from '../app.js';
 import type { Authenticate } from '../auth.js';
 import { refuseAllCredentials } from '../auth.js';
+import { memoryIdempotencyStore } from '../idempotency.js';
 import { memoryLogger } from '../log.js';
 import { allowEveryRequest } from '../rate-limit.js';
 
@@ -57,12 +58,14 @@ function served(w: WalletProofWorld, flow: WalletProofFlow = w.flow) {
     routes: v1Routes({ selfWebhook: SELF_WEBHOOK_NOT_CONFIGURED, walletProof: flow }),
     authenticate: authFor(w),
     rateLimit: allowEveryRequest,
+    idempotency: memoryIdempotencyStore(),
     logger,
   });
   const base = `/v1/recipients/${w.recipient.id}/methods/${w.method.id}`;
   const headers = (token: string) => ({
     authorization: `Bearer ${token}`,
     'content-type': 'application/json',
+    'idempotency-key': randomUUID(),
   });
   return {
     records: logger.records,
@@ -261,15 +264,23 @@ describe('the served route table', () => {
       routes: V1_ROUTES,
       authenticate: authFor(w),
       rateLimit: allowEveryRequest,
+      idempotency: memoryIdempotencyStore(),
       logger: memoryLogger(),
     });
     const base = `/v1/recipients/${w.recipient.id}/methods/${w.method.id}`;
-    const headers = { authorization: 'Bearer writer', 'content-type': 'application/json' };
-    const challenge = await app.request(`${base}/wallet-challenges`, { method: 'POST', headers });
+    const headers = (): Record<string, string> => ({
+      authorization: 'Bearer writer',
+      'content-type': 'application/json',
+      'idempotency-key': randomUUID(),
+    });
+    const challenge = await app.request(`${base}/wallet-challenges`, {
+      method: 'POST',
+      headers: headers(),
+    });
     expect(challenge.status).toBe(503);
     const proof = await app.request(`${base}/wallet-proofs`, {
       method: 'POST',
-      headers,
+      headers: headers(),
       body: JSON.stringify({
         challengeId: w.recipient.id,
         message: 'm',
@@ -286,6 +297,7 @@ describe('the served route table', () => {
       routes: V1_ROUTES,
       authenticate: refuseAllCredentials,
       rateLimit: allowEveryRequest,
+      idempotency: memoryIdempotencyStore(),
       logger: memoryLogger(),
     });
     const response = await app.request(
