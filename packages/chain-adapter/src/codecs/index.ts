@@ -27,6 +27,8 @@ export type {
   DecodedTransaction,
 } from './envelope.js';
 export { networkIdOf, networkPassphrase } from './network.js';
+export type { DecodedOperationDetail, DecodedTrustAsset } from './operations.js';
+export { CONTRACT_OPERATION_TYPES, assertNoMemoOnContractCall } from './memo.js';
 export {
   decodeAccountAddress,
   encodeAccountAddress,

@@ -55,6 +55,7 @@ import { describe, expect, it } from 'vitest';
 
 import * as index from './index.js';
 import {
+  ActivationBudgetExhaustedError,
   CHAIN_ADAPTER_ERROR_CODES,
   CHAIN_ADAPTER_ERROR_MESSAGES,
   DESTINATION_PARSE_REASONS,
@@ -116,6 +117,7 @@ const TABLE: [ChainAdapterErrorCode, Ctor, boolean, 'no' | 'unknown'][] = [
   ['SIGNER_DENIED', SignerDeniedError, false, 'no'],
   ['SIGNER_ADDRESS_MISMATCH', SignerAddressMismatchError, false, 'no'],
   ['SPONSOR_DENIED', SponsorDeniedError, false, 'no'],
+  ['ACTIVATION_BUDGET_EXHAUSTED', ActivationBudgetExhaustedError, false, 'no'],
   ['SPONSOR_UNFUNDED', SponsorUnfundedError, false, 'no'],
   ['EXECUTOR_UNFUNDED', ExecutorUnfundedError, false, 'no'],
   ['DESTINATION_INVALID', DestinationInvalidError, false, 'no'],

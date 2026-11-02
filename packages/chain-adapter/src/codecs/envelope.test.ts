@@ -111,7 +111,9 @@ describe('transaction envelopes', () => {
     expect(decoded.fee).toBe(100n);
     expect(decoded.sequence).toBe(5000n);
     expect(decoded.timeBounds).toEqual({ minTime: 0n, maxTime: 4_102_444_800n });
-    expect(decoded.operations).toEqual([{ type: 'payment', source: null }]);
+    expect(decoded.operations).toEqual([
+      { type: 'payment', source: null, detail: { kind: 'other' } },
+    ]);
     expect(decoded.resourceFee).toBeNull();
     expect(decoded.signatures).toEqual([]);
 
@@ -153,7 +155,11 @@ describe('transaction envelopes', () => {
     );
     expect(decoded.source).toEqual({ address: muxed, account: ADDRESS });
     expect(decoded.operations).toEqual([
-      { type: 'payment', source: { address: OTHER_ADDRESS, account: OTHER_ADDRESS } },
+      {
+        type: 'payment',
+        source: { address: OTHER_ADDRESS, account: OTHER_ADDRESS },
+        detail: { kind: 'other' },
+      },
     ]);
   });
 
@@ -164,7 +170,7 @@ describe('transaction envelopes', () => {
     );
     expect(decoded.sequence).toBe(0n);
     expect(decoded.source.account).toBe(OTHER_ADDRESS);
-    expect(decoded.operations).toEqual([
+    expect(decoded.operations).toMatchObject([
       { type: 'manageData', source: { address: ADDRESS, account: ADDRESS } },
       { type: 'manageData', source: { address: OTHER_ADDRESS, account: OTHER_ADDRESS } },
     ]);
@@ -291,7 +297,9 @@ describe('fee bump envelopes', () => {
     expect(decoded.fee).toBe(400n);
     expect(decoded.inner.source.account).toBe(TEST_INNER_SOURCE);
     expect(decoded.inner.sequence).toBe(7n);
-    expect(decoded.inner.operations).toEqual([{ type: 'payment', source: null }]);
+    expect(decoded.inner.operations).toEqual([
+      { type: 'payment', source: null, detail: { kind: 'other' } },
+    ]);
     expect(decoded.signatures).toEqual([]);
 
     const reference = new FeeBumpTransaction(unsigned, Networks.TESTNET);

@@ -48,14 +48,8 @@ export type {
 } from './conformance.js';
 export { MandateEngine } from './engine.js';
 export { FakeChainAdapter, signFakeRequest } from './fake-adapter.js';
-export type { FakeChainAdapterPorts } from './fake-adapter.js';
-export {
-  FAKE_GENESIS,
-  FAKE_TX_FEE,
-  FakeNetwork,
-  PUBNET_PASSPHRASE,
-  tenantRefOf,
-} from './fake-network.js';
+export type { FakeChainAdapterOptions, FakeChainAdapterPorts } from './fake-adapter.js';
+export { FAKE_GENESIS, FAKE_TX_FEE, FakeNetwork, PUBNET_PASSPHRASE } from './fake-network.js';
 export type {
   FakeDeposit,
   FakeNetworkOptions,
@@ -103,6 +97,7 @@ export {
 export type { TokenFailureReason } from './failures.js';
 export { FakeLedger, TESTNET_PASSPHRASE } from './ledger.js';
 export type { FakeLedgerOptions, LedgerContract, NestedViews } from './ledger.js';
+export { InMemoryRentStore } from './rent-store.js';
 export { feeCap } from './rules.js';
 export * from './spec.js';
 export {
@@ -111,15 +106,22 @@ export {
   TEST_INNER_SOURCE,
   testAuthEntryXdr,
   testFeeBumpXdr,
+  testInvokeXdr,
+  testReserveSandwichXdr,
   testSep10ChallengeXdr,
   testTransactionXdr,
 } from './stellar.js';
 export type {
+  SandwichStep,
   TestAuthEntryOptions,
   TestFeeBumpOptions,
+  TestInvokeOptions,
+  TestSandwichOptions,
   TestSep10Options,
   TestTransactionOptions,
 } from './stellar.js';
+export { createMemorySponsorshipLedger, describeSponsorshipLedger } from './sponsorship-ledger.js';
+export type { SponsorshipLedgerHarness } from './sponsorship-ledger.js';
 export { FakeToken } from './token.js';
 export type {
   FakeTokenOptions,

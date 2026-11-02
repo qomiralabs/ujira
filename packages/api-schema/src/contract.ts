@@ -17,6 +17,9 @@ export const PROBLEM_TITLES: Readonly<Record<ProblemCode, string>> = Object.free
   LIMIT_OUT_OF_RANGE: 'The limit must be from 1 to 200',
   INVALID_AMOUNT: 'The amount is not an integer count of minor units',
   INVALID_REQUEST: 'The request is not valid',
+  WEBHOOK_SIGNATURE_INVALID: 'The webhook signature is not valid',
+  WEBHOOK_PAYLOAD_INVALID: 'The webhook body is not valid',
+  WEBHOOK_REJECTED: 'The webhook is for another environment or flow',
   TOKEN_MALFORMED: 'The API key is missing or malformed',
   TOKEN_INVALID: 'The API key is not valid',
   TOKEN_ENVIRONMENT_MISMATCH: 'The API key is for another environment',
@@ -31,11 +34,16 @@ export const PROBLEM_TITLES: Readonly<Record<ProblemCode, string>> = Object.free
   DESTINATION_INVALID: 'The destination cannot receive this payout',
   MANDATE_REFUSED: 'The mandate does not allow this',
   QUOTE_UNAVAILABLE: 'No quote is available for this payout right now',
+  WALLET_PROOF_INVALID: 'The wallet proof is not valid',
+  WALLET_PROOF_EXPIRED: 'The wallet proof challenge has expired',
+  WALLET_SIGNER_NOT_AUTHORIZED: 'That key cannot sign for this wallet',
+  DESTINATION_NOT_RECEIVABLE: 'This destination cannot receive a payout yet',
   RATE_LIMITED: 'Too many requests',
   INTERNAL: 'Something went wrong on our side',
   DB_UNAVAILABLE: 'The service is temporarily unavailable',
   CHAIN_UNAVAILABLE: 'The network is temporarily unavailable',
   REQUEST_TIMEOUT: 'The request took too long',
+  WEBHOOK_UNAVAILABLE: 'This webhook cannot be received right now',
 });
 
 export interface FieldError {

@@ -15,6 +15,7 @@
 import { parseNetworksConfig } from '../config.js';
 import type { NetworksConfig, StellarNetworkConfig } from '../config.js';
 import { InvalidInputError } from '../errors.js';
+import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
 import type { NetworkId } from '../networks.js';
 import type { SignerRef } from '../signer.js';
 import type {
@@ -33,7 +34,7 @@ import type {
   StellarLedgerReader,
 } from '../stellar/check-destination.js';
 
-import { accountFromSeed, contractAddress } from './address.js';
+import { accountFromSeed, addressXdr, contractAddress } from './address.js';
 import { hexOf, sha256, utf8 } from './bytes.js';
 import { MandateEngine } from './engine.js';
 import { MandateFactory } from './factory.js';
@@ -120,9 +121,13 @@ interface ClosedLedger {
   readonly restore: (() => void) | null;
 }
 
-/** The tenant reference a mandate stores for a scope: SHA-256 over the tenant's two IDs. */
-export function tenantRefOf(scope: TenantScope): string {
-  return hexOf(sha256(utf8(`ujira:tenant:v1:${scope.principalId}:${scope.projectId}`)));
+/**
+ * The tag a mandate at this address stores for a tenant. The real adapter
+ * writes and checks the same value, so a fake mandate and a real one agree
+ * on whose it is.
+ */
+export function mandateTenantTag(scope: TenantScope, mandate: string): string {
+  return tenantTagOf(tenantRefOf(scope), addressXdr(mandate));
 }
 
 function checkDepth(field: string, n: number, max: number): number {

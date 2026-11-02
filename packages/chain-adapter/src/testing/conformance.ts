@@ -17,6 +17,7 @@ import type { TokenAmount } from '@ujira/core';
 import { describe, expect, it } from 'vitest';
 
 import { ChainAdapterError } from '../errors.js';
+import { NETWORK_IDS } from '../networks.js';
 import type { ExternalSignerRole, SignerRef } from '../signer.js';
 import type {
   AdapterStore,
@@ -78,8 +79,6 @@ export interface AdapterHarness {
   fund(to: ChainAddress, amount: bigint): Promise<void>;
   balance(of: ChainAddress): Promise<bigint>;
   advance(seconds: bigint): Promise<void>;
-  /** The tenant reference the mandate stores for a scope. */
-  tenantRef(scope: TenantScope): Bytes32;
   /** Registers a destination as a recipient method and returns its ID. */
   recipientMethod(destination: Destination): Uuid;
   /** Where the factory puts the mandate a principal creates with a salt. */
@@ -205,7 +204,6 @@ export async function deployMandate(
     principal,
     asset: 'USDC',
     recipientMode: 'allowlist',
-    tenantRef: h.tenantRef(h.scope),
     agents: [h.managedAgent.address],
     approvers,
     approvalsRequired: approvers.length,
@@ -420,7 +418,7 @@ export function describeChainAdapter(
               tag: null,
               requestId: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
               host: 'evil.example',
-            } as Parameters<ChainAdapter['walletProofChallenge']>[0]),
+            } as Parameters<typeof h.adapter.walletProofChallenge<'payout_destination'>>[0]),
           ),
         );
         expect(forged.code).toBe('INVALID_INPUT');
@@ -458,17 +456,26 @@ export function describeChainAdapter(
         const h = await factory();
         const wallet = h.wallet('recipient');
         expect(
-          await h.adapter.checkDestination({ destination: wallet.value, asset: 'USDC' }, OPTS),
-        ).toEqual({ receivable: true, reason: null, proofSigner: 'not_applicable' });
+          await h.adapter.checkDestination(
+            { destination: { address: wallet, tag: null }, asset: 'USDC' },
+            OPTS,
+          ),
+        ).toEqual({ receivable: true, proofSigner: 'not_applicable' });
         const check = (proofSigner: string) =>
           h.adapter.checkDestination(
-            { destination: wallet.value, asset: 'USDC', proofSigner },
+            { destination: { address: wallet, tag: null }, asset: 'USDC', proofSigner },
             OPTS,
           );
         expect((await check(wallet.value)).proofSigner).toBe('current');
         expect((await check(h.wallet('stranger').value)).proofSigner).toBe('not_current');
         const bad = await refusalOf(
-          h.adapter.checkDestination({ destination: 'nope', asset: 'USDC' }, OPTS),
+          h.adapter.checkDestination(
+            {
+              destination: { address: { network: h.adapter.network, value: 'nope' }, tag: null },
+              asset: 'USDC',
+            },
+            OPTS,
+          ),
         );
         expect(bad.code).toBe('INVALID_INPUT');
       });
@@ -478,7 +485,7 @@ export function describeChainAdapter(
         const wallet = h.wallet('new recipient');
         const req = {
           scope: h.scope,
-          destination: wallet.value,
+          destination: { address: wallet, tag: null },
           asset: 'USDC',
           createAccount: false,
           reservationIds: [],
@@ -504,12 +511,44 @@ export function describeChainAdapter(
       });
     });
 
+    describe('attestation messages', () => {
+      it('builds the 47 byte message for its own network only', async () => {
+        const { h, m } = await setup();
+        const recipient = must(m.recipients[0], 'a recipient');
+        const fields = {
+          mandate: m.ref,
+          recipientRef: recipient.recipientRef,
+          countryPolicyHash: bytes32('countries'),
+          policyEpoch: 0n,
+          validUntil: await now(h),
+          destination: { address: recipient.address, tag: 7n },
+        };
+        const message = h.adapter.attestationMessage(fields);
+        expect(message.length).toBe(47);
+        expect(h.adapter.attestationMessage(fields)).toEqual(message);
+        const untagged = h.adapter.attestationMessage({
+          ...fields,
+          destination: { address: recipient.address, tag: null },
+        });
+        expect(untagged).not.toEqual(message);
+        const other = must(
+          NETWORK_IDS.find((n) => n !== h.adapter.network),
+          'another network',
+        );
+        const elsewhere = { ...fields, mandate: { ...m.ref, network: other } };
+        const refused = await refusalOf(
+          Promise.resolve().then(() => h.adapter.attestationMessage(elsewhere)),
+        );
+        expect(refused.code).toBe('INVALID_INPUT');
+      });
+    });
+
     describe('mandates', () => {
       it('reads back the mandate it deployed', async () => {
         const { h, m } = await setup({ approvers: 1, recovery: 2 });
         const snap = await h.adapter.readMandate({ scope: h.scope, mandate: m.ref }, OPTS);
         expect(snap.trustedFactory).toBe(true);
-        expect(snap.tenantRefMatches).toBe(true);
+        expect(snap.tenantTagMatches).toBe(true);
         expect(snap.config.principal).toEqual(m.principal);
         expect(snap.config.approvers).toEqual(m.approvers);
         expect(snap.config.recovery).toEqual(m.recovery);

@@ -81,7 +81,7 @@ describe('checkStellarDestination', () => {
       reader,
       opts,
     );
-    expect(result).toEqual({ receivable: true, reason: null, proofSigner: 'current' });
+    expect(result).toEqual({ receivable: true, proofSigner: 'current' });
     expect(calls).toEqual([
       [
         { kind: 'account', accountId: ACCOUNT },
@@ -102,7 +102,7 @@ describe('checkStellarDestination', () => {
     const contract = encodeStrkey(STRKEY_VERSION.contract, new Uint8Array(32).fill(5));
     expect(
       await checkStellarDestination(NETWORK, { destination: contract, asset: ASSET }, reader, opts),
-    ).toEqual({ receivable: true, reason: null, proofSigner: 'not_applicable' });
+    ).toEqual({ receivable: true, proofSigner: 'not_applicable' });
     expect(calls).toHaveLength(0);
   });
 

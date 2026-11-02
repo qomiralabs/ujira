@@ -90,11 +90,11 @@ const requestSchema = z.strictObject({
 export type WalletProofChallengeRequest = z.input<typeof requestSchema>;
 
 /** A challenge as issued. Store it whole; verification compares against it. */
-export interface WalletProofChallenge {
+export interface WalletProofChallenge<P extends WalletProofPurpose = WalletProofPurpose> {
   readonly text: string;
   readonly network: NetworkId;
   readonly address: string;
-  readonly purpose: WalletProofPurpose;
+  readonly purpose: P;
   readonly recipientRef: string;
   readonly tag: bigint | null;
   readonly requestId: string;
@@ -202,11 +202,11 @@ export function walletProofText(
  * unknown field is refused rather than ignored. Throws InvalidInputError
  * naming paths and codes only.
  */
-export function walletProofChallenge(
-  req: WalletProofChallengeRequest,
+export function walletProofChallenge<P extends WalletProofPurpose>(
+  req: WalletProofChallengeRequest & { readonly purpose: P },
   config: PublicConfig,
   deps: WalletProofDeps,
-): WalletProofChallenge {
+): WalletProofChallenge<P> {
   const parsed = requestSchema.safeParse(req);
   if (!parsed.success) {
     throw new InvalidInputError({ issues: issuesOf(parsed.error, 'walletProof') });
@@ -222,7 +222,11 @@ export function walletProofChallenge(
     issuedAt: isoSeconds(now),
     expiresAt: isoSeconds(now + BigInt(ttlSeconds)),
   };
-  return Object.freeze({ ...challenge, text: walletProofText(host, challenge) });
+  // The schema returned the purpose it was given, so it is still P.
+  return Object.freeze({
+    ...challenge,
+    text: walletProofText(host, challenge),
+  }) as WalletProofChallenge<P>;
 }
 
 /** Unix seconds of a challenge timestamp, which has whole seconds only. */

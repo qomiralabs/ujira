@@ -183,6 +183,24 @@ const common = {
   health,
 };
 
+// Off until a network turns it on: an activation locks UJIRA's own XLM for good.
+const recipientActivation = z
+  .strictObject({
+    enabled: z.boolean().default(false),
+    dailyStroops: stroops.default(1_500_000_000n),
+    perPrincipalDaily: z.int().min(0).max(1_000_000).default(20),
+    floorStroops: stroops.default(5_000_000_000n),
+    perPrincipalMonthlyStroops: stroops.default(3_000_000_000n),
+  })
+  .prefault({});
+
+// A network with no budget set absorbs no shortfall, which is the safe reading.
+const fees = z
+  .strictObject({
+    uncoveredNetworkCost: z.strictObject({ monthlyBudgetStroops: stroops }),
+  })
+  .prefault({ uncoveredNetworkCost: { monthlyBudgetStroops: '0' } });
+
 const feeSponsor = z
   .strictObject({
     perPrincipalFundingAccounts: z.int().min(0).max(10),
@@ -194,6 +212,7 @@ const feeSponsor = z
     globalDailyFeeStroops: stroops,
     lowBalanceStroops: stroops,
     minBalanceStroops: stroops,
+    recipientActivation,
     key: keyRef,
   })
   .refine((f) => f.maxFeePerTxStroops <= f.perPrincipalDailyFeeStroops, {
@@ -228,6 +247,7 @@ const stellarNetwork = z
       keys: z.array(keyRef).min(1).max(256),
     }),
     feeSponsor,
+    fees,
     // UJIRA's login key for each anchor it pays out through.
     sep10: sep10Keys,
     signingWindowSeconds: z.int().min(30).max(SECONDS_PER_HOUR),
@@ -306,6 +326,8 @@ function declaredKeys(schema: z.ZodType, into: Set<string>): Set<string> {
     declaredKeys(schema.element as z.ZodType, into);
   } else if (schema instanceof z.ZodPipe) {
     declaredKeys(schema.in as z.ZodType, into);
+  } else if (schema instanceof z.ZodDefault || schema instanceof z.ZodPrefault) {
+    declaredKeys(schema.unwrap() as z.ZodType, into);
   }
   return into;
 }

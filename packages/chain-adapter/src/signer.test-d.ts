@@ -59,14 +59,21 @@ describe('the types carry no vendor encoding', () => {
   it('a signature is raw ed25519 bytes and its public key, nothing else', () => {
     expectTypeOf<SignatureResult>().toEqualTypeOf<Ed25519Signature>();
     expectTypeOf<SignatureResult['kind']>().toEqualTypeOf<'ed25519'>();
-    expectTypeOf<keyof SignatureResult>().toEqualTypeOf<'kind' | 'signature' | 'publicKey'>();
+    expectTypeOf<keyof SignatureResult>().toEqualTypeOf<
+      'kind' | 'signature' | 'publicKey' | 'requestId'
+    >();
     expectTypeOf<SignatureResult['signature']>().toEqualTypeOf<Uint8Array>();
     expectTypeOf<SignatureResult['publicKey']>().toEqualTypeOf<Uint8Array>();
   });
 
   it('payloads are typed intents over plain encodings', () => {
     expectTypeOf<SignPayload['kind']>().toEqualTypeOf<
-      'stellar_tx' | 'stellar_fee_bump' | 'stellar_auth_entry' | 'sep10_challenge' | 'attestation'
+      | 'stellar_tx'
+      | 'stellar_fee_bump'
+      | 'stellar_reserve_sandwich'
+      | 'stellar_auth_entry'
+      | 'sep10_challenge'
+      | 'attestation'
     >();
     expectTypeOf<SignPayload['network']>().toEqualTypeOf<NetworkId>();
     expectTypeOf<Extract<SignPayload, { kind: 'stellar_tx' }>['xdr']>().toEqualTypeOf<string>();

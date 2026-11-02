@@ -8,6 +8,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./key-manager": {
+      "types": "./dist/key-manager/index.d.ts",
+      "default": "./dist/key-manager/index.js"
+    },
+    "./key-manager/contract": {
+      "types": "./dist/key-manager/contract.d.ts",
+      "default": "./dist/key-manager/contract.js"
     }
   },
   "files": [

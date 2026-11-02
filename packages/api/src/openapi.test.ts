@@ -63,7 +63,13 @@ describe('OpenAPI document', () => {
   it('lists every route with its responses and resolves every reference', () => {
     const doc = withOpenApiRoute(V1_ROUTES).document as unknown as Document;
     expect(doc.openapi).toBe('3.1.1');
-    expect(Object.keys(doc.paths).sort()).toEqual(['/v1/health', OPENAPI_PATH]);
+    expect(Object.keys(doc.paths).sort()).toEqual([
+      '/v1/health',
+      '/v1/identity/self-webhook',
+      OPENAPI_PATH,
+      '/v1/recipients/{id}/methods/{methodId}/wallet-challenges',
+      '/v1/recipients/{id}/methods/{methodId}/wallet-proofs',
+    ]);
     const health = doc.paths['/v1/health']?.['get'];
     expect(health?.operationId).toBe('getHealth');
     expect(health?.security).toEqual([]);
@@ -78,6 +84,9 @@ describe('OpenAPI document', () => {
       'Health',
       'OpenApiDocument',
       'Problem',
+      'SelfWebhookAck',
+      'WalletChallenge',
+      'WalletProofAccepted',
     ]);
   });
 

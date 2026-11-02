@@ -36,7 +36,10 @@ describe('the fake ledger behind wallet proofs and destinations', () => {
     const { net } = h.world;
     const wallet = h.wallet('recipient');
     const check = () =>
-      h.adapter.checkDestination({ destination: wallet.value, asset: 'USDC' }, OPTS);
+      h.adapter.checkDestination(
+        { destination: { address: wallet, tag: null }, asset: 'USDC' },
+        OPTS,
+      );
 
     net.setLedgerTrustline(wallet.value, null);
     expect(await check()).toMatchObject({ receivable: false, reason: 'NO_TRUSTLINE' });
@@ -63,7 +66,7 @@ describe('the fake ledger behind wallet proofs and destinations', () => {
     const check = (amount: bigint) =>
       h.adapter.checkDestination(
         {
-          destination: wallet.value,
+          destination: { address: wallet, tag: null },
           asset: 'USDC',
           amount: tokenAmount(amount, 'USDC', chain),
         },
@@ -124,7 +127,7 @@ describe('the fake ledger behind wallet proofs and destinations', () => {
     const request = await h.adapter.prepareRecipientActivation(
       {
         scope: h.scope,
-        destination: wallet.value,
+        destination: { address: wallet, tag: null },
         asset: 'USDC',
         createAccount: true,
         reservationIds: [],
@@ -132,7 +135,10 @@ describe('the fake ledger behind wallet proofs and destinations', () => {
       OPTS,
     );
     const check = () =>
-      h.adapter.checkDestination({ destination: wallet.value, asset: 'USDC' }, OPTS);
+      h.adapter.checkDestination(
+        { destination: { address: wallet, tag: null }, asset: 'USDC' },
+        OPTS,
+      );
     expect(await check()).toMatchObject({ reason: 'ACCOUNT_NOT_FOUND' });
     await h.adapter.submitSigned(
       {
@@ -182,7 +188,7 @@ describe('the fake ledger behind wallet proofs and destinations', () => {
     ).toThrow(InvalidInputError);
     await expect(
       h.adapter.checkDestination(
-        { destination: wallet.value, asset: 'EURC' as unknown as 'USDC' },
+        { destination: { address: wallet, tag: null }, asset: 'EURC' as unknown as 'USDC' },
         OPTS,
       ),
     ).rejects.toBeInstanceOf(InvalidInputError);
@@ -198,13 +204,16 @@ describe('the fake ledger behind wallet proofs and destinations', () => {
       h.adapter.verifyWalletProof({ challenge, signedText: challenge.text, signature }, OPTS),
     ).rejects.toBeInstanceOf(ChainUnavailableError);
     await expect(
-      h.adapter.checkDestination({ destination: wallet.value, asset: 'USDC' }, OPTS),
+      h.adapter.checkDestination(
+        { destination: { address: wallet, tag: null }, asset: 'USDC' },
+        OPTS,
+      ),
     ).rejects.toBeInstanceOf(ChainUnavailableError);
     await expect(
       h.adapter.prepareRecipientActivation(
         {
           scope: h.scope,
-          destination: wallet.value,
+          destination: { address: wallet, tag: null },
           asset: 'USDC',
           createAccount: false,
           reservationIds: [],

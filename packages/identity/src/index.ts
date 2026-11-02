@@ -26,14 +26,19 @@ export {
   CallAbortedError,
   CallTimeoutError,
   IDENTITY_ERROR_CODES,
+  IdentityConflictError,
+  ProviderUnavailableError,
+  SelfCreditsExhaustedError,
+  SelfSessionRefusedError,
+  WalletMethodNotFoundError,
   IdentityConfigError,
   IdentityError,
   IdentityInputError,
   IdentityTenantMismatchError,
   isIdentityError,
 } from './errors.js';
-export type { IdentityErrorCode } from './errors.js';
-export { evidenceAccepted, sameDestination } from './evidence.js';
+export type { IdentityErrorCode, SessionRefusal } from './errors.js';
+export { evidenceAccepted, levelAcceptedForMode, sameDestination } from './evidence.js';
 export type { AttestedMode } from './evidence.js';
 export { canonicalCountryList, countryAllowed, countryPolicyHash } from './policy.js';
 export { NOT_RECEIVABLE_REASONS, railCatalogFromRegistry } from './ports.js';
@@ -45,11 +50,77 @@ export type {
   DestinationCheck,
   IdentityServicePorts,
   IdentityStore,
+  IdentityUpdate,
+  IdentityWriteStore,
   NotReceivableReason,
   PayoutLegSource,
   ProofSignerState,
   RailCatalog,
 } from './ports.js';
+export {
+  DEPLOYMENTS,
+  SELF_ENVIRONMENTS,
+  SELF_SESSION_TTL_SECONDS,
+  SELF_VERIFICATION_VALIDITY_SECONDS,
+  checkSelfApiKey,
+  parseSelfConfig,
+  selfConfigSchema,
+  selfFlowRules,
+} from './self/config.js';
+export type { Deployment, SelfConfig, SelfEnvironment, SelfFlowRules } from './self/config.js';
+export { selfWebhookSchema } from './self/ports.js';
+export type {
+  IdentityAlerts,
+  ProviderEventRecord,
+  ProviderEventStore,
+  SelfClient,
+  SelfCredentials,
+  SelfSession,
+  SelfSessionRequest,
+  SelfVerificationPorts,
+  SelfWebhook,
+} from './self/ports.js';
+export { createSelfVerification } from './self/service.js';
+export type {
+  SelfVerification,
+  SelfWebhookRequest,
+  SelfWebhookResponse,
+  SelfWebhookResult,
+  StartSelfSessionRequest,
+  StartedSelfSession,
+} from './self/service.js';
+export { SELF_SIGNATURE_HEADER, hmacSelfWebhookVerifier, selfSignature } from './self/signature.js';
+export type {
+  SelfWebhookVerifier,
+  SignatureCheck,
+  SignatureFailure,
+  WebhookHeaders,
+} from './self/signature.js';
+export { WALLET_PROOF_PURPOSE } from './wallet-proof/ports.js';
+export type {
+  VerifyWalletProofRequest,
+  WalletChallenge,
+  WalletChallengeRecord,
+  WalletChallengeRequest,
+  WalletProofChain,
+  WalletProofInvalidReason,
+  WalletProofPorts,
+  WalletProofStore,
+  WalletProofVerdict,
+} from './wallet-proof/ports.js';
+export {
+  WALLET_CHALLENGE_TTL_SECONDS,
+  WALLET_PROOF_REFUSALS,
+  createWalletProofFlow,
+} from './wallet-proof/service.js';
+export type {
+  CreateWalletChallengeRequest,
+  IssuedWalletChallenge,
+  SubmitWalletProofRequest,
+  SubmitWalletProofResult,
+  WalletProofFlow,
+  WalletProofRefusal,
+} from './wallet-proof/service.js';
 export { createIdentityService } from './service.js';
 export {
   ASSURANCE_LEVELS,

@@ -5,6 +5,7 @@ import { PROBLEM_CODES, PROBLEM_TITLES, Problem, buildProblem } from '@ujira/api
 import type { ProblemCode } from '@ujira/api-schema';
 import {
   CHAIN_ADAPTER_ERROR_CODES,
+  ActivationBudgetExhaustedError,
   MANDATE_ERRORS,
   MANDATE_ERROR_NAMES,
   ChainUnavailableError,
@@ -77,6 +78,7 @@ const ADAPTER_ERRORS: readonly ChainAdapterError[] = [
   new SignerAddressMismatchError(),
   new SponsorDeniedError(),
   new SponsorUnfundedError(),
+  new ActivationBudgetExhaustedError(),
   new ExecutorUnfundedError(),
   new DestinationInvalidError(),
   new QuoteExpiredError(),

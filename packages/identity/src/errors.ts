@@ -17,6 +17,11 @@ export const IDENTITY_ERROR_CODES = Object.freeze([
   'IDENTITY_ATTESTATION_STATE',
   'IDENTITY_ATTESTATION_MESSAGE_INVALID',
   'IDENTITY_SIGNING_FAILED',
+  'IDENTITY_CONFLICT',
+  'IDENTITY_PROVIDER_UNAVAILABLE',
+  'IDENTITY_SELF_CREDITS_EXHAUSTED',
+  'IDENTITY_SESSION_REFUSED',
+  'IDENTITY_WALLET_METHOD_NOT_FOUND',
 ] as const);
 
 export type IdentityErrorCode = (typeof IDENTITY_ERROR_CODES)[number];
@@ -33,6 +38,11 @@ const MESSAGES: Readonly<Record<IdentityErrorCode, string>> = {
   IDENTITY_ATTESTATION_STATE: 'An attestation can only leave the pending state once',
   IDENTITY_ATTESTATION_MESSAGE_INVALID: 'The attestation message is not 47 bytes',
   IDENTITY_SIGNING_FAILED: 'The attester did not produce a valid signature',
+  IDENTITY_CONFLICT: 'The identity row conflicts with an existing one',
+  IDENTITY_PROVIDER_UNAVAILABLE: 'The identity provider is unavailable',
+  IDENTITY_SELF_CREDITS_EXHAUSTED: 'The identity provider account has no credits left',
+  IDENTITY_SESSION_REFUSED: 'A verification session cannot be started for this recipient',
+  IDENTITY_WALLET_METHOD_NOT_FOUND: 'No active payout method of this recipient has that id',
 };
 
 /** Every subclass sets its own `name`, so a caught error says what it is. */
@@ -140,6 +150,58 @@ export class AttestationSigningError extends IdentityError {
   constructor(failureCode: string, options?: { readonly cause?: unknown }) {
     super('IDENTITY_SIGNING_FAILED', options);
     this.failureCode = failureCode;
+  }
+}
+
+/** A unique rule on recipient identities refused the write. */
+export class IdentityConflictError extends IdentityError {
+  override readonly name = 'IdentityConflictError';
+
+  constructor() {
+    super('IDENTITY_CONFLICT');
+  }
+}
+
+/**
+ * The provider is switched off or cannot serve now. Not the recipient's
+ * fault, and worth trying again later.
+ */
+export class ProviderUnavailableError extends IdentityError {
+  override readonly name = 'ProviderUnavailableError';
+
+  constructor(options?: { readonly cause?: unknown }) {
+    super('IDENTITY_PROVIDER_UNAVAILABLE', options);
+  }
+}
+
+/** Thrown by a Self client when the account is out of verification credits. */
+export class SelfCreditsExhaustedError extends IdentityError {
+  override readonly name = 'SelfCreditsExhaustedError';
+
+  constructor() {
+    super('IDENTITY_SELF_CREDITS_EXHAUSTED');
+  }
+}
+
+export type SessionRefusal = 'recipient_inactive' | 'revoked' | 'already_verified';
+
+/** No session for this recipient: inactive, erased, or verified and not yet expiring. */
+export class SelfSessionRefusedError extends IdentityError {
+  override readonly name = 'SelfSessionRefusedError';
+  readonly reason: SessionRefusal;
+
+  constructor(reason: SessionRefusal) {
+    super('IDENTITY_SESSION_REFUSED');
+    this.reason = reason;
+  }
+}
+
+/** A challenge was asked for on a method that is missing, disabled or another recipient's. */
+export class WalletMethodNotFoundError extends IdentityError {
+  override readonly name = 'WalletMethodNotFoundError';
+
+  constructor() {
+    super('IDENTITY_WALLET_METHOD_NOT_FOUND');
   }
 }
 

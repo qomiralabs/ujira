@@ -17,10 +17,10 @@ import type { NetworkId } from './networks.js';
 import type { NetworksConfig } from './config.js';
 import type { AttestationFields, SignerProvider, SignerRef } from './signer.js';
 import type {
-  PublicConfig,
   VerifyWalletProofRequest,
   WalletProofChallenge,
   WalletProofChallengeRequest,
+  WalletProofPurpose,
   WalletProofResult,
 } from './wallet-proof.js';
 
@@ -47,7 +47,7 @@ export type CountryCode = Brand<string, 'CountryCode'>;
 /** ujira:tx:v1:{caip2}:{txHash}:{eventIndex}. Built and read by receipt-ref.ts. */
 export type ReceiptRef = Brand<string, 'ReceiptRef'>;
 
-/** Every request carries the tenant, checked against the mandate's tenant reference on chain. */
+/** Every request carries the tenant, checked against the mandate's tenant tag on chain. */
 export interface TenantScope {
   readonly principalId: Uuid;
   readonly projectId: Uuid;
@@ -117,7 +117,9 @@ export interface ChainAdapter {
    * The exact text a recipient signs to prove they control an address. The
    * host comes from the public configuration, never from the request.
    */
-  walletProofChallenge(req: WalletProofChallengeRequest): WalletProofChallenge;
+  walletProofChallenge<P extends WalletProofPurpose>(
+    req: WalletProofChallengeRequest & { readonly purpose: P },
+  ): WalletProofChallenge<P>;
   /** Checks a signed challenge against the issued one and the signers on chain today. */
   verifyWalletProof(req: VerifyWalletProofRequest, opts: CallOptions): Promise<WalletProofResult>;
   /** Whether a destination can receive a payout, and whether a proof's signer is still current. */
@@ -171,14 +173,12 @@ export interface AdapterPorts {
   readonly store: AdapterStore;
   /** Every key UJIRA holds signs through it; the adapter never sees key material. */
   readonly signer: SignerProvider;
-  /** Implemented in payouts, with counters in the database. */
+  /** createSponsorshipPolicy over the database ledger, or a stand in under test. */
   readonly sponsorship: SponsorshipPolicy;
   readonly alerts: AdapterAlerts;
   readonly clock: { nowSeconds(): UnixSeconds };
   /** The current validated config snapshot. */
   readonly config: () => NetworksConfig;
-  /** The public configuration, where the wallet proof host comes from. */
-  readonly publicConfig: () => PublicConfig;
 }
 
 /** Every operation the adapter submits: mandate calls and the adapter's own steps. */
@@ -396,7 +396,10 @@ export type SponsoredIntent =
   | 'cancel'
   | 'withdraw'
   | 'admin'
-  | 'trustline';
+  | 'trustline'
+  | 'recipient_activation'
+  /** UJIRA's own transaction, booked for the record and never reserved by a tenant. */
+  | 'executor';
 
 export interface SponsorshipPolicy {
   /** Throws SponsorDeniedError on a rate limit or cap. Idempotent per reservationId. */
@@ -406,14 +409,30 @@ export interface SponsorshipPolicy {
     readonly reservationId: string;
     readonly intent: SponsoredIntent;
     readonly maxFee: NativeAmount;
+    /** For recipient_activation: who is activated. One per recipient per network, one per account ever. */
+    readonly activation?: { readonly recipientId: string; readonly account: string };
   }): Promise<void>;
   /** The counters are per principal rows, so the tenant comes with every call. */
   settle(r: {
     readonly scope: TenantScope;
     readonly reservationId: string;
     readonly actualFee: NativeAmount;
+    /** The rent the transaction paid, booked with it. */
+    readonly rent?: NativeAmount;
   }): Promise<void>;
   release(r: { readonly scope: TenantScope; readonly reservationId: string }): Promise<void>;
+  /**
+   * Records what UJIRA paid for a transaction of its own, such as an executor
+   * call, so all its spend sums from one place. Idempotent per reservationId.
+   */
+  book(r: {
+    readonly scope: TenantScope;
+    readonly network: NetworkId;
+    readonly reservationId: string;
+    readonly intent: SponsoredIntent;
+    readonly actualFee: NativeAmount;
+    readonly rent?: NativeAmount;
+  }): Promise<void>;
 }
 
 export interface AdapterAlerts {
@@ -433,6 +452,19 @@ export interface AdapterAlerts {
     readonly network: NetworkId;
     readonly kind: 'balance' | 'receipt' | 'reorg';
     readonly detail: string;
+    readonly correlationId: string;
+  }): void;
+  /**
+   * An execute batch hit the contract events limit, which batches within
+   * the spec limits never should, or held a payout whose agent was removed,
+   * which the payout's principal is told about.
+   */
+  batch(e: {
+    readonly network: NetworkId;
+    readonly kind: 'events_limit' | 'agent_removed';
+    readonly scope: TenantScope;
+    /** The removed agent's payout; null for the events limit. */
+    readonly payoutId: PayoutId | null;
     readonly correlationId: string;
   }): void;
 }
@@ -483,8 +515,7 @@ export type ReceivabilityReason =
 export type ProofSignerStatus = 'current' | 'not_current' | 'not_applicable';
 
 export interface CheckDestinationRequest {
-  /** The address as the recipient gave it. */
-  readonly destination: string;
+  readonly destination: Destination;
   readonly asset: TokenAsset;
   /** Checked against what the destination has room to receive, when given. */
   readonly amount?: TokenAmount;
@@ -492,16 +523,17 @@ export interface CheckDestinationRequest {
   readonly proofSigner?: string;
 }
 
-export interface DestinationCheck {
-  readonly receivable: boolean;
-  readonly reason: ReceivabilityReason | null;
-  readonly proofSigner: ProofSignerStatus;
-}
+export type DestinationCheck =
+  | { readonly receivable: true; readonly proofSigner: ProofSignerStatus }
+  | {
+      readonly receivable: false;
+      readonly reason: ReceivabilityReason;
+      readonly proofSigner: ProofSignerStatus;
+    };
 
 export interface RecipientActivationRequest {
   readonly scope: TenantScope;
-  /** The address as the recipient gave it. */
-  readonly destination: string;
+  readonly destination: Destination;
   readonly asset: TokenAsset;
   /** True when checkDestination found no account there. */
   readonly createAccount: boolean;
@@ -551,7 +583,6 @@ export interface MandateConfigInput {
   /** Resolved to the network's token contract by the adapter. */
   readonly asset: TokenAsset;
   readonly recipientMode: 'allowlist' | 'attested' | 'both';
-  readonly tenantRef: Bytes32;
   readonly agents: readonly ChainAddress[];
   readonly approvers: readonly ChainAddress[];
   readonly approvalsRequired: number;
@@ -569,6 +600,12 @@ export interface MandateConfigInput {
 
 /** The mandate's config view: the creation input plus what the factory fixed. */
 export interface MandateConfigView extends MandateConfigInput {
+  /**
+   * The tag the mandate stores: its tenant's reference hashed with its own
+   * address. The adapter computes it from the request's scope, so the
+   * reference itself never reaches the chain and is not part of the config.
+   */
+  readonly tenantTag: Bytes32;
   readonly factory: ChainAddress;
   readonly feeAddress: ChainAddress;
   readonly policyEpoch: number;
@@ -651,6 +688,13 @@ export interface MandateActionRequest {
    * through the port.
    */
   readonly signer: SignerRef;
+  /**
+   * The address the call names as its caller, where it takes one. It must be
+   * the signer's own address: the adapter refuses any other before it
+   * simulates, so an action can never be built for one member and signed by
+   * another. Defaults to the signer's address.
+   */
+  readonly caller?: ChainAddress;
 }
 
 /** Human readable and chain neutral, shown before signing. Amounts are core values. */
@@ -720,8 +764,8 @@ export interface MandateSnapshot {
   readonly mandate: MandateRef;
   /** Created by a factory the config trusts for this mandate version. */
   readonly trustedFactory: boolean;
-  /** The on chain tenant reference matches the request scope. */
-  readonly tenantRefMatches: boolean;
+  /** The tag the mandate stores is the one recomputed from the request scope and its address. */
+  readonly tenantTagMatches: boolean;
   readonly asset: TokenAsset;
   readonly config: MandateConfigView;
   readonly state: MandateState;

@@ -84,7 +84,7 @@ export async function checkStellarDestination(
 ): Promise<DestinationCheck> {
   const base = parseStellarDestination(network, { address: req.destination }).address.value;
   if (isContractAddress(base)) {
-    return { receivable: true, reason: null, proofSigner: 'not_applicable' };
+    return { receivable: true, proofSigner: 'not_applicable' };
   }
   const answer = await ledger.getLedgerEntries(
     network,
@@ -116,6 +116,6 @@ export async function checkStellarDestination(
         ? 'current'
         : 'not_current';
   return result.receivable
-    ? { receivable: true, reason: null, proofSigner }
+    ? { receivable: true, proofSigner }
     : { receivable: false, reason: result.reason, proofSigner };
 }

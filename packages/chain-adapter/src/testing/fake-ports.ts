@@ -43,6 +43,7 @@ export function signedBytes(payload: SignPayload): Uint8Array {
   switch (payload.kind) {
     case 'stellar_tx':
     case 'stellar_fee_bump':
+    case 'stellar_reserve_sandwich':
     case 'sep10_challenge':
       return utf8(payload.xdr);
     case 'stellar_auth_entry':
@@ -190,6 +191,27 @@ export class FakeSponsorship implements SponsorshipPolicy {
     return Promise.resolve();
   }
 
+  book(r: {
+    readonly scope: TenantScope;
+    readonly network: NetworkId;
+    readonly reservationId: string;
+    readonly intent: SponsoredIntent;
+    readonly actualFee: NativeAmount;
+  }): Promise<void> {
+    if (!this.#reservations.has(r.reservationId)) {
+      this.#reservations.set(r.reservationId, {
+        scope: r.scope,
+        network: r.network,
+        reservationId: r.reservationId,
+        intent: r.intent,
+        maxFee: r.actualFee,
+        state: 'settled',
+        actualFee: r.actualFee,
+      });
+    }
+    return Promise.resolve();
+  }
+
   release(r: { readonly scope: TenantScope; readonly reservationId: string }): Promise<void> {
     const found = this.#find(r.scope, r.reservationId);
     if (found?.state === 'reserved') found.state = 'released';
@@ -205,7 +227,8 @@ export class FakeSponsorship implements SponsorshipPolicy {
 export type RecordedAlert =
   | { readonly kind: 'lowBalance'; readonly event: Parameters<AdapterAlerts['lowBalance']>[0] }
   | { readonly kind: 'stuck'; readonly event: Parameters<AdapterAlerts['stuck']>[0] }
-  | { readonly kind: 'divergence'; readonly event: Parameters<AdapterAlerts['divergence']>[0] };
+  | { readonly kind: 'divergence'; readonly event: Parameters<AdapterAlerts['divergence']>[0] }
+  | { readonly kind: 'batch'; readonly event: Parameters<AdapterAlerts['batch']>[0] };
 
 export class FakeAlerts implements AdapterAlerts {
   readonly #alerts: RecordedAlert[] = [];
@@ -224,5 +247,9 @@ export class FakeAlerts implements AdapterAlerts {
 
   divergence(event: Parameters<AdapterAlerts['divergence']>[0]): void {
     this.#alerts.push({ kind: 'divergence', event });
+  }
+
+  batch(event: Parameters<AdapterAlerts['batch']>[0]): void {
+    this.#alerts.push({ kind: 'batch', event });
   }
 }
