@@ -53,6 +53,16 @@ export {
   type TokenRecord,
 } from './repositories/entry-points.js';
 export {
+  audit,
+  AuditScopeError,
+  type AuditActor,
+  type AuditChainBreak,
+  type AuditEntry,
+  type AuditMetadata,
+  type AuditVerification,
+  type NewAuditEntry,
+} from './repositories/audit.js';
+export {
   ledger,
   type LedgerAccount,
   type LedgerAccountKind,
@@ -63,11 +73,32 @@ export {
   type Reconciliation,
 } from './repositories/ledger.js';
 export {
+  payoutMethods,
+  recipientIdentities,
+  recipientPii,
+  recipients,
+  type EncryptedValue,
+  type IdentityState,
+  type IdentityUpdate,
+  type NewPayoutMethod,
+  type PayoutMethod,
+  type PayoutMethodKind,
+  type Recipient,
+  type RecipientIdentity,
+  type RecipientStatus,
+} from './repositories/recipients.js';
+export {
   executors,
   routingConfig,
   type ExecutorLease,
   type RoutingConfig,
 } from './repositories/ops.js';
+export {
+  FEE_ESTIMATE_OPS,
+  feeEstimates,
+  type FeeEstimate,
+  type FeeEstimateOp,
+} from './repositories/fee-estimates.js';
 export {
   chainEvents,
   deposits,
