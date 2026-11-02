@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 
 import { LocalSigner } from '../local-signer.js';
 import { CALLER_TOKEN, OPTS, TEST_SEED, codeOf, harness } from '../testing/service.js';
+import { TEST_ASSET } from '../testing/unpayable.js';
 import {
   SIGNER_LOG_FIELDS,
   agentPolicy,
@@ -51,6 +52,7 @@ describe('agent service logs', () => {
             executors: [],
             tenant: TENANT,
             recipientMode: 'allowlist',
+            settlementAsset: TEST_ASSET,
           },
         ]),
         rateLimiter: memoryRateLimiter({ limit: 10, windowSeconds: 60n }),

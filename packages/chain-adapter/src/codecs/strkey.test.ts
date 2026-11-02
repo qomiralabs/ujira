@@ -199,6 +199,8 @@ describe('strkey codecs', () => {
       'ATTESTATION_MESSAGE_BYTES',
       'CONTRACT_OPERATION_TYPES',
       'MAX_ENVELOPE_SIGNATURES',
+      'ZERO_ACCOUNT_ADDRESS',
+      'ZERO_CONTRACT_ADDRESS',
       'assertNoMemoOnContractCall',
       'attachAuthEntrySignature',
       'attachEnvelopeSignature',
@@ -211,6 +213,7 @@ describe('strkey codecs', () => {
       'encodeMuxedAddress',
       'isAccountAddress',
       'isContractAddress',
+      'isZeroAddress',
       'networkIdOf',
       'networkPassphrase',
     ]);

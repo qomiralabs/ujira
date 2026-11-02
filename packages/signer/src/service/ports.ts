@@ -13,6 +13,8 @@ export type RecipientMode = 'allowlist' | 'attested' | 'both';
 export interface IndexedMandate {
   readonly tenant: TenantScope;
   readonly recipientMode: RecipientMode;
+  /** The contract of the asset the mandate settles in, as it was deployed. */
+  readonly settlementAsset: string;
 }
 
 /** The mandate instances the deposit and event indexer has seen deployed by a trusted factory. */

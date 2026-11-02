@@ -20,6 +20,7 @@ import { describe, expect, it } from 'vitest';
 import { keyLabel } from '../keys.js';
 import { describeSignerProvider } from '../testing/conformance.js';
 import { FakeKmsClient } from '../testing/fake-kms.js';
+import { TEST_MANDATES } from '../testing/unpayable.js';
 import { reasonOf } from './errors.js';
 import { AwsKmsAttesterSigner, AwsKmsSigner, ed25519KeyOfSpki } from './index.js';
 import type { AwsKmsSignerOptions } from './index.js';
@@ -39,7 +40,7 @@ describeSignerProvider('AwsKmsSigner against a fake client', () => {
   const client = new FakeKmsClient();
   return {
     provider: new AwsKmsSigner(options(client)),
-    attester: new AwsKmsAttesterSigner(options(client)),
+    attester: new AwsKmsAttesterSigner({ ...options(client), mandates: TEST_MANDATES }),
   };
 });
 
@@ -92,7 +93,7 @@ describe('calling KMS', () => {
     const open = new AwsKmsSigner(options(client));
     await expect(open.address(EXECUTOR, opts)).rejects.toBeInstanceOf(SignerUnavailableError);
     await expect(open.health(opts)).rejects.toBeInstanceOf(SignerUnavailableError);
-    const attester = new AwsKmsAttesterSigner(options(client));
+    const attester = new AwsKmsAttesterSigner({ ...options(client), mandates: TEST_MANDATES });
     await expect(attester.publicKey(NETWORK, opts)).rejects.toBeInstanceOf(SignerUnavailableError);
     expect(client.calls).toEqual([]);
   });

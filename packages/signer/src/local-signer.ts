@@ -28,6 +28,8 @@ import type { LocalKey } from './keys.js';
 import { LatencyWindow } from './latency.js';
 import { messageFor } from './policy.js';
 import { parseAttestationFields, parsePayload, parseRef } from './schemas.js';
+import { checkPayable } from './unpayable.js';
+import type { SettlementAssetIndex } from './unpayable.js';
 
 export interface LocalSignerOptions {
   /** 64 lower case hex characters; never logged or kept in an error. */
@@ -36,6 +38,11 @@ export interface LocalSignerOptions {
   readonly nodeEnv?: string | undefined;
   /** Milliseconds since the epoch, for latency and health. */
   readonly now?: () => number;
+}
+
+export interface LocalAttesterSignerOptions extends LocalSignerOptions {
+  /** Where the attester reads each mandate's settlement asset. */
+  readonly mandates: SettlementAssetIndex;
 }
 
 /** Throws when the environment is production, so a local key never guards real funds. */
@@ -128,25 +135,30 @@ export class LocalSigner implements SignerProvider {
 
 export class LocalAttesterSigner implements AttesterSigner {
   readonly #keys: LocalKeys;
+  readonly #mandates: SettlementAssetIndex;
 
-  constructor(options: LocalSignerOptions) {
+  constructor(options: LocalAttesterSignerOptions) {
     this.#keys = new LocalKeys(options);
+    this.#mandates = options.mandates;
   }
 
   /** An attester seeded from UJIRA_SIGNER_LOCAL_SEED. */
   static fromEnv(
+    mandates: SettlementAssetIndex,
     env: Readonly<Record<string, string | undefined>> = process.env,
   ): LocalAttesterSigner {
     return new LocalAttesterSigner({
       seed: env[LOCAL_SEED_VARIABLE] ?? '',
       nodeEnv: env['NODE_ENV'],
+      mandates,
     });
   }
 
   signAttestation(fields: AttestationFields, opts: CallOptions): Promise<SignatureResult> {
-    return Promise.resolve().then(() => {
+    return Promise.resolve().then(async () => {
       checkOpen(opts);
       const parsed = parseAttestationFields(fields);
+      await checkPayable(parsed, this.#mandates, opts);
       const network = parsed.mandate.network;
       return this.#keys.sign(
         { kind: 'attester', network },
