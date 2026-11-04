@@ -28,4 +28,4 @@ export {
   ED25519_SPEC,
   ed25519KeyOfSpki,
 } from './signer.js';
-export type { AwsKmsSignerOptions, KmsKeyResolver } from './signer.js';
+export type { AwsKmsAttesterSignerOptions, AwsKmsSignerOptions, KmsKeyResolver } from './signer.js';
