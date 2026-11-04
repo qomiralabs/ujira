@@ -5,6 +5,8 @@
 // principal's details or an address into a log or an error tracker.
 
 export const FUNDING_ERROR_CODES = Object.freeze([
+  'FUNDING_ACCOUNT_CONFLICT',
+  'FUNDING_ACCOUNT_STATE',
   'FUNDING_INVALID_INPUT',
   'SWEEP_STATE',
   'SWEEP_TENANT_MISMATCH',
@@ -31,6 +33,28 @@ export class FundingInputError extends FundingError {
   constructor(issues: readonly string[]) {
     super('FUNDING_INVALID_INPUT', 'Invalid funding request');
     this.issues = Object.freeze([...issues]);
+  }
+}
+
+/** There is no active funding account for this step, or the mandate instance cannot use it. */
+export class FundingAccountStateError extends FundingError {
+  override readonly name = 'FundingAccountStateError';
+
+  constructor() {
+    super('FUNDING_ACCOUNT_STATE', 'No usable funding account for this step');
+  }
+}
+
+/**
+ * The principal already holds a different account on this network, or another
+ * row holds this address. What landed on chain is real and the row is not, so
+ * this needs a person, and is surfaced rather than quietly dropped.
+ */
+export class FundingAccountConflictError extends FundingError {
+  override readonly name = 'FundingAccountConflictError';
+
+  constructor() {
+    super('FUNDING_ACCOUNT_CONFLICT', 'The funding account conflicts with one already recorded');
   }
 }
 
