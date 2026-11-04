@@ -155,7 +155,10 @@ function fail(message: string): never {
 // A URL is never quoted back, because it carries the password.
 function readUrl(env: DatabaseEnvironment, role: Role): string {
   const key = URL_KEYS[role];
-  const raw = env[key];
+  return checkedUrl(key, env[key], role);
+}
+
+function checkedUrl(key: string, raw: string | undefined, role: Role): string {
   if (raw === undefined || raw.trim() === '') fail(`${key} is required`);
   let parsed: URL;
   try {
@@ -217,6 +220,23 @@ function readTlsMode(env: DatabaseEnvironment): TlsMode {
     fail("UJIRA_DB_TLS must be 'pinned' or 'off'");
   }
   return raw;
+}
+
+/**
+ * The same configuration with its app connection logged in as ujira_ops, for
+ * the operations tool that writes routing configuration. No service holds this
+ * login. The URL meets the same rules as every other, and one connection is
+ * plenty for a tool that writes a version now and then, so this adds nothing
+ * worth counting against the connection budget.
+ */
+export function opsConnectionConfig(config: DatabaseConfig, url: string): DatabaseConfig {
+  const checked = checkedUrl('the ops URL', url, 'app');
+  if (config.tls === 'off' && !LOOPBACK_HOSTS.has(new URL(checked).hostname.toLowerCase())) {
+    fail(
+      'UJIRA_DB_TLS=off is only allowed for a loopback host, and the ops URL names another host',
+    );
+  }
+  return Object.freeze({ ...config, app: Object.freeze({ url: checked, poolSize: 1 }) });
 }
 
 export function loadDatabaseConfig(env: DatabaseEnvironment): DatabaseConfig {

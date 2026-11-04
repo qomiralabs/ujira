@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CONNECTION_BUDGET,
   loadDatabaseConfig,
+  opsConnectionConfig,
   POOL_DEFAULTS,
   type DatabaseEnvironment,
 } from './config.js';
@@ -18,6 +19,42 @@ const URLS: DatabaseEnvironment = {
   UJIRA_DB_READER_URL: 'postgresql://reader:secret@pooler.example:6543/postgres',
   UJIRA_DB_MIGRATION_URL: 'postgresql://migrator:secret@pooler.example:5432/postgres',
 };
+
+describe('opsConnectionConfig', () => {
+  const OPS_URL = 'postgresql://ujira_ops:secret@127.0.0.1:5432/postgres';
+  const loopback = () =>
+    loadDatabaseConfig({
+      UJIRA_DB_APP_URL: 'postgresql://a:s@127.0.0.1:5432/postgres',
+      UJIRA_DB_WORKER_URL: 'postgresql://b:s@127.0.0.1:5432/postgres',
+      UJIRA_DB_READER_URL: 'postgresql://c:s@127.0.0.1:5432/postgres',
+      UJIRA_DB_MIGRATION_URL: 'postgresql://d:s@127.0.0.1:5432/postgres',
+      UJIRA_DB_TLS: 'off',
+    });
+
+  it('logs the app connection in as ujira_ops with one connection', () => {
+    const base = loopback();
+    const ops = opsConnectionConfig(base, OPS_URL);
+    expect(ops.app).toEqual({ url: OPS_URL, poolSize: 1 });
+    expect(ops.reader).toEqual(base.reader);
+    expect(ops.statementTimeoutMs).toBe(base.statementTimeoutMs);
+  });
+
+  it('holds the URL to the same rules, without quoting it', () => {
+    const base = loopback();
+    expect(() =>
+      opsConnectionConfig(base, 'postgresql://u:hunter2@db.example.com/postgres'),
+    ).toThrow(/loopback/);
+    let message = '';
+    try {
+      opsConnectionConfig(base, 'postgresql://u:hunter2@127.0.0.1/postgres?sslmode=disable');
+    } catch (error) {
+      message = error instanceof Error ? error.message : '';
+    }
+    expect(message).toContain('the ops URL');
+    expect(message).not.toContain('hunter2');
+    expect(() => opsConnectionConfig(base, '')).toThrow(DatabaseConfigError);
+  });
+});
 
 describe('loadDatabaseConfig', () => {
   it('reads the four roles from the environment', () => {

@@ -10,9 +10,10 @@ import { RoutingConfigInvalidError, RoutingConfigVersionNotFoundError } from './
 import type { RoutingConfigStore } from './store.js';
 import { STORE_TIMEOUT_MS, callStore } from './timeout.js';
 
-// An opaque operator ID such as a staff user ID. Names and email addresses
-// are personal data and stay out of configuration history.
-const OPERATOR_ID = /^[A-Za-z0-9_-]{1,64}$/;
+// A service, a runbook or an opaque operator ID. Names and email addresses are
+// personal data and stay out of configuration history. The same format as the
+// check on the column, so a document that passes here cannot fail on insert.
+const OPERATOR_ID = /^[a-z0-9_.:-]{1,64}$/;
 
 export interface AdminOptions {
   readonly timeoutMs?: number;

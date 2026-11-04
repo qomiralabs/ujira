@@ -66,7 +66,7 @@ describe('publishRoutingConfig', () => {
     expect(await store.getVersion(1, OPTS)).toBeNull();
   });
 
-  it.each(['ops@example.com', 'Jane Doe', '', 'x'.repeat(65)])(
+  it.each(['ops@example.com', 'Jane Doe', 'JaneDoe', '', 'x'.repeat(65)])(
     'refuses %j as the operator',
     async (createdBy) => {
       const store = createMemoryRoutingConfigStore();
@@ -171,7 +171,7 @@ describe('createMemoryRoutingConfigStore', () => {
     expect(() => {
       store.forceActive(1);
     }).toThrow(RangeError);
-    expect(() => store.activate(1, OPTS)).toThrow(RangeError);
+    await expect(store.activate(1, OPTS)).rejects.toThrow(RangeError);
     expect(await store.readActivePointer(OPTS)).toBeNull();
   });
 });

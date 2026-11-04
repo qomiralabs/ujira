@@ -95,6 +95,20 @@ $$;
 ALTER FUNCTION ops.active_routing_config() OWNER TO ujira_ops;
 
 --
+-- Name: active_routing_config_version(); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.active_routing_config_version() RETURNS bigint
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select a.version from ops.routing_config_active as a
+$$;
+
+
+ALTER FUNCTION ops.active_routing_config_version() OWNER TO ujira_ops;
+
+--
 -- Name: lease_executor(text, text, integer); Type: FUNCTION; Schema: ops; Owner: ujira_ops
 --
 
@@ -153,6 +167,22 @@ $$;
 
 
 ALTER FUNCTION ops.release_executor(target_network text, account text, holder text, sequence_reached bigint) OWNER TO ujira_ops;
+
+--
+-- Name: routing_config_version(bigint); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.routing_config_version(wanted bigint) RETURNS TABLE(version bigint, document jsonb, created_by text, created_at timestamp with time zone)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select v.version, v.document, v.created_by, v.created_at
+    from ops.routing_config_versions as v
+   where v.version = wanted
+$$;
+
+
+ALTER FUNCTION ops.routing_config_version(wanted bigint) OWNER TO ujira_ops;
 
 --
 -- Name: apply_tenant_policies(regclass); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
@@ -3318,6 +3348,14 @@ GRANT ALL ON FUNCTION ops.active_routing_config() TO ujira_app;
 
 
 --
+-- Name: FUNCTION active_routing_config_version(); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.active_routing_config_version() FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.active_routing_config_version() TO ujira_app;
+
+
+--
 -- Name: FUNCTION lease_executor(target_network text, holder text, lease_seconds integer); Type: ACL; Schema: ops; Owner: ujira_ops
 --
 
@@ -3331,6 +3369,14 @@ GRANT ALL ON FUNCTION ops.lease_executor(target_network text, holder text, lease
 
 REVOKE ALL ON FUNCTION ops.release_executor(target_network text, account text, holder text, sequence_reached bigint) FROM PUBLIC;
 GRANT ALL ON FUNCTION ops.release_executor(target_network text, account text, holder text, sequence_reached bigint) TO ujira_app;
+
+
+--
+-- Name: FUNCTION routing_config_version(wanted bigint); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.routing_config_version(wanted bigint) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.routing_config_version(wanted bigint) TO ujira_app;
 
 
 --

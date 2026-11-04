@@ -33,6 +33,7 @@
   "devDependencies": {
     "@testcontainers/postgresql": "12.2.0",
     "@types/pg": "8.23.1",
+    "@ujira/router": "workspace:*",
     "kysely-codegen": "0.20.0",
     "node-pg-migrate": "9.0.0"
   },

@@ -74,7 +74,9 @@ export function createMemoryRoutingConfigStore(
       return Promise.resolve({ ...record, document: structuredClone(record.document) });
     },
     activate(version) {
-      requireVersion(version);
+      if (!versions.has(version)) {
+        return Promise.reject(new RangeError('no such routing configuration version'));
+      }
       active = version;
       return Promise.resolve();
     },
