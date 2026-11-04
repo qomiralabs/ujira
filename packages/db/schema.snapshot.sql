@@ -997,6 +997,20 @@ CREATE TABLE ops.security_events (
 ALTER TABLE ops.security_events OWNER TO ujira_owner;
 
 --
+-- Name: security_events_id_seq; Type: SEQUENCE; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ops.security_events ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME ops.security_events_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: signing_keys; Type: TABLE; Schema: ops; Owner: ujira_owner
 --
 
@@ -1030,20 +1044,6 @@ END),
 
 
 ALTER TABLE ops.signing_keys OWNER TO ujira_owner;
-
---
--- Name: security_events_id_seq; Type: SEQUENCE; Schema: ops; Owner: ujira_owner
---
-
-ALTER TABLE ops.security_events ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
-    SEQUENCE NAME ops.security_events_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1
-);
-
 
 --
 -- Name: signing_keys_id_seq; Type: SEQUENCE; Schema: ops; Owner: ujira_owner
