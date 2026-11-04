@@ -15,6 +15,7 @@ import {
   SubmissionRejectedError,
 } from '../errors.js';
 import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
+import { PUBLIC_TEST_ATTESTER_KEYS } from '../test-attester-keys.js';
 import type {
   Bytes32,
   ChainAddress,
@@ -62,6 +63,77 @@ function callOf(signing: SigningRequest) {
   if (signing.kind !== 'stellar_transaction') throw new Error('expected a transaction');
   return invoked(TransactionBuilder.fromXdr(signing.xdr, PASSPHRASES[NETWORK]) as Transaction);
 }
+
+function settingAttester(t: TestSetup, attester: Uint8Array): readonly MandateAction[] {
+  return [
+    { op: 'set_attestation_policy', attester, countryPolicyHash: REF },
+    {
+      op: 'create',
+      factory: at(FIXTURE_FACTORY),
+      salt: REF,
+      config: {
+        principal: at(t.principal.publicKey()),
+        asset: 'USDC',
+        recipientMode: 'both',
+        agents: [],
+        approvers: [],
+        approvalsRequired: 0,
+        guardians: [],
+        executors: [],
+        recovery: [],
+        recoveryThreshold: 0,
+        limits: LIMITS,
+        attester,
+        countryPolicyHash: REF,
+        maxFeeBps: 100,
+      },
+    },
+  ];
+}
+
+describe.each(PUBLIC_TEST_ATTESTER_KEYS)(
+  'preparing an action that sets the public test key %s as the attester',
+  { timeout: 30_000 },
+  (key) => {
+    const attester = Uint8Array.from(Buffer.from(key, 'hex'));
+
+    it.each([
+      ['production', 'production'],
+      ['staging', 'staging'],
+      ['an environment left out', undefined],
+    ])('is refused in %s, with nothing built to sign', async (_label, nodeEnv) => {
+      const t = setup(nodeEnv === undefined ? {} : { nodeEnv });
+      for (const action of settingAttester(t, attester)) {
+        const simulated = t.rpc.simulated.length;
+        const run = t.adapter.prepareMandateAction(request(t, action), OPTS);
+        await expect(run, action.op).rejects.toBeInstanceOf(InvalidInputError);
+        await expect(run, action.op).rejects.toMatchObject({
+          issues: ['attester (test_key)'],
+          network: NETWORK,
+        });
+        expect(t.rpc.simulated.length, action.op).toBe(simulated);
+      }
+    });
+
+    it('builds in a test', async () => {
+      const t = setup({ nodeEnv: 'test' });
+      for (const action of settingAttester(t, attester)) {
+        const signing = await t.adapter.prepareMandateAction(request(t, action), OPTS);
+        expect(signing.summary.action, action.op).toBe(action.op);
+      }
+    });
+  },
+);
+
+describe('preparing an action with an attester of its own', { timeout: 30_000 }, () => {
+  it('builds in production', async () => {
+    const t = setup({ nodeEnv: 'production' });
+    for (const action of settingAttester(t, new Uint8Array(32).fill(9))) {
+      const signing = await t.adapter.prepareMandateAction(request(t, action), OPTS);
+      expect(signing.summary.action, action.op).toBe(action.op);
+    }
+  });
+});
 
 // Building and parsing XDR is slow on a loaded machine, so each test gets
 // more than the default five seconds.

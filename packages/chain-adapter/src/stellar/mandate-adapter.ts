@@ -31,11 +31,13 @@ import {
 import type { StellarNetworkId } from '../networks.js';
 import { reservationIdOf } from '../sponsorship/policy.js';
 import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
+import { isPublicTestAttesterKey } from '../test-attester-keys.js';
 import type {
   AdapterPorts,
   Bytes32,
   CallOptions,
   ChainAdapter,
+  MandateAction,
   MandateActionRequest,
   MandateRef,
   MandateSnapshot,
@@ -44,6 +46,7 @@ import type {
   SigningRequest,
   SigningSummary,
   SponsoredIntent,
+  SubmissionRecord,
   SubmissionRef,
   TenantScope,
   UnixSeconds,
@@ -60,6 +63,8 @@ import type {
 } from './requests.js';
 import { archivedKeys, restoreAndExtend } from './restore.js';
 import { INSTANCE_TTL_EXTEND_LEDGERS, STELLAR_LEDGER_SECONDS } from './restore-policy.js';
+import { reconcileSubmission, reconcileUnresolved } from './lifecycle.js';
+import type { ReconcileResult, SweepOptions } from './lifecycle.js';
 import { mandateAddressOf } from './mandate-address.js';
 import type { StellarRpc } from './rpc.js';
 import { asAddress } from './scval.js';
@@ -83,6 +88,11 @@ import { configViewOf, stateOf } from './views.js';
 
 export interface StellarMandateAdapterOptions {
   readonly network: StellarNetworkId;
+  /**
+   * The deployment environment. Only 'test' may set a public test attester
+   * key on a mandate, so left out, the keys are refused.
+   */
+  readonly nodeEnv?: string;
   readonly rpc: StellarRpc;
   readonly ports: AdapterPorts;
   readonly requests: SigningRequestStore;
@@ -140,6 +150,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
   readonly #executor: ExecutorContext;
   readonly #ttlExtendLedgers: number;
   readonly #newRequestId: () => string;
+  readonly #nodeEnv: string | undefined;
 
   constructor(options: StellarMandateAdapterOptions) {
     this.network = options.network;
@@ -156,9 +167,11 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       wait: options.wait ?? DEFAULT_WAIT,
       leaseSeconds: options.executorLeaseSeconds ?? DEFAULT_LEASE_SECONDS,
       submitTimeoutMs: options.submitTimeoutMs ?? DEFAULT_SUBMIT_TIMEOUT_MS,
+      lowBalanceAlerted: new Set(),
     };
     this.#ttlExtendLedgers = options.instanceTtlExtendLedgers ?? INSTANCE_TTL_EXTEND_LEDGERS;
     this.#newRequestId = options.newRequestId ?? randomUUID;
+    this.#nodeEnv = options.nodeEnv;
   }
 
   #config(): StellarNetworkConfig {
@@ -223,6 +236,19 @@ export class StellarMandateAdapter implements StellarMandateOperations {
   // -------------------------------------------------------------------------
   // Actions
 
+  // The contract only checks the key's length, so a mandate set up with a key
+  // anyone can rebuild would pay on anybody's attestation. Here is the last
+  // place that can see it before the principal signs.
+  #refuseTestAttester(action: MandateAction): void {
+    if (this.#nodeEnv === 'test') return;
+    let attester: Uint8Array | null = null;
+    if (action.op === 'create') attester = action.config.attester;
+    if (action.op === 'set_attestation_policy') attester = action.attester;
+    if (attester !== null && isPublicTestAttesterKey(attester)) {
+      throw invalid(this.network, 'attester (test_key)');
+    }
+  }
+
   async prepareMandateAction(
     req: MandateActionRequest,
     opts: CallOptions,
@@ -242,6 +268,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       caller: signer,
       assetContract: config.assets.USDC.sac,
     });
+    this.#refuseTestAttester(action);
     const now = this.#ports.clock.nowSeconds();
     const validUntil = (now + BigInt(config.signingWindowSeconds)) as UnixSeconds;
     const viaWallet = signer.startsWith('C');
@@ -359,6 +386,16 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     };
   }
 
+  /** Asks the chain about one recorded submission and moves its record forward. */
+  reconcile(record: SubmissionRecord, opts: CallOptions): Promise<ReconcileResult> {
+    return reconcileSubmission(this.#executor, record, opts);
+  }
+
+  /** Reconciles what is still open, oldest first, and alerts on what is stuck. */
+  reconcileUnresolved(sweep: SweepOptions, opts: CallOptions): Promise<readonly ReconcileResult[]> {
+    return reconcileUnresolved(this.#executor, sweep, opts);
+  }
+
   async #signerAddress(req: MandateActionRequest, opts: CallOptions): Promise<string> {
     const { network } = this;
     if (req.signer.network !== network) throw invalid(network, 'signer.network (mismatch)');
@@ -435,8 +472,14 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     try {
       const hash =
         signed.kind === 'tx'
-          ? await this.#submitFeeBumped(request, signed.tx, req.correlationId, opts)
-          : await this.#submitFromChannel(request, signed.entry, req.correlationId, opts);
+          ? await this.#submitFeeBumped(request, signed.tx, reservationId, req.correlationId, opts)
+          : await this.#submitFromChannel(
+              request,
+              signed.entry,
+              reservationId,
+              req.correlationId,
+              opts,
+            );
       return { network, txHash: hash, finality: 'none' };
     } catch (error) {
       // Only an outcome that certainly sent nothing gives the reservation back.
@@ -503,6 +546,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
   async #submitFeeBumped(
     request: StoredSigningRequest,
     inner: Transaction,
+    reservationId: string,
     correlationId: string,
     opts: CallOptions,
   ): Promise<string> {
@@ -519,8 +563,23 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     );
     attach(bump, sponsor, signature);
     const hash = txHash(bump);
-    await this.#record(request, hash, request.signer, request.sequence ?? 0n, correlationId);
-    await sendAndRecord(this.#executor, request.scope, hash, bump.toXdr(), opts);
+    await this.#record(
+      request,
+      hash,
+      request.signer,
+      request.sequence ?? 0n,
+      reservationId,
+      correlationId,
+      opts,
+    );
+    await sendAndRecord(
+      this.#executor,
+      request.scope,
+      hash,
+      bump.toXdr(),
+      request.validUntil,
+      opts,
+    );
     return hash;
   }
 
@@ -528,6 +587,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
   async #submitFromChannel(
     request: StoredSigningRequest,
     entry: xdr.SorobanAuthorizationEntry,
+    reservationId: string,
     correlationId: string,
     opts: CallOptions,
   ): Promise<string> {
@@ -563,9 +623,24 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       );
       attach(assembled, session.address, signature);
       const hash = txHash(assembled);
-      await this.#record(request, hash, session.address, BigInt(assembled.sequence), correlationId);
+      await this.#record(
+        request,
+        hash,
+        session.address,
+        BigInt(assembled.sequence),
+        reservationId,
+        correlationId,
+        opts,
+      );
       session.sequence = BigInt(assembled.sequence);
-      await sendAndRecord(this.#executor, request.scope, hash, assembled.toXdr(), opts);
+      await sendAndRecord(
+        this.#executor,
+        request.scope,
+        hash,
+        assembled.toXdr(),
+        build.maxTime,
+        opts,
+      );
       return hash;
     });
   }
@@ -575,7 +650,9 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     hash: string,
     signerAddress: string,
     sequence: bigint,
+    reservationId: string,
     correlationId: string,
+    opts: CallOptions,
   ): Promise<void> {
     await this.#requests.setTxHash(request.scope, request.requestId, hash);
     await this.#ports.store.recordSubmission({
@@ -594,6 +671,8 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       errorCode: null,
       specCode: null,
       replacesTxHash: null,
+      submittedAtLedger: BigInt((await this.#rpc.getLatestLedger(opts)).sequence),
+      reservationId,
       correlationId,
       createdAt: this.#ports.clock.nowSeconds(),
     });

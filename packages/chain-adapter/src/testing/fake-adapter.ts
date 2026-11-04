@@ -1290,6 +1290,8 @@ export class FakeChainAdapter implements ChainAdapter {
       errorCode: null,
       specCode: null,
       replacesTxHash: null,
+      submittedAtLedger: null,
+      reservationId: null,
       correlationId: p.correlationId,
       createdAt: this.#now(),
     };
