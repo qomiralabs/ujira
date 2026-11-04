@@ -6,6 +6,7 @@ export { CHAIN_NAMESPACES, CHAIN_SDK_PACKAGES } from './chain-modules.js';
 export type { ChainNamespace } from './chain-modules.js';
 export type { KeyRef, NetworksConfig, StellarNetworkConfig } from './config.js';
 export {
+  ADAPTER_LOG_SERIALIZERS,
   CHAIN_ADAPTER_ERROR_CODES,
   CHAIN_ADAPTER_ERROR_MESSAGES,
   ActivationBudgetExhaustedError,
@@ -44,8 +45,10 @@ export {
   UnsupportedError,
   isChainAdapterError,
   mandateRuleErrorOf,
+  serializeAdapterError,
 } from './errors.js';
 export type {
+  AdapterErrorLog,
   ChainAdapterErrorCode,
   ChainAdapterErrorJson,
   ChainAdapterErrorOptions,
