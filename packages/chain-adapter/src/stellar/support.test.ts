@@ -52,6 +52,7 @@ describe('the stellar entry', { timeout: 30_000 }, () => {
       'createMemorySigningRequestStore',
       'createStellarRpc',
       'extensionPlan',
+      'fateOf',
       'mandateAddressOf',
     ]);
   });
@@ -140,6 +141,8 @@ describe('test ports', { timeout: 30_000 }, () => {
       errorCode: null,
       specCode: null,
       replacesTxHash: null,
+      submittedAtLedger: null,
+      reservationId: null,
       correlationId: 'c',
       createdAt: 1n as UnixSeconds,
     } as const;
