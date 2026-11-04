@@ -18,6 +18,7 @@ export {
   attachEnvelopeSignature,
   decodeFeeBumpEnvelope,
   decodeTransactionEnvelope,
+  invocationAuthEntries,
 } from './envelope.js';
 export type {
   DecodedFeeBump,

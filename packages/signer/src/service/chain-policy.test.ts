@@ -9,7 +9,7 @@
  * Executor: one call to execute or execute_batch on a mandate the index
  * knows with this executor in its role, fee at most the executor cap; an
  * authorization entry for the same call with nothing nested. Fee sponsor:
- * a fee bump whose inner transaction has a reserved fee_bump row, or a
+ * a fee bump whose inner transaction has a row reserved for a signed call, or a
  * reserve sandwich (begin sponsoring X as sponsor, optionally create X with
  * 0 as sponsor, change trust to the payout asset as X, end sponsoring as X,
  * nothing else) valid now for at most 300 s, with a reserved
@@ -219,7 +219,7 @@ describe('fee sponsor payloads', () => {
 
   it('signs a fee bump with a reservation for its inner transaction', async () => {
     const { payload, inner, fee } = bumpPayload();
-    world.reserve(inner, 'fee_bump', fee);
+    world.reserve(inner, 'pause', fee);
     expect(await sign(SPONSOR, payload)).toBe('resolved');
   });
 
@@ -230,7 +230,7 @@ describe('fee sponsor payloads', () => {
     world.reserve(decoded.inner.hash, 'recipient_activation');
     expect(await sign(SPONSOR, payload)).toBe('SIGNER_DENIED');
     world.reservations.pop();
-    world.reserve(decoded.inner.hash, 'fee_bump', decoded.fee - 1n);
+    world.reserve(decoded.inner.hash, 'pause', decoded.fee - 1n);
     expect(await sign(SPONSOR, payload)).toBe('SIGNER_DENIED');
   });
 
@@ -282,7 +282,7 @@ describe('fee sponsor payloads', () => {
 
   it('refuses a sandwich reserved for a fee bump', async () => {
     const { payload, hash } = sandwich({ validitySeconds: 298 });
-    world.reserve(hash, 'fee_bump');
+    world.reserve(hash, 'pause');
     expect(await sign(SPONSOR, payload)).toBe('SIGNER_DENIED');
   });
 

@@ -62,6 +62,11 @@ function checkChannelBalance(ctx: ExecutorContext, address: string, balance: big
   if (balance < limits.minBalanceStroops) throw new ExecutorUnfundedError({ network });
 }
 
+function isFootprintCall(tx: Transaction): boolean {
+  const type = tx.operations[0]?.type;
+  return type === 'restoreFootprint' || type === 'extendFootprintTtl';
+}
+
 export interface SendRecord {
   readonly scope: TenantScope;
   readonly op: SubmissionOp;
@@ -128,7 +133,7 @@ export class ExecutorSession {
     const { network, ports, rpc } = this.ctx;
     const signature = await ports.signer.sign(
       { kind: 'executor', network, keyId: this.lease.keyId },
-      { kind: 'stellar_tx', network, xdr: tx.toXdr() },
+      { kind: isFootprintCall(tx) ? 'stellar_footprint' : 'stellar_tx', network, xdr: tx.toXdr() },
       opts,
     );
     attach(tx, this.address, signature);

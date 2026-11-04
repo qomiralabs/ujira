@@ -52,6 +52,22 @@ export type SignPayload =
       readonly xdr: string;
     }
   | {
+      /**
+       * A smart wallet's own signed call, carried by a channel account. A wallet
+       * cannot be a transaction's source, so a fee bump cannot wrap it. The
+       * channel authorizes nothing here, and it pays only the fee.
+       */
+      readonly kind: 'stellar_relayed_call';
+      readonly network: NetworkId;
+      readonly xdr: string;
+    }
+  | {
+      /** A channel account restoring or extending entries, which changes no contract's state. */
+      readonly kind: 'stellar_footprint';
+      readonly network: NetworkId;
+      readonly xdr: string;
+    }
+  | {
       /** The fee sponsor's outer envelope around a principal's signed transaction. */
       readonly kind: 'stellar_fee_bump';
       readonly network: NetworkId;

@@ -23,6 +23,10 @@ type RefKind = SignerRef['kind'];
 // which share no layout with a transaction hash.
 const ALLOWED: Readonly<Record<SignPayload['kind'], ReadonlySet<RefKind>>> = Object.freeze({
   stellar_tx: new Set<RefKind>(['executor', 'managed_agent']),
+  // Named kinds of their own, so that stellar_tx can stay what it says: an executor
+  // key signing a stellar_tx is always an execute, and nothing else.
+  stellar_relayed_call: new Set<RefKind>(['executor']),
+  stellar_footprint: new Set<RefKind>(['executor']),
   stellar_fee_bump: new Set<RefKind>(['fee_sponsor']),
   stellar_reserve_sandwich: new Set<RefKind>(['fee_sponsor']),
   stellar_auth_entry: new Set<RefKind>(['executor', 'managed_agent']),
@@ -57,6 +61,8 @@ export function messageFor(ref: SignerRef, payload: SignPayload, account: string
     // The sandwich is the sponsor's own transaction; its structure is the
     // chain service's policy to check.
     case 'stellar_tx':
+    case 'stellar_relayed_call':
+    case 'stellar_footprint':
     case 'stellar_reserve_sandwich': {
       const tx = decoded(ref, () => decodeTransactionEnvelope(payload.xdr, payload.network));
       if (tx.source.account !== account) throw deny(ref);
