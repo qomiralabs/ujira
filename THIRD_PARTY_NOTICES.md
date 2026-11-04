@@ -287,6 +287,7 @@ Used to build and test UJIRA. They are not shipped.
 | @formatjs/icu-messageformat-parser | 2.11.4 | MIT | https://github.com/formatjs/formatjs |
 | @formatjs/icu-skeleton-parser | 1.8.16 | MIT | https://github.com/formatjs/formatjs |
 | @formatjs/intl-localematcher | 0.6.2 | MIT | https://github.com/formatjs/formatjs |
+| @graphile/logger | 0.3.0 | MIT | https://github.com/graphile/logger |
 | @grpc/grpc-js | 1.14.5 | Apache-2.0 | https://github.com/grpc/grpc-node/tree/master/packages/grpc-js |
 | @grpc/proto-loader | 0.7.15 | Apache-2.0 | https://github.com/grpc/grpc-node |
 | @grpc/proto-loader | 0.8.1 | Apache-2.0 | https://github.com/grpc/grpc-node |
@@ -359,16 +360,21 @@ Used to build and test UJIRA. They are not shipped.
 | @types/babel__template | 7.4.4 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/babel__traverse | 7.28.0 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/chai | 5.2.3 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
+| @types/debug | 4.1.13 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/deep-eql | 4.0.2 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/docker-modem | 3.0.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/dockerode | 4.0.1 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/doctrine | 0.0.9 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/esrecurse | 4.3.1 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/estree | 1.0.9 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
+| @types/interpret | 1.1.4 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
+| @types/ms | 2.1.0 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/node | 18.19.130 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
+| @types/node | 22.20.5 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/node | 24.19.2 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/pg | 8.23.1 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/resolve | 1.20.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
+| @types/semver | 7.8.0 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/set-cookie-parser | 2.4.10 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/ssh2 | 0.5.52 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/ssh2 | 1.15.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
@@ -485,6 +491,7 @@ Used to build and test UJIRA. They are not shipped.
 | cookie | 1.1.1 | MIT | https://github.com/jshttp/cookie |
 | cookie-signature | 1.0.7 | MIT | https://github.com/visionmedia/node-cookie-signature |
 | core-util-is | 1.0.3 | MIT | https://github.com/isaacs/core-util-is |
+| cosmiconfig | 8.3.6 | MIT | https://github.com/cosmiconfig/cosmiconfig |
 | cosmiconfig | 9.0.2 | MIT | https://github.com/cosmiconfig/cosmiconfig |
 | cpu-features | 0.0.10 | MIT | https://github.com/mscdex/cpu-features |
 | crc-32 | 1.2.2 | Apache-2.0 | https://github.com/SheetJS/js-crc32 |
@@ -596,6 +603,8 @@ Used to build and test UJIRA. They are not shipped.
 | glob-parent | 6.0.2 | ISC | https://github.com/gulpjs/glob-parent |
 | globals | 17.13.0 | MIT | https://github.com/sindresorhus/globals |
 | graceful-fs | 4.2.11 | ISC | https://github.com/isaacs/node-graceful-fs |
+| graphile-config | 0.0.1-beta.18 | MIT | https://github.com/graphile/crystal |
+| graphile-worker | 0.18.0 | MIT | https://github.com/graphile/worker |
 | graphql | 16.14.2 | MIT | https://github.com/graphql/graphql-js |
 | has-flag | 3.0.0 | MIT | https://github.com/sindresorhus/has-flag |
 | hashery | 1.5.1 | MIT | https://github.com/jaredwray/hashery |
@@ -617,6 +626,7 @@ Used to build and test UJIRA. They are not shipped.
 | indent-string | 4.0.0 | MIT | https://github.com/sindresorhus/indent-string |
 | inflight | 1.0.6 | ISC | https://github.com/npm/inflight |
 | inquirer | 6.5.2 | MIT | https://github.com/SBoudrias/Inquirer.js |
+| interpret | 3.1.1 | MIT | https://github.com/gulpjs/interpret |
 | intl-messageformat | 10.7.18 | BSD-3-Clause | https://github.com/formatjs/formatjs |
 | ip-address | 10.7.3 | MIT | https://github.com/beaugunderson/ip-address |
 | ipaddr.js | 1.9.1 | MIT | https://github.com/whitequark/ipaddr.js |
@@ -752,6 +762,7 @@ Used to build and test UJIRA. They are not shipped.
 | path-scurry | 2.0.2 | BlueOak-1.0.0 | https://github.com/isaacs/path-scurry |
 | path-to-regexp | 0.1.13 | MIT | https://github.com/pillarjs/path-to-regexp |
 | path-to-regexp | 6.3.0 | MIT | https://github.com/pillarjs/path-to-regexp |
+| path-type | 4.0.0 | MIT | https://github.com/sindresorhus/path-type |
 | pathval | 2.0.1 | MIT | https://github.com/chaijs/pathval |
 | pend | 1.2.0 | MIT | https://github.com/andrewrk/node-pend |
 | picomatch | 2.3.2 | MIT | https://github.com/micromatch/picomatch |
@@ -899,6 +910,7 @@ Used to build and test UJIRA. They are not shipped.
 | typescript-eslint | 8.71.2 | MIT | https://github.com/typescript-eslint/typescript-eslint |
 | undici | 8.12.2 | MIT | https://github.com/nodejs/undici |
 | undici-types | 5.26.5 | MIT | https://github.com/nodejs/undici |
+| undici-types | 6.21.0 | MIT | https://github.com/nodejs/undici |
 | undici-types | 7.24.6 | MIT | https://github.com/nodejs/undici |
 | unique-string | 2.0.0 | MIT | https://github.com/sindresorhus/unique-string |
 | unpipe | 1.0.0 | MIT | https://github.com/stream-utils/unpipe |
