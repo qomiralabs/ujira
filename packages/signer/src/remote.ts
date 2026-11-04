@@ -9,6 +9,7 @@
 
 import { ed25519 } from '@noble/curves/ed25519.js';
 import {
+  DestinationInvalidError,
   NETWORK_IDS,
   SignerAddressMismatchError,
   SignerDeniedError,
@@ -70,6 +71,7 @@ function failure(status: number, body: unknown, network?: SignerRef['network']) 
   const parsed = errorResponse.safeParse(body);
   const code = parsed.success ? parsed.data.error.code : '';
   if (code === 'SIGNER_ADDRESS_MISMATCH') return new SignerAddressMismatchError(options);
+  if (code === 'DESTINATION_INVALID') return new DestinationInvalidError(options);
   // A refused token is a configuration fault that no retry fixes.
   if (code === 'SIGNER_DENIED' || status === 401 || status === 403) {
     return new SignerDeniedError(options);
