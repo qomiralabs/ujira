@@ -64,6 +64,12 @@ export interface OpsIdentityProviderEvents {
   received_at: Generated<Timestamp>;
 }
 
+export interface OpsRateLimitBuckets {
+  bucket_key: string;
+  refilled_at: Timestamp;
+  tokens: Numeric;
+}
+
 export interface OpsRoutingConfigActive {
   only_row: Generated<boolean>;
   updated_at: Generated<Timestamp>;
@@ -93,13 +99,15 @@ export interface OpsSigningKeys {
 
 export interface UjiraApiTokens {
   created_at: Generated<Timestamp>;
-  expires_at: Timestamp | null;
+  expires_at: Timestamp;
   id: Generated<string>;
+  last_used_at: Timestamp | null;
   prefix: string;
   principal_id: string;
   project_id: string;
   revoked_at: Timestamp | null;
-  scopes: Generated<string[]>;
+  rotated_from_id: string | null;
+  scopes: string[];
   secret_sha256: Buffer;
 }
 
@@ -221,6 +229,21 @@ export interface UjiraFundingSweeps {
   sweep_tx_hash: Buffer | null;
   sweep_valid_until: Timestamp | null;
   updated_at: Generated<Timestamp>;
+}
+
+export interface UjiraIdempotencyKeys {
+  created_at: Generated<Timestamp>;
+  expires_at: Timestamp;
+  id: Generated<string>;
+  idempotency_key: string;
+  lease_expires_at: Timestamp | null;
+  lease_id: string | null;
+  principal_id: string;
+  project_id: string;
+  request_id: string | null;
+  request_sha256: Buffer;
+  response_body: string | null;
+  response_status: Int8 | null;
 }
 
 export interface UjiraLedgerAccounts {
@@ -346,6 +369,17 @@ export interface UjiraMigrations {
   run_on: Timestamp;
 }
 
+export interface UjiraOutboxEvents {
+  created_at: Generated<Timestamp>;
+  event_type: string;
+  id: Generated<string>;
+  payload: Json;
+  principal_id: string;
+  project_id: string;
+  seq: Generated<Int8>;
+  tx_id: Generated<string>;
+}
+
 export interface UjiraPayoutMethods {
   chain: string;
   created_at: Generated<Timestamp>;
@@ -450,11 +484,38 @@ export interface UjiraStatusTransitions {
   to_status: string;
 }
 
+export interface UjiraWebhookDeliveries {
+  attempt: Int8;
+  created_at: Generated<Timestamp>;
+  endpoint_id: string;
+  error_code: string | null;
+  event_created_at: Timestamp;
+  event_id: string;
+  id: Generated<string>;
+  principal_id: string;
+  project_id: string;
+  response_status: Int8 | null;
+  status: string;
+}
+
+export interface UjiraWebhookEndpoints {
+  created_at: Generated<Timestamp>;
+  event_types: string[];
+  id: Generated<string>;
+  principal_id: string;
+  project_id: string;
+  secret_ref: string;
+  status: Generated<string>;
+  updated_at: Generated<Timestamp>;
+  url: string;
+}
+
 export interface Schema {
   'ops.chain_cursors': OpsChainCursors;
   'ops.executor_accounts': OpsExecutorAccounts;
   'ops.fee_estimates': OpsFeeEstimates;
   'ops.identity_provider_events': OpsIdentityProviderEvents;
+  'ops.rate_limit_buckets': OpsRateLimitBuckets;
   'ops.routing_config_active': OpsRoutingConfigActive;
   'ops.routing_config_versions': OpsRoutingConfigVersions;
   'ops.signing_keys': OpsSigningKeys;
@@ -472,6 +533,7 @@ export interface Schema {
   'ujira.funding_accounts': UjiraFundingAccounts;
   'ujira.funding_sources': UjiraFundingSources;
   'ujira.funding_sweeps': UjiraFundingSweeps;
+  'ujira.idempotency_keys': UjiraIdempotencyKeys;
   'ujira.ledger_accounts': UjiraLedgerAccounts;
   'ujira.ledger_entries': UjiraLedgerEntries;
   'ujira.ledger_journals': UjiraLedgerJournals;
@@ -481,6 +543,7 @@ export interface Schema {
   'ujira.mandate_instances': UjiraMandateInstances;
   'ujira.mandate_state_snapshots': UjiraMandateStateSnapshots;
   'ujira.mandates': UjiraMandates;
+  'ujira.outbox_events': UjiraOutboxEvents;
   'ujira.payout_methods': UjiraPayoutMethods;
   'ujira.principal_members': UjiraPrincipalMembers;
   'ujira.principals': UjiraPrincipals;
@@ -490,4 +553,6 @@ export interface Schema {
   'ujira.recipients': UjiraRecipients;
   'ujira.settlement_tokens': UjiraSettlementTokens;
   'ujira.status_transitions': UjiraStatusTransitions;
+  'ujira.webhook_deliveries': UjiraWebhookDeliveries;
+  'ujira.webhook_endpoints': UjiraWebhookEndpoints;
 }

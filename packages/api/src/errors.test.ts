@@ -109,7 +109,7 @@ function expectWellFormed(error: ApiError): void {
   expect(error.status).toBeLessThanOrEqual(599);
   expect(error.message).toBe(PROBLEM_TITLES[error.code]);
   // A code worth retrying always says when; any other never does.
-  if (error.status === 503 || error.status === 429) {
+  if (error.status === 503 || error.status === 429 || error.status === 409) {
     expect(error.retryAfterSeconds).toBeGreaterThan(0);
   } else {
     expect(error.retryAfterSeconds).toBeNull();

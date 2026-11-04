@@ -29,6 +29,7 @@ import {
  */
 export const RETRY_AFTER_SECONDS: Readonly<Partial<Record<ProblemCode, number>>> = Object.freeze({
   RATE_LIMITED: 1,
+  IDEMPOTENCY_IN_PROGRESS: 1,
   DB_UNAVAILABLE: 5,
   CHAIN_UNAVAILABLE: 5,
   REQUEST_TIMEOUT: 2,

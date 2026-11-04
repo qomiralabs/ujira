@@ -97,11 +97,40 @@ export {
   type RecipientStatus,
 } from './repositories/recipients.js';
 export {
+  idempotencyKeys,
+  type FinishedRequest,
+  type NewReservation,
+  type Reservation,
+} from './repositories/idempotency.js';
+export {
+  outbox,
+  webhookDeliveries,
+  webhookEndpoints,
+  type NewOutboxEvent,
+  type NewWebhookDelivery,
+  type NewWebhookEndpoint,
+  type OutboxEvent,
+  type WebhookDelivery,
+  type WebhookDeliveryStatus,
+  type WebhookEndpoint,
+  type WebhookEndpointStatus,
+} from './repositories/outbox.js';
+export {
+  RETENTION_BATCH_SIZE,
+  retention,
+  runRetention,
+  type RetentionCounts,
+  type RetentionTable,
+} from './repositories/retention.js';
+export {
   executors,
   identityProviderEvents,
+  rateLimits,
   routingConfig,
   type IdentityProviderEvent,
   type ExecutorLease,
+  type RateLimitBucket,
+  type RateLimitTaken,
   type RoutingConfig,
 } from './repositories/ops.js';
 export {
