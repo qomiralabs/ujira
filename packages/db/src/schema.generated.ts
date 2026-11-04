@@ -56,6 +56,14 @@ export interface OpsFeeEstimates {
   window_start: Timestamp;
 }
 
+export interface OpsIdentityProviderEvents {
+  event_key: string;
+  provider: string;
+  provider_account: string;
+  raw_sha256: Buffer;
+  received_at: Generated<Timestamp>;
+}
+
 export interface OpsRoutingConfigActive {
   only_row: Generated<boolean>;
   updated_at: Generated<Timestamp>;
@@ -164,12 +172,32 @@ export interface UjiraDeposits {
 }
 
 export interface UjiraFundingSources {
+  config: Generated<Json>;
   created_at: Generated<Timestamp>;
   id: Generated<string>;
   kind: string;
   mandate_instance_id: string;
   principal_id: string;
   project_id: string;
+}
+
+export interface UjiraFundingSweeps {
+  amount: Numeric;
+  asset: string;
+  chain: string;
+  created_at: Generated<Timestamp>;
+  deposit_operation_id: string;
+  failed_ledger: Int8 | null;
+  funding_source_id: string;
+  id: Generated<string>;
+  mandate_instance_id: string;
+  principal_id: string;
+  project_id: string;
+  scale: number;
+  status: Generated<string>;
+  sweep_tx_hash: Buffer | null;
+  sweep_valid_until: Timestamp | null;
+  updated_at: Generated<Timestamp>;
 }
 
 export interface UjiraLedgerAccounts {
@@ -252,8 +280,10 @@ export interface UjiraMandateInstanceRoles {
 
 export interface UjiraMandateInstances {
   asset: string;
+  attester_public_key: Buffer | null;
   chain: string;
   contract_address: string;
+  country_policy_hash: Buffer | null;
   created_at: Generated<Timestamp>;
   id: Generated<string>;
   mandate_id: string;
@@ -264,6 +294,8 @@ export interface UjiraMandateInstances {
 }
 
 export interface UjiraMandates {
+  country_policy_list: Generated<string[]>;
+  country_policy_mode: Generated<string>;
   created_at: Generated<Timestamp>;
   id: Generated<string>;
   name: string;
@@ -419,13 +451,26 @@ export interface UjiraProjects {
 }
 
 export interface UjiraRecipientIdentities {
-  chain: string;
+  assurance: Generated<string>;
+  chain: string | null;
   created_at: Generated<Timestamp>;
+  expires_at: Timestamp | null;
+  failure_reason: string | null;
+  flow_ref: string | null;
   id: Generated<string>;
+  last_checked_at: Timestamp | null;
+  nullifier_hmac: Buffer | null;
+  pending_session_expires_at: Timestamp | null;
+  pending_session_id: string | null;
+  pending_session_url: string | null;
   principal_id: string;
   project_id: string;
   provider: string;
-  provider_ref: string;
+  provider_account: string | null;
+  provider_ref: string | null;
+  provider_status: string | null;
+  provider_subject: string | null;
+  raw_sha256: Buffer | null;
   recipient_id: string;
   state: string;
   updated_at: Generated<Timestamp>;
@@ -469,6 +514,7 @@ export interface Schema {
   'ops.chain_cursors': OpsChainCursors;
   'ops.executor_accounts': OpsExecutorAccounts;
   'ops.fee_estimates': OpsFeeEstimates;
+  'ops.identity_provider_events': OpsIdentityProviderEvents;
   'ops.routing_config_active': OpsRoutingConfigActive;
   'ops.routing_config_versions': OpsRoutingConfigVersions;
   'ops.signing_keys': OpsSigningKeys;
@@ -483,6 +529,7 @@ export interface Schema {
   'ujira.currency_scales': UjiraCurrencyScales;
   'ujira.deposits': UjiraDeposits;
   'ujira.funding_sources': UjiraFundingSources;
+  'ujira.funding_sweeps': UjiraFundingSweeps;
   'ujira.ledger_accounts': UjiraLedgerAccounts;
   'ujira.ledger_entries': UjiraLedgerEntries;
   'ujira.ledger_journals': UjiraLedgerJournals;

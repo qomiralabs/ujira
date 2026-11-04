@@ -16,7 +16,7 @@ import {
   readStrkey,
   splitMuxed,
 } from '../codecs/strkey.js';
-import { InvalidInputError } from '../errors.js';
+import { InvalidInputError, UnsupportedMemoDestinationError } from '../errors.js';
 import type { DestinationParseReason } from '../errors.js';
 import type { StellarNetworkId } from '../networks.js';
 import type { Destination, RawDestination } from '../types.js';
@@ -69,7 +69,7 @@ function readTag(network: StellarNetworkId, memoId: unknown): bigint | null {
   if (typeof memoId !== 'string') throw refused(network, 'MALFORMED', MEMO);
   // A contract cannot attach a transaction memo to a transfer, so a
   // destination that needs a text or hash memo can never be paid.
-  if (!MEMO_ID.test(memoId)) throw refused(network, 'MEMO_NOT_ID', MEMO);
+  if (!MEMO_ID.test(memoId)) throw new UnsupportedMemoDestinationError({ network, path: MEMO });
   const id = memoId.length > MAX_MEMO_ID_DIGITS ? undefined : BigInt(memoId);
   if (id === undefined || id > U64_MAX) throw refused(network, 'TAG_OUT_OF_RANGE', MEMO);
   return id;
