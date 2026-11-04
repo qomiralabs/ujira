@@ -39,6 +39,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { LocalSigner } from '../local-signer.js';
 import { OPTS, TEST_SEED, codeOf, harness } from '../testing/service.js';
 import type { Harness } from '../testing/service.js';
+import { TEST_SETTLEMENT } from '../testing/unpayable.js';
 import { chainPolicy, memoryMandateIndex, memorySponsorshipLedger } from './index.js';
 import type { MemoryReservation, SponsorshipIntent } from './index.js';
 
@@ -83,6 +84,7 @@ beforeAll(async () => {
       executors: [executor],
       tenant: TENANT,
       recipientMode: 'allowlist',
+      ...TEST_SETTLEMENT,
     },
     {
       network: NETWORK,
@@ -90,6 +92,7 @@ beforeAll(async () => {
       executors: [TEST_DESTINATION],
       tenant: TENANT,
       recipientMode: 'allowlist',
+      ...TEST_SETTLEMENT,
     },
   ]);
   // The ledger is read on each call, so rows pushed later are seen.

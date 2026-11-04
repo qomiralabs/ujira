@@ -99,6 +99,27 @@ export interface RestoreRequest {
   readonly correlationId: string;
 }
 
+/**
+ * A restore or an extension for the session's next sequence, built from a
+ * fresh simulation of the footprint in `data`.
+ */
+export async function preparedFootprintTx(
+  ctx: ExecutorContext,
+  session: ExecutorSession,
+  mandate: string,
+  call: Parameters<typeof footprintTx>[0],
+  data: xdr.SorobanTransactionData,
+  opts: CallOptions,
+): Promise<Transaction> {
+  const { network, rpc, ports } = ctx;
+  const maxTime =
+    ports.clock.nowSeconds() + BigInt(ports.config()[network]?.executor.txValiditySeconds ?? 60);
+  const build = { network, source: session.address, sequence: session.sequence, maxTime };
+  const tx = footprintTx(call, { ...build, sorobanData: data.toXdr('base64') });
+  const sim = await simulate(rpc, network, tx, mandate, opts);
+  return footprintTx(call, { ...build, sorobanData: simulatedData(sim) });
+}
+
 /** Restores `keys` from the session's account, then extends them by policy. */
 export async function restoreAndExtend(
   ctx: ExecutorContext,
@@ -106,23 +127,17 @@ export async function restoreAndExtend(
   req: RestoreRequest,
   opts: CallOptions,
 ): Promise<void> {
-  const { network, rpc, ports } = ctx;
+  const { rpc, ports } = ctx;
   const record = {
     scope: req.scope,
     mandate: req.target.mandate,
     correlationId: req.correlationId,
   };
-  const prepare = async (
+  const prepare = (
     call: Parameters<typeof footprintTx>[0],
     data: xdr.SorobanTransactionData,
-  ): Promise<Transaction> => {
-    const maxTime =
-      ports.clock.nowSeconds() + BigInt(ports.config()[network]?.executor.txValiditySeconds ?? 60);
-    const build = { network, source: session.address, sequence: session.sequence, maxTime };
-    const tx = footprintTx(call, { ...build, sorobanData: data.toXdr('base64') });
-    const sim = await simulate(rpc, network, tx, req.target.mandate, opts);
-    return footprintTx(call, { ...build, sorobanData: simulatedData(sim) });
-  };
+  ): Promise<Transaction> =>
+    preparedFootprintTx(ctx, session, req.target.mandate, call, data, opts);
 
   const restore = await prepare(
     restoreArchived() as Parameters<typeof footprintTx>[0],

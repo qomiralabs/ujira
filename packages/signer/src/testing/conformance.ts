@@ -44,6 +44,8 @@ import {
 } from '@ujira/chain-adapter/testing';
 import { beforeAll, describe, expect, it } from 'vitest';
 
+import { PAYABLE_CONTRACT, UNPAYABLE_FROM_FIELDS, attestationTo } from './unpayable.js';
+
 export interface SignerBackend {
   readonly provider: SignerProvider;
   readonly attester: AttesterSigner;
@@ -92,7 +94,7 @@ function attestation(i: number): AttestationFields {
     policyEpoch: BigInt(i % 7),
     validUntil: BigInt(1_900_000_000 + i) as UnixSeconds,
     destination: {
-      address: { network: NETWORK, value: i % 2 === 0 ? TEST_DESTINATION : TEST_CONTRACT },
+      address: { network: NETWORK, value: i % 2 === 0 ? TEST_DESTINATION : PAYABLE_CONTRACT },
       tag,
     },
   };
@@ -278,6 +280,15 @@ export function describeSignerProvider(
       // Two hundred signatures and two verifications each, which a remote
       // backend or a coverage run cannot fit in the default five seconds.
     }, 120_000);
+
+    it.each(UNPAYABLE_FROM_FIELDS)(
+      'refuses to attest %s, as a destination and not as a signing failure',
+      async (_label, address, tag) => {
+        expect(await codeOf(attester.signAttestation(attestationTo(address, tag), OPTS))).toBe(
+          'DESTINATION_INVALID',
+        );
+      },
+    );
 
     it('address agrees with every signature', async () => {
       const executor = await accountOf(EXECUTOR);

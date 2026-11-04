@@ -38,3 +38,41 @@ export async function callStore<T>(
     clearTimeout(timer);
   }
 }
+
+/** A call that hit its deadline. The call was aborted and its answer is ignored. */
+export class RouteDeadlineError extends Error {
+  override readonly name = 'RouteDeadlineError';
+
+  constructor() {
+    super('The call did not answer before its deadline');
+  }
+}
+
+export type DeadlineResult<T> =
+  { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: unknown };
+
+/**
+ * Runs one call under a deadline and returns its result or its failure, so a
+ * caller can treat a slow network as a down one. The signal is aborted at the
+ * deadline, and the call is abandoned even if it ignores the signal.
+ */
+export async function withinDeadline<T>(
+  run: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+): Promise<DeadlineResult<T>> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new RouteDeadlineError());
+    }, timeoutMs);
+  });
+  try {
+    return { ok: true, value: await Promise.race([run(controller.signal), deadline]) };
+  } catch (error) {
+    return { ok: false, error };
+  } finally {
+    clearTimeout(timer);
+  }
+}

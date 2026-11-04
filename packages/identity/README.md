@@ -28,7 +28,7 @@ Checks run in a fixed order and the first failure decides the reason: mandate in
 8. `valid_until = min(now + ttl, identity expiry)`, refused under 60 seconds (`VALIDITY_TOO_SHORT`).
 9. The attestation row is inserted as pending and committed, then the attester signs, then the row is marked signed or failed.
 
-A refusal writes nothing and signs nothing. Every chain and attester call has a timeout (`identity.attestation.callTimeoutMs`); an outage refuses with `PROVIDER_UNAVAILABLE`, a fault or the caller giving up is thrown. A signing failure marks the row failed and throws `AttestationSigningError`.
+A refusal from these checks writes nothing and signs nothing. Every chain and attester call has a timeout (`identity.attestation.callTimeoutMs`); an outage refuses with `PROVIDER_UNAVAILABLE`, a fault or the caller giving up is thrown. A signing failure marks the row failed and throws `AttestationSigningError`. The attester refusing an address that can never pay out (the mandate, its factory, its settlement asset contract, that asset's issuer or an all-zero address) is not a signing failure: the row is marked failed and the result is `DESTINATION_NOT_RECEIVABLE` with detail `DESTINATION_UNPAYABLE`.
 
 ## Self Pre-KYC
 

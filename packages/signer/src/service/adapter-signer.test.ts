@@ -33,6 +33,7 @@ import {
 import type { PayWorld } from '@ujira/chain-adapter/testing/stellar';
 import { describe, expect, it } from 'vitest';
 
+import { TEST_SETTLEMENT } from '../testing/unpayable.js';
 import { agentPolicy } from './agent-policy.js';
 import { SIGNED_CALL_INTENTS, chainPolicy } from './chain-policy.js';
 import { memoryManagedSignerStore, memoryMandateIndex, memoryRateLimiter } from './memory.js';
@@ -66,6 +67,7 @@ function world() {
           contract: t.mandate.address.value,
           tenant: t.scope,
           recipientMode: 'allowlist',
+          ...TEST_SETTLEMENT,
           executors: [t.channel.publicKey()],
         },
       ]);
