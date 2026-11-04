@@ -23,8 +23,27 @@ const adminUrl = inject('dbAdminUrl');
 
 let database: TestDatabase;
 
+// Every test database comes with the worker schema installed, and rolling back
+// the migration that made that schema is refused while it holds anything, so
+// that a rollback cannot destroy a queue. These tests are about the runner, and
+// step back whichever migration happens to be last, so they start without it.
+async function cloneWithoutWorkerInstall(testPath: string): Promise<TestDatabase> {
+  const clone = await createTestDatabase(adminUrl, testPath);
+  const client = new pg.Client({ connectionString: clone.url });
+  await client.connect();
+  try {
+    await client.query(`
+      drop schema graphile_worker cascade;
+      create schema graphile_worker authorization ujira_worker;
+    `);
+  } finally {
+    await client.end();
+  }
+  return clone;
+}
+
 beforeAll(async () => {
-  database = await createTestDatabase(adminUrl, import.meta.url);
+  database = await cloneWithoutWorkerInstall(import.meta.url);
 });
 
 afterAll(async () => {
@@ -70,7 +89,7 @@ describe('migrations', () => {
 
   it('passes the tool output to a caller that asks for it', async () => {
     const lines: string[] = [];
-    const fresh = await createTestDatabase(adminUrl, `${import.meta.url}#logging`);
+    const fresh = await cloneWithoutWorkerInstall(`${import.meta.url}#logging`);
     try {
       const down = await runMigrations({ databaseUrl: fresh.url, direction: 'down' });
       await runMigrations({
@@ -103,7 +122,7 @@ describe('migrations', () => {
     // fast rather than queue: one run applies the migration and the other
     // throws "Another migration is already running". That is the behaviour
     // this package keeps, so two deploys cannot both think they migrated.
-    const fresh = await createTestDatabase(adminUrl, `${import.meta.url}#concurrent`);
+    const fresh = await cloneWithoutWorkerInstall(`${import.meta.url}#concurrent`);
     try {
       await runMigrations({ databaseUrl: fresh.url, direction: 'down' });
       const results = await Promise.allSettled([
@@ -132,7 +151,7 @@ describe('migrations', () => {
 
   it('waits for the lock instead when a run asks it to', async () => {
     // The option a deployment would use if every instance migrated at boot.
-    const fresh = await createTestDatabase(adminUrl, `${import.meta.url}#waiting`);
+    const fresh = await cloneWithoutWorkerInstall(`${import.meta.url}#waiting`);
     try {
       await runMigrations({ databaseUrl: fresh.url, direction: 'down' });
       const results = await Promise.all([
@@ -287,7 +306,7 @@ describe('one ledger', () => {
   // table, while this function records into ours. A migration run through
   // one path then looks pending to the other.
   it('records into our table and never creates the tool default', async () => {
-    const fresh = await createTestDatabase(adminUrl, `${import.meta.url}#ledger`);
+    const fresh = await cloneWithoutWorkerInstall(`${import.meta.url}#ledger`);
     try {
       await runMigrations({ databaseUrl: fresh.url, direction: 'down' });
       await runMigrations({ databaseUrl: fresh.url, direction: 'up' });

@@ -55,6 +55,7 @@ export const LOGIN_ROLES = [
   'ujira_indexer',
   'ujira_ops',
   'ujira_signer_attester',
+  'ujira_worker',
 ] as const;
 
 export type LoginRole = (typeof LOGIN_ROLES)[number];

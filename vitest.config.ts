@@ -61,6 +61,8 @@ export default defineConfig({
           include: ['src/**/*.test.ts', 'spikes/**/*.test.ts'],
           hookTimeout: 180_000,
           testTimeout: 60_000,
+          // The worker's tests run against real pools and a real database.
+          globalSetup: ['../db/src/testing/global-setup.ts'],
         },
       }),
       { extends: true, test: { name: 'scripts', include: ['scripts/**/*.test.ts'] } },
@@ -112,6 +114,9 @@ export default defineConfig({
         // zero.
         'packages/db/src/testing/global-setup.ts',
         'packages/db/src/testing/container.ts',
+        // A real pool in a child process, so a test can stop it with a signal or
+        // kill it outright. Coverage cannot see into that process.
+        'packages/payouts/src/worker/testing/pool-process.ts',
       ],
       reporter: ['text', 'json-summary', 'lcov'],
       thresholds: {
