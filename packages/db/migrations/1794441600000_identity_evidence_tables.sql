@@ -156,6 +156,8 @@ create table ujira.attestations (
   mandate_instance_id uuid not null,
   -- The payout tables do not exist yet. Their foreign keys come with them.
   attempt_id uuid not null,
+  -- Held to 0 to 255 by its check, as the mandate's leg index is a u8.
+  -- squawk-ignore prefer-bigint-over-smallint
   leg_index smallint not null
     constraint attestations_leg_index_range check (leg_index between 0 and 255),
   recipient_id uuid not null,
@@ -304,8 +306,11 @@ create table ops.email_quota_usage (
   day date not null,
   kind text not null
     constraint email_quota_usage_kind check (kind in ('code', 'other')),
+  -- One account's mail in one day, which never comes near the range of an integer.
+  -- squawk-ignore prefer-bigint-over-int
   sent integer not null default 0
     constraint email_quota_usage_sent_range check (sent >= 0),
+  -- squawk-ignore prefer-bigint-over-int
   refused integer not null default 0
     constraint email_quota_usage_refused_range check (refused >= 0),
   exhausted boolean not null default false,
