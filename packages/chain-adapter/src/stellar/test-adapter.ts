@@ -70,11 +70,16 @@ export function networksConfig(overrides: {
 }
 
 /** Adds an account with this sequence number to the fake ledger. */
-export function addAccount(rpc: FakeRpc, address: string, sequence: bigint): void {
+export function addAccount(
+  rpc: FakeRpc,
+  address: string,
+  sequence: bigint,
+  balance = 100_000_000n,
+): void {
   const data = xdr.LedgerEntryData.account(
     new xdr.AccountEntry({
       accountId: Keypair.fromPublicKey(address).xdrAccountId(),
-      balance: 100_000_000n,
+      balance,
       seqNum: sequence,
       numSubEntries: 0,
       inflationDest: null,
@@ -111,6 +116,7 @@ export function setup(
     readonly usdc?: string;
     readonly deny?: boolean;
     readonly submitTimeoutMs?: number;
+    readonly nodeEnv?: string;
   } = {},
 ): TestSetup {
   const fixture = loadReadFixture();
@@ -165,6 +171,7 @@ export function setup(
     requests,
     wait: { attempts: 3, intervalMs: 0, sleep: () => Promise.resolve() },
     ...(options.submitTimeoutMs === undefined ? {} : { submitTimeoutMs: options.submitTimeoutMs }),
+    ...(options.nodeEnv === undefined ? {} : { nodeEnv: options.nodeEnv }),
     newRequestId: () => `req-${String((id += 1))}`,
   });
   return {
