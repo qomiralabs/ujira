@@ -21,6 +21,7 @@ import { createApp } from './app.js';
 import type { Authenticate } from './auth.js';
 import { RecipientDestinationBody, readRecipientDestination } from './destination.js';
 import { toApiError } from './errors.js';
+import { memoryIdempotencyStore } from './idempotency.js';
 import { memoryLogger } from './log.js';
 import { allowEveryRequest } from './rate-limit.js';
 import { defineTenantRoute } from './route.js';
@@ -66,12 +67,17 @@ function post(body: unknown): Promise<Response> {
     routes: [recipientDestination],
     authenticate,
     rateLimit: allowEveryRequest,
+    idempotency: memoryIdempotencyStore(),
     logger: memoryLogger(),
   });
   return Promise.resolve(
     app.request('/v1/recipients/destination', {
       method: 'POST',
-      headers: { authorization: 'Bearer writer', 'content-type': 'application/json' },
+      headers: {
+        authorization: 'Bearer writer',
+        'content-type': 'application/json',
+        'idempotency-key': randomUUID(),
+      },
       body: JSON.stringify(body),
     }),
   );
