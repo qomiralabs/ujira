@@ -20,6 +20,7 @@ const TABLES = [
   'ops.routing_config_versions',
   'ops.routing_config_active',
   'ops.identity_provider_events',
+  'ops.email_quota_usage',
 ];
 
 let database: TestDatabase;
