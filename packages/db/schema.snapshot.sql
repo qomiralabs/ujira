@@ -112,6 +112,36 @@ $$;
 ALTER FUNCTION ops.active_signing_keys(purposes text[]) OWNER TO ujira_ops;
 
 --
+-- Name: advance_chain_cursor(text, text); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.advance_chain_cursor(target_network text, next_cursor text) RETURNS void
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  insert into ops.chain_cursors (network, cursor)
+  values (target_network, next_cursor)
+  on conflict (network) do update set cursor = excluded.cursor
+$$;
+
+
+ALTER FUNCTION ops.advance_chain_cursor(target_network text, next_cursor text) OWNER TO ujira_ops;
+
+--
+-- Name: chain_cursor(text); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.chain_cursor(target_network text) RETURNS text
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select c.cursor from ops.chain_cursors as c where c.network = target_network
+$$;
+
+
+ALTER FUNCTION ops.chain_cursor(target_network text) OWNER TO ujira_ops;
+
+--
 -- Name: flag_mandate(text, text); Type: FUNCTION; Schema: ops; Owner: ujira_ops
 --
 
@@ -4278,6 +4308,22 @@ GRANT ALL ON FUNCTION ops.active_routing_config() TO ujira_app;
 
 REVOKE ALL ON FUNCTION ops.active_signing_keys(purposes text[]) FROM PUBLIC;
 GRANT ALL ON FUNCTION ops.active_signing_keys(purposes text[]) TO ujira_app;
+
+
+--
+-- Name: FUNCTION advance_chain_cursor(target_network text, next_cursor text); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.advance_chain_cursor(target_network text, next_cursor text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.advance_chain_cursor(target_network text, next_cursor text) TO ujira_indexer;
+
+
+--
+-- Name: FUNCTION chain_cursor(target_network text); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.chain_cursor(target_network text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.chain_cursor(target_network text) TO ujira_indexer;
 
 
 --

@@ -102,6 +102,7 @@ export {
   type RecipientStatus,
 } from './repositories/recipients.js';
 export {
+  chainCursors,
   executors,
   identityProviderEvents,
   routingConfig,
