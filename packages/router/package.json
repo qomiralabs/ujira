@@ -23,6 +23,7 @@
     "@ujira/api-schema": "workspace:*",
     "@ujira/chain-adapter": "workspace:*",
     "@ujira/core": "workspace:*",
+    "@ujira/mandates": "workspace:*",
     "zod": "4.6.7"
   }
 }
