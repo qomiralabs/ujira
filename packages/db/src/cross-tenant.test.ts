@@ -16,8 +16,8 @@ import type { Database, ProjectContext } from './database.js';
 import type { Schema } from './schema.generated.js';
 import { audit, auditRepositories } from './repositories/audit.js';
 import { entryPoints } from './repositories/entry-points.js';
-import { idempotencyKeys, idempotencyRepositories } from './repositories/idempotency.js';
 import { fundingAccountRepositories, fundingAccounts } from './repositories/funding-accounts.js';
+import { idempotencyKeys, idempotencyRepositories } from './repositories/idempotency.js';
 import { managedSigners } from './repositories/signers.js';
 import { ledger, ledgerRepositories } from './repositories/ledger.js';
 import {
