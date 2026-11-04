@@ -19,6 +19,10 @@
     "lint": "eslint --max-warnings 0 .",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@ujira/chain-adapter": "workspace:*",
+    "@ujira/core": "workspace:*"
+  },
   "devDependencies": {
     "zod": "4.6.7"
   }

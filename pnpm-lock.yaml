@@ -436,6 +436,13 @@ importers:
         version: link:../core
 
   packages/payouts:
+    dependencies:
+      '@ujira/chain-adapter':
+        specifier: workspace:*
+        version: link:../chain-adapter
+      '@ujira/core':
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       zod:
         specifier: 4.6.7
