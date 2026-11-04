@@ -28,6 +28,8 @@ create table ujira.job_dead_letters (
   ids jsonb not null
     constraint job_dead_letters_ids_shape
       check (jsonb_typeof(ids) = 'object' and not (ids ? 'principalId' or ids ? 'projectId')),
+  -- A count that stops at 12, or at the worker's limit of 100 attempts.
+  -- squawk-ignore prefer-bigint-over-int
   tries integer not null
     constraint job_dead_letters_tries_positive check (tries > 0),
   reason text not null
