@@ -358,6 +358,67 @@ export function isChainAdapterError(value: unknown): value is ChainAdapterError 
   return value instanceof ChainAdapterError;
 }
 
+/** What a log line may hold of an error that passed through the adapter. */
+export interface AdapterErrorLog {
+  /** The class name, from the runtime's and this module's own names only. */
+  readonly name: string;
+  /** An adapter error's fixed message for its code. Absent for anything else. */
+  readonly message?: string;
+  /** An adapter error's job form: code, network, retry and landed state. */
+  readonly error?: ChainAdapterErrorJson;
+  /** The kind of the cause, under the same fixed wording the error keeps. */
+  readonly cause?: string;
+}
+
+const REDACTED_CAUSE_TEXT = /^Cause redacted: ([A-Za-z]{1,64})$/;
+
+// What the error records of its cause. The redacted cause's own text is
+// re-checked rather than trusted, and anything else found there (a cause
+// swapped in after construction) is reduced to its kind the same way.
+function causeText(cause: unknown): string | undefined {
+  if (cause === undefined) return undefined;
+  if (cause instanceof RedactedCause) {
+    const kind = REDACTED_CAUSE_TEXT.exec(cause.message)?.[1];
+    if (kind !== undefined && KNOWN_CAUSE_NAMES.has(kind)) return `Cause redacted: ${kind}`;
+    return 'Cause redacted: Error';
+  }
+  return `Cause redacted: ${causeName(cause)}`;
+}
+
+/**
+ * The log serializer for errors that pass through the adapter, for a
+ * structured logger's `err` key. Loggers print a message, a stack and the
+ * whole cause chain, and a transport error quotes the provider URL with
+ * its key, so the line keeps only what the adapter wrote itself: the class
+ * name, the fixed message for the code, the job form and the kind of the
+ * cause. Fields are read back from the code table rather than the instance,
+ * so a message or cause changed after construction cannot reach the log.
+ * Anything that is not an adapter error is named by its class and nothing
+ * else. It never throws: a log call is the worst place for a hostile value
+ * to break a request, so a value that throws while being read is logged as
+ * a plain Error.
+ */
+export function serializeAdapterError(value: unknown): AdapterErrorLog {
+  try {
+    if (!(value instanceof ChainAdapterError)) return { name: causeName(value) };
+    const cause = causeText(value.cause);
+    return {
+      name: causeName(value),
+      message: DEFAULTS[value.code].message,
+      error: value.toJSON(),
+      ...(cause === undefined ? {} : { cause }),
+    };
+  } catch {
+    return { name: 'Error' };
+  }
+}
+
+/** Serializers keyed the way structured loggers look them up. */
+export const ADAPTER_LOG_SERIALIZERS: Readonly<{
+  err: (value: unknown) => AdapterErrorLog;
+  error: (value: unknown) => AdapterErrorLog;
+}> = Object.freeze({ err: serializeAdapterError, error: serializeAdapterError });
+
 // "path (code)": the path is field names, indexes, network IDs and, where an
 // operator needs it to fix a config, a host name; the code a lower snake
 // case reason. Neither has room for a value.
@@ -580,7 +641,11 @@ export class ExecutorUnfundedError extends ChainAdapterError {
   }
 }
 
-/** Bad address, missing trustline, or a tag the destination needs but the network cannot carry. */
+/**
+ * Bad address, missing trustline, a tag the destination needs but the network
+ * cannot carry, or an address the mandate could never pay out, which the
+ * attester refuses to sign for.
+ */
 export class DestinationInvalidError extends ChainAdapterError {
   override readonly name = 'DestinationInvalidError';
   constructor(options?: ChainAdapterErrorOptions) {

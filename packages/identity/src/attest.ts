@@ -344,6 +344,12 @@ export function createAttestationService(ports: AttestationServicePorts): Attest
       } catch (error) {
         const failureCode = failureCodeOf(error);
         await ports.log.markFailed(scope, row.id, failureCode);
+        // The attester judged the address and not the request: nothing was
+        // signed and no retry changes it, so the payout gets the same answer
+        // as any other destination that cannot receive.
+        if (isChainAdapterError(error) && error.code === 'DESTINATION_INVALID') {
+          return refuse('DESTINATION_NOT_RECEIVABLE', 'DESTINATION_UNPAYABLE');
+        }
         throw error instanceof AttestationSigningError
           ? error
           : new AttestationSigningError(failureCode, { cause: error });

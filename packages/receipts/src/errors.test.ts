@@ -4,14 +4,20 @@
 import { expect, test } from 'vitest';
 
 import {
+  ReceiptChainAbortedError,
+  ReceiptChainTimeoutError,
   ReceiptError,
   ReceiptInvalidError,
   ReceiptNotCanonicalError,
+  ReceiptNotIssuedError,
+  ReceiptNotPaidError,
   ReceiptOptionsInvalidError,
   ReceiptPresentationInvalidError,
   ReceiptSignatureInvalidError,
   ReceiptSigningAbortedError,
   ReceiptSigningTimeoutError,
+  ReceiptTenantMismatchError,
+  ReceiptUnverifiedError,
 } from './errors.js';
 
 test('every error class has code and name', () => {
@@ -35,6 +41,12 @@ test('every error class has code and name', () => {
     ],
     [new ReceiptSigningAbortedError('x'), 'ReceiptSigningAbortedError', 'RECEIPT_SIGNING_ABORTED'],
     [new ReceiptSigningTimeoutError('x'), 'ReceiptSigningTimeoutError', 'RECEIPT_SIGNING_TIMEOUT'],
+    [new ReceiptNotPaidError('x'), 'ReceiptNotPaidError', 'RECEIPT_NOT_PAID'],
+    [new ReceiptNotIssuedError('x'), 'ReceiptNotIssuedError', 'RECEIPT_NOT_ISSUED'],
+    [new ReceiptTenantMismatchError('x'), 'ReceiptTenantMismatchError', 'RECEIPT_TENANT_MISMATCH'],
+    [new ReceiptUnverifiedError('x'), 'ReceiptUnverifiedError', 'RECEIPT_UNVERIFIED'],
+    [new ReceiptChainTimeoutError('x'), 'ReceiptChainTimeoutError', 'RECEIPT_CHAIN_TIMEOUT'],
+    [new ReceiptChainAbortedError('x'), 'ReceiptChainAbortedError', 'RECEIPT_CHAIN_ABORTED'],
   ] as const;
   for (const [error, name, code] of errors) {
     expect(error).toBeInstanceOf(ReceiptError);

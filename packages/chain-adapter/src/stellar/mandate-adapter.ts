@@ -32,6 +32,7 @@ import {
 import type { StellarNetworkId } from '../networks.js';
 import { reservationIdOf } from '../sponsorship/policy.js';
 import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
+import { isPublicTestAttesterKey } from '../test-attester-keys.js';
 import type {
   AdapterPorts,
   BatchStep,
@@ -50,6 +51,7 @@ import type {
   Bytes32,
   CallOptions,
   ChainAdapter,
+  MandateAction,
   MandateActionRequest,
   MandateRef,
   MandateSnapshot,
@@ -104,6 +106,11 @@ import { configViewOf, stateOf } from './views.js';
 
 export interface StellarMandateAdapterOptions {
   readonly network: StellarNetworkId;
+  /**
+   * The deployment environment. Only 'test' may set a public test attester
+   * key on a mandate, so left out, the keys are refused.
+   */
+  readonly nodeEnv?: string;
   readonly rpc: StellarRpc;
   readonly ports: AdapterPorts;
   readonly requests: SigningRequestStore;
@@ -180,6 +187,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
   readonly #ttlExtendLedgers: number;
   readonly #newRequestId: () => string;
   readonly #payouts: StellarPayouts;
+  readonly #nodeEnv: string | undefined;
 
   constructor(options: StellarMandateAdapterOptions) {
     this.network = options.network;
@@ -203,6 +211,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     };
     this.#ttlExtendLedgers = options.instanceTtlExtendLedgers ?? INSTANCE_TTL_EXTEND_LEDGERS;
     this.#newRequestId = options.newRequestId ?? randomUUID;
+    this.#nodeEnv = options.nodeEnv;
     this.#payouts = new StellarPayouts({
       network: options.network,
       rpc: options.rpc,
@@ -312,6 +321,19 @@ export class StellarMandateAdapter implements StellarMandateOperations {
   // -------------------------------------------------------------------------
   // Actions
 
+  // The contract only checks the key's length, so a mandate set up with a key
+  // anyone can rebuild would pay on anybody's attestation. Here is the last
+  // place that can see it before the principal signs.
+  #refuseTestAttester(action: MandateAction): void {
+    if (this.#nodeEnv === 'test') return;
+    let attester: Uint8Array | null = null;
+    if (action.op === 'create') attester = action.config.attester;
+    if (action.op === 'set_attestation_policy') attester = action.attester;
+    if (attester !== null && isPublicTestAttesterKey(attester)) {
+      throw invalid(this.network, 'attester (test_key)');
+    }
+  }
+
   async prepareMandateAction(
     req: MandateActionRequest,
     opts: CallOptions,
@@ -331,6 +353,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       caller: signer,
       assetContract: config.assets.USDC.sac,
     });
+    this.#refuseTestAttester(action);
     return this.#prepareCall(
       {
         scope: req.scope,
