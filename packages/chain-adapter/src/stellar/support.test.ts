@@ -45,10 +45,12 @@ function paymentTx(source: Keypair) {
 describe('the stellar entry', { timeout: 30_000 }, () => {
   it('exports the adapter, the stores and the policy, and nothing that needs the SDK types', () => {
     expect(Object.keys(entry).sort()).toEqual([
+      'CONTRACT_ADDRESS_LABEL',
       'INSTANCE_TTL_EXTEND_LEDGERS',
       'RECORD_TTL_MARGIN_SECONDS',
       'StellarMandateAdapter',
       'accountBalance',
+      'createFundingAccountFlow',
       'createMemorySigningRequestStore',
       'createStellarEventIntake',
       'createStellarEventSource',
@@ -57,7 +59,9 @@ describe('the stellar entry', { timeout: 30_000 }, () => {
       'fateOf',
       'ledgerEventOf',
       'mandateAddressOf',
+      'parseForwarderRequest',
       'scanLedgerEvents',
+      'stellarFundingView',
       'stellarTenantTag',
     ]);
   });

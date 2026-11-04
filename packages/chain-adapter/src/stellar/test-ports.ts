@@ -204,7 +204,8 @@ export function keypairSigner(
           payload.kind !== 'stellar_tx' &&
           payload.kind !== 'stellar_fee_bump' &&
           payload.kind !== 'stellar_relayed_call' &&
-          payload.kind !== 'stellar_footprint'
+          payload.kind !== 'stellar_footprint' &&
+          payload.kind !== 'stellar_reserve_sandwich'
         ) {
           throw new SignerDeniedError({ network });
         }
