@@ -1055,6 +1055,21 @@ CREATE TABLE ops.identity_provider_events (
 ALTER TABLE ops.identity_provider_events OWNER TO ujira_owner;
 
 --
+-- Name: rate_limit_buckets; Type: TABLE; Schema: ops; Owner: ujira_owner
+--
+
+CREATE UNLOGGED TABLE ops.rate_limit_buckets (
+    bucket_key text NOT NULL,
+    tokens numeric(18,6) NOT NULL,
+    refilled_at timestamp with time zone NOT NULL,
+    CONSTRAINT rate_limit_buckets_key_format CHECK ((bucket_key ~ '^[a-z_]{1,32}:[0-9a-f]{64}$'::text)),
+    CONSTRAINT rate_limit_buckets_tokens_not_negative CHECK ((tokens >= (0)::numeric))
+);
+
+
+ALTER TABLE ops.rate_limit_buckets OWNER TO ujira_owner;
+
+--
 -- Name: routing_config_active; Type: TABLE; Schema: ops; Owner: ujira_owner
 --
 
@@ -1222,12 +1237,13 @@ CREATE TABLE ujira.api_tokens (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     prefix text NOT NULL,
     secret_sha256 ujira.hash32 NOT NULL,
-    scopes text[] DEFAULT '{}'::text[] NOT NULL,
-    expires_at timestamp with time zone,
+    scopes text[] NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
     revoked_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    rotated_from_id uuid,
     CONSTRAINT api_tokens_prefix_format CHECK ((prefix ~ '^[A-Za-z0-9_]{8,40}$'::text)),
-    CONSTRAINT api_tokens_scopes_bounded CHECK ((cardinality(scopes) <= 32))
+    CONSTRAINT api_tokens_scopes_known CHECK ((((cardinality(scopes) >= 1) AND (cardinality(scopes) <= 10)) AND (scopes <@ ARRAY['payouts:read'::text, 'payouts:write'::text, 'approvals:write'::text, 'recipients:read'::text, 'recipients:write'::text, 'mandates:read'::text, 'mandates:write'::text, 'receipts:read'::text, 'webhooks:manage'::text, 'corridors:read'::text])))
 );
 
 ALTER TABLE ONLY ujira.api_tokens FORCE ROW LEVEL SECURITY;
@@ -2120,6 +2136,14 @@ ALTER TABLE ONLY ops.fee_estimates
 
 ALTER TABLE ONLY ops.identity_provider_events
     ADD CONSTRAINT identity_provider_events_pkey PRIMARY KEY (provider, provider_account, event_key);
+
+
+--
+-- Name: rate_limit_buckets rate_limit_buckets_pkey; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.rate_limit_buckets
+    ADD CONSTRAINT rate_limit_buckets_pkey PRIMARY KEY (bucket_key);
 
 
 --
@@ -3279,6 +3303,14 @@ ALTER TABLE ONLY ujira.agent_identity_links
 
 ALTER TABLE ONLY ujira.api_tokens
     ADD CONSTRAINT api_tokens_principal_id_project_id_fkey FOREIGN KEY (principal_id, project_id) REFERENCES ujira.projects(principal_id, id);
+
+
+--
+-- Name: api_tokens api_tokens_rotated_from_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.api_tokens
+    ADD CONSTRAINT api_tokens_rotated_from_fkey FOREIGN KEY (principal_id, project_id, rotated_from_id) REFERENCES ujira.api_tokens(principal_id, project_id, id);
 
 
 --
@@ -5191,6 +5223,13 @@ GRANT SELECT,INSERT,UPDATE ON TABLE ops.fee_estimates TO ujira_ops;
 --
 
 GRANT SELECT,INSERT ON TABLE ops.identity_provider_events TO ujira_ops;
+
+
+--
+-- Name: TABLE rate_limit_buckets; Type: ACL; Schema: ops; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE ops.rate_limit_buckets TO ujira_ops;
 
 
 --

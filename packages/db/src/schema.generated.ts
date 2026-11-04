@@ -73,6 +73,12 @@ export interface OpsIdentityProviderEvents {
   received_at: Generated<Timestamp>;
 }
 
+export interface OpsRateLimitBuckets {
+  bucket_key: string;
+  refilled_at: Timestamp;
+  tokens: Numeric;
+}
+
 export interface OpsRoutingConfigActive {
   only_row: Generated<boolean>;
   updated_at: Generated<Timestamp>;
@@ -118,13 +124,14 @@ export interface UjiraAgentIdentityLinks {
 
 export interface UjiraApiTokens {
   created_at: Generated<Timestamp>;
-  expires_at: Timestamp | null;
+  expires_at: Timestamp;
   id: Generated<string>;
   prefix: string;
   principal_id: string;
   project_id: string;
   revoked_at: Timestamp | null;
-  scopes: Generated<string[]>;
+  rotated_from_id: string | null;
+  scopes: string[];
   secret_sha256: Buffer;
 }
 
@@ -559,6 +566,7 @@ export interface Schema {
   'ops.executor_accounts': OpsExecutorAccounts;
   'ops.fee_estimates': OpsFeeEstimates;
   'ops.identity_provider_events': OpsIdentityProviderEvents;
+  'ops.rate_limit_buckets': OpsRateLimitBuckets;
   'ops.routing_config_active': OpsRoutingConfigActive;
   'ops.routing_config_versions': OpsRoutingConfigVersions;
   'ops.signing_keys': OpsSigningKeys;
