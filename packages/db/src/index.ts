@@ -131,6 +131,15 @@ export {
   type RoleGrant,
 } from './repositories/mandates.js';
 export {
+  jobPayloadProblems,
+  jobQueue,
+  type JobIds,
+  type JobKeyMode,
+  type JobScope,
+  type JobSpec,
+  type TaskName,
+} from './repositories/jobs.js';
+export {
   CONNECTION_BUDGET,
   loadDatabaseConfig,
   POOL_DEFAULTS,

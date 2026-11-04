@@ -21,6 +21,15 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
+-- Name: graphile_worker; Type: SCHEMA; Schema: -; Owner: ujira_worker
+--
+
+CREATE SCHEMA graphile_worker;
+
+
+ALTER SCHEMA graphile_worker OWNER TO ujira_worker;
+
+--
 -- Name: ops; Type: SCHEMA; Schema: -; Owner: ujira_owner
 --
 
@@ -37,6 +46,15 @@ CREATE SCHEMA ujira;
 
 
 ALTER SCHEMA ujira OWNER TO ujira_owner;
+
+--
+-- Name: ujira_jobs; Type: SCHEMA; Schema: -; Owner: ujira_worker
+--
+
+CREATE SCHEMA ujira_jobs;
+
+
+ALTER SCHEMA ujira_jobs OWNER TO ujira_worker;
 
 --
 -- Name: amount; Type: DOMAIN; Schema: ujira; Owner: ujira_owner
@@ -245,6 +263,30 @@ $$;
 ALTER FUNCTION ops.release_executor(target_network text, account text, holder text, sequence_reached bigint) OWNER TO ujira_ops;
 
 --
+-- Name: apply_scheduler_read(regclass, text[]); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.apply_scheduler_read(target regclass, readable_columns text[]) RETURNS void
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  execute format(
+    'create policy scheduler_read on %s for select to ujira_scheduler using (true)',
+    target
+  );
+  execute format(
+    'grant select (%s) on %s to ujira_scheduler',
+    (select string_agg(quote_ident(name), ', ') from unnest(readable_columns) as name),
+    target
+  );
+end
+$$;
+
+
+ALTER FUNCTION ujira.apply_scheduler_read(target regclass, readable_columns text[]) OWNER TO ujira_owner;
+
+--
 -- Name: apply_tenant_policies(regclass); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -420,6 +462,61 @@ $$;
 ALTER FUNCTION ujira.authenticate_token(token_prefix text) OWNER TO ujira_fn_tokens;
 
 --
+-- Name: bootstrap_worker_roles(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.bootstrap_worker_roles() RETURNS void
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  -- Roles are shared by the server, so these are created only when missing and
+  -- the down section never drops them. The password is set outside migrations.
+  if not exists (select from pg_catalog.pg_roles where rolname = 'ujira_worker') then
+    create role ujira_worker login noinherit nobypassrls;
+  end if;
+  if not exists (select from pg_catalog.pg_roles where rolname = 'ujira_scheduler') then
+    create role ujira_scheduler nologin noinherit nobypassrls;
+  end if;
+  alter role ujira_worker nobypassrls;
+  alter role ujira_scheduler nobypassrls;
+
+  -- The owner hands functions to these two, which needs it to be able to act
+  -- as them. Neither can act as the owner. A second grant from another role
+  -- would add a second membership row, so a role already a member is left alone.
+  if not pg_catalog.pg_has_role('ujira_owner', 'ujira_worker', 'member') then
+    grant ujira_worker to ujira_owner;
+  end if;
+  if not pg_catalog.pg_has_role('ujira_owner', 'ujira_scheduler', 'member') then
+    grant ujira_scheduler to ujira_owner;
+  end if;
+
+  create schema if not exists graphile_worker authorization ujira_worker;
+  create schema if not exists ujira_jobs authorization ujira_worker;
+  alter schema graphile_worker owner to ujira_worker;
+  alter schema ujira_jobs owner to ujira_worker;
+
+  -- A new schema starts with nothing granted, so these only matter on a
+  -- database someone changed by hand, and that is when they matter.
+  revoke all on schema graphile_worker from public, ujira_app;
+  revoke all on schema ujira_jobs from public;
+  revoke all on schema ujira from ujira_worker;
+
+  -- Postgres makes every new function executable, and every new type usable,
+  -- by PUBLIC. A later worker version adds functions of its own, so this has to
+  -- be a default and not a one off, and it has to run before the install.
+  alter default privileges for role ujira_worker revoke execute on functions from public;
+  alter default privileges for role ujira_worker revoke usage on types from public;
+
+  -- Left over from an install that stopped before taking it back.
+  execute format('revoke create on database %I from ujira_worker', current_database());
+end
+$$;
+
+
+ALTER FUNCTION ujira.bootstrap_worker_roles() OWNER TO ujira_owner;
+
+--
 -- Name: check_new_funding_sweep(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -546,6 +643,20 @@ begin
       errcode = 'UJ001',
       message = 'no tenant context: the settings belong to another transaction';
   end if;
+  if current_setting('ujira.defaults_checked', true) is distinct from bound then
+    if exists (
+      select 1
+        from pg_db_role_setting as s
+       where s.setrole in (0, (select r.oid from pg_roles as r where r.rolname = session_user))
+         and s.setdatabase in (0, (select d.oid from pg_database as d where d.datname = current_database()))
+         and exists (select 1 from unnest(s.setconfig) as c (setting) where c.setting like 'ujira.%')
+    ) then
+      raise exception using
+        errcode = 'UJ001',
+        message = 'no tenant context: a role or database default sets a ujira setting, and only a transaction may';
+    end if;
+    perform set_config('ujira.defaults_checked', bound, true);
+  end if;
   return principal::uuid;
 end
 $$;
@@ -578,6 +689,34 @@ $$;
 
 
 ALTER FUNCTION ujira.current_project_id() OWNER TO ujira_owner;
+
+--
+-- Name: due_attempt_deadlines(timestamp with time zone, integer); Type: FUNCTION; Schema: ujira; Owner: ujira_scheduler
+--
+
+CREATE FUNCTION ujira.due_attempt_deadlines(p_before timestamp with time zone, p_limit integer) RETURNS TABLE(principal_id uuid, project_id uuid, attempt_id uuid)
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if p_before is null then
+    raise exception using errcode = '22004', message = 'p_before must not be null';
+  end if;
+  if p_limit is null or p_limit not between 1 and 500 then
+    raise exception using errcode = '22023', message = 'limit must be from 1 to 500';
+  end if;
+  return query
+    select a.principal_id, a.project_id, a.id
+      from ujira.payout_attempts as a
+     where a.deadline < p_before
+       and a.status in ('created', 'requested', 'pending_approval', 'approved', 'executing')
+     order by a.deadline, a.id
+     limit p_limit;
+end
+$$;
+
+
+ALTER FUNCTION ujira.due_attempt_deadlines(p_before timestamp with time zone, p_limit integer) OWNER TO ujira_scheduler;
 
 --
 -- Name: forbid_mutation(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
@@ -814,6 +953,31 @@ $$;
 ALTER FUNCTION ujira.ledger_stamp() OWNER TO ujira_fn_ledger;
 
 --
+-- Name: overdue_fee_refunds(integer); Type: FUNCTION; Schema: ujira; Owner: ujira_scheduler
+--
+
+CREATE FUNCTION ujira.overdue_fee_refunds(p_limit integer) RETURNS TABLE(principal_id uuid, project_id uuid, fee_refund_id uuid)
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if p_limit is null or p_limit not between 1 and 500 then
+    raise exception using errcode = '22023', message = 'limit must be from 1 to 500';
+  end if;
+  return query
+    select r.principal_id, r.project_id, r.id
+      from ujira.fee_refunds as r
+     where r.due_at < clock_timestamp()
+       and r.status in ('owed', 'awaiting_signatures', 'failed')
+     order by r.due_at, r.id
+     limit p_limit;
+end
+$$;
+
+
+ALTER FUNCTION ujira.overdue_fee_refunds(p_limit integer) OWNER TO ujira_scheduler;
+
+--
 -- Name: project_scope_all(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -839,6 +1003,30 @@ $$;
 
 
 ALTER FUNCTION ujira.project_scope_all() OWNER TO ujira_owner;
+
+--
+-- Name: reconcile_targets(uuid, integer); Type: FUNCTION; Schema: ujira; Owner: ujira_scheduler
+--
+
+CREATE FUNCTION ujira.reconcile_targets(p_after uuid, p_limit integer) RETURNS TABLE(principal_id uuid, project_id uuid, mandate_instance_id uuid)
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if p_limit is null or p_limit not between 1 and 500 then
+    raise exception using errcode = '22023', message = 'limit must be from 1 to 500';
+  end if;
+  return query
+    select i.principal_id, i.project_id, i.id
+      from ujira.mandate_instances as i
+     where i.id > coalesce(p_after, '00000000-0000-0000-0000-000000000000'::uuid)
+     order by i.id
+     limit p_limit;
+end
+$$;
+
+
+ALTER FUNCTION ujira.reconcile_targets(p_after uuid, p_limit integer) OWNER TO ujira_scheduler;
 
 --
 -- Name: resolve_mandate_instance(text, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_instances
@@ -873,6 +1061,133 @@ $$;
 
 
 ALTER FUNCTION ujira.touch() OWNER TO ujira_owner;
+
+--
+-- Name: enqueue(text, jsonb, text, text, timestamp with time zone, integer, text, text); Type: FUNCTION; Schema: ujira_jobs; Owner: ujira_worker
+--
+
+CREATE FUNCTION ujira_jobs.enqueue(p_task text, p_ids jsonb, p_job_key text DEFAULT '-'::text, p_queue text DEFAULT '-'::text, p_run_at timestamp with time zone DEFAULT clock_timestamp(), p_max_attempts integer DEFAULT 5, p_key_mode text DEFAULT 'replace'::text, p_scope text DEFAULT 'project'::text) RETURNS bigint
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $_$
+declare
+  v_principal text := current_setting('ujira.principal_id', true);
+  v_project   text := current_setting('ujira.project_id', true);
+  v_txid      text := current_setting('ujira.txid', true);
+  v_tenant_scope text := current_setting('ujira.scope', true);
+  v_prefix    text;
+  v_job_id    bigint;
+begin
+  if p_task is null then
+    raise exception using errcode = '22004', message = 'p_task must not be null';
+  end if;
+  if p_ids is null then
+    raise exception using errcode = '22004', message = 'p_ids must not be null';
+  end if;
+  if p_job_key is null then
+    raise exception using errcode = '22004', message = 'p_job_key must not be null: omit it instead';
+  end if;
+  if p_queue is null then
+    raise exception using errcode = '22004', message = 'p_queue must not be null: omit it instead';
+  end if;
+  if p_run_at is null then
+    raise exception using errcode = '22004', message = 'p_run_at must not be null: omit it instead';
+  end if;
+  if p_max_attempts is null then
+    raise exception using errcode = '22004', message = 'p_max_attempts must not be null: omit it instead';
+  end if;
+  if p_key_mode is null then
+    raise exception using errcode = '22004', message = 'p_key_mode must not be null: omit it instead';
+  end if;
+  if p_scope is null then
+    raise exception using errcode = '22004', message = 'p_scope must not be null: omit it instead';
+  end if;
+
+  -- The context functions live in schema ujira, which this role cannot reach, so
+  -- their rules are repeated here: the settings must belong to this transaction.
+  if v_principal is null or v_principal = '' or v_project is null or v_project = '' then
+    raise exception using errcode = 'UJ001', message = 'no tenant context: this transaction did not set one';
+  end if;
+  if v_txid is distinct from txid_current()::text then
+    raise exception using errcode = 'UJ001', message = 'no tenant context: the settings belong to another transaction';
+  end if;
+  -- A default would hand every session a tenant before any transaction set one.
+  if exists (
+    select 1
+      from pg_db_role_setting as s
+     where s.setrole in (0, (select r.oid from pg_roles as r where r.rolname = session_user))
+       and s.setdatabase in (0, (select d.oid from pg_database as d where d.datname = current_database()))
+       and exists (select 1 from unnest(s.setconfig) as c (setting) where c.setting like 'ujira.%')
+  ) then
+    raise exception using errcode = 'UJ001', message = 'no tenant context: a role or database default sets a ujira setting, and only a transaction may';
+  end if;
+  if v_tenant_scope is distinct from 'project' then
+    raise exception using errcode = 'UJ001', message = 'a job needs one project: scope all cannot enqueue';
+  end if;
+  -- One spelling for the prefix and the payload, so a handler comparing ids as
+  -- strings never misses, and two spellings of a tenant are one tenant here.
+  begin
+    v_principal := v_principal::uuid::text;
+    v_project := v_project::uuid::text;
+  exception when invalid_text_representation then
+    raise exception using errcode = 'UJ001', message = 'tenant context is not a uuid';
+  end;
+
+  -- Colons, not dots: the crontab parser rejects dots in task names.
+  if p_task !~ '^[a-z][a-z0-9_]*(:[a-z][a-z0-9_]*)+$' or length(p_task) > 64 then
+    raise exception using errcode = '22023', message = 'invalid task name: use colons, as in payout:advance';
+  end if;
+  -- Ids only, as strings. The tenant is added below, never taken from the caller.
+  if jsonb_typeof(p_ids) <> 'object'
+     or p_ids ? 'principalId' or p_ids ? 'projectId'
+     or exists (select 1 from jsonb_each(p_ids) as e where jsonb_typeof(e.value) <> 'string') then
+    raise exception using errcode = '22023', message = 'job ids must be strings, without principalId or projectId';
+  end if;
+  -- unsafe_dedupe can drop a state change, so it is never offered.
+  if p_key_mode not in ('replace', 'preserve_run_at') then
+    raise exception using errcode = '22023', message = 'unsupported job key mode';
+  end if;
+  if p_scope not in ('project', 'principal') then
+    raise exception using errcode = '22023', message = 'unsupported job scope';
+  end if;
+  -- The worker's own limit on a queue name is 128, and the prefix takes 74. An
+  -- empty name would collapse to the bare prefix and be shared by every such job.
+  if p_job_key <> '-' and (p_job_key !~ '^[A-Za-z0-9][A-Za-z0-9:_.-]*$' or length(p_job_key) > 400) then
+    raise exception using errcode = '22023', message = 'invalid job key';
+  end if;
+  if p_queue <> '-' and (p_queue !~ '^[A-Za-z0-9][A-Za-z0-9:_.-]*$' or length(p_queue) > 54) then
+    raise exception using errcode = '22023', message = 'invalid queue name';
+  end if;
+  if p_max_attempts not between 1 and 100 then
+    raise exception using errcode = '22023', message = 'max attempts must be from 1 to 100';
+  end if;
+  -- A run time no job could mean: never, the start of time, or further away than
+  -- any schedule here reaches. Such a job would sit in the queue or jump it.
+  if not isfinite(p_run_at) then
+    raise exception using errcode = '22023', message = 'run at must be a finite time';
+  end if;
+  if p_run_at not between clock_timestamp() - interval '1 year' and clock_timestamp() + interval '1 year' then
+    raise exception using errcode = '22023', message = 'run at must be within a year of now';
+  end if;
+
+  v_prefix := v_principal || ':' || case p_scope when 'project' then v_project else '*' end || ':';
+
+  select j.id into v_job_id
+    from graphile_worker.add_job(
+      identifier   => p_task,
+      payload      => (p_ids || jsonb_build_object('principalId', v_principal, 'projectId', v_project))::json,
+      queue_name   => case when p_queue = '-' then null else v_prefix || p_queue end,
+      run_at       => p_run_at,
+      max_attempts => p_max_attempts,
+      job_key      => case when p_job_key = '-' then null else v_prefix || p_job_key end,
+      job_key_mode => p_key_mode
+    ) as j;
+  return v_job_id;
+end
+$_$;
+
+
+ALTER FUNCTION ujira_jobs.enqueue(p_task text, p_ids jsonb, p_job_key text, p_queue text, p_run_at timestamp with time zone, p_max_attempts integer, p_key_mode text, p_scope text) OWNER TO ujira_worker;
 
 SET default_tablespace = '';
 
@@ -1761,6 +2076,20 @@ CREATE TABLE ujira.status_transitions (
 ALTER TABLE ujira.status_transitions OWNER TO ujira_owner;
 
 --
+-- Name: worker_heartbeats; Type: TABLE; Schema: ujira_jobs; Owner: ujira_worker
+--
+
+CREATE TABLE ujira_jobs.worker_heartbeats (
+    worker_id text NOT NULL,
+    last_seen_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT worker_heartbeats_id_length CHECK (((char_length(worker_id) >= 1) AND (char_length(worker_id) <= 128)))
+);
+
+
+ALTER TABLE ujira_jobs.worker_heartbeats OWNER TO ujira_worker;
+
+--
 -- Name: ujira_migrations id; Type: DEFAULT; Schema: public; Owner: test
 --
 
@@ -2301,6 +2630,14 @@ ALTER TABLE ONLY ujira.settlement_tokens
 
 ALTER TABLE ONLY ujira.status_transitions
     ADD CONSTRAINT status_transitions_pkey PRIMARY KEY (machine, from_status, to_status);
+
+
+--
+-- Name: worker_heartbeats worker_heartbeats_pkey; Type: CONSTRAINT; Schema: ujira_jobs; Owner: ujira_worker
+--
+
+ALTER TABLE ONLY ujira_jobs.worker_heartbeats
+    ADD CONSTRAINT worker_heartbeats_pkey PRIMARY KEY (worker_id);
 
 
 --
@@ -3454,6 +3791,13 @@ CREATE POLICY resolve_instance ON ujira.mandate_instances FOR SELECT TO ujira_fn
 
 
 --
+-- Name: mandate_instances scheduler_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY scheduler_read ON ujira.mandate_instances FOR SELECT TO ujira_scheduler USING (true);
+
+
+--
 -- Name: api_tokens tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3918,6 +4262,14 @@ GRANT USAGE ON SCHEMA ujira TO ujira_signer_attester;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_instances;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_ledger;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_audit;
+GRANT USAGE ON SCHEMA ujira TO ujira_scheduler;
+
+
+--
+-- Name: SCHEMA ujira_jobs; Type: ACL; Schema: -; Owner: ujira_worker
+--
+
+GRANT USAGE ON SCHEMA ujira_jobs TO ujira_app;
 
 
 --
@@ -4023,6 +4375,13 @@ GRANT ALL ON FUNCTION ops.release_executor(target_network text, account text, ho
 
 
 --
+-- Name: FUNCTION apply_scheduler_read(target regclass, readable_columns text[]); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.apply_scheduler_read(target regclass, readable_columns text[]) FROM PUBLIC;
+
+
+--
 -- Name: FUNCTION apply_tenant_policies(target regclass); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4069,6 +4428,13 @@ GRANT ALL ON FUNCTION ujira.audit_row_hash(prev_hash bytea, principal_id uuid, p
 REVOKE ALL ON FUNCTION ujira.authenticate_token(token_prefix text) FROM PUBLIC;
 GRANT ALL ON FUNCTION ujira.authenticate_token(token_prefix text) TO ujira_app;
 GRANT ALL ON FUNCTION ujira.authenticate_token(token_prefix text) TO ujira_auth;
+
+
+--
+-- Name: FUNCTION bootstrap_worker_roles(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.bootstrap_worker_roles() FROM PUBLIC;
 
 
 --
@@ -4125,6 +4491,14 @@ GRANT ALL ON FUNCTION ujira.current_project_id() TO ujira_indexer;
 
 
 --
+-- Name: FUNCTION due_attempt_deadlines(p_before timestamp with time zone, p_limit integer); Type: ACL; Schema: ujira; Owner: ujira_scheduler
+--
+
+REVOKE ALL ON FUNCTION ujira.due_attempt_deadlines(p_before timestamp with time zone, p_limit integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.due_attempt_deadlines(p_before timestamp with time zone, p_limit integer) TO ujira_app;
+
+
+--
 -- Name: FUNCTION forbid_mutation(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4174,6 +4548,14 @@ REVOKE ALL ON FUNCTION ujira.ledger_stamp() FROM PUBLIC;
 
 
 --
+-- Name: FUNCTION overdue_fee_refunds(p_limit integer); Type: ACL; Schema: ujira; Owner: ujira_scheduler
+--
+
+REVOKE ALL ON FUNCTION ujira.overdue_fee_refunds(p_limit integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.overdue_fee_refunds(p_limit integer) TO ujira_app;
+
+
+--
 -- Name: FUNCTION project_scope_all(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4183,6 +4565,14 @@ GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_reader;
 GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_retention;
 GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_auth;
 GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_indexer;
+
+
+--
+-- Name: FUNCTION reconcile_targets(p_after uuid, p_limit integer); Type: ACL; Schema: ujira; Owner: ujira_scheduler
+--
+
+REVOKE ALL ON FUNCTION ujira.reconcile_targets(p_after uuid, p_limit integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.reconcile_targets(p_after uuid, p_limit integer) TO ujira_app;
 
 
 --
@@ -4198,6 +4588,14 @@ GRANT ALL ON FUNCTION ujira.resolve_mandate_instance(target_chain text, target_a
 --
 
 REVOKE ALL ON FUNCTION ujira.touch() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION enqueue(p_task text, p_ids jsonb, p_job_key text, p_queue text, p_run_at timestamp with time zone, p_max_attempts integer, p_key_mode text, p_scope text); Type: ACL; Schema: ujira_jobs; Owner: ujira_worker
+--
+
+REVOKE ALL ON FUNCTION ujira_jobs.enqueue(p_task text, p_ids jsonb, p_job_key text, p_queue text, p_run_at timestamp with time zone, p_max_attempts integer, p_key_mode text, p_scope text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira_jobs.enqueue(p_task text, p_ids jsonb, p_job_key text, p_queue text, p_run_at timestamp with time zone, p_max_attempts integer, p_key_mode text, p_scope text) TO ujira_app;
 
 
 --
@@ -4425,6 +4823,27 @@ GRANT SELECT ON TABLE ujira.mandate_instances TO ujira_indexer;
 
 
 --
+-- Name: COLUMN mandate_instances.principal_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(principal_id) ON TABLE ujira.mandate_instances TO ujira_scheduler;
+
+
+--
+-- Name: COLUMN mandate_instances.project_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(project_id) ON TABLE ujira.mandate_instances TO ujira_scheduler;
+
+
+--
+-- Name: COLUMN mandate_instances.id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(id) ON TABLE ujira.mandate_instances TO ujira_scheduler;
+
+
+--
 -- Name: TABLE mandates; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4520,10 +4939,24 @@ ALTER DEFAULT PRIVILEGES FOR ROLE ujira_owner REVOKE ALL ON TYPES FROM PUBLIC;
 
 
 --
+-- Name: DEFAULT PRIVILEGES FOR TYPES; Type: DEFAULT ACL; Schema: -; Owner: ujira_worker
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE ujira_worker REVOKE ALL ON TYPES FROM PUBLIC;
+
+
+--
 -- Name: DEFAULT PRIVILEGES FOR FUNCTIONS; Type: DEFAULT ACL; Schema: -; Owner: ujira_owner
 --
 
 ALTER DEFAULT PRIVILEGES FOR ROLE ujira_owner REVOKE ALL ON FUNCTIONS FROM PUBLIC;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR FUNCTIONS; Type: DEFAULT ACL; Schema: -; Owner: ujira_worker
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE ujira_worker REVOKE ALL ON FUNCTIONS FROM PUBLIC;
 
 
 --
