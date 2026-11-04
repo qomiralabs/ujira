@@ -6,6 +6,7 @@ export { CHAIN_NAMESPACES, CHAIN_SDK_PACKAGES } from './chain-modules.js';
 export type { ChainNamespace } from './chain-modules.js';
 export type { KeyRef, NetworksConfig, StellarNetworkConfig } from './config.js';
 export {
+  ADAPTER_LOG_SERIALIZERS,
   CHAIN_ADAPTER_ERROR_CODES,
   CHAIN_ADAPTER_ERROR_MESSAGES,
   ActivationBudgetExhaustedError,
@@ -46,8 +47,10 @@ export {
   UnsupportedError,
   isChainAdapterError,
   mandateRuleErrorOf,
+  serializeAdapterError,
 } from './errors.js';
 export type {
+  AdapterErrorLog,
   ChainAdapterErrorCode,
   ChainAdapterErrorJson,
   ChainAdapterErrorOptions,
@@ -98,6 +101,7 @@ export {
   mandateErrorName,
 } from './mandate-errors.js';
 export type { MandateErrorName } from './mandate-errors.js';
+export { PUBLIC_TEST_ATTESTER_KEYS, isPublicTestAttesterKey } from './test-attester-keys.js';
 export { pinnedKeys, verifyPinnedAddresses } from './key-ref.js';
 export type { PinnedKey } from './key-ref.js';
 export { NETWORK_IDS, chainOf, isNetworkId } from './networks.js';

@@ -2,7 +2,8 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
@@ -11,6 +12,7 @@ import { MIGRATIONS_DIR } from '../packages/db/src/migrate.ts';
 import {
   blankNonCode,
   checkMigration,
+  checkTimestamps,
   formatProblem,
   splitStatements,
   upSectionForLint,
@@ -194,6 +196,76 @@ describe('check-migrations', () => {
       expect(checkMigration(file, readFileSync(join(MIGRATIONS_DIR, file), 'utf8'))).toEqual([]);
     }
   });
+
+  it('two migrations with one timestamp fail, naming both', () => {
+    const [problem, ...rest] = checkTimestamps([
+      '1761004800001_second.sql',
+      '1761004800001_first.sql',
+      '1761004800002_other.sql',
+    ]);
+    expect(rest).toEqual([]);
+    expect(problem?.file).toBe('1761004800001_second.sql');
+    expect(problem?.message).toContain('1761004800001_first.sql');
+  });
+
+  it('reports every file past the first that shares a timestamp', () => {
+    const problems = checkTimestamps([
+      '1761004800001_a.sql',
+      '1761004800001_b.sql',
+      '1761004800001_c.sql',
+    ]);
+    expect(problems.map((problem) => problem.file)).toEqual([
+      '1761004800001_b.sql',
+      '1761004800001_c.sql',
+    ]);
+  });
+
+  it('passes distinct timestamps and does not compare a file with itself', () => {
+    expect(
+      checkTimestamps(['1761004800001_a.sql', '1761004800002_b.sql', '1761004800001_a.sql']),
+    ).toEqual([]);
+  });
+
+  it('leaves a name without a timestamp to the file name rule', () => {
+    expect(checkTimestamps(['no_timestamp.sql', 'no_timestamp_either.sql'])).toEqual([]);
+  });
+
+  it('excuses the one merged pair and nothing else', () => {
+    const first = '1794182400000_ops_fee_estimates.sql';
+    const second = '1794182400000_recipients_payout_methods.sql';
+    expect(checkTimestamps([first, second])).toEqual([]);
+    expect(
+      checkTimestamps([first, second, '1794182400000_third.sql']).map((problem) => problem.file),
+    ).toEqual(['1794182400000_third.sql']);
+    expect(checkTimestamps(['1794182400000_a.sql', second]).map((problem) => problem.file)).toEqual(
+      [second],
+    );
+  });
+
+  it('finds no shared timestamp among the committed migrations', () => {
+    expect(checkTimestamps(readdirSync(MIGRATIONS_DIR))).toEqual([]);
+  });
+
+  // The file it clashes with is not named, so only a check of the whole folder
+  // can see it. Starts node, so it gets the same limit as the test below.
+  it('fails a duplicate when only one of the two files is named', () => {
+    const committed = readdirSync(MIGRATIONS_DIR).find((name) => name.endsWith('.sql')) ?? '';
+    const timestamp = committed.split('_')[0] ?? '';
+    const dir = mkdtempSync(join(tmpdir(), 'check-migrations-'));
+    try {
+      const file = join(dir, `${timestamp}_clashing.sql`);
+      writeFileSync(file, migration('select 1;'));
+      const failed = spawnSync(process.execPath, ['scripts/check-migrations.ts', file], {
+        cwd: ROOT,
+        encoding: 'utf8',
+      });
+      expect(failed.status).toBe(1);
+      expect(failed.stderr).toContain(committed);
+      expect(failed.stderr).toContain(`${timestamp}_clashing.sql`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
 
   // Starts node twice, which took 22 seconds on a loaded machine against the
   // default limit of 5.

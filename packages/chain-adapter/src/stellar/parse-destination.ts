@@ -12,6 +12,7 @@ import {
   MUXED_BYTES,
   STRKEY_VERSION,
   encodeAccountAddress,
+  isZeroKey,
   readStrkey,
   splitMuxed,
 } from '../codecs/strkey.js';
@@ -104,9 +105,7 @@ export function parseStellarDestination(
   if (payload === 'malformed') throw refused(network, 'MALFORMED', ADDRESS);
   // The all zero key is a valid strkey that nobody can sign for, so anything
   // sent there is gone for good. It is also what an unset buffer encodes to.
-  if (payload.subarray(0, KEY_BYTES).every((byte) => byte === 0)) {
-    throw refused(network, 'ZERO_ADDRESS', ADDRESS);
-  }
+  if (isZeroKey(payload)) throw refused(network, 'ZERO_ADDRESS', ADDRESS);
   const memoId = ownField(input, 'memoId');
   if (form.kind === 'account') {
     return { address: { network, value: address }, tag: readTag(network, memoId) };
