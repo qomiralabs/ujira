@@ -29,7 +29,7 @@ import { LatencyWindow } from './latency.js';
 import { messageFor } from './policy.js';
 import { parseAttestationFields, parsePayload, parseRef } from './schemas.js';
 import { checkPayable } from './unpayable.js';
-import type { SettlementAssetIndex } from './unpayable.js';
+import type { MandateSettlementIndex } from './unpayable.js';
 
 export interface LocalSignerOptions {
   /** 64 lower case hex characters; never logged or kept in an error. */
@@ -41,8 +41,8 @@ export interface LocalSignerOptions {
 }
 
 export interface LocalAttesterSignerOptions extends LocalSignerOptions {
-  /** Where the attester reads each mandate's settlement asset. */
-  readonly mandates: SettlementAssetIndex;
+  /** Where the attester reads what each mandate settles through. */
+  readonly mandates: MandateSettlementIndex;
 }
 
 /** Throws when the environment is production, so a local key never guards real funds. */
@@ -135,7 +135,7 @@ export class LocalSigner implements SignerProvider {
 
 export class LocalAttesterSigner implements AttesterSigner {
   readonly #keys: LocalKeys;
-  readonly #mandates: SettlementAssetIndex;
+  readonly #mandates: MandateSettlementIndex;
 
   constructor(options: LocalAttesterSignerOptions) {
     this.#keys = new LocalKeys(options);
@@ -144,7 +144,7 @@ export class LocalAttesterSigner implements AttesterSigner {
 
   /** An attester seeded from UJIRA_SIGNER_LOCAL_SEED. */
   static fromEnv(
-    mandates: SettlementAssetIndex,
+    mandates: MandateSettlementIndex,
     env: Readonly<Record<string, string | undefined>> = process.env,
   ): LocalAttesterSigner {
     return new LocalAttesterSigner({

@@ -16,4 +16,4 @@ export { RemoteSigner } from './remote.js';
 export type { RemoteSignerOptions } from './remote.js';
 export { LOCAL_PROVIDER, verifySignerStartup } from './startup.js';
 export type { SignerStartupOptions } from './startup.js';
-export type { SettlementAssetIndex } from './unpayable.js';
+export type { MandateSettlement, MandateSettlementIndex } from './unpayable.js';

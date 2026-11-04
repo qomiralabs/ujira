@@ -32,6 +32,7 @@ export { CONTRACT_OPERATION_TYPES, assertNoMemoOnContractCall } from './memo.js'
 export {
   ZERO_ACCOUNT_ADDRESS,
   ZERO_CONTRACT_ADDRESS,
+  baseAddress,
   decodeAccountAddress,
   encodeAccountAddress,
   encodeMuxedAddress,

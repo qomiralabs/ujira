@@ -205,6 +205,7 @@ describe('strkey codecs', () => {
       'attachAuthEntrySignature',
       'attachEnvelopeSignature',
       'attestationMessage',
+      'baseAddress',
       'decodeAccountAddress',
       'decodeAuthEntry',
       'decodeFeeBumpEnvelope',

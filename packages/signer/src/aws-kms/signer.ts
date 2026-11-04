@@ -29,7 +29,7 @@ import { messageFor } from '../policy.js';
 import { parseAttestationFields, parsePayload, parseRef } from '../schemas.js';
 
 import { checkPayable } from '../unpayable.js';
-import type { SettlementAssetIndex } from '../unpayable.js';
+import type { MandateSettlementIndex } from '../unpayable.js';
 
 import type { KmsClient } from './client.js';
 import { portError, reasonOf } from './errors.js';
@@ -198,13 +198,13 @@ export class AwsKmsSigner implements SignerProvider {
 }
 
 export interface AwsKmsAttesterSignerOptions extends AwsKmsSignerOptions {
-  /** Where the attester reads each mandate's settlement asset. */
-  readonly mandates: SettlementAssetIndex;
+  /** Where the attester reads what each mandate settles through. */
+  readonly mandates: MandateSettlementIndex;
 }
 
 export class AwsKmsAttesterSigner implements AttesterSigner {
   readonly #keys: KmsKeys;
-  readonly #mandates: SettlementAssetIndex;
+  readonly #mandates: MandateSettlementIndex;
 
   constructor(options: AwsKmsAttesterSignerOptions) {
     this.#keys = new KmsKeys(options);

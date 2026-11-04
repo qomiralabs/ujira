@@ -173,7 +173,8 @@ export interface SignerProvider {
 export interface AttesterSigner {
   /**
    * Throws DestinationInvalidError, with nothing signed, when the destination
-   * is the mandate, its settlement asset contract or an all-zero address.
+   * is the mandate, its factory, its settlement asset contract, that asset's
+   * issuer or an all-zero address.
    */
   signAttestation(fields: AttestationFields, opts: CallOptions): Promise<SignatureResult>;
   /** The 32 byte ed25519 key the network's mandates are configured with. */

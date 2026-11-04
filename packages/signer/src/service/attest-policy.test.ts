@@ -32,7 +32,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { LocalSigner } from '../local-signer.js';
 import { RemoteAttesterSigner } from '../remote-attester.js';
 import { CALLER_TOKEN, OPTS, TEST_SEED, codeOf } from '../testing/service.js';
-import { PAYABLE, TEST_ASSET, UNPAYABLE, UNPAYABLE_FROM_FIELDS } from '../testing/unpayable.js';
+import {
+  PAYABLE,
+  TEST_ASSET,
+  TEST_SETTLEMENT,
+  UNPAYABLE,
+  UNPAYABLE_FROM_FIELDS,
+} from '../testing/unpayable.js';
 import { toWire } from '../wire.js';
 import {
   attestPolicy,
@@ -90,7 +96,7 @@ function setup(options: Setup = {}) {
                 executors: [],
                 tenant: TENANT,
                 recipientMode: mode,
-                settlementAsset: TEST_ASSET,
+                ...TEST_SETTLEMENT,
               },
             ],
       ),

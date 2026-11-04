@@ -3,8 +3,9 @@
 
 /*
  * Contract for the backends that hold a key. Before signing, the attester
- * refuses a destination whose base address is the mandate, that mandate's
- * settlement asset contract, or an all-zero address, whatever the tag. The
+ * refuses a destination whose base address is the mandate, the factory that
+ * deployed it, its settlement asset contract, that asset's issuer, or an
+ * all-zero address, whatever the tag. The
  * refusal is DestinationInvalidError, so a caller can tell it from a signing
  * failure, and no key is used.
  */
@@ -22,6 +23,8 @@ import { TEST_SEED } from './testing/service.js';
 import {
   PAYABLE,
   TEST_ASSET,
+  TEST_FACTORY,
+  TEST_ISSUER,
   TEST_MANDATES,
   UNPAYABLE,
   UNPAYABLE_FROM_FIELDS,
@@ -115,11 +118,15 @@ describe('a key behind the provider port', () => {
     ).rejects.toBeInstanceOf(DestinationInvalidError);
   });
 
-  it('leaves the settlement asset to the policy that can look it up', async () => {
+  it.each([
+    ["the mandate's factory", TEST_FACTORY],
+    ['the settlement asset', TEST_ASSET],
+    ["the settlement asset's issuer", TEST_ISSUER],
+  ])('leaves %s to the policy that can look it up', async (_label, address) => {
     const signer = new LocalSigner({ seed: TEST_SEED, nodeEnv: 'test' });
     const result = await signer.sign(
       ATTESTER,
-      { kind: 'attestation', network: ATTESTER.network, fields: attestationTo(TEST_ASSET, null) },
+      { kind: 'attestation', network: ATTESTER.network, fields: attestationTo(address, null) },
       OPTS,
     );
     expect(result.signature).toHaveLength(64);

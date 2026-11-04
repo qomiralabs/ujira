@@ -15,6 +15,7 @@ import { accountFromSeed, contractAddress } from '../testing/address.js';
 import {
   KEY_BYTES,
   STRKEY_VERSION,
+  baseAddress,
   ZERO_ACCOUNT_ADDRESS,
   ZERO_CONTRACT_ADDRESS,
   encodeMuxedAddress,
@@ -52,6 +53,16 @@ describe('the all-zero addresses', () => {
     expect(isZeroAddress(account)).toBe(false);
     expect(isZeroAddress(contractAddress(ONE_BYTE_SET))).toBe(false);
     expect(isZeroAddress(encodeMuxedAddress(ONE_BYTE_SET, 0n))).toBe(false);
+  });
+
+  it('reads an M address as the account it pays, and leaves anything else as it is', () => {
+    const account = accountFromSeed(new Uint8Array(KEY_BYTES).fill(2));
+    const key = readStrkey(account, STRKEY_VERSION.account, KEY_BYTES);
+    if (typeof key === 'string') throw new Error('not an account');
+    expect(baseAddress(encodeMuxedAddress(key, 9n))).toBe(account);
+    expect(baseAddress(account)).toBe(account);
+    expect(baseAddress(ZERO_CONTRACT_ADDRESS)).toBe(ZERO_CONTRACT_ADDRESS);
+    expect(baseAddress('not an address')).toBe('not an address');
   });
 
   it('reads text that is no address as not zero, leaving the refusal to the codecs', () => {

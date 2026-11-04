@@ -16,7 +16,7 @@ import { InvalidInputError } from '@ujira/chain-adapter';
 import type { SignPayload, SignerRef } from '@ujira/chain-adapter';
 import { attestationMessage } from '@ujira/chain-adapter/codecs';
 
-import { refuseSettlementAsset, refuseUnpayable } from '../unpayable.js';
+import { refuseSettlement, refuseUnpayable } from '../unpayable.js';
 
 import { deny } from './policy.js';
 import type { PolicyContext, PolicyDecision, RefKind, ServicePolicy } from './policy.js';
@@ -49,14 +49,14 @@ export function attestPolicy(options: AttestPolicyOptions): ServicePolicy {
       // Ahead of the layout, which refuses an M address outright: an unpayable
       // one should read as unpayable, not as malformed.
       refuseUnpayable(fields);
+      const mandate = await mandates.find(ref.network, fields.mandate.address.value, opts);
+      if (mandate === null || mandate.recipientMode === 'allowlist') throw deny(ref);
+      refuseSettlement(fields, mandate);
       const message = messageOf(ref, payload);
       // Already expired at the mandate, or valid for longer than it accepts.
       if (fields.validUntil <= now || fields.validUntil - now > MAX_ATTESTATION_VALIDITY_SECONDS) {
         throw deny(ref);
       }
-      const mandate = await mandates.find(ref.network, fields.mandate.address.value, opts);
-      if (mandate === null || mandate.recipientMode === 'allowlist') throw deny(ref);
-      refuseSettlementAsset(fields, mandate.settlementAsset);
       const pending = await log.pending(message, opts);
       // A pending row only for this mandate's own tenant, so one tenant's
       // record can never authorize an attestation on another's mandate.
