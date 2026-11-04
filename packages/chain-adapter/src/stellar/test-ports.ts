@@ -12,6 +12,7 @@ import { TransactionBuilder } from '@stellar/stellar-sdk/base';
 import type { Keypair } from '@stellar/stellar-sdk/base';
 
 import { InvalidInputError, SignerDeniedError } from '../errors.js';
+import { canMoveSubmission } from '../submission-states.js';
 import type { NetworkId, StellarNetworkId } from '../networks.js';
 import type { SignerProvider, SignerRef } from '../signer.js';
 import type {
@@ -59,6 +60,11 @@ export function memoryStore(
       const row = submissions.get(key);
       if (row?.scope.principalId !== scope.principalId || row.scope.projectId !== scope.projectId) {
         return Promise.reject(new Error('no such submission for this tenant'));
+      }
+      // The same refusal the database gives, so a test cannot pass on a move
+      // that production would reject.
+      if (patch.state !== undefined && !canMoveSubmission(row.state, patch.state)) {
+        return Promise.reject(new Error(`no move from ${row.state} to ${patch.state}`));
       }
       submissions.set(key, { ...row, ...patch });
       return Promise.resolve();

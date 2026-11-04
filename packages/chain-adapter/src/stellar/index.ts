@@ -31,6 +31,8 @@ export {
 export type { LedgerEventPage } from './events.js';
 export { createStellarRpc } from './rpc.js';
 export { accountBalance } from './tx.js';
+export { fateOf } from './lifecycle.js';
+export type { ReconcileResult, SubmissionFate, SweepOptions } from './lifecycle.js';
 export type {
   JsonRpcOptions,
   RpcEvent,

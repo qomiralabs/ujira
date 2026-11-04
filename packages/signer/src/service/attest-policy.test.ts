@@ -9,12 +9,14 @@
  * else. It signs only for an indexed mandate in attested or both mode, with
  * valid_until after now and at most 24 hours ahead, when the attestation log
  * holds a pending row with the same message for the mandate's own tenant.
- * With no log row it refuses. Everything refused is SIGNER_DENIED.
+ * With no log row it refuses. Everything refused is SIGNER_DENIED, except a
+ * destination that can never pay out, which is DESTINATION_INVALID.
  */
 
 import { createHash } from 'node:crypto';
 
 import { ed25519 } from '@noble/curves/ed25519.js';
+import { DestinationInvalidError } from '@ujira/chain-adapter';
 import type {
   AttestationFields,
   Bytes32,
@@ -25,11 +27,18 @@ import type {
 } from '@ujira/chain-adapter';
 import { attestationMessage } from '@ujira/chain-adapter/codecs';
 import { TEST_CONTRACT, TEST_DESTINATION } from '@ujira/chain-adapter/testing';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { LocalSigner } from '../local-signer.js';
 import { RemoteAttesterSigner } from '../remote-attester.js';
 import { CALLER_TOKEN, OPTS, TEST_SEED, codeOf } from '../testing/service.js';
+import {
+  PAYABLE,
+  TEST_ASSET,
+  TEST_SETTLEMENT,
+  UNPAYABLE,
+  UNPAYABLE_FROM_FIELDS,
+} from '../testing/unpayable.js';
 import { toWire } from '../wire.js';
 import {
   attestPolicy,
@@ -87,6 +96,7 @@ function setup(options: Setup = {}) {
                 executors: [],
                 tenant: TENANT,
                 recipientMode: mode,
+                ...TEST_SETTLEMENT,
               },
             ],
       ),
@@ -128,6 +138,71 @@ function post(fetchVia: typeof fetch, route: string, body: unknown) {
     body: typeof body === 'string' ? body : toWire(body),
   });
 }
+
+function to(address: string, tag: bigint | null): AttestationFields {
+  return { ...fields(), destination: { address: { network: NETWORK, value: address }, tag } };
+}
+
+// An M address has no message to record, since the mandate never hashes one.
+// The refusal has to come first for it, and for the rest the log says yes.
+const recordable = (address: string, tag: bigint | null) =>
+  address.startsWith('M') ? null : to(address, tag);
+
+describe('a destination that can never pay out', () => {
+  it.each(UNPAYABLE)(
+    'the service refuses %s with its own code and signs nothing',
+    async (_label, address, tag) => {
+      const { backend, fetch: fetchVia } = setup({ recorded: recordable(address, tag) });
+      const sign = vi.spyOn(backend, 'sign');
+      const response = await post(fetchVia, '/v1/attest', { fields: to(address, tag) });
+      expect(response.status).toBe(422);
+      expect(await response.text()).toBe('{"error":{"code":"DESTINATION_INVALID"}}');
+      expect(sign).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(UNPAYABLE)(
+    'a caller of the remote attester sees %s as a destination error and no signature',
+    async (_label, address, tag) => {
+      const { backend, attester } = setup({ recorded: recordable(address, tag) });
+      const sign = vi.spyOn(backend, 'sign');
+      await expect(attester.signAttestation(to(address, tag), OPTS)).rejects.toBeInstanceOf(
+        DestinationInvalidError,
+      );
+      expect(sign).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(UNPAYABLE_FROM_FIELDS)(
+    'the remote attester refuses %s without a call',
+    async (_label, address, tag) => {
+      const fetchVia = vi.fn<typeof fetch>();
+      const remote = new RemoteAttesterSigner({
+        baseUrl: BASE,
+        token: CALLER_TOKEN,
+        timeoutMs: 5_000,
+        fetch: fetchVia,
+      });
+      await expect(remote.signAttestation(to(address, tag), OPTS)).rejects.toBeInstanceOf(
+        DestinationInvalidError,
+      );
+      expect(fetchVia).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(PAYABLE)('the service still signs for %s', async (_label, address, tag) => {
+    const { attester } = setup({ recorded: to(address, tag) });
+    const result = await attester.signAttestation(to(address, tag), OPTS);
+    expect(result.signature).toHaveLength(64);
+  });
+
+  it('a mandate the index does not know is denied, whatever the destination', async () => {
+    const { attester } = setup({ mode: null, recorded: to(TEST_ASSET, null) });
+    expect(await codeOf(attester.signAttestation(to(TEST_ASSET, null), OPTS))).toBe(
+      'SIGNER_DENIED',
+    );
+  });
+});
 
 describe('the attester policy', () => {
   it('output is a 64-byte ed25519 signature that verifies against the attester key over the 47-byte message', async () => {

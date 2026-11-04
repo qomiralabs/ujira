@@ -130,6 +130,8 @@ export type {
 export { createMemorySponsorshipLedger, describeSponsorshipLedger } from './sponsorship-ledger.js';
 export type { SponsorshipLedgerHarness } from './sponsorship-ledger.js';
 export { FakeToken } from './token.js';
+export { FakeTtlLedger, MemoryTtlStepStore, RecordingTtlMetrics } from './ttl.js';
+export type { FakeTtlCall } from './ttl.js';
 export type {
   FakeTokenOptions,
   ReceivingState,

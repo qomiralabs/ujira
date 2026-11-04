@@ -53,6 +53,7 @@ describe('the stellar entry', { timeout: 30_000 }, () => {
       'createStellarEventIntake',
       'createStellarRpc',
       'extensionPlan',
+      'fateOf',
       'ledgerEventOf',
       'mandateAddressOf',
       'scanLedgerEvents',
@@ -144,6 +145,8 @@ describe('test ports', { timeout: 30_000 }, () => {
       errorCode: null,
       specCode: null,
       replacesTxHash: null,
+      submittedAtLedger: null,
+      reservationId: null,
       correlationId: 'c',
       createdAt: 1n as UnixSeconds,
     } as const;
