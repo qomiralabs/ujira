@@ -49,6 +49,15 @@ class CreationRaceLost extends Error {
 
 type Tx = Parameters<Parameters<Database['unscoped']>[0]>[0];
 
+// The wire says block where the table and the attester say deny. Without a policy
+// the row allows nobody, so a mandate always writes the one it was given.
+function policyRow(policy: CountryPolicy): {
+  readonly mode: 'allow' | 'deny';
+  readonly countries: readonly string[];
+} {
+  return { mode: policy.mode === 'block' ? 'deny' : 'allow', countries: policy.countries };
+}
+
 async function storedMandate(tx: Tx, terms: MandateTerms): Promise<StoredMandate | undefined> {
   const mandate = await mandates.get(tx, terms.mandateId);
   if (mandate === undefined) return undefined;
@@ -70,7 +79,10 @@ async function storedMandate(tx: Tx, terms: MandateTerms): Promise<StoredMandate
     name: mandate.name,
     recipientMode: terms.recipientMode,
     limits: terms.limits,
-    countryPolicy: CountryPolicy.parse(terms.countryPolicy),
+    countryPolicy: CountryPolicy.parse({
+      mode: mandate.countryPolicy.mode === 'deny' ? 'block' : 'allow',
+      countries: mandate.countryPolicy.countries,
+    }),
     countryPolicyHash: terms.countryPolicyHash,
     maxFeeBps: terms.maxFeeBps,
     agreedFeeBps: terms.agreedFeeBps,
@@ -100,13 +112,16 @@ export function databaseMandateRecords(db: Database): MandateRecords {
     createOnce: async (tenant, input) => {
       try {
         const written = await db.tenant(tenant).transaction(async (tx) => {
-          await mandates.create(tx, { id: input.id, name: input.name });
+          await mandates.create(tx, {
+            id: input.id,
+            name: input.name,
+            countryPolicy: policyRow(input.countryPolicy),
+          });
           const won = await mandateTerms.create(tx, {
             mandateId: input.id,
             creationKey: input.creationKey,
             recipientMode: input.recipientMode,
             limits: input.limits,
-            countryPolicy: input.countryPolicy,
             countryPolicyHash: input.countryPolicyHash,
             maxFeeBps: input.maxFeeBps,
             agreedFeeBps: input.agreedFeeBps,

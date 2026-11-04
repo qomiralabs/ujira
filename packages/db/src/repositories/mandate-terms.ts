@@ -29,7 +29,6 @@ export interface NewMandateTerms {
   readonly creationKey: string;
   readonly recipientMode: 'allowlist' | 'attested' | 'both';
   readonly limits: MandateLimitsRecord;
-  readonly countryPolicy: unknown;
   readonly countryPolicyHash: Buffer;
   readonly maxFeeBps: number;
   readonly agreedFeeBps: number;
@@ -72,7 +71,6 @@ const termsColumns = [
   'approval_threshold',
   'currency',
   'scale',
-  'country_policy',
   'country_policy_hash',
   'max_fee_bps',
   'agreed_fee_bps',
@@ -91,7 +89,6 @@ function toTerms(row: {
   approval_threshold: string;
   currency: string;
   scale: number;
-  country_policy: unknown;
   country_policy_hash: Buffer;
   max_fee_bps: string;
   agreed_fee_bps: string;
@@ -111,7 +108,6 @@ function toTerms(row: {
       perRecipientDailyCap: fiat(row.per_recipient_daily_cap),
       approvalThreshold: fiat(row.approval_threshold),
     },
-    countryPolicy: row.country_policy,
     countryPolicyHash: row.country_policy_hash,
     maxFeeBps: Number(row.max_fee_bps),
     agreedFeeBps: Number(row.agreed_fee_bps),
@@ -139,7 +135,6 @@ export const mandateTerms = {
         approval_threshold: amountParam(limits.approvalThreshold),
         currency: limits.totalBudget.currency,
         scale: limits.totalBudget.scale,
-        country_policy: JSON.stringify(input.countryPolicy),
         country_policy_hash: input.countryPolicyHash,
         max_fee_bps: input.maxFeeBps,
         agreed_fee_bps: input.agreedFeeBps,

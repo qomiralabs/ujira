@@ -3,7 +3,8 @@
 -- UJIRA has handed out for one.
 --
 -- The chain holds the limits in token units and only a hash of the country list,
--- so the logical dollar limits, the list itself and the agreed rate live here.
+-- so the logical dollar limits and the agreed rate live here. The list itself is
+-- on the mandate, which is where the attester checks a recipient against it.
 --
 -- Both unique keys carry the request's Idempotency-Key, which is what stops a
 -- second run from doing the work twice. The HTTP record alone cannot: when a
@@ -31,8 +32,6 @@ create table ujira.mandate_terms (
   approval_threshold ujira.amount not null,
   currency text not null,
   scale ujira.scale not null,
-  -- The list and whether it allows or blocks. Countries, never a person's.
-  country_policy jsonb not null,
   country_policy_hash ujira.hash32 not null,
   max_fee_bps bigint not null
     constraint mandate_terms_max_fee_range check (max_fee_bps between 0 and 100),

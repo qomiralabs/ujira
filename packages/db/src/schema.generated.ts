@@ -365,7 +365,6 @@ export interface UjiraMandateStateSnapshots {
 export interface UjiraMandateTerms {
   agreed_fee_bps: Int8;
   approval_threshold: Numeric;
-  country_policy: Json;
   country_policy_hash: Buffer;
   created_at: Generated<Timestamp>;
   creation_key: string;

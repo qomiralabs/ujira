@@ -395,7 +395,6 @@ const cases: Record<string, () => Promise<void>> = {
         perRecipientDailyCap: money('100', 'USD'),
         approvalThreshold: money('100', 'USD'),
       },
-      countryPolicy: { mode: 'allow', countries: ['KE'] },
       countryPolicyHash: Buffer.alloc(32, 3),
       maxFeeBps: 100,
       agreedFeeBps: 50,
