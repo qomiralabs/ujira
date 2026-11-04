@@ -16,6 +16,8 @@ import { deposit, ledgerFixture, postEvent, type LedgerFixture } from './testing
 const adminUrl = inject('dbAdminUrl');
 const roleUrls = inject('dbRoleUrls');
 const WRITERS = 32;
+const FIRST_USE_INSTANCES = 40;
+const FIRST_USE_WRITERS = 4;
 
 let database: TestDatabase;
 let db: Database;
@@ -33,6 +35,25 @@ afterAll(async () => {
 });
 
 describe('ledger under concurrency', () => {
+  // The first journals on an instance open its accounts. Writers listing their
+  // entries in opposite orders once opened them in opposite orders, and each
+  // waited on the other's uncommitted account row. The window is narrow, so
+  // this races first use on many fresh instances.
+  it('first use from writers listing entries in opposite orders never deadlocks', async () => {
+    const instances = await Promise.all(
+      Array.from({ length: FIRST_USE_INSTANCES }, async () => ledgerFixture(db)),
+    );
+    const results = await Promise.all(
+      instances.flatMap((instance) =>
+        Array.from({ length: FIRST_USE_WRITERS }, async (_, index) => {
+          const entries = deposit(1n);
+          return postEvent(db, instance, index % 2 === 0 ? entries : [...entries].reverse());
+        }),
+      ),
+    );
+    expect(results.every((result) => result.created)).toBe(true);
+  });
+
   it('32 writers on one account leave no gaps and exact balances', async () => {
     const amounts = Array.from({ length: WRITERS }, (_, index) => BigInt(index + 1));
     const results = await Promise.all(

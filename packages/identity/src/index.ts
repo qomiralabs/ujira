@@ -11,6 +11,8 @@ export {
   projectIdentitySettingsSchema,
 } from './config.js';
 export type { IdentityConfig } from './config.js';
+export { captureDestination, captureProviderDestination } from './destination.js';
+export type { CapturedDestination } from './destination.js';
 export {
   decideEligibility,
   effectiveRequirement,
