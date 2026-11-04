@@ -16,6 +16,7 @@ import type { Database, ProjectContext } from './database.js';
 import type { Schema } from './schema.generated.js';
 import { audit, auditRepositories } from './repositories/audit.js';
 import { entryPoints } from './repositories/entry-points.js';
+import { jobQueue, jobRepositories } from './repositories/jobs.js';
 import { managedSigners } from './repositories/signers.js';
 import { ledger, ledgerRepositories } from './repositories/ledger.js';
 import {
@@ -79,6 +80,7 @@ const REPOSITORIES = {
   ...ledgerRepositories,
   ...recipientRepositories,
   ...auditRepositories,
+  ...jobRepositories,
 };
 
 let database: TestDatabase;
@@ -301,6 +303,27 @@ const acrossA = async <T>(work: (tx: Kysely<Schema>) => Promise<T>): Promise<T> 
 
 // One case per repository method, each run as tenant A.
 const cases: Record<string, () => Promise<void>> = {
+  // A job names no other tenant's row, so the question is whether A can file one
+  // under B or touch B's by key. The key below is B's own, and it lands as A's.
+  'jobQueue.enqueue': async () => {
+    const jobKey = 'cross:tenant';
+    await db
+      .tenant(b.first)
+      .transaction(async (tx) => jobQueue.enqueue(tx, { task: 'cross:tenant', ids: {}, jobKey }));
+    await asA(async (tx) =>
+      jobQueue.enqueue(tx, { task: 'cross:tenant', ids: { from: 'a' }, jobKey }),
+    );
+    const jobs = await admin.query<{ key: string; payload: Record<string, string> }>(
+      `select key, payload from graphile_worker._private_jobs where key like '%cross:tenant'`,
+    );
+    const keyOf = (tenant: ProjectContext): string =>
+      `${tenant.principalId}:${tenant.projectId}:${jobKey}`;
+    const held = new Map(jobs.rows.map((row) => [row.key, row.payload]));
+    expect(held.get(keyOf(a.first))?.['principalId']).toBe(a.first.principalId);
+    expect(held.get(keyOf(b.first))?.['principalId']).toBe(b.first.principalId);
+    // B's job was not replaced by A's.
+    expect(held.get(keyOf(b.first))?.['from']).toBeUndefined();
+  },
   'principals.current': async () => {
     const found = await asA(async (tx) => principals.current(tx));
     expect(found?.id).toBe(a.first.principalId);
