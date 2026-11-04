@@ -15,6 +15,8 @@ export {
   ChainUnavailableError,
   CrossChainLiveError,
   DestinationInvalidError,
+  UNSUPPORTED_MEMO_DESTINATION_MESSAGE,
+  UnsupportedMemoDestinationError,
   ExecutorUnfundedError,
   InternalError,
   InvalidInputError,
@@ -57,6 +59,12 @@ export type {
   Landed,
   WaitFor,
 } from './errors.js';
+export {
+  DESTINATION_MEMO_TYPES,
+  readBindableDestination,
+  readProviderDepositInstruction,
+} from './destination.js';
+export type { BindableDestination, DestinationInput, DestinationMemoType } from './destination.js';
 export { operationsGuardianOf } from './guardian.js';
 export {
   SIGNER_DOWN,
