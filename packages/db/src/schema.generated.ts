@@ -86,6 +86,20 @@ export interface OpsRoutingConfigVersions {
   version: Generated<Int8>;
 }
 
+export interface OpsSigningKeys {
+  account: string | null;
+  anchor_id: string | null;
+  created_at: Generated<Timestamp>;
+  id: Generated<Int8>;
+  key_ref: string;
+  network: string | null;
+  provider: string;
+  public_key: Buffer | null;
+  purpose: string;
+  status: Generated<string>;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface UjiraAgentIdentityLinks {
   address: string;
   created_at: Generated<Timestamp>;
@@ -302,6 +316,20 @@ export interface UjiraLedgerReconciliation {
   taken_at: Timestamp | null;
 }
 
+export interface UjiraManagedSigners {
+  address: string;
+  agent_id: string;
+  consented_by_member_id: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  key_ref: string;
+  network: string;
+  principal_id: string;
+  project_id: string;
+  status: Generated<string>;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface UjiraMandateInstanceRoles {
   address: string;
   granted_event_id: string;
@@ -490,6 +518,7 @@ export interface Schema {
   'ops.identity_provider_events': OpsIdentityProviderEvents;
   'ops.routing_config_active': OpsRoutingConfigActive;
   'ops.routing_config_versions': OpsRoutingConfigVersions;
+  'ops.signing_keys': OpsSigningKeys;
   ujira_migrations: UjiraMigrations;
   'ujira.agent_identity_links': UjiraAgentIdentityLinks;
   'ujira.api_tokens': UjiraApiTokens;
@@ -509,6 +538,7 @@ export interface Schema {
   'ujira.ledger_entries': UjiraLedgerEntries;
   'ujira.ledger_journals': UjiraLedgerJournals;
   'ujira.ledger_reconciliation': UjiraLedgerReconciliation;
+  'ujira.managed_signers': UjiraManagedSigners;
   'ujira.mandate_instance_roles': UjiraMandateInstanceRoles;
   'ujira.mandate_instances': UjiraMandateInstances;
   'ujira.mandate_state_snapshots': UjiraMandateStateSnapshots;
