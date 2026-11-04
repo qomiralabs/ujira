@@ -31,6 +31,7 @@ export const CHAIN_ADAPTER_ERROR_CODES = Object.freeze([
   'QUOTE_EXPIRED',
   'QUOTE_UNAVAILABLE',
   'LIQUIDITY_UNAVAILABLE',
+  'RATE_UNAVAILABLE',
   'RAIL_UNAVAILABLE',
   'RAIL_REJECTED',
   'RAIL_TIMEOUT',
@@ -157,6 +158,7 @@ const DEFAULTS: Readonly<Record<ChainAdapterErrorCode, Defaults>> = {
   QUOTE_EXPIRED: { retryable: true, landed: 'no', message: 'Quote expired' },
   QUOTE_UNAVAILABLE: { retryable: false, landed: 'no', message: 'Quote unavailable' },
   LIQUIDITY_UNAVAILABLE: { retryable: false, landed: 'no', message: 'Liquidity unavailable' },
+  RATE_UNAVAILABLE: { retryable: true, landed: 'no', message: 'No fresh native asset rate' },
   RAIL_UNAVAILABLE: { retryable: true, landed: 'no', message: 'Delivery rail unavailable' },
   RAIL_REJECTED: { retryable: false, landed: 'no', message: 'Delivery rail rejected the transfer' },
   RAIL_TIMEOUT: { retryable: true, landed: 'no', message: 'Delivery rail timed out' },
@@ -262,6 +264,7 @@ const ADAPTER_ERROR_NAMES = [
   'QuoteExpiredError',
   'QuoteUnavailableError',
   'LiquidityUnavailableError',
+  'RateUnavailableError',
   'RailUnavailableError',
   'RailRejectedError',
   'RailTimeoutError',
@@ -698,6 +701,14 @@ export class LiquidityUnavailableError extends ChainAdapterError {
   override readonly name = 'LiquidityUnavailableError';
   constructor(options?: ChainAdapterErrorOptions) {
     super('LIQUIDITY_UNAVAILABLE', options);
+  }
+}
+
+/** No source gave a fresh price for the native asset. A rate is never guessed. */
+export class RateUnavailableError extends ChainAdapterError {
+  override readonly name = 'RateUnavailableError';
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('RATE_UNAVAILABLE', options);
   }
 }
 
