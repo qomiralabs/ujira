@@ -148,3 +148,27 @@ export const identityProviderEvents = {
     return result.rows[0]?.seen === true;
   },
 };
+
+export type EmailKind = 'code' | 'other';
+
+export interface EmailQuotaRequest {
+  readonly providerAccount: string;
+  readonly kind: EmailKind;
+  readonly cap: number;
+  // Sends other mail must leave free for login codes.
+  readonly codeReserve: number;
+}
+
+export const emailQuota = {
+  // True when the send may go ahead. A refusal is counted. Exact under
+  // concurrency: one lock per account and UTC day. Counts only, so there is
+  // no address and no tenant to pass.
+  take: async (db: Tx, request: EmailQuotaRequest): Promise<boolean> => {
+    const result = await sql<{ taken: boolean }>`
+      select ops.email_quota_take(
+        ${request.providerAccount}, ${request.kind}, ${request.cap}::integer, ${request.codeReserve}::integer
+      ) as taken
+    `.execute(db);
+    return result.rows[0]?.taken === true;
+  },
+};
