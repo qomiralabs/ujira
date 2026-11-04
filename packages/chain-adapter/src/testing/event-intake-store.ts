@@ -8,7 +8,7 @@
 
 import type { EventBooking, EventIntakeStore, MandateTenant, NewRegistration } from '../intake.js';
 import type { NetworkId } from '../networks.js';
-import type { MandateRegistration, MandateRegistry } from '../types.js';
+import type { MandateRegistration, MandateRegistry, TenantScope } from '../types.js';
 
 function key(...parts: readonly (string | bigint)[]): string {
   return parts.map(String).join('|');
@@ -37,6 +37,15 @@ export class MemoryEventIntakeStore implements EventIntakeStore, MandateRegistry
 
   get registrations(): readonly MandateRegistration[] {
     return [...this.#registrations.values()];
+  }
+
+  awaiting(scope: TenantScope, network: NetworkId, contractId: string): Promise<boolean> {
+    const tenant = this.#tenants.get(key(network, contractId));
+    return Promise.resolve(
+      tenant?.scope.principalId === scope.principalId &&
+        tenant.scope.projectId === scope.projectId &&
+        !this.#registrations.has(key(network, contractId)),
+    );
   }
 
   registered(network: NetworkId, contractId: string): Promise<MandateRegistration | null> {

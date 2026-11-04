@@ -14,7 +14,12 @@
 
 import { Address, xdr } from '@stellar/stellar-sdk/base';
 
-import { InvalidInputError, MandateUntrustedError, TenantMismatchError } from '../errors.js';
+import {
+  InvalidInputError,
+  MandatePendingError,
+  MandateUntrustedError,
+  TenantMismatchError,
+} from '../errors.js';
 import type { NetworkId } from '../networks.js';
 import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
 import type { Bytes32, CallOptions, MandateRef, MandateRegistry, TenantScope } from '../types.js';
@@ -110,6 +115,9 @@ export class MandateTrust {
     const tag = tenantTagOf(tenantRefOf(scope), addressXdr(mandate));
     if (facts.tenantTag !== tag) throw new TenantMismatchError({ network });
     const registration = await this.registry.registered(network, mandate, opts);
+    if (registration === null && (await this.registry.awaiting(scope, network, mandate, opts))) {
+      throw new MandatePendingError({ network });
+    }
     if (
       registration === null ||
       registration.flagged ||

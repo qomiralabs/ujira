@@ -162,6 +162,18 @@ export interface MandateRegistry {
     contractId: string,
     opts: CallOptions,
   ): Promise<MandateRegistration | null>;
+  /**
+   * Whether this tenant has recorded the contract as its own mandate instance,
+   * which UJIRA's create flow does before it submits. It is never a reason to
+   * trust the contract: it only turns the refusal of one that is not registered
+   * yet into something to wait for.
+   */
+  awaiting(
+    scope: TenantScope,
+    network: NetworkId,
+    contractId: string,
+    opts: CallOptions,
+  ): Promise<boolean>;
 }
 
 export interface AdapterPorts {

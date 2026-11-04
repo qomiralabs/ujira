@@ -233,6 +233,7 @@ function harness() {
           tenantTag: tenantTagOf(tenantRefOf(scope), addressXdr(contractId)),
           flagged: false,
         }),
+      awaiting: () => Promise.resolve(false),
     },
     signer: keypairSigner(
       NETWORK,

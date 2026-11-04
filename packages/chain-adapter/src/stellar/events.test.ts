@@ -10,6 +10,7 @@ import { ChainUnavailableError } from '../errors.js';
 import { MemoryEventIntakeStore } from '../testing/event-intake-store.js';
 import {
   createStellarEventIntake,
+  createStellarEventSource,
   ledgerEventOf,
   scanLedgerEvents,
   stellarTenantTag,
@@ -195,4 +196,47 @@ describe('from the factory event to an accepted mandate', { timeout: 30_000 }, (
     await intake.ingest(ledgerEventOf(NETWORK, raw({ ...event, contractId: FIXTURE_FACTORY })));
     expect((await read()).trustedFactory).toBe(true);
   });
+});
+
+describe('the event source the scan reads', () => {
+  function source(answer: { cursor: string | null }) {
+    const asked: unknown[] = [];
+    const rpc = {
+      getEvents: (request: unknown) => {
+        asked.push(request);
+        return Promise.resolve({ events: [raw()], cursor: answer.cursor, latestLedger: 300 });
+      },
+    };
+    return { asked, events: createStellarEventSource({ network: NETWORK, rpc, startLedger: 42 }) };
+  }
+
+  it('starts at the configured ledger, then carries the node cursor', async () => {
+    const s = source({ cursor: 'abc' });
+    const first = await s.events.page(null, 10, OPTS);
+    expect(s.asked[0]).toEqual({ startLedger: 42, limit: 10 });
+    expect(first).toMatchObject({ nextCursor: 'stellar:v1:cursor:abc', latestLedger: 300 });
+    expect(first.events[0]?.contractId).toBe(CONTRACT);
+    await s.events.page(first.nextCursor, 10, OPTS);
+    expect(s.asked[1]).toEqual({ cursor: 'abc', limit: 10 });
+  });
+
+  it('stays where it was when the node gives no cursor, so nothing is skipped', async () => {
+    const s = source({ cursor: null });
+    expect((await s.events.page(null, 10, OPTS)).nextCursor).toBe('stellar:v1:ledger:42');
+    expect((await s.events.page('stellar:v1:ledger:77', 10, OPTS)).nextCursor).toBe(
+      'stellar:v1:ledger:77',
+    );
+    expect((await s.events.page('stellar:v1:cursor:x', 10, OPTS)).nextCursor).toBe(
+      'stellar:v1:cursor:x',
+    );
+  });
+
+  it.each(['nonsense', 'stellar:v1:', 'stellar:v1:cursor:', 'stellar:v1:ledger:x'])(
+    'refuses the cursor %s',
+    async (cursor) => {
+      await expect(source({ cursor: null }).events.page(cursor, 10, OPTS)).rejects.toMatchObject({
+        code: 'INVALID_INPUT',
+      });
+    },
+  );
 });

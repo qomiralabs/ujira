@@ -24,6 +24,7 @@ export {
 export type { ExtensionGroup, ExtensionPolicy, RestoredEntry } from './restore-policy.js';
 export {
   createStellarEventIntake,
+  createStellarEventSource,
   ledgerEventOf,
   scanLedgerEvents,
   stellarTenantTag,

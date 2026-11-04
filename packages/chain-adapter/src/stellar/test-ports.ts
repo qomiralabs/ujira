@@ -131,6 +131,8 @@ export function memoryStore(
 export interface TestRegistry extends MandateRegistry {
   /** Replaced by a test to answer from somewhere else, such as an intake store. */
   answer: MandateRegistry['registered'];
+  /** Contracts a tenant has recorded as its own and is waiting to see registered. */
+  readonly claimed: Set<string>;
 }
 
 export function answeringRegistry(registrations: readonly MandateRegistration[]): TestRegistry {
@@ -140,6 +142,8 @@ export function answeringRegistry(registrations: readonly MandateRegistration[])
         registrations.find((r) => r.network === network && r.contractId === contractId) ?? null,
       ),
     registered: (network, contractId, opts) => registry.answer(network, contractId, opts),
+    claimed: new Set(),
+    awaiting: (_scope, _network, contractId) => Promise.resolve(registry.claimed.has(contractId)),
   };
   return registry;
 }

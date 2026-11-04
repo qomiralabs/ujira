@@ -51,6 +51,7 @@ describe('the stellar entry', { timeout: 30_000 }, () => {
       'accountBalance',
       'createMemorySigningRequestStore',
       'createStellarEventIntake',
+      'createStellarEventSource',
       'createStellarRpc',
       'extensionPlan',
       'fateOf',
