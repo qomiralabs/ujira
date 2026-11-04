@@ -22,6 +22,9 @@ import type {
 } from '../types.js';
 import type { RpcTransaction, StellarRpc } from './rpc.js';
 
+/** Two base reserves for a funding account and one for its trustline, at 0.5 XLM each. */
+export const FUNDING_ACCOUNT_RESERVES_STROOPS = 15_000_000n;
+
 export type SubmissionFate =
   /** Included, successfully or not. A failed one still used its sequence and paid its fee. */
   | {
@@ -102,6 +105,7 @@ export async function reconcileSubmission(
   const { network, rpc, ports } = ctx;
   const fate = fateOf(await rpc.getTransaction(record.txHash, opts), record);
   const { scope, txHash, reservationId } = record;
+  const forFundingAccount = record.op === 'create_funding_account';
   let state = record.state;
 
   const move = async (to: SubmissionState, patch: SubmissionPatch = {}): Promise<void> => {
@@ -122,8 +126,17 @@ export async function reconcileSubmission(
       // The cost goes first. Both calls change nothing the second time, so a
       // crash between here and the move is put right by the next sweep, where
       // the other order would leave a closed record whose fee is never counted.
-      if (fate.feeCharged !== null) {
-        const actualFee = stroops(network, fate.feeCharged);
+      if (forFundingAccount && fate.kind === 'failed' && reservationId !== null) {
+        // No account exists, so the principal may try again. Settling here would
+        // hold its one sponsored account for good, whichever of this and the
+        // flow's own confirmation got there first.
+        await ports.sponsorship.release({ scope, reservationId });
+      } else if (fate.feeCharged !== null) {
+        // Reserves are locked rather than burned, but the budget is for what the
+        // sponsor gives up, and they are given up only by one that landed.
+        const reserves =
+          forFundingAccount && fate.kind === 'landed' ? FUNDING_ACCOUNT_RESERVES_STROOPS : 0n;
+        const actualFee = stroops(network, fate.feeCharged + reserves);
         if (reservationId === null) {
           await ports.sponsorship.book({
             scope,
