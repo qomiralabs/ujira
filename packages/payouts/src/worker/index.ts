@@ -30,6 +30,13 @@ export {
   type WorkerAlert,
 } from './handlers.js';
 export {
+  WorkerPoolsActiveError,
+  installWorkerSchema,
+  type WorkerInstallEnvironment,
+  type WorkerInstallOptions,
+  type WorkerInstallOutcome,
+} from './install.js';
+export {
   describeRefusal,
   processLogger,
   startWorkerProcess,

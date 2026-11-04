@@ -118,6 +118,7 @@ export default defineConfig({
         // kill it outright. Coverage cannot see into that process.
         'packages/payouts/src/worker/testing/pool-process.ts',
         'packages/payouts/src/worker/main.ts',
+        'packages/payouts/src/worker/install-main.ts',
       ],
       reporter: ['text', 'json-summary', 'lcov'],
       thresholds: {

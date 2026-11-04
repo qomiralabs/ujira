@@ -18,7 +18,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint --max-warnings 0 .",
     "test": "vitest run",
-    "start": "node dist/worker/main.js"
+    "start": "node dist/worker/main.js",
+    "worker:install": "node dist/worker/install-main.js"
   },
   "dependencies": {
     "@ujira/chain-adapter": "workspace:*",
