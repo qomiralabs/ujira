@@ -30,7 +30,15 @@ export function memoryMandateIndex(mandates: readonly MemoryMandate[] = []): Man
   const find = (network: NetworkId, contract: string) =>
     mandates.find((m) => m.network === network && m.contract === contract);
   const view = (m: MemoryMandate | undefined): IndexedMandate | null =>
-    m === undefined ? null : { tenant: m.tenant, recipientMode: m.recipientMode };
+    m === undefined
+      ? null
+      : {
+          tenant: m.tenant,
+          recipientMode: m.recipientMode,
+          factory: m.factory,
+          settlementAsset: m.settlementAsset,
+          assetIssuer: m.assetIssuer,
+        };
   return {
     forExecutor: (network, contract, executor) => {
       const m = find(network, contract);

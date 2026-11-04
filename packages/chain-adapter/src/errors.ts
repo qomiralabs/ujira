@@ -641,7 +641,11 @@ export class ExecutorUnfundedError extends ChainAdapterError {
   }
 }
 
-/** Bad address, missing trustline, or a tag the destination needs but the network cannot carry. */
+/**
+ * Bad address, missing trustline, a tag the destination needs but the network
+ * cannot carry, or an address the mandate could never pay out, which the
+ * attester refuses to sign for.
+ */
 export class DestinationInvalidError extends ChainAdapterError {
   override readonly name = 'DestinationInvalidError';
   constructor(options?: ChainAdapterErrorOptions) {
