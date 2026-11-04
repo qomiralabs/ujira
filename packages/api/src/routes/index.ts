@@ -11,6 +11,8 @@ import type { Route } from '../route.js';
 import { healthRoute } from './health.js';
 import { MANDATES_NOT_CONFIGURED, mandateRoutes } from './mandates.js';
 import type { MandateEndpoints } from './mandates.js';
+import { RECIPIENTS_NOT_CONFIGURED, recipientRoutes } from './recipients.js';
+import type { RecipientEndpoints } from './recipients.js';
 import { SELF_WEBHOOK_NOT_CONFIGURED, selfWebhookRoute } from './self-webhook.js';
 import type { SelfWebhookHandler } from './self-webhook.js';
 import {
@@ -24,6 +26,7 @@ export interface RouteDependencies {
   readonly selfWebhook: SelfWebhookHandler;
   readonly walletProof: WalletProofFlow;
   readonly mandates: MandateEndpoints;
+  readonly recipients: RecipientEndpoints;
 }
 
 export function v1Routes(deps: RouteDependencies): readonly Route[] {
@@ -33,6 +36,7 @@ export function v1Routes(deps: RouteDependencies): readonly Route[] {
     walletChallengeRoute(deps.walletProof),
     walletProofRoute(deps.walletProof),
     ...mandateRoutes(deps.mandates),
+    ...recipientRoutes(deps.recipients),
   ]);
 }
 
@@ -42,4 +46,5 @@ export const V1_ROUTES: readonly Route[] = v1Routes({
   selfWebhook: SELF_WEBHOOK_NOT_CONFIGURED,
   walletProof: WALLET_PROOF_NOT_CONFIGURED,
   mandates: MANDATES_NOT_CONFIGURED,
+  recipients: RECIPIENTS_NOT_CONFIGURED,
 });

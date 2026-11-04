@@ -50,6 +50,7 @@ export {
   databaseBucketStore,
   databaseIdempotencyStore,
   databaseMandateRecords,
+  databaseRecipientRecords,
   databaseSecurityEvents,
   databaseTokenStore,
 } from './postgres-stores.js';
@@ -82,6 +83,21 @@ export type {
 } from './mandate-service.js';
 export { MANDATES_NOT_CONFIGURED, mandateRoutes } from './routes/mandates.js';
 export type { MandateEndpoints } from './routes/mandates.js';
+export { createRecipientEndpoints } from './recipient-service.js';
+export type {
+  EncryptedValue,
+  PersonalDataCipher,
+  RecipientRecords,
+  RecipientServiceDeps,
+  StoredMethod,
+  StoredRecipient,
+} from './recipient-service.js';
+export {
+  CreateMethodRequest,
+  RECIPIENTS_NOT_CONFIGURED,
+  recipientRoutes,
+} from './routes/recipients.js';
+export type { RecipientEndpoints } from './routes/recipients.js';
 export {
   contractRoute,
   definePublicRoute,

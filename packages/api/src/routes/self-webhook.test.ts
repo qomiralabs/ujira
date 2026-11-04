@@ -28,6 +28,7 @@ import { V1_ROUTES, v1Routes } from './index.js';
 import { SELF_WEBHOOK_PATH } from './self-webhook.js';
 import type { SelfWebhookHandler } from './self-webhook.js';
 import { MANDATES_NOT_CONFIGURED } from './mandates.js';
+import { RECIPIENTS_NOT_CONFIGURED } from './recipients.js';
 import { WALLET_PROOF_NOT_CONFIGURED } from './wallet-proofs.js';
 
 function served(handler: SelfWebhookHandler, bodyLimitBytes?: number) {
@@ -37,6 +38,7 @@ function served(handler: SelfWebhookHandler, bodyLimitBytes?: number) {
       selfWebhook: handler,
       walletProof: WALLET_PROOF_NOT_CONFIGURED,
       mandates: MANDATES_NOT_CONFIGURED,
+      recipients: RECIPIENTS_NOT_CONFIGURED,
     }),
     authenticate: refuseAllCredentials,
     rateLimit: allowEveryRequest,

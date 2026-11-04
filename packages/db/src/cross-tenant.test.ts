@@ -735,6 +735,33 @@ const cases: Record<string, () => Promise<void>> = {
     );
     expect(await ownerOf('ujira.recipients', 'id', created.id)).toBe(a.first.principalId);
   },
+  'recipients.createOnce': async () => {
+    // One reference in two tenants is two recipients: the key is per project.
+    const recipientRef = randomBytes(32);
+    const mine = randomUUID();
+    const theirs = randomUUID();
+    expect(
+      await asA(async (tx) => recipients.createOnce(tx, { id: mine, recipientRef, country: 'KE' })),
+    ).toBe(true);
+    expect(
+      await db
+        .tenant(b.first)
+        .transaction(async (tx) =>
+          recipients.createOnce(tx, { id: theirs, recipientRef, country: 'KE' }),
+        ),
+    ).toBe(true);
+    expect(await ownerOf('ujira.recipients', 'id', mine)).toBe(a.first.principalId);
+    expect(await ownerOf('ujira.recipients', 'id', theirs)).toBe(b.first.principalId);
+  },
+  'recipients.getByRef': async () => {
+    const recipientRef = randomBytes(32);
+    await db
+      .tenant(b.first)
+      .transaction(async (tx) =>
+        recipients.createOnce(tx, { id: randomUUID(), recipientRef, country: 'KE' }),
+      );
+    expect(await acrossA(async (tx) => recipients.getByRef(tx, recipientRef))).toBeUndefined();
+  },
   'recipients.setStatus': async () => {
     expect(await asA(async (tx) => recipients.setStatus(tx, b.recipientId, 'erased'))).toBe(false);
   },
@@ -772,6 +799,9 @@ const cases: Record<string, () => Promise<void>> = {
   },
   'payoutMethods.get': async () => {
     expect(await acrossA(async (tx) => payoutMethods.get(tx, b.methodId))).toBeUndefined();
+  },
+  'payoutMethods.listOf': async () => {
+    expect(await asA(async (tx) => payoutMethods.listOf(tx, b.recipientId))).toEqual([]);
   },
   'payoutMethods.create': async () => {
     const attempt = asA(async (tx) =>

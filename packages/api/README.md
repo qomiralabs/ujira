@@ -192,6 +192,23 @@ retry can only ever target the same contract.
 The served table uses `MANDATES_NOT_CONFIGURED` until an assembled chain adapter and
 the production stores exist.
 
+## Recipients
+
+| Route                              | Scope              | Shows                                        |
+| ---------------------------------- | ------------------ | -------------------------------------------- |
+| `POST /v1/recipients`              | `recipients:write` | The id, country and status, nothing personal |
+| `GET /v1/recipients`               | `recipients:read`  | The same for each, nothing personal          |
+| `GET /v1/recipients/{id}`          | `recipients:read`  | Personal data and payout methods             |
+| `POST /v1/recipients/{id}/methods` | `recipients:write` | The method, without its details              |
+
+Personal data and method details are encrypted through the `PersonalDataCipher` port before anything stores them, under a key bound to the tenant and the recipient. They reach only `recipient_pii` and the method's encrypted columns. A write's answer is stored for replay, so it never holds them, and the server refuses to start with a write route that declares any.
+
+Every destination goes through the capture onboarding uses, so these routes refuse exactly what it refuses, including a muxed or memo destination the rail cannot pay. The detail on a refusal is `DESTINATION_INVALID`.
+
+A `reference` names one recipient in a project, so sending it again finds the same recipient, and the first personal data given for it stands. It is stored only as a keyed hash. Without a reference, the idempotency key plays that part, so a retry of one request finds the recipient its first run made.
+
+Until the data keys exist the served table uses `RECIPIENTS_NOT_CONFIGURED`, which answers 503, so nothing personal can be stored unencrypted.
+
 ## Idempotency
 
 Every tenant write, meaning anything but a `GET`, needs an `Idempotency-Key` header

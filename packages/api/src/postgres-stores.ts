@@ -16,15 +16,19 @@ import {
   mandateInstances,
   mandateTerms,
   mandates,
+  payoutMethods,
   rateLimits,
+  recipientPii,
+  recipients,
   securityEvents,
 } from '@ujira/db';
-import type { Database, MandateTerms } from '@ujira/db';
+import type { Database, MandateTerms, PayoutMethod, Recipient } from '@ujira/db';
 
 import type { IdempotencyStore } from './idempotency.js';
 import { InstancePlan } from './mandate-service.js';
 import type { MandateRecords, StoredInstance, StoredMandate } from './mandate-service.js';
 import type { BucketStore } from './rate-limit.js';
+import type { RecipientRecords, StoredMethod, StoredRecipient } from './recipient-service.js';
 import type { SecurityEventSink, TokenStore } from './token-auth.js';
 
 export function databaseTokenStore(db: Database): TokenStore {
@@ -158,6 +162,72 @@ export function databaseMandateRecords(db: Database): MandateRecords {
           instancePlan: null,
         });
         return SigningRequestWire.parse(row.signingRequest);
+      }),
+  };
+}
+
+function storedRecipientOf(recipient: Recipient): StoredRecipient {
+  return {
+    id: recipient.id,
+    country: recipient.country,
+    status: recipient.status,
+    createdAt: recipient.createdAt,
+  };
+}
+
+function storedMethodOf(method: PayoutMethod): StoredMethod {
+  return {
+    id: method.id,
+    recipientId: method.recipientId,
+    method: method.method,
+    rail: method.rail,
+    chain: method.chain,
+    destinationAddress: method.destinationAddress,
+    destinationTag: method.destinationTag,
+    // Only that there are details: their ciphertext stops at this layer.
+    hasDetails: method.details !== null,
+    status: method.status,
+  };
+}
+
+export function databaseRecipientRecords(db: Database): RecipientRecords {
+  return {
+    createOnce: (tenant, recipient) =>
+      db.tenant(tenant).transaction(async (tx) => {
+        const won = await recipients.createOnce(tx, {
+          id: recipient.id,
+          recipientRef: recipient.recipientRef,
+          country: recipient.country,
+        });
+        // In one transaction, so a recipient never exists without what it was given,
+        // and whoever lost the race leaves the first run's personal data alone.
+        if (won && recipient.personal !== null) {
+          await recipientPii.put(tx, recipient.id, recipient.personal);
+        }
+        const stored = await recipients.getByRef(tx, recipient.recipientRef);
+        if (stored === undefined) throw new Error('a recipient just written cannot be read back');
+        return storedRecipientOf(stored);
+      }),
+    find: (tenant, id) =>
+      db.tenant(tenant).transaction(async (tx) => {
+        const stored = await recipients.get(tx, id);
+        return stored === undefined ? undefined : storedRecipientOf(stored);
+      }),
+    list: (tenant, page) =>
+      db.tenant(tenant).transaction(async (tx) => {
+        const listed = await recipients.list(tx, page);
+        return { items: listed.items.map(storedRecipientOf), next: listed.next };
+      }),
+    personal: (tenant, id) => db.tenant(tenant).transaction((tx) => recipientPii.get(tx, id)),
+    methods: (tenant, id) =>
+      db.tenant(tenant).transaction(async (tx) => {
+        const listed = await payoutMethods.listOf(tx, id);
+        return listed.map(storedMethodOf);
+      }),
+    addMethod: (tenant, method) =>
+      db.tenant(tenant).transaction(async (tx) => {
+        const created = await payoutMethods.create(tx, method);
+        return storedMethodOf(created);
       }),
   };
 }

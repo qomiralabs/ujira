@@ -1428,6 +1428,516 @@
         }
       }
     },
+    "/v1/recipients": {
+      "post": {
+        "operationId": "createRecipient",
+        "summary": "Register a recipient. What is personal is encrypted, and not sent back",
+        "security": [{ "bearer": [] }],
+        "x-ujira-scope": "recipients:write",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Unique per write. A retry with the same key and the same request gets the first answer for 7 days; the same key on a different request is refused.",
+            "schema": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,255}$" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "country": { "type": "string", "pattern": "^[A-Z]{2}$" },
+                  "reference": { "type": "string", "minLength": 1, "maxLength": 200 },
+                  "personal": {
+                    "type": "object",
+                    "properties": {
+                      "fullName": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200,
+                        "x-ujira-personal-data": true
+                      },
+                      "email": {
+                        "type": "string",
+                        "maxLength": 254,
+                        "format": "email",
+                        "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+                        "x-ujira-personal-data": true
+                      },
+                      "phone": {
+                        "type": "string",
+                        "minLength": 3,
+                        "maxLength": 32,
+                        "x-ujira-personal-data": true
+                      }
+                    },
+                    "required": ["fullName"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["country"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RecipientSummaryView" }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. IDEMPOTENCY_KEY_INVALID: The Idempotency-Key header is missing or not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "401": {
+            "description": "TOKEN_MALFORMED: The API key is missing or malformed. TOKEN_INVALID: The API key is not valid. TOKEN_ENVIRONMENT_MISMATCH: The API key is for another environment. EMBED_TOKEN_INVALID: The embed session is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "403": {
+            "description": "INSUFFICIENT_SCOPE: The API key lacks the scope this route needs. ORIGIN_NOT_ALLOWED: The request origin is not allowed. EMBED_SCOPE_VIOLATION: The embed session cannot reach this route",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "409": {
+            "description": "IDEMPOTENCY_IN_PROGRESS: A request with this Idempotency-Key is still running",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "413": {
+            "description": "PAYLOAD_TOO_LARGE: The request body is too large",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE: The request body must be application/json",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "422": {
+            "description": "DESTINATION_INVALID: The destination cannot receive this payout. MANDATE_REFUSED: The mandate does not allow this. QUOTE_UNAVAILABLE: No quote is available for this payout right now. WALLET_PROOF_INVALID: The wallet proof is not valid. WALLET_PROOF_EXPIRED: The wallet proof challenge has expired. WALLET_SIGNER_NOT_AUTHORIZED: That key cannot sign for this wallet. DESTINATION_NOT_RECEIVABLE: This destination cannot receive a payout yet. FEE_CAP_INVALID: The fee cap can be at most 100 basis points. PRINCIPAL_KEY_RISK: Above 50,000 USD a mandate needs a multisig principal or a recovery set. CUSTODY_GUARD: A mandate with a UJIRA held agent key must use allowlist or both mode. TRANSFER_FAILED: The principal could not receive the transfer. IDEMPOTENCY_KEY_REUSED: This Idempotency-Key was used for a different request",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now. OPERATIONS_GUARDIAN_NOT_CONFIGURED: No operations guardian is set up for this network yet",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listRecipients",
+        "summary": "List recipients, with nothing personal in the list",
+        "security": [{ "bearer": [] }],
+        "x-ujira-scope": "recipients:read",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "pattern": "^[1-9][0-9]{0,3}$" }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/RecipientPage" } }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. IDEMPOTENCY_KEY_INVALID: The Idempotency-Key header is missing or not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "401": {
+            "description": "TOKEN_MALFORMED: The API key is missing or malformed. TOKEN_INVALID: The API key is not valid. TOKEN_ENVIRONMENT_MISMATCH: The API key is for another environment. EMBED_TOKEN_INVALID: The embed session is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "403": {
+            "description": "INSUFFICIENT_SCOPE: The API key lacks the scope this route needs. ORIGIN_NOT_ALLOWED: The request origin is not allowed. EMBED_SCOPE_VIOLATION: The embed session cannot reach this route",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now. OPERATIONS_GUARDIAN_NOT_CONFIGURED: No operations guardian is set up for this network yet",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/recipients/{id}": {
+      "get": {
+        "operationId": "getRecipient",
+        "summary": "One recipient, with their personal data and how they are paid",
+        "security": [{ "bearer": [] }],
+        "x-ujira-scope": "recipients:read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/RecipientDetail" } }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. IDEMPOTENCY_KEY_INVALID: The Idempotency-Key header is missing or not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "401": {
+            "description": "TOKEN_MALFORMED: The API key is missing or malformed. TOKEN_INVALID: The API key is not valid. TOKEN_ENVIRONMENT_MISMATCH: The API key is for another environment. EMBED_TOKEN_INVALID: The embed session is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "403": {
+            "description": "INSUFFICIENT_SCOPE: The API key lacks the scope this route needs. ORIGIN_NOT_ALLOWED: The request origin is not allowed. EMBED_SCOPE_VIOLATION: The embed session cannot reach this route",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND: Not found",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now. OPERATIONS_GUARDIAN_NOT_CONFIGURED: No operations guardian is set up for this network yet",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/recipients/{id}/methods": {
+      "post": {
+        "operationId": "createRecipientMethod",
+        "summary": "Add a payout method, once its destination has been validated",
+        "security": [{ "bearer": [] }],
+        "x-ujira-scope": "recipients:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Unique per write. A retry with the same key and the same request gets the first answer for 7 days; the same key on a different request is refused.",
+            "schema": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,255}$" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "method": {
+                    "type": "string",
+                    "enum": ["stellar_wallet", "bank", "mobile_money", "cash_pickup"]
+                  },
+                  "destination": {
+                    "type": "object",
+                    "properties": {
+                      "network": {
+                        "type": "string",
+                        "enum": ["stellar:pubnet", "stellar:testnet"]
+                      },
+                      "address": { "type": "string", "minLength": 1, "maxLength": 128 },
+                      "memoType": {
+                        "type": "string",
+                        "enum": ["none", "id", "text", "hash", "return"]
+                      },
+                      "memo": { "type": "string", "maxLength": 128 }
+                    },
+                    "required": ["network", "address"],
+                    "additionalProperties": false
+                  },
+                  "details": {
+                    "type": "object",
+                    "propertyNames": { "type": "string", "minLength": 1, "maxLength": 64 },
+                    "additionalProperties": { "type": "string", "maxLength": 500 }
+                  }
+                },
+                "required": ["method", "destination"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RecipientPayoutMethod" }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. IDEMPOTENCY_KEY_INVALID: The Idempotency-Key header is missing or not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "401": {
+            "description": "TOKEN_MALFORMED: The API key is missing or malformed. TOKEN_INVALID: The API key is not valid. TOKEN_ENVIRONMENT_MISMATCH: The API key is for another environment. EMBED_TOKEN_INVALID: The embed session is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "403": {
+            "description": "INSUFFICIENT_SCOPE: The API key lacks the scope this route needs. ORIGIN_NOT_ALLOWED: The request origin is not allowed. EMBED_SCOPE_VIOLATION: The embed session cannot reach this route",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND: Not found",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "409": {
+            "description": "IDEMPOTENCY_IN_PROGRESS: A request with this Idempotency-Key is still running",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "413": {
+            "description": "PAYLOAD_TOO_LARGE: The request body is too large",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE: The request body must be application/json",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "422": {
+            "description": "DESTINATION_INVALID: The destination cannot receive this payout. MANDATE_REFUSED: The mandate does not allow this. QUOTE_UNAVAILABLE: No quote is available for this payout right now. WALLET_PROOF_INVALID: The wallet proof is not valid. WALLET_PROOF_EXPIRED: The wallet proof challenge has expired. WALLET_SIGNER_NOT_AUTHORIZED: That key cannot sign for this wallet. DESTINATION_NOT_RECEIVABLE: This destination cannot receive a payout yet. FEE_CAP_INVALID: The fee cap can be at most 100 basis points. PRINCIPAL_KEY_RISK: Above 50,000 USD a mandate needs a multisig principal or a recovery set. CUSTODY_GUARD: A mandate with a UJIRA held agent key must use allowlist or both mode. TRANSFER_FAILED: The principal could not receive the transfer. IDEMPOTENCY_KEY_REUSED: This Idempotency-Key was used for a different request",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now. OPERATIONS_GUARDIAN_NOT_CONFIGURED: No operations guardian is set up for this network yet",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
     "/v1/openapi.json": {
       "get": {
         "operationId": "getOpenApi",
@@ -2351,6 +2861,170 @@
           }
         },
         "required": ["principalId", "projectId", "mandateId", "op", "instances"],
+        "additionalProperties": false
+      },
+      "RecipientSummaryView": {
+        "type": "object",
+        "properties": {
+          "principalId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "country": { "type": "string", "pattern": "^[A-Z]{2}$" },
+          "status": { "type": "string", "enum": ["active", "suspended", "erased"] },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": ["principalId", "projectId", "id", "country", "status", "createdAt"],
+        "additionalProperties": false
+      },
+      "RecipientPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "maxItems": 200,
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/RecipientSummaryView" }
+          },
+          "nextAfter": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              { "type": "null" }
+            ]
+          }
+        },
+        "required": ["items", "nextAfter"],
+        "additionalProperties": false
+      },
+      "RecipientDetail": {
+        "type": "object",
+        "properties": {
+          "principalId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "country": { "type": "string", "pattern": "^[A-Z]{2}$" },
+          "status": { "type": "string", "enum": ["active", "suspended", "erased"] },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "personal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "fullName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "x-ujira-personal-data": true
+                  },
+                  "email": {
+                    "type": "string",
+                    "maxLength": 254,
+                    "format": "email",
+                    "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+                    "x-ujira-personal-data": true
+                  },
+                  "phone": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 32,
+                    "x-ujira-personal-data": true
+                  }
+                },
+                "required": ["fullName"],
+                "additionalProperties": false
+              },
+              { "type": "null" }
+            ]
+          },
+          "methods": {
+            "maxItems": 50,
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/RecipientPayoutMethod" }
+          }
+        },
+        "required": [
+          "principalId",
+          "projectId",
+          "id",
+          "country",
+          "status",
+          "createdAt",
+          "personal",
+          "methods"
+        ],
+        "additionalProperties": false
+      },
+      "RecipientPayoutMethod": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "recipientId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "method": {
+            "type": "string",
+            "enum": ["stellar_wallet", "bank", "mobile_money", "cash_pickup"]
+          },
+          "rail": { "type": "string", "enum": ["wallet", "anchor"] },
+          "chain": { "type": "string", "minLength": 1, "maxLength": 32 },
+          "destination": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "tag": {
+            "anyOf": [{ "type": "string", "pattern": "^[0-9]{1,20}$" }, { "type": "null" }]
+          },
+          "hasDetails": { "type": "boolean" },
+          "status": { "type": "string", "enum": ["active", "disabled"] }
+        },
+        "required": [
+          "id",
+          "recipientId",
+          "method",
+          "rail",
+          "chain",
+          "destination",
+          "tag",
+          "hasDetails",
+          "status"
+        ],
         "additionalProperties": false
       },
       "OpenApiDocument": {

@@ -21,3 +21,4 @@ export * from './routes.js';
 export * from './stats.js';
 export * from './wallet-proofs.js';
 export * from './webhooks.js';
+export * from './recipients.js';
