@@ -24,7 +24,7 @@ function world(monthlyBudgetStroops: bigint) {
   if (net === undefined) throw new Error('no network');
   const config: NetworksConfig = {
     ...base,
-    [NETWORK]: { ...net, fees: { uncoveredNetworkCost: { monthlyBudgetStroops } } },
+    [NETWORK]: { ...net, fees: { ...net.fees, uncoveredNetworkCost: { monthlyBudgetStroops } } },
   };
   const clock = { now: END_OF_MONTH };
   const budget = createUncoveredBudget({
