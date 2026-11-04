@@ -1750,7 +1750,6 @@ CREATE TABLE ujira.mandate_terms (
     approval_threshold ujira.amount NOT NULL,
     currency text NOT NULL,
     scale ujira.scale NOT NULL,
-    country_policy jsonb NOT NULL,
     country_policy_hash ujira.hash32 NOT NULL,
     max_fee_bps bigint NOT NULL,
     agreed_fee_bps bigint NOT NULL,

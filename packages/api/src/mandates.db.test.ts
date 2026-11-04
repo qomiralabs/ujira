@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { MandateCreated, MandateDetail } from '@ujira/api-schema';
 import type { SigningRequestWire } from '@ujira/api-schema';
 import { money } from '@ujira/core';
-import { entryPoints } from '@ujira/db';
+import { entryPoints, mandates } from '@ujira/db';
 import type { Database } from '@ujira/db';
 import { createTestDatabase, databaseAsServiceRoles } from '@ujira/db/testing';
 import type { TestDatabase } from '@ujira/db/testing';
@@ -113,6 +113,22 @@ describe('against the tables', () => {
     });
     expect(await records.find(tenant, input.id)).toEqual(stored);
     expect(await records.findByCreationKey(tenant, key)).toEqual(stored);
+
+    // The attester checks a recipient against this row, so a mandate that left it
+    // at its default would allow nobody while reading as though it allowed Kenya.
+    const row = await db.tenant(tenant).transaction((tx) => mandates.get(tx, input.id));
+    expect(row?.countryPolicy).toEqual({ mode: 'allow', countries: ['KE'] });
+
+    const blocking = await records.createOnce(tenant, {
+      ...input,
+      id: randomUUID(),
+      creationKey: randomUUID(),
+      countryPolicy: { mode: 'block', countries: ['KE'] },
+      instances: [],
+    });
+    expect(blocking.countryPolicy).toEqual({ mode: 'block', countries: ['KE'] });
+    const blockingRow = await db.tenant(tenant).transaction((tx) => mandates.get(tx, blocking.id));
+    expect(blockingRow?.countryPolicy).toEqual({ mode: 'deny', countries: ['KE'] });
 
     // The same key again: the first stands, and no second mandate is written.
     const second = await records.createOnce(tenant, {
