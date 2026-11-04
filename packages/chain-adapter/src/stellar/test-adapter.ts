@@ -70,11 +70,16 @@ export function networksConfig(overrides: {
 }
 
 /** Adds an account with this sequence number to the fake ledger. */
-export function addAccount(rpc: FakeRpc, address: string, sequence: bigint): void {
+export function addAccount(
+  rpc: FakeRpc,
+  address: string,
+  sequence: bigint,
+  balance = 100_000_000n,
+): void {
   const data = xdr.LedgerEntryData.account(
     new xdr.AccountEntry({
       accountId: Keypair.fromPublicKey(address).xdrAccountId(),
-      balance: 100_000_000n,
+      balance,
       seqNum: sequence,
       numSubEntries: 0,
       inflationDest: null,

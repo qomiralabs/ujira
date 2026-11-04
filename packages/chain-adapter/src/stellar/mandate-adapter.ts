@@ -44,6 +44,7 @@ import type {
   SigningRequest,
   SigningSummary,
   SponsoredIntent,
+  SubmissionRecord,
   SubmissionRef,
   TenantScope,
   UnixSeconds,
@@ -60,6 +61,8 @@ import type {
 } from './requests.js';
 import { archivedKeys, restoreAndExtend } from './restore.js';
 import { INSTANCE_TTL_EXTEND_LEDGERS, STELLAR_LEDGER_SECONDS } from './restore-policy.js';
+import { reconcileSubmission, reconcileUnresolved } from './lifecycle.js';
+import type { ReconcileResult, SweepOptions } from './lifecycle.js';
 import { mandateAddressOf } from './mandate-address.js';
 import type { StellarRpc } from './rpc.js';
 import { asAddress } from './scval.js';
@@ -156,6 +159,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       wait: options.wait ?? DEFAULT_WAIT,
       leaseSeconds: options.executorLeaseSeconds ?? DEFAULT_LEASE_SECONDS,
       submitTimeoutMs: options.submitTimeoutMs ?? DEFAULT_SUBMIT_TIMEOUT_MS,
+      lowBalanceAlerted: new Set(),
     };
     this.#ttlExtendLedgers = options.instanceTtlExtendLedgers ?? INSTANCE_TTL_EXTEND_LEDGERS;
     this.#newRequestId = options.newRequestId ?? randomUUID;
@@ -355,6 +359,16 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     };
   }
 
+  /** Asks the chain about one recorded submission and moves its record forward. */
+  reconcile(record: SubmissionRecord, opts: CallOptions): Promise<ReconcileResult> {
+    return reconcileSubmission(this.#executor, record, opts);
+  }
+
+  /** Reconciles what is still open, oldest first, and alerts on what is stuck. */
+  reconcileUnresolved(sweep: SweepOptions, opts: CallOptions): Promise<readonly ReconcileResult[]> {
+    return reconcileUnresolved(this.#executor, sweep, opts);
+  }
+
   async #signerAddress(req: MandateActionRequest, opts: CallOptions): Promise<string> {
     const { network } = this;
     if (req.signer.network !== network) throw invalid(network, 'signer.network (mismatch)');
@@ -431,8 +445,14 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     try {
       const hash =
         signed.kind === 'tx'
-          ? await this.#submitFeeBumped(request, signed.tx, req.correlationId, opts)
-          : await this.#submitFromChannel(request, signed.entry, req.correlationId, opts);
+          ? await this.#submitFeeBumped(request, signed.tx, reservationId, req.correlationId, opts)
+          : await this.#submitFromChannel(
+              request,
+              signed.entry,
+              reservationId,
+              req.correlationId,
+              opts,
+            );
       return { network, txHash: hash, finality: 'none' };
     } catch (error) {
       // Only an outcome that certainly sent nothing gives the reservation back.
@@ -499,6 +519,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
   async #submitFeeBumped(
     request: StoredSigningRequest,
     inner: Transaction,
+    reservationId: string,
     correlationId: string,
     opts: CallOptions,
   ): Promise<string> {
@@ -515,8 +536,23 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     );
     attach(bump, sponsor, signature);
     const hash = txHash(bump);
-    await this.#record(request, hash, request.signer, request.sequence ?? 0n, correlationId);
-    await sendAndRecord(this.#executor, request.scope, hash, bump.toXdr(), opts);
+    await this.#record(
+      request,
+      hash,
+      request.signer,
+      request.sequence ?? 0n,
+      reservationId,
+      correlationId,
+      opts,
+    );
+    await sendAndRecord(
+      this.#executor,
+      request.scope,
+      hash,
+      bump.toXdr(),
+      request.validUntil,
+      opts,
+    );
     return hash;
   }
 
@@ -524,6 +560,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
   async #submitFromChannel(
     request: StoredSigningRequest,
     entry: xdr.SorobanAuthorizationEntry,
+    reservationId: string,
     correlationId: string,
     opts: CallOptions,
   ): Promise<string> {
@@ -559,9 +596,24 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       );
       attach(assembled, session.address, signature);
       const hash = txHash(assembled);
-      await this.#record(request, hash, session.address, BigInt(assembled.sequence), correlationId);
+      await this.#record(
+        request,
+        hash,
+        session.address,
+        BigInt(assembled.sequence),
+        reservationId,
+        correlationId,
+        opts,
+      );
       session.sequence = BigInt(assembled.sequence);
-      await sendAndRecord(this.#executor, request.scope, hash, assembled.toXdr(), opts);
+      await sendAndRecord(
+        this.#executor,
+        request.scope,
+        hash,
+        assembled.toXdr(),
+        build.maxTime,
+        opts,
+      );
       return hash;
     });
   }
@@ -571,7 +623,9 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     hash: string,
     signerAddress: string,
     sequence: bigint,
+    reservationId: string,
     correlationId: string,
+    opts: CallOptions,
   ): Promise<void> {
     await this.#requests.setTxHash(request.scope, request.requestId, hash);
     await this.#ports.store.recordSubmission({
@@ -590,6 +644,8 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       errorCode: null,
       specCode: null,
       replacesTxHash: null,
+      submittedAtLedger: BigInt((await this.#rpc.getLatestLedger(opts)).sequence),
+      reservationId,
       correlationId,
       createdAt: this.#ports.clock.nowSeconds(),
     });
