@@ -1,0 +1,32 @@
+{
+  "name": "@ujira/funding",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./db": {
+      "types": "./dist/db-store.d.ts",
+      "default": "./dist/db-store.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint --max-warnings 0 .",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@ujira/chain-adapter": "workspace:*",
+    "@ujira/core": "workspace:*",
+    "@ujira/db": "workspace:*",
+    "zod": "4.6.7"
+  }
+}
