@@ -393,6 +393,35 @@ $$;
 ALTER FUNCTION ujira.authenticate_token(token_prefix text) OWNER TO ujira_fn_tokens;
 
 --
+-- Name: check_payout_booking(); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_instances
+--
+
+CREATE FUNCTION ujira.check_payout_booking() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if not exists (
+    select 1
+      from ujira.mandate_instances as i
+     where i.id = new.mandate_instance_id
+       and i.principal_id = new.principal_id
+       and i.project_id = new.project_id
+       and i.chain = new.chain
+       and i.contract_address = new.contract_address
+  ) then
+    raise exception using
+      errcode = '23503',
+      message = 'a payout booking names its mandate instance''s own contract';
+  end if;
+  return null;
+end
+$$;
+
+
+ALTER FUNCTION ujira.check_payout_booking() OWNER TO ujira_fn_instances;
+
+--
 -- Name: check_reporting_time_zone(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -537,6 +566,29 @@ $$;
 
 
 ALTER FUNCTION ujira.forbid_mutation() OWNER TO ujira_owner;
+
+--
+-- Name: keep_payout_booking(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.keep_payout_booking() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if new.principal_id <> old.principal_id or new.project_id <> old.project_id
+     or new.mandate_instance_id <> old.mandate_instance_id or new.chain <> old.chain
+     or new.contract_address <> old.contract_address or new.payout_id <> old.payout_id then
+    raise exception using
+      errcode = 'UJ006',
+      message = 'a payout booking keeps its tenant, contract and payout';
+  end if;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.keep_payout_booking() OWNER TO ujira_owner;
 
 --
 -- Name: keep_token_revoked(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
@@ -2039,13 +2091,6 @@ CREATE INDEX ledger_entries_by_journal ON ujira.ledger_entries USING btree (prin
 
 
 --
--- Name: mandate_instances_contract_key; Type: INDEX; Schema: ujira; Owner: ujira_owner
---
-
-CREATE UNIQUE INDEX mandate_instances_contract_key ON ujira.mandate_instances USING btree (principal_id, project_id, id, chain, contract_address);
-
-
---
 -- Name: payout_bookings_by_instance; Type: INDEX; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2239,6 +2284,20 @@ CREATE TRIGGER mandate_state_snapshots_no_truncate BEFORE TRUNCATE ON ujira.mand
 --
 
 CREATE TRIGGER mandates_touch BEFORE UPDATE ON ujira.mandates FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
+-- Name: payout_bookings payout_bookings_check_new; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER payout_bookings_check_new AFTER INSERT ON ujira.payout_bookings FOR EACH ROW EXECUTE FUNCTION ujira.check_payout_booking();
+
+
+--
+-- Name: payout_bookings payout_bookings_keep; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER payout_bookings_keep BEFORE UPDATE ON ujira.payout_bookings FOR EACH ROW EXECUTE FUNCTION ujira.keep_payout_booking();
 
 
 --
@@ -2509,7 +2568,7 @@ ALTER TABLE ONLY ujira.payout_bookings
 --
 
 ALTER TABLE ONLY ujira.payout_bookings
-    ADD CONSTRAINT payout_bookings_principal_id_project_id_mandate_instance_i_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id, chain, contract_address) REFERENCES ujira.mandate_instances(principal_id, project_id, id, chain, contract_address);
+    ADD CONSTRAINT payout_bookings_principal_id_project_id_mandate_instance_i_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id, chain) REFERENCES ujira.mandate_instances(principal_id, project_id, id, chain);
 
 
 --
@@ -3646,6 +3705,13 @@ GRANT ALL ON FUNCTION ujira.authenticate_token(token_prefix text) TO ujira_auth;
 
 
 --
+-- Name: FUNCTION check_payout_booking(); Type: ACL; Schema: ujira; Owner: ujira_fn_instances
+--
+
+REVOKE ALL ON FUNCTION ujira.check_payout_booking() FROM PUBLIC;
+
+
+--
 -- Name: FUNCTION check_reporting_time_zone(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3696,6 +3762,13 @@ GRANT ALL ON FUNCTION ujira.current_project_id() TO ujira_indexer;
 --
 
 REVOKE ALL ON FUNCTION ujira.forbid_mutation() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION keep_payout_booking(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.keep_payout_booking() FROM PUBLIC;
 
 
 --
