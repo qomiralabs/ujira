@@ -18,6 +18,12 @@ export {
   type ProjectContext,
   type TenantSession,
 } from './database.js';
+export {
+  memberAccessRepositories,
+  memberProjects,
+  memberWallets,
+} from './repositories/member-access.js';
+export type { MemberProjectGrant, MemberWallet } from './repositories/member-access.js';
 export { memberSessions } from './repositories/sessions.js';
 export type {
   CreatedSession,

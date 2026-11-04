@@ -165,8 +165,13 @@ describe('resolving a session', () => {
       expect(await select(hash, first.principalId, first.projectId)).toBe(true);
       expect((await resolve(hash))?.memberRole).toBe('admin');
       await admin.query(
-        `update ujira.principal_members set status = $1 where principal_id = $2 and user_id = $3`,
-        [status, first.principalId, member],
+        `update ujira.principal_members
+            set status = $1,
+                invite_secret_hash = case when $1 = 'invited' then $4::bytea end,
+                invite_expires_at = case when $1 = 'invited' then now() + interval '1 day' end,
+                invited_by = case when $1 = 'invited' then $5::uuid end
+          where principal_id = $2 and user_id = $3`,
+        [status, first.principalId, member, randomBytes(32), first.owner],
       );
       expect(await resolve(hash)).toBeUndefined();
     },
@@ -214,9 +219,10 @@ describe('choosing a tenant', () => {
   it('refuses a person whose membership is not active', async () => {
     const member = randomUUID();
     await admin.query(
-      `insert into ujira.principal_members (principal_id, user_id, role, status)
-       values ($1, $2, 'viewer', 'invited')`,
-      [first.principalId, member],
+      `insert into ujira.principal_members
+         (principal_id, user_id, role, status, invite_secret_hash, invite_expires_at, invited_by)
+       values ($1, $2, 'viewer', 'invited', $3, now() + interval '1 day', $4)`,
+      [first.principalId, member, randomBytes(32), first.owner],
     );
     expect(await select(await signIn(member), first.principalId, null)).toBe(false);
   });

@@ -53,6 +53,7 @@ export const TENANT_COLUMNS: Readonly<Record<string, TenantColumns>> = {
   'ujira.principals': { principal: 'id', project: null },
   'ujira.projects': { principal: 'principal_id', project: 'id' },
   'ujira.principal_members': { principal: 'principal_id', project: null },
+  'ujira.member_wallets': { principal: 'principal_id', project: null },
   'ujira.audit_heads': { principal: 'principal_id', project: null },
 };
 

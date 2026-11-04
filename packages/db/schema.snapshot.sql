@@ -1056,6 +1056,16 @@ CREATE FUNCTION ujira.session_resolve(session_secret_hash bytea) RETURNS TABLE(s
      and s.idle_expires_at > now()
      and s.absolute_expires_at > now()
      and (s.principal_id is null or m.user_id is not null)
+     and (
+       s.project_id is null
+       or m.role in ('owner', 'admin')
+       or exists (
+         select from ujira.principal_member_projects as a
+          where a.principal_id = s.principal_id
+            and a.project_id = s.project_id
+            and a.user_id = s.auth_subject
+       )
+     )
 $$;
 
 
@@ -1127,13 +1137,24 @@ begin
         where m.principal_id = selected_principal
           and m.user_id = s.auth_subject
           and m.status = 'active'
-     )
-     and (
-       selected_project is null
-       or exists (
-         select from ujira.projects as p
-          where p.principal_id = selected_principal and p.id = selected_project
-       )
+          and (
+            selected_project is null
+            or (
+              exists (
+                select from ujira.projects as p
+                 where p.principal_id = selected_principal and p.id = selected_project
+              )
+              and (
+                m.role in ('owner', 'admin')
+                or exists (
+                  select from ujira.principal_member_projects as a
+                   where a.principal_id = selected_principal
+                     and a.project_id = selected_project
+                     and a.user_id = s.auth_subject
+                )
+              )
+            )
+          )
      );
   get diagnostics changed = row_count;
   return changed = 1;
@@ -2001,6 +2022,28 @@ ALTER TABLE ONLY ujira.member_sessions FORCE ROW LEVEL SECURITY;
 ALTER TABLE ujira.member_sessions OWNER TO ujira_owner;
 
 --
+-- Name: member_wallets; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.member_wallets (
+    principal_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    network text NOT NULL,
+    address text NOT NULL,
+    verified_at timestamp with time zone NOT NULL,
+    removed_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT member_wallets_address_length CHECK (((char_length(address) >= 1) AND (char_length(address) <= 128))),
+    CONSTRAINT member_wallets_network_format CHECK ((network ~ '^[a-z0-9-]{1,32}:[A-Za-z0-9_-]{1,64}$'::text))
+);
+
+ALTER TABLE ONLY ujira.member_wallets FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.member_wallets OWNER TO ujira_owner;
+
+--
 -- Name: payout_methods; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2036,6 +2079,23 @@ ALTER TABLE ONLY ujira.payout_methods FORCE ROW LEVEL SECURITY;
 ALTER TABLE ujira.payout_methods OWNER TO ujira_owner;
 
 --
+-- Name: principal_member_projects; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.principal_member_projects (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    granted_by uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+ALTER TABLE ONLY ujira.principal_member_projects FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.principal_member_projects OWNER TO ujira_owner;
+
+--
 -- Name: principal_members; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2046,6 +2106,10 @@ CREATE TABLE ujira.principal_members (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     status text DEFAULT 'active'::text NOT NULL,
+    invite_secret_hash ujira.hash32,
+    invite_expires_at timestamp with time zone,
+    invited_by uuid,
+    CONSTRAINT principal_members_invite_whole CHECK ((((status = 'invited'::text) AND (invite_secret_hash IS NOT NULL) AND (invite_expires_at IS NOT NULL) AND (invited_by IS NOT NULL)) OR ((status <> 'invited'::text) AND (invite_secret_hash IS NULL) AND (invite_expires_at IS NULL) AND (invited_by IS NULL)))),
     CONSTRAINT principal_members_role CHECK ((role = ANY (ARRAY['owner'::text, 'admin'::text, 'developer'::text, 'viewer'::text]))),
     CONSTRAINT principal_members_status CHECK ((status = ANY (ARRAY['invited'::text, 'active'::text, 'suspended'::text, 'removed'::text])))
 );
@@ -2684,6 +2748,14 @@ ALTER TABLE ONLY ujira.member_sessions
 
 
 --
+-- Name: member_wallets member_wallets_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.member_wallets
+    ADD CONSTRAINT member_wallets_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: payout_methods payout_methods_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2697,6 +2769,14 @@ ALTER TABLE ONLY ujira.payout_methods
 
 ALTER TABLE ONLY ujira.payout_methods
     ADD CONSTRAINT payout_methods_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
+-- Name: principal_member_projects principal_member_projects_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.principal_member_projects
+    ADD CONSTRAINT principal_member_projects_pkey PRIMARY KEY (principal_id, project_id, user_id);
 
 
 --
@@ -2881,10 +2961,38 @@ CREATE INDEX member_sessions_subject ON ujira.member_sessions USING btree (auth_
 
 
 --
+-- Name: member_wallets_member; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX member_wallets_member ON ujira.member_wallets USING btree (principal_id, user_id);
+
+
+--
+-- Name: member_wallets_one_live_link; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE UNIQUE INDEX member_wallets_one_live_link ON ujira.member_wallets USING btree (principal_id, network, address) WHERE (removed_at IS NULL);
+
+
+--
 -- Name: payout_methods_by_recipient; Type: INDEX; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE INDEX payout_methods_by_recipient ON ujira.payout_methods USING btree (principal_id, project_id, recipient_id);
+
+
+--
+-- Name: principal_member_projects_member; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX principal_member_projects_member ON ujira.principal_member_projects USING btree (principal_id, user_id);
+
+
+--
+-- Name: principal_members_invite_secret; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE UNIQUE INDEX principal_members_invite_secret ON ujira.principal_members USING btree (invite_secret_hash) WHERE (invite_secret_hash IS NOT NULL);
 
 
 --
@@ -3495,6 +3603,14 @@ ALTER TABLE ONLY ujira.member_sessions
 
 
 --
+-- Name: member_wallets member_wallets_member; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.member_wallets
+    ADD CONSTRAINT member_wallets_member FOREIGN KEY (principal_id, user_id) REFERENCES ujira.principal_members(principal_id, user_id);
+
+
+--
 -- Name: payout_methods payout_methods_chain_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3508,6 +3624,22 @@ ALTER TABLE ONLY ujira.payout_methods
 
 ALTER TABLE ONLY ujira.payout_methods
     ADD CONSTRAINT payout_methods_principal_id_project_id_recipient_id_fkey FOREIGN KEY (principal_id, project_id, recipient_id) REFERENCES ujira.recipients(principal_id, project_id, id);
+
+
+--
+-- Name: principal_member_projects principal_member_projects_member; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.principal_member_projects
+    ADD CONSTRAINT principal_member_projects_member FOREIGN KEY (principal_id, user_id) REFERENCES ujira.principal_members(principal_id, user_id);
+
+
+--
+-- Name: principal_member_projects principal_member_projects_project; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.principal_member_projects
+    ADD CONSTRAINT principal_member_projects_project FOREIGN KEY (principal_id, project_id) REFERENCES ujira.projects(principal_id, id);
 
 
 --
@@ -3837,6 +3969,12 @@ ALTER TABLE ujira.mandates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ujira.member_sessions ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: member_wallets; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.member_wallets ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: api_tokens owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3956,10 +4094,24 @@ CREATE POLICY owner_all ON ujira.member_sessions TO ujira_owner USING (true) WIT
 
 
 --
+-- Name: member_wallets owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.member_wallets TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: payout_methods owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY owner_all ON ujira.payout_methods TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: principal_member_projects owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.principal_member_projects TO ujira_owner USING (true) WITH CHECK (true);
 
 
 --
@@ -4009,6 +4161,12 @@ CREATE POLICY owner_all ON ujira.recipients TO ujira_owner USING (true) WITH CHE
 --
 
 ALTER TABLE ujira.payout_methods ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: principal_member_projects; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.principal_member_projects ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: principal_members; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
@@ -4061,6 +4219,13 @@ CREATE POLICY sessions_all ON ujira.member_sessions TO ujira_fn_sessions USING (
 
 
 --
+-- Name: principal_member_projects sessions_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY sessions_read ON ujira.principal_member_projects FOR SELECT TO ujira_fn_sessions USING (true);
+
+
+--
 -- Name: principal_members sessions_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4072,6 +4237,20 @@ CREATE POLICY sessions_read ON ujira.principal_members FOR SELECT TO ujira_fn_se
 --
 
 CREATE POLICY sessions_read ON ujira.projects FOR SELECT TO ujira_fn_sessions USING (true);
+
+
+--
+-- Name: member_wallets tenant_delete; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_delete ON ujira.member_wallets FOR DELETE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (NOT ujira.project_scope_all())));
+
+
+--
+-- Name: principal_member_projects tenant_delete; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_delete ON ujira.principal_member_projects FOR DELETE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()) AND (NOT ujira.project_scope_all())));
 
 
 --
@@ -4180,10 +4359,24 @@ CREATE POLICY tenant_insert ON ujira.mandates FOR INSERT TO ujira_app WITH CHECK
 
 
 --
+-- Name: member_wallets tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.member_wallets FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (NOT ujira.project_scope_all())));
+
+
+--
 -- Name: payout_methods tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY tenant_insert ON ujira.payout_methods FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: principal_member_projects tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.principal_member_projects FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -4334,10 +4527,24 @@ CREATE POLICY tenant_read ON ujira.mandates FOR SELECT TO ujira_app, ujira_reade
 
 
 --
+-- Name: member_wallets tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.member_wallets FOR SELECT TO ujira_app, ujira_reader USING ((principal_id = ujira.current_principal_id()));
+
+
+--
 -- Name: payout_methods tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY tenant_read ON ujira.payout_methods FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: principal_member_projects tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.principal_member_projects FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
 
 
 --
@@ -4488,10 +4695,24 @@ CREATE POLICY tenant_update ON ujira.mandates FOR UPDATE TO ujira_app USING (((p
 
 
 --
+-- Name: member_wallets tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.member_wallets FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (NOT ujira.project_scope_all()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (NOT ujira.project_scope_all())));
+
+
+--
 -- Name: payout_methods tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY tenant_update ON ujira.payout_methods FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: principal_member_projects tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.principal_member_projects FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -5212,11 +5433,28 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE ujira.member_sessions TO ujira_fn_ses
 
 
 --
+-- Name: TABLE member_wallets; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE ujira.member_wallets TO ujira_app;
+GRANT SELECT ON TABLE ujira.member_wallets TO ujira_reader;
+
+
+--
 -- Name: TABLE payout_methods; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.payout_methods TO ujira_app;
 GRANT SELECT ON TABLE ujira.payout_methods TO ujira_reader;
+
+
+--
+-- Name: TABLE principal_member_projects; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE ujira.principal_member_projects TO ujira_app;
+GRANT SELECT ON TABLE ujira.principal_member_projects TO ujira_reader;
+GRANT SELECT ON TABLE ujira.principal_member_projects TO ujira_fn_sessions;
 
 
 --

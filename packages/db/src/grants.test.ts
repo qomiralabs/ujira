@@ -276,6 +276,7 @@ describe('roles', () => {
       { grantee: 'ujira_fn_sessions', object: 'member_sessions', privilege: 'INSERT' },
       { grantee: 'ujira_fn_sessions', object: 'member_sessions', privilege: 'SELECT' },
       { grantee: 'ujira_fn_sessions', object: 'member_sessions', privilege: 'UPDATE' },
+      { grantee: 'ujira_fn_sessions', object: 'principal_member_projects', privilege: 'SELECT' },
       { grantee: 'ujira_fn_sessions', object: 'principal_members', privilege: 'SELECT' },
       { grantee: 'ujira_fn_sessions', object: 'projects', privilege: 'SELECT' },
       { grantee: 'ujira_fn_tokens', object: 'api_tokens', privilege: 'SELECT' },

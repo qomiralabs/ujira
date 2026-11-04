@@ -367,6 +367,17 @@ export interface UjiraMemberSessions {
   user_agent_family: string | null;
 }
 
+export interface UjiraMemberWallets {
+  address: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  network: string;
+  principal_id: string;
+  removed_at: Timestamp | null;
+  user_id: string;
+  verified_at: Timestamp;
+}
+
 export interface UjiraMigrations {
   id: Generated<number>;
   name: string;
@@ -391,8 +402,19 @@ export interface UjiraPayoutMethods {
   updated_at: Generated<Timestamp>;
 }
 
+export interface UjiraPrincipalMemberProjects {
+  created_at: Generated<Timestamp>;
+  granted_by: string;
+  principal_id: string;
+  project_id: string;
+  user_id: string;
+}
+
 export interface UjiraPrincipalMembers {
   created_at: Generated<Timestamp>;
+  invite_expires_at: Timestamp | null;
+  invite_secret_hash: Buffer | null;
+  invited_by: string | null;
   principal_id: string;
   role: string;
   status: Generated<string>;
@@ -511,7 +533,9 @@ export interface Schema {
   'ujira.mandate_state_snapshots': UjiraMandateStateSnapshots;
   'ujira.mandates': UjiraMandates;
   'ujira.member_sessions': UjiraMemberSessions;
+  'ujira.member_wallets': UjiraMemberWallets;
   'ujira.payout_methods': UjiraPayoutMethods;
+  'ujira.principal_member_projects': UjiraPrincipalMemberProjects;
   'ujira.principal_members': UjiraPrincipalMembers;
   'ujira.principals': UjiraPrincipals;
   'ujira.projects': UjiraProjects;

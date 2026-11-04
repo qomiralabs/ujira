@@ -224,6 +224,53 @@ export const members = {
     return toMember(row);
   },
 
+  // A member who can do nothing until they accept. Only the hash of the secret
+  // comes here.
+  invite: async (
+    db: Tx,
+    input: {
+      readonly userId: string;
+      readonly role: MemberRole;
+      readonly secretHash: Buffer;
+      readonly expiresAt: Date;
+      readonly invitedBy: string;
+    },
+  ): Promise<Member> => {
+    const row = await db
+      .insertInto('ujira.principal_members')
+      .values({
+        principal_id: CURRENT_PRINCIPAL,
+        user_id: input.userId,
+        role: input.role,
+        status: 'invited',
+        invite_secret_hash: input.secretHash,
+        invite_expires_at: input.expiresAt,
+        invited_by: input.invitedBy,
+      })
+      .returning(memberColumns)
+      .executeTakeFirstOrThrow();
+    return toMember(row);
+  },
+
+  // The member an unexpired invitation names, now active, or undefined. Clearing
+  // the secret is what makes an invitation single use.
+  acceptInvite: async (db: Tx, secretHash: Buffer): Promise<string | undefined> => {
+    const row = await db
+      .updateTable('ujira.principal_members')
+      .set({
+        status: 'active',
+        invite_secret_hash: null,
+        invite_expires_at: null,
+        invited_by: null,
+      })
+      .where('invite_secret_hash', '=', secretHash)
+      .where('status', '=', 'invited')
+      .where('invite_expires_at', '>', sql<Date>`now()`)
+      .returning('user_id')
+      .executeTakeFirst();
+    return row?.user_id;
+  },
+
   changeRole: async (db: Tx, userId: string, role: MemberRole): Promise<boolean> => {
     const result = await db
       .updateTable('ujira.principal_members')

@@ -16,6 +16,11 @@ import type { Database, ProjectContext } from './database.js';
 import type { Schema } from './schema.generated.js';
 import { audit, auditRepositories } from './repositories/audit.js';
 import { entryPoints } from './repositories/entry-points.js';
+import {
+  memberAccessRepositories,
+  memberProjects,
+  memberWallets,
+} from './repositories/member-access.js';
 import { idempotencyKeys, idempotencyRepositories } from './repositories/idempotency.js';
 import { managedSigners } from './repositories/signers.js';
 import { ledger, ledgerRepositories } from './repositories/ledger.js';
@@ -72,10 +77,13 @@ interface Tenant {
   readonly recipientId: string;
   readonly identityId: string;
   readonly methodId: string;
+  readonly walletId: string;
+  readonly inviteSecret: Buffer;
 }
 
 const REPOSITORIES = {
   ...tenancyRepositories,
+  ...memberAccessRepositories,
   ...mandateRepositories,
   ...ledgerRepositories,
   ...recipientRepositories,
@@ -202,6 +210,24 @@ async function tenant(name: string): Promise<Tenant> {
       accountId: accounts[0]?.id ?? '',
     };
   });
+  const access = await db.tenant(first).transaction(async (tx) => {
+    const wallet = await memberWallets.link(tx, {
+      userId: ownerUserId,
+      network: 'stellar:testnet',
+      address: `G${randomUUID()}`,
+      verifiedAt: new Date('2027-01-01T00:00:00Z'),
+    });
+    await memberProjects.grant(tx, ownerUserId, ownerUserId);
+    const inviteSecret = randomBytes(32);
+    await members.invite(tx, {
+      userId: randomUUID(),
+      role: 'viewer',
+      secretHash: inviteSecret,
+      expiresAt: new Date('2100-01-01T00:00:00Z'),
+      invitedBy: ownerUserId,
+    });
+    return { walletId: wallet.id, inviteSecret };
+  });
   const { recipientId, identityId, methodId } = await db.tenant(first).transaction(async (tx) => {
     const recipient = await recipients.create(tx, {
       recipientRef: randomBytes(32),
@@ -237,6 +263,7 @@ async function tenant(name: string): Promise<Tenant> {
     first,
     second: { principalId: created.principalId, projectId: secondId },
     ownerUserId,
+    ...access,
     tokenId: token.id,
     signerId: signer.id,
     agentId,
@@ -353,6 +380,54 @@ const cases: Record<string, () => Promise<void>> = {
     const userId = randomUUID();
     await asA(async (tx) => members.add(tx, { userId, role: 'viewer' }));
     expect(await ownerOf('ujira.principal_members', 'user_id', userId)).toBe(a.first.principalId);
+  },
+  'members.invite': async () => {
+    const userId = randomUUID();
+    await asA(async (tx) =>
+      members.invite(tx, {
+        userId,
+        role: 'viewer',
+        secretHash: randomBytes(32),
+        expiresAt: new Date('2100-01-01T00:00:00Z'),
+        invitedBy: a.ownerUserId,
+      }),
+    );
+    expect(await ownerOf('ujira.principal_members', 'user_id', userId)).toBe(a.first.principalId);
+  },
+  'members.acceptInvite': async () => {
+    expect(await asA(async (tx) => members.acceptInvite(tx, b.inviteSecret))).toBeUndefined();
+  },
+  'memberProjects.list': async () => {
+    const page = await asA(async (tx) => memberProjects.list(tx, { limit: 100 }));
+    expect(page.items.map((grant) => grant.userId)).not.toContain(b.ownerUserId);
+    expect(page.items.map((grant) => grant.userId)).toContain(a.ownerUserId);
+  },
+  'memberProjects.grant': async () => {
+    const attempt = asA(async (tx) => memberProjects.grant(tx, b.ownerUserId, a.ownerUserId));
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'memberProjects.revoke': async () => {
+    expect(await asA(async (tx) => memberProjects.revoke(tx, b.ownerUserId))).toBe(false);
+  },
+  'memberWallets.list': async () => {
+    expect(await asA(async (tx) => memberWallets.list(tx, b.ownerUserId))).toEqual([]);
+  },
+  'memberWallets.link': async () => {
+    const attempt = asA(async (tx) =>
+      memberWallets.link(tx, {
+        userId: b.ownerUserId,
+        network: 'stellar:testnet',
+        address: `G${randomUUID()}`,
+        verifiedAt: new Date('2027-01-01T00:00:00Z'),
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'memberWallets.remove': async () => {
+    expect(await asA(async (tx) => memberWallets.remove(tx, b.walletId))).toBe(false);
+  },
+  'memberWallets.eraseMember': async () => {
+    expect(await asA(async (tx) => memberWallets.eraseMember(tx, b.ownerUserId))).toBe(0);
   },
   'members.changeRole': async () => {
     expect(await asA(async (tx) => members.changeRole(tx, b.ownerUserId, 'viewer'))).toBe(false);
