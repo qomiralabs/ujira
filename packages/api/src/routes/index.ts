@@ -9,6 +9,8 @@ import type { WalletProofFlow } from '@ujira/identity';
 
 import type { Route } from '../route.js';
 import { healthRoute } from './health.js';
+import { MANDATES_NOT_CONFIGURED, mandateRoutes } from './mandates.js';
+import type { MandateEndpoints } from './mandates.js';
 import { SELF_WEBHOOK_NOT_CONFIGURED, selfWebhookRoute } from './self-webhook.js';
 import type { SelfWebhookHandler } from './self-webhook.js';
 import {
@@ -21,6 +23,7 @@ import {
 export interface RouteDependencies {
   readonly selfWebhook: SelfWebhookHandler;
   readonly walletProof: WalletProofFlow;
+  readonly mandates: MandateEndpoints;
 }
 
 export function v1Routes(deps: RouteDependencies): readonly Route[] {
@@ -29,6 +32,7 @@ export function v1Routes(deps: RouteDependencies): readonly Route[] {
     selfWebhookRoute(deps.selfWebhook),
     walletChallengeRoute(deps.walletProof),
     walletProofRoute(deps.walletProof),
+    ...mandateRoutes(deps.mandates),
   ]);
 }
 
@@ -37,4 +41,5 @@ export function v1Routes(deps: RouteDependencies): readonly Route[] {
 export const V1_ROUTES: readonly Route[] = v1Routes({
   selfWebhook: SELF_WEBHOOK_NOT_CONFIGURED,
   walletProof: WALLET_PROOF_NOT_CONFIGURED,
+  mandates: MANDATES_NOT_CONFIGURED,
 });

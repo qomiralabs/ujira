@@ -316,7 +316,11 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     if (fee > config.feeSponsor.maxFeePerTxStroops) throw new SponsorDeniedError({ network });
     const summary: SigningSummary = {
       action: action.op,
-      ...(req.mandate === null ? {} : { mandate: req.mandate }),
+      mandate: req.mandate ?? {
+        network,
+        address: { network, value: target.address },
+        specVersion: 1,
+      },
       ...(action.op === 'withdraw' ? { amount: action.amount } : {}),
       feePaidBy: 'ujira',
       estimatedFee: stroops(network, fee),

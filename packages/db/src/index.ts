@@ -59,8 +59,10 @@ export {
   type TokenRecord,
 } from './repositories/entry-points.js';
 export {
+  AUDIT_ACTIONS,
   audit,
   AuditScopeError,
+  type AuditAction,
   type AuditActor,
   type AuditChainBreak,
   type AuditEntry,
@@ -97,11 +99,34 @@ export {
   type RecipientStatus,
 } from './repositories/recipients.js';
 export {
+  mandateActionRequests,
+  mandateTerms,
+  type MandateActionOp,
+  type MandateActionRequest,
+  type MandateLimitsRecord,
+  type MandateTerms,
+  type NewMandateActionRequest,
+  type NewMandateTerms,
+} from './repositories/mandate-terms.js';
+export {
+  idempotencyKeys,
+  type FinishedRequest,
+  type NewReservation,
+  type Reservation,
+} from './repositories/idempotency.js';
+export {
+  SECURITY_EVENT_KINDS,
   executors,
   identityProviderEvents,
+  rateLimits,
   routingConfig,
+  securityEvents,
   type IdentityProviderEvent,
   type ExecutorLease,
+  type NewSecurityEvent,
+  type SecurityEventKind,
+  type RateLimitBucket,
+  type RateLimitTaken,
   type RoutingConfig,
 } from './repositories/ops.js';
 export {

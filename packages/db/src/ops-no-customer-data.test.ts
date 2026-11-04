@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
@@ -129,6 +129,11 @@ describe('the rows', () => {
       await fixtureClient.query(
         `insert into ops.routing_config_versions (document, created_by)
          values ('{"corridors":[]}', 'deploy.runbook')`,
+      );
+      await fixtureClient.query(
+        `insert into ops.rate_limit_buckets (bucket_key, tokens, refilled_at)
+         values ($1, 40, now())`,
+        [`token:${createHash('sha256').update(created.projectId).digest('hex')}`],
       );
       expect(await opsDataProblems(fixtureClient)).toEqual([]);
 

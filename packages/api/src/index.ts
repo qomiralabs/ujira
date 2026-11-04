@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
+export { KEY_ENVIRONMENT, apiAccessFromEnv } from './access.js';
+export type { ApiAccess } from './access.js';
 export { API_DEFAULTS, createApp, newRequestId } from './app.js';
 export type { ApiDependencies } from './app.js';
 export { API_SCOPES, AuthenticatedTenantSchema, refuseAllCredentials } from './auth.js';
@@ -15,7 +17,7 @@ export type {
   Tenant,
 } from './auth.js';
 export { loadApiConfig } from './config.js';
-export type { ApiConfig } from './config.js';
+export type { ApiConfig, DeploymentEnvironment } from './config.js';
 export {
   ADAPTER_ERROR_MAP,
   ApiConfigError,
@@ -27,15 +29,68 @@ export {
   toApiError,
 } from './errors.js';
 export type { ApiErrorOptions } from './errors.js';
+export {
+  IDEMPOTENCY_HEADER,
+  IDEMPOTENCY_LEASE_SECONDS,
+  idempotencyKeyOf,
+  isFinalStatus,
+  memoryIdempotencyStore,
+  requestFingerprint,
+} from './idempotency.js';
+export type {
+  FinishRequest,
+  IdempotencyStore,
+  Reservation,
+  ReserveRequest,
+} from './idempotency.js';
 export { errorNameOf, jsonLogger, memoryLogger, stdoutLogger } from './log.js';
 export type { LogFields, LogLevel, LogRecord, Logger, RequestLog } from './log.js';
 export { OPENAPI_PATH, buildOpenApiDocument, withOpenApiRoute } from './openapi.js';
+export {
+  databaseBucketStore,
+  databaseIdempotencyStore,
+  databaseMandateRecords,
+  databaseSecurityEvents,
+  databaseTokenStore,
+} from './postgres-stores.js';
+export {
+  RATE_LIMIT_DEFAULTS,
+  allowEveryRequest,
+  bucketKey,
+  createRateLimit,
+  rateLimitHeaders,
+} from './rate-limit.js';
+export type {
+  BucketRequest,
+  BucketResult,
+  BucketStore,
+  RateLimit,
+  RateLimitDecision,
+  RateLimitGroup,
+  RateLimitRule,
+  RateLimitRules,
+  RateLimitSubject,
+} from './rate-limit.js';
+export { MAX_FEE_CAP_BPS, SWEEP_GRACE_SECONDS, createMandateEndpoints } from './mandate-service.js';
+export type {
+  ChainDefaults,
+  MandateRecords,
+  MandateServiceDeps,
+  NewStoredMandate,
+  StoredMandate,
+  TransferFix,
+} from './mandate-service.js';
+export { MANDATES_NOT_CONFIGURED, mandateRoutes } from './routes/mandates.js';
+export type { MandateEndpoints } from './routes/mandates.js';
 export {
   contractRoute,
   definePublicRoute,
   defineTenantRoute,
   defineWebhookRoute,
   queryParser,
+  requiresIdempotencyKey,
+  routeAccessProblems,
+  storedResponseProblems,
 } from './route.js';
 export type {
   Access,
@@ -64,4 +119,18 @@ export {
   walletProofRoute,
 } from './routes/wallet-proofs.js';
 export { startServer } from './serve.js';
+export { formatToken, hashSecret, issueToken, parseToken } from './token.js';
+export type { IssuedToken, ParsedToken, TokenEnvironment } from './token.js';
+export {
+  TOKEN_CACHE_MAX_TTL_MS,
+  TokenRecordError,
+  createTokenAuthenticator,
+} from './token-auth.js';
+export type {
+  SecurityEventSink,
+  TokenAuthOptions,
+  TokenLookup,
+  TokenSecurityEvent,
+  TokenStore,
+} from './token-auth.js';
 export type { RunningServer, ServeOptions } from './serve.js';

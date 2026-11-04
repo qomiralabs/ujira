@@ -6,13 +6,16 @@
 // 1. a request id, sent back in Request-Id and used as the correlation id
 //    of every call the handler makes;
 // 2. a deadline, as an AbortSignal the handler passes on;
-// 3. for a tenant route, the credential, then the route's scope;
+// 3. for a tenant route, the credential, the rate limits, then the route's
+//    scope, so a request that will be refused its scope still counts;
 // 4. path, query and body, each validated by the route's zod schema, except
 //    that a webhook route gets its body as the bytes that were sent;
-// 5. the handler;
-// 6. the response, validated by its schema, and for a tenant route checked
+// 5. for a tenant write, the Idempotency-Key, which may answer from what is
+//    stored instead of running the handler;
+// 6. the handler;
+// 7. the response, validated by its schema, and for a tenant route checked
 //    for any principal or project that is not the caller's;
-// 7. one access log line, with no request data in it.
+// 8. one access log line, with no request data in it.
 //
 // Every failure on the way becomes a problem body with a stable code, from
 // errors.ts. Nothing is swallowed: an error that maps to INTERNAL is logged
@@ -25,13 +28,27 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 
 import { AuthenticatedTenantSchema } from './auth.js';
-import type { Authenticate, CallOptions, Tenant } from './auth.js';
-import { readJsonBody, readRawBody } from './body.js';
+import type { AuthenticatedTenant, Authenticate, CallOptions, Tenant } from './auth.js';
+import { parseJsonBody, readRawBody } from './body.js';
 import { ApiError, RouteRegistryError, toApiError } from './errors.js';
+import {
+  IDEMPOTENCY_LEASE_SECONDS,
+  idempotencyKeyOf,
+  isFinalStatus,
+  requestFingerprint,
+} from './idempotency.js';
+import type { IdempotencyStore, Reservation } from './idempotency.js';
 import { errorNameOf, requestLog } from './log.js';
 import type { Logger, RequestLog } from './log.js';
 import { withOpenApiRoute } from './openapi.js';
-import { fieldErrors } from './route.js';
+import { rateLimitHeaders } from './rate-limit.js';
+import type { RateLimit } from './rate-limit.js';
+import {
+  fieldErrors,
+  requiresIdempotencyKey,
+  routeAccessProblems,
+  storedResponseProblems,
+} from './route.js';
 import type { Route, WebhookInput } from './route.js';
 import { foreignTenantPath } from './tenant-guard.js';
 
@@ -43,6 +60,10 @@ export const API_DEFAULTS = Object.freeze({
 export interface ApiDependencies {
   readonly routes: readonly Route[];
   readonly authenticate: Authenticate;
+  /** Required, so a server cannot be built that forgot its limits. */
+  readonly rateLimit: RateLimit;
+  /** Required, so a server cannot be built whose writes have no replay protection. */
+  readonly idempotency: IdempotencyStore;
   readonly logger: Logger;
   readonly requestTimeoutMs?: number;
   readonly bodyLimitBytes?: number;
@@ -65,14 +86,26 @@ const BASE_HEADERS: Readonly<Record<string, string>> = Object.freeze({
   'x-content-type-options': 'nosniff',
 });
 
+type BodyType = 'application/json' | 'application/problem+json';
+
 function respond(
   body: unknown,
   status: number,
   requestId: string,
-  type: 'application/json' | 'application/problem+json',
+  type: BodyType,
   extra: Record<string, string> = {},
 ): Response {
-  return new Response(JSON.stringify(body), {
+  return respondText(JSON.stringify(body), status, requestId, type, extra);
+}
+
+function respondText(
+  text: string,
+  status: number,
+  requestId: string,
+  type: BodyType,
+  extra: Record<string, string> = {},
+): Response {
+  return new Response(text, {
     status,
     headers: {
       ...BASE_HEADERS,
@@ -87,6 +120,7 @@ function problemResponse(error: ApiError, requestId: string, extra: Record<strin
   const body = buildProblem(error.code, requestId, {
     ...(error.detail === undefined ? {} : { detail: error.detail }),
     errors: error.errors,
+    fixes: error.fixes,
   });
   const headers =
     error.retryAfterSeconds === null
@@ -168,6 +202,11 @@ interface Outcome {
 
 /** Builds the API. The OpenAPI route is added to the routes given. */
 export function createApp(deps: ApiDependencies): Hono {
+  // Before the document is built, which reads what each route declares.
+  const [accessProblem] = routeAccessProblems(deps.routes);
+  if (accessProblem !== undefined) throw new RouteRegistryError(accessProblem);
+  const [storedProblem] = storedResponseProblems(deps.routes);
+  if (storedProblem !== undefined) throw new RouteRegistryError(storedProblem);
   const { routes } = withOpenApiRoute(deps.routes);
   checkRegistry(routes);
   const timeoutMs = deps.requestTimeoutMs ?? API_DEFAULTS.requestTimeoutMs;
@@ -218,20 +257,41 @@ export function createApp(deps: ApiDependencies): Hono {
     }, timeoutMs);
     const call: CallOptions = { signal: controller.signal, correlationId: requestId };
     let tenant: Tenant | null = null;
+    let limitHeaders: Record<string, string> = {};
     let outcome: Outcome;
     try {
       const response = await underDeadline(
         controller.signal,
         async () => {
           if (route.access.kind === 'tenant') {
-            tenant = await authenticateRequest(deps.authenticate, c.req.raw, call, route, log);
+            const caller = await authenticateRequest(deps.authenticate, c.req.raw, call, log);
+            tenant = { principalId: caller.principalId, projectId: caller.projectId };
+            const decision = await deps.rateLimit(
+              { tenant, tokenId: caller.tokenId, group: route.access.rateLimit ?? null },
+              call,
+            );
+            limitHeaders = rateLimitHeaders(decision);
+            if (!decision.allowed) {
+              throw new ApiError('RATE_LIMITED', {
+                retryAfterSeconds: decision.retryAfterSeconds,
+              });
+            }
+            if (!caller.scopes.includes(route.access.scope)) {
+              throw new ApiError('INSUFFICIENT_SCOPE', {
+                detail: `This route needs the ${route.access.scope} scope`,
+              });
+            }
           }
+          const idempotencyKey = requiresIdempotencyKey(route)
+            ? idempotencyKeyOf(c.req.raw.headers)
+            : null;
           const params = route.params.safeParse(c.req.param());
           // A malformed id cannot name anything, so it reads as not found.
           if (!params.success) throw new ApiError('NOT_FOUND');
           const query = route.parseQuery(new URL(c.req.url).searchParams);
           if (!query.success) throw new ApiError(query.code, { errors: query.errors });
           let body: unknown = undefined;
+          let bodyBytes: Uint8Array | null = null;
           if (route.rawBody !== null) {
             const input: WebhookInput = {
               rawBody: await readRawBody(c.req.raw, bodyLimit),
@@ -239,18 +299,34 @@ export function createApp(deps: ApiDependencies): Hono {
             };
             body = input;
           } else if (route.body !== null) {
-            const parsed = route.body.safeParse(await readJsonBody(c.req.raw, bodyLimit));
+            bodyBytes = await readRawBody(c.req.raw, bodyLimit);
+            const parsed = route.body.safeParse(parseJsonBody(bodyBytes));
             if (!parsed.success) {
               throw new ApiError('INVALID_REQUEST', { errors: fieldErrors(parsed.error.issues) });
             }
             body = parsed.data;
           }
-          const result = await route.handle(
-            { params: params.data, query: query.data, body },
-            { requestId, signal: controller.signal, call, log },
-            tenant,
+          const answer = async (): Promise<Response> => {
+            const result = await route.handle(
+              { params: params.data, query: query.data, body },
+              { requestId, signal: controller.signal, call, log, idempotencyKey },
+              tenant,
+            );
+            return checkedResponse(route, result, tenant, requestId, log);
+          };
+          if (idempotencyKey === null || tenant === null) return answer();
+          return answerOnce(
+            {
+              store: deps.idempotency,
+              tenant,
+              key: idempotencyKey,
+              requestSha256: requestFingerprint(route.method, new URL(c.req.url), bodyBytes),
+              requestId,
+              call,
+              log,
+            },
+            answer,
           );
-          return checkedResponse(route, result, tenant, requestId, log);
         },
         log,
       );
@@ -264,6 +340,9 @@ export function createApp(deps: ApiDependencies): Hono {
       };
     } finally {
       clearTimeout(timer);
+    }
+    for (const [name, value] of Object.entries(limitHeaders)) {
+      outcome.response.headers.set(name, value);
     }
     accessLog(log, started, route.method, route.path, outcome);
     return outcome.response;
@@ -303,13 +382,97 @@ export function createApp(deps: ApiDependencies): Hono {
   return app;
 }
 
+interface OnceRequest {
+  readonly store: IdempotencyStore;
+  readonly tenant: Tenant;
+  readonly key: string;
+  readonly requestSha256: Buffer;
+  readonly requestId: string;
+  readonly call: CallOptions;
+  readonly log: RequestLog;
+}
+
+function replayed(stored: Extract<Reservation, { kind: 'replay' }>): Response {
+  return respondText(
+    stored.body,
+    stored.status,
+    stored.requestId,
+    stored.status >= 400 ? 'application/problem+json' : 'application/json',
+    { 'idempotent-replayed': 'true' },
+  );
+}
+
+// Runs the handler if this attempt wins the key. This runs inside the request's
+// deadline race, so a handler that outlives the deadline still finishes here and
+// stores its answer, and until then a retry finds the key running rather than
+// starting it a second time.
+async function answerOnce(
+  request: OnceRequest,
+  answer: () => Promise<Response>,
+): Promise<Response> {
+  const { store, tenant, key, requestSha256, requestId, call, log } = request;
+  const reservation = await store.reserve(
+    tenant,
+    { key, requestSha256, leaseSeconds: IDEMPOTENCY_LEASE_SECONDS },
+    call,
+  );
+  switch (reservation.kind) {
+    case 'mismatch':
+      throw new ApiError('IDEMPOTENCY_KEY_REUSED');
+    case 'in_progress':
+      throw new ApiError('IDEMPOTENCY_IN_PROGRESS');
+    case 'replay':
+      log.info('idempotent_replay', { resourceId: reservation.requestId });
+      return replayed(reservation);
+    case 'started':
+      break;
+  }
+  const { leaseId } = reservation;
+
+  // The handler's own outcome is what the client gets, so neither of these may
+  // replace it. If the answer cannot be stored the key stays leased, and a retry
+  // runs the handler again once the lease is out, which is why a handler that moves
+  // money needs a unique constraint of its own.
+  const finish = async (response: Response): Promise<void> => {
+    try {
+      const body = await response.clone().text();
+      const stored = await store.complete(
+        tenant,
+        { key, leaseId, status: response.status, requestId, body },
+        call,
+      );
+      if (!stored) log.warn('idempotency_lease_lost', { ...tenant });
+    } catch (error) {
+      log.error('idempotency_complete_failed', { ...tenant, errorName: errorNameOf(error) });
+    }
+  };
+  const giveBack = async (): Promise<void> => {
+    try {
+      await store.release(tenant, { key, leaseId }, call);
+    } catch (error) {
+      log.error('idempotency_release_failed', { ...tenant, errorName: errorNameOf(error) });
+    }
+  };
+
+  let response: Response;
+  try {
+    response = await answer();
+  } catch (error) {
+    const mapped = toApiError(error);
+    if (isFinalStatus(mapped.status)) await finish(problemResponse(mapped, requestId));
+    else await giveBack();
+    throw error;
+  }
+  await finish(response);
+  return response;
+}
+
 async function authenticateRequest(
   authenticate: Authenticate,
   request: Request,
   call: CallOptions,
-  route: Route,
   log: RequestLog,
-): Promise<Tenant> {
+): Promise<AuthenticatedTenant> {
   const result = await authenticate(
     {
       authorization: request.headers.get('authorization'),
@@ -327,13 +490,7 @@ async function authenticateRequest(
     });
     throw new ApiError('INTERNAL');
   }
-  const { principalId, projectId, scopes } = checked.data;
-  if (route.access.kind === 'tenant' && !scopes.includes(route.access.scope)) {
-    throw new ApiError('INSUFFICIENT_SCOPE', {
-      detail: `This route needs the ${route.access.scope} scope`,
-    });
-  }
-  return { principalId, projectId };
+  return checked.data;
 }
 
 function checkedResponse(
