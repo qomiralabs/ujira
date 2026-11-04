@@ -21,6 +21,15 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
+-- Name: graphile_worker; Type: SCHEMA; Schema: -; Owner: ujira_worker
+--
+
+CREATE SCHEMA graphile_worker;
+
+
+ALTER SCHEMA graphile_worker OWNER TO ujira_worker;
+
+--
 -- Name: ops; Type: SCHEMA; Schema: -; Owner: ujira_owner
 --
 
@@ -37,6 +46,15 @@ CREATE SCHEMA ujira;
 
 
 ALTER SCHEMA ujira OWNER TO ujira_owner;
+
+--
+-- Name: ujira_jobs; Type: SCHEMA; Schema: -; Owner: ujira_worker
+--
+
+CREATE SCHEMA ujira_jobs;
+
+
+ALTER SCHEMA ujira_jobs OWNER TO ujira_worker;
 
 --
 -- Name: amount; Type: DOMAIN; Schema: ujira; Owner: ujira_owner
@@ -245,6 +263,30 @@ $$;
 ALTER FUNCTION ops.release_executor(target_network text, account text, holder text, sequence_reached bigint) OWNER TO ujira_ops;
 
 --
+-- Name: apply_scheduler_read(regclass, text[]); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.apply_scheduler_read(target regclass, readable_columns text[]) RETURNS void
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  execute format(
+    'create policy scheduler_read on %s for select to ujira_scheduler using (true)',
+    target
+  );
+  execute format(
+    'grant select (%s) on %s to ujira_scheduler',
+    (select string_agg(quote_ident(name), ', ') from unnest(readable_columns) as name),
+    target
+  );
+end
+$$;
+
+
+ALTER FUNCTION ujira.apply_scheduler_read(target regclass, readable_columns text[]) OWNER TO ujira_owner;
+
+--
 -- Name: apply_tenant_policies(regclass); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -418,6 +460,63 @@ $$;
 
 
 ALTER FUNCTION ujira.authenticate_token(token_prefix text) OWNER TO ujira_fn_tokens;
+
+--
+-- Name: bootstrap_worker_roles(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.bootstrap_worker_roles() RETURNS void
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  -- Roles are shared by the server, so these are created only when missing and
+  -- the down section never drops them. The password is set outside migrations.
+  if not exists (select from pg_catalog.pg_roles where rolname = 'ujira_worker') then
+    create role ujira_worker login noinherit nobypassrls;
+  end if;
+  if not exists (select from pg_catalog.pg_roles where rolname = 'ujira_scheduler') then
+    create role ujira_scheduler nologin noinherit nobypassrls;
+  end if;
+  alter role ujira_worker nobypassrls;
+  alter role ujira_scheduler nobypassrls;
+
+  -- The owner hands functions to these two, which needs it to be able to act
+  -- as them. Neither can act as the owner. A second grant from another role
+  -- would add a second membership row, so a role already a member is left alone.
+  if not pg_catalog.pg_has_role('ujira_owner', 'ujira_worker', 'member') then
+    grant ujira_worker to ujira_owner;
+  end if;
+  if not pg_catalog.pg_has_role('ujira_owner', 'ujira_scheduler', 'member') then
+    grant ujira_scheduler to ujira_owner;
+  end if;
+
+  create schema if not exists graphile_worker authorization ujira_worker;
+  create schema if not exists ujira_jobs authorization ujira_worker;
+  alter schema graphile_worker owner to ujira_worker;
+  alter schema ujira_jobs owner to ujira_worker;
+
+  -- A new schema starts with nothing granted, so these only matter on a
+  -- database someone changed by hand, and that is when they matter.
+  revoke all on schema graphile_worker from public, ujira_app;
+  revoke all on schema ujira_jobs from public;
+  revoke all on schema ujira from ujira_worker;
+
+  -- Postgres makes every new function executable, and every new type usable,
+  -- by PUBLIC. A later worker version adds functions of its own, so this has to
+  -- be a default and not a one off, and it has to run before the install.
+  alter default privileges for role ujira_worker revoke execute on functions from public;
+  alter default privileges for role ujira_worker revoke usage on types from public;
+
+  -- The installer runs `create schema if not exists` even when the schema is
+  -- there, which needs CREATE on the database. A database grant is not in a
+  -- dump, so a restore loses it, which is one reason this function exists.
+  execute format('grant create on database %I to ujira_worker', current_database());
+end
+$$;
+
+
+ALTER FUNCTION ujira.bootstrap_worker_roles() OWNER TO ujira_owner;
 
 --
 -- Name: check_new_funding_sweep(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
@@ -3454,6 +3553,13 @@ CREATE POLICY resolve_instance ON ujira.mandate_instances FOR SELECT TO ujira_fn
 
 
 --
+-- Name: mandate_instances scheduler_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY scheduler_read ON ujira.mandate_instances FOR SELECT TO ujira_scheduler USING (true);
+
+
+--
 -- Name: api_tokens tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3918,6 +4024,7 @@ GRANT USAGE ON SCHEMA ujira TO ujira_signer_attester;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_instances;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_ledger;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_audit;
+GRANT USAGE ON SCHEMA ujira TO ujira_scheduler;
 
 
 --
@@ -4023,6 +4130,13 @@ GRANT ALL ON FUNCTION ops.release_executor(target_network text, account text, ho
 
 
 --
+-- Name: FUNCTION apply_scheduler_read(target regclass, readable_columns text[]); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.apply_scheduler_read(target regclass, readable_columns text[]) FROM PUBLIC;
+
+
+--
 -- Name: FUNCTION apply_tenant_policies(target regclass); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4069,6 +4183,13 @@ GRANT ALL ON FUNCTION ujira.audit_row_hash(prev_hash bytea, principal_id uuid, p
 REVOKE ALL ON FUNCTION ujira.authenticate_token(token_prefix text) FROM PUBLIC;
 GRANT ALL ON FUNCTION ujira.authenticate_token(token_prefix text) TO ujira_app;
 GRANT ALL ON FUNCTION ujira.authenticate_token(token_prefix text) TO ujira_auth;
+
+
+--
+-- Name: FUNCTION bootstrap_worker_roles(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.bootstrap_worker_roles() FROM PUBLIC;
 
 
 --
@@ -4425,6 +4546,27 @@ GRANT SELECT ON TABLE ujira.mandate_instances TO ujira_indexer;
 
 
 --
+-- Name: COLUMN mandate_instances.principal_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(principal_id) ON TABLE ujira.mandate_instances TO ujira_scheduler;
+
+
+--
+-- Name: COLUMN mandate_instances.project_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(project_id) ON TABLE ujira.mandate_instances TO ujira_scheduler;
+
+
+--
+-- Name: COLUMN mandate_instances.id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(id) ON TABLE ujira.mandate_instances TO ujira_scheduler;
+
+
+--
 -- Name: TABLE mandates; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4520,10 +4662,24 @@ ALTER DEFAULT PRIVILEGES FOR ROLE ujira_owner REVOKE ALL ON TYPES FROM PUBLIC;
 
 
 --
+-- Name: DEFAULT PRIVILEGES FOR TYPES; Type: DEFAULT ACL; Schema: -; Owner: ujira_worker
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE ujira_worker REVOKE ALL ON TYPES FROM PUBLIC;
+
+
+--
 -- Name: DEFAULT PRIVILEGES FOR FUNCTIONS; Type: DEFAULT ACL; Schema: -; Owner: ujira_owner
 --
 
 ALTER DEFAULT PRIVILEGES FOR ROLE ujira_owner REVOKE ALL ON FUNCTIONS FROM PUBLIC;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR FUNCTIONS; Type: DEFAULT ACL; Schema: -; Owner: ujira_worker
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE ujira_worker REVOKE ALL ON FUNCTIONS FROM PUBLIC;
 
 
 --

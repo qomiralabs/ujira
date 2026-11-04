@@ -10,6 +10,7 @@
 import { randomBytes } from 'node:crypto';
 
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { Logger, runMigrations as installWorkerSchema } from 'graphile-worker';
 import pg from 'pg';
 
 import {
@@ -77,6 +78,14 @@ export async function startHarness(
       url.password = password;
       roleUrls[role] = url.toString();
     }
+  });
+  // The deploy step installs the worker schema as the role that owns it, after
+  // the migrations, so every test database starts from what production runs.
+  const workerUrl = roleUrls['ujira_worker'];
+  if (workerUrl === undefined) throw new Error('the migrations created no ujira_worker login');
+  await installWorkerSchema({
+    connectionString: withDatabase(workerUrl, TEMPLATE_DATABASE),
+    logger: new Logger(() => () => undefined),
   });
   // A template cannot be cloned while anything is connected to it, and
   // nothing should write to it after this point either.
