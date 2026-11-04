@@ -6,7 +6,7 @@
 // enforces. The principal's key signs in the wallet; UJIRA's sponsor signs as a
 // reserve sandwich and is never a signer on the account.
 
-import { Keypair, TransactionBuilder, xdr } from '@stellar/stellar-base';
+import { Keypair, StrKey, TransactionBuilder, xdr } from '@stellar/stellar-base';
 import {
   TransactionBuilder as SdkTransactionBuilder,
   xdr as sdkXdr,
@@ -29,8 +29,9 @@ import { createSponsorshipPolicy } from '../sponsorship/policy.js';
 import { createMemorySponsorshipLedger } from '../testing/sponsorship-ledger.js';
 import type { AdapterPorts, SigningRequest, TenantScope, UnixSeconds } from '../types.js';
 
+import type { FundingAccountFlow, FundingAccountStore } from '../funding-account.js';
+
 import { createFundingAccountFlow } from './funding-account.js';
-import type { FundingAccountFlow, FundingAccountStore } from './funding-account.js';
 import type { ForwarderFault, ForwarderRecord } from './forwarder.js';
 import { reconcileSubmission } from './lifecycle.js';
 import { NETWORK, NOW, OPTS, addAccount, setup } from './test-adapter.js';
@@ -81,8 +82,8 @@ function world(
   };
   const rows = new Map<string, ForwarderRecord>();
   const accounts: FundingAccountStore = {
-    forPrincipal: (principalId, network) =>
-      Promise.resolve(rows.get(`${principalId}|${network}`) ?? null),
+    forPrincipal: (scope, network) =>
+      Promise.resolve(rows.get(`${scope.principalId}|${network}`) ?? null),
     record: (row) => {
       rows.set(`${row.principalId}|${row.network}`, row);
       return Promise.resolve();
@@ -733,5 +734,79 @@ describe('funding-account.test.ts', { timeout: 30_000 }, () => {
     await expect(
       w.flow.confirm({ scope: w.t.scope, requestId: action.requestId }, OPTS),
     ).rejects.toBeInstanceOf(InvalidInputError);
+  });
+
+  describe('what a principal is offered', () => {
+    const MANDATE = StrKey.encodeContract(Buffer.alloc(32, 9));
+
+    function rowFor(w: World, change: Partial<ForwarderRecord> = {}): ForwarderRecord {
+      return {
+        principalId: w.t.scope.principalId,
+        projectId: w.t.scope.projectId,
+        network: NETWORK,
+        address: Keypair.random().publicKey(),
+        sponsor: w.t.sponsor.publicKey(),
+        sponsorTxHash: 'ab'.repeat(32),
+        status: 'active',
+        faults: [],
+        ...change,
+      };
+    }
+
+    function holding(w: World, row: ForwarderRecord): void {
+      w.rows.set(`${row.principalId}|${row.network}`, row);
+    }
+
+    it('never offers the mandate as the exchange address when there is no account', async () => {
+      const w = world();
+      expect(await w.flow.account(w.t.scope)).toBeNull();
+      const view = await w.flow.fundingOptions({ scope: w.t.scope, mandate: MANDATE });
+      expect(view.exchangeDeposit).toBeNull();
+      expect(view.walletFunding.address).toEqual({ network: NETWORK, value: MANDATE });
+      expect(view.walletFunding.label).toBe('Stellar contract address, fund from your wallet');
+    });
+
+    it('offers an active account as the exchange address', async () => {
+      const w = world();
+      const row = rowFor(w);
+      holding(w, row);
+      expect(await w.flow.account(w.t.scope)).toEqual(row);
+      const view = await w.flow.fundingOptions({ scope: w.t.scope, mandate: MANDATE });
+      expect(view.exchangeDeposit).toEqual({ network: NETWORK, value: row.address });
+      expect(view.walletFunding.address.value).toBe(MANDATE);
+    });
+
+    it('shows a rejected account as such but never offers it', async () => {
+      const w = world();
+      const row = rowFor(w, { status: 'rejected', faults: ['extra_signer'] });
+      holding(w, row);
+      expect(await w.flow.account(w.t.scope)).toEqual(row);
+      const view = await w.flow.fundingOptions({ scope: w.t.scope, mandate: MANDATE });
+      expect(view.exchangeDeposit).toBeNull();
+    });
+
+    it("does not give one project another project's account, but refuses it a second", async () => {
+      const w = world();
+      const elsewhere = rowFor(w, { projectId: stranger(9).projectId });
+      holding(w, elsewhere);
+      expect(await w.flow.account(w.t.scope)).toBeNull();
+      const view = await w.flow.fundingOptions({ scope: w.t.scope, mandate: MANDATE });
+      expect(view.exchangeDeposit).toBeNull();
+      await expect(
+        w.flow.prepare(
+          { scope: w.t.scope, publicKey: Keypair.random().publicKey(), ...VERIFIED },
+          OPTS,
+        ),
+      ).rejects.toBeInstanceOf(SponsorDeniedError);
+    });
+
+    it('asks the store under the tenant it was given, so no other principal is read', async () => {
+      const w = world();
+      holding(w, rowFor(w));
+      const other = stranger(10);
+      expect(await w.flow.account(other)).toBeNull();
+      const view = await w.flow.fundingOptions({ scope: other, mandate: MANDATE });
+      expect(view.exchangeDeposit).toBeNull();
+    });
   });
 });

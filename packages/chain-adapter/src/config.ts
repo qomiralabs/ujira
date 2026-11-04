@@ -198,6 +198,30 @@ const recipientActivation = z
 const fees = z
   .strictObject({
     uncoveredNetworkCost: z.strictObject({ monthlyBudgetStroops: stroops }),
+    networkFee: z.strictObject({ marginBps: bps.default(1_200) }).prefault({}),
+    xlmRate: z
+      .strictObject({
+        // How old each source may be. Horizon answers live, so 60 seconds is
+        // already generous. Reflector's feed publishes every 300 seconds, so
+        // anything under that would refuse it for part of every tick and it
+        // could not stand in when Horizon is down: 360 is one tick plus a
+        // margin. A rate this old only feeds a shortfall estimate, never a
+        // payment amount.
+        maxAgeSeconds: z
+          .strictObject({
+            stellar_dex: z.int().min(1).max(86_400).default(60),
+            reflector: z.int().min(1).max(86_400).default(360),
+          })
+          .prefault({}),
+        maxDeviationBps: bps.default(200),
+        // XLM has no market price on testnet, so one is configured. Text, so
+        // no rate passes through a float.
+        testnetReferenceRate: z
+          .string()
+          .regex(/^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,18})?$/)
+          .optional(),
+      })
+      .prefault({}),
   })
   .prefault({ uncoveredNetworkCost: { monthlyBudgetStroops: '0' } });
 
