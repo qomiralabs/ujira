@@ -8,7 +8,13 @@ export type ReceiptErrorCode =
   | 'RECEIPT_OPTIONS_INVALID'
   | 'RECEIPT_SIGNING_TIMEOUT'
   | 'RECEIPT_SIGNING_ABORTED'
-  | 'RECEIPT_SIGNATURE_INVALID';
+  | 'RECEIPT_SIGNATURE_INVALID'
+  | 'RECEIPT_NOT_PAID'
+  | 'RECEIPT_NOT_ISSUED'
+  | 'RECEIPT_TENANT_MISMATCH'
+  | 'RECEIPT_UNVERIFIED'
+  | 'RECEIPT_CHAIN_TIMEOUT'
+  | 'RECEIPT_CHAIN_ABORTED';
 
 /**
  * Base class for every receipt failure. Callers branch on `code`, which
@@ -74,4 +80,40 @@ export class ReceiptSigningAbortedError extends ReceiptError {
 export class ReceiptSignatureInvalidError extends ReceiptError {
   override readonly name = 'ReceiptSignatureInvalidError';
   readonly code = 'RECEIPT_SIGNATURE_INVALID';
+}
+
+/** The payout has not reached paid, so there is nothing to issue yet. */
+export class ReceiptNotPaidError extends ReceiptError {
+  override readonly name = 'ReceiptNotPaidError';
+  readonly code = 'RECEIPT_NOT_PAID';
+}
+
+/** A correction named a revision that has not been issued. */
+export class ReceiptNotIssuedError extends ReceiptError {
+  override readonly name = 'ReceiptNotIssuedError';
+  readonly code = 'RECEIPT_NOT_ISSUED';
+}
+
+/** A port answered for another tenant. Always a bug, and never reaches a receipt. */
+export class ReceiptTenantMismatchError extends ReceiptError {
+  override readonly name = 'ReceiptTenantMismatchError';
+  readonly code = 'RECEIPT_TENANT_MISMATCH';
+}
+
+/** The issue job cannot finish yet, so the queue's bounded retries apply. */
+export class ReceiptUnverifiedError extends ReceiptError {
+  override readonly name = 'ReceiptUnverifiedError';
+  readonly code = 'RECEIPT_UNVERIFIED';
+}
+
+/** The chain did not answer within the deadline. Nothing was stored. */
+export class ReceiptChainTimeoutError extends ReceiptError {
+  override readonly name = 'ReceiptChainTimeoutError';
+  readonly code = 'RECEIPT_CHAIN_TIMEOUT';
+}
+
+/** The caller's signal was aborted before the chain answered. Nothing was stored. */
+export class ReceiptChainAbortedError extends ReceiptError {
+  override readonly name = 'ReceiptChainAbortedError';
+  readonly code = 'RECEIPT_CHAIN_ABORTED';
 }

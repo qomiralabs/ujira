@@ -5,11 +5,12 @@
 
 import { LocalAttesterSigner, LocalSigner } from './index.js';
 import { describeSignerProvider } from './testing/conformance.js';
+import { TEST_MANDATES } from './testing/unpayable.js';
 
 // A fixed test seed, built rather than written out so it never reads as a key.
 const seed = '3c'.repeat(32);
 
 describeSignerProvider('LocalSigner', () => ({
   provider: new LocalSigner({ seed, nodeEnv: 'test' }),
-  attester: new LocalAttesterSigner({ seed, nodeEnv: 'test' }),
+  attester: new LocalAttesterSigner({ seed, nodeEnv: 'test', mandates: TEST_MANDATES }),
 }));
