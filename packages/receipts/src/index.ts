@@ -4,9 +4,9 @@
 // The receipt model, its canonical document and hash, the principal and
 // recipient views, and receipt signing through a port.
 //
-// Storage is deliberately not here. Receipts and their legs are append-only
-// tables owned by the db package's repository layer; keeping this package
-// free of I/O means the same code builds, hashes and verifies a receipt in
+// Storage is deliberately not here, only a port for it. Receipts and their
+// legs are append-only tables owned by the db package's repository layer;
+// keeping this package free of I/O means the same code builds, hashes and verifies a receipt in
 // the API, in a worker and in a verifier, and the store can move without
 // touching it.
 
@@ -24,16 +24,42 @@ export {
 } from './document.js';
 export type { AmountDocument, ReceiptDocument, ReceiptLegDocument } from './document.js';
 export {
+  ReceiptChainAbortedError,
+  ReceiptChainTimeoutError,
   ReceiptError,
   ReceiptInvalidError,
   ReceiptNotCanonicalError,
+  ReceiptNotIssuedError,
+  ReceiptNotPaidError,
   ReceiptOptionsInvalidError,
   ReceiptPresentationInvalidError,
   ReceiptSignatureInvalidError,
   ReceiptSigningAbortedError,
   ReceiptSigningTimeoutError,
+  ReceiptTenantMismatchError,
+  ReceiptUnverifiedError,
 } from './errors.js';
 export type { ReceiptErrorCode } from './errors.js';
+export {
+  RECEIPT_ISSUE_MAX_ATTEMPTS,
+  RECEIPT_ISSUE_TASK,
+  issueReceipt,
+  issueReceiptCorrection,
+  receiptIssueJobKey,
+  receiptIssueTask,
+  receiptNumberFor,
+} from './issue.js';
+export type {
+  PaidLeg,
+  PaidPayout,
+  ReceiptAlerts,
+  ReceiptBlockReason,
+  ReceiptCorrectionRequest,
+  ReceiptIssueOutcome,
+  ReceiptIssuePorts,
+  ReceiptIssueStore,
+  StoredReceipt,
+} from './issue.js';
 export {
   LOCAL_PAYOUT_METHODS,
   MAX_FEE_BPS,

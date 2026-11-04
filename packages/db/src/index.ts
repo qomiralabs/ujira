@@ -37,6 +37,15 @@ export {
   type Project,
 } from './repositories/tenancy.js';
 export {
+  managedSigners,
+  signingKeys,
+  type ManagedSigner,
+  type NewManagedSigner,
+  type SignerKeyStatus,
+  type SigningKey,
+  type SigningKeyPurpose,
+} from './repositories/signers.js';
+export {
   entryPoints,
   type CreatedPrincipal,
   type NewPrincipal,
@@ -69,8 +78,11 @@ export {
   recipientPii,
   recipients,
   type EncryptedValue,
+  type IdentityAssurance,
+  type IdentityChange,
   type IdentityState,
   type IdentityUpdate,
+  type NewProviderIdentity,
   type NewPayoutMethod,
   type PayoutMethod,
   type PayoutMethodKind,
@@ -80,7 +92,9 @@ export {
 } from './repositories/recipients.js';
 export {
   executors,
+  identityProviderEvents,
   routingConfig,
+  type IdentityProviderEvent,
   type ExecutorLease,
   type RoutingConfig,
 } from './repositories/ops.js';
@@ -94,12 +108,19 @@ export {
   chainEvents,
   deposits,
   fundingSources,
+  fundingSweeps,
   instanceRoles,
   mandateInstances,
   mandates,
   type ChainEvent,
   type Deposit,
+  type FundingAccountConfig,
   type FundingSource,
+  type FundingSweep,
+  type FundingSweepMove,
+  type FundingSweepStatus,
+  type NewFundingSource,
+  type NewFundingSweep,
   type InstanceRole,
   type Mandate,
   type MandateInstance,
