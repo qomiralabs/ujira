@@ -12,6 +12,7 @@
 import { sql, type Kysely, type RawBuilder } from 'kysely';
 
 import type { Schema } from '../schema.generated.js';
+import { checkedLimit, pageOf, type Page, type PageRequest } from './page.js';
 
 type Tx = Kysely<Schema>;
 
@@ -87,4 +88,189 @@ export function jobPayloadProblems(
   );
 }
 
-export const jobRepositories = { jobQueue } as const;
+// A transaction under a tenant context, as the worker's handlers hold one.
+export type TenantTx = Tx;
+
+export interface NewDeadLetter {
+  readonly sourceJobId: bigint;
+  readonly task: TaskName;
+  readonly ids: JobIds;
+  readonly tries: number;
+  // A code, as the column's check requires. An error's message could say anything.
+  readonly reason: string;
+}
+
+export interface DeadLetter {
+  readonly id: string;
+  readonly sourceJobId: bigint;
+  readonly task: TaskName;
+  readonly ids: Readonly<Record<string, string>>;
+  readonly tries: number;
+  readonly reason: string;
+  readonly createdAt: Date;
+  readonly replayedAt: Date | null;
+}
+
+interface DeadLetterRow {
+  readonly id: string;
+  readonly source_job_id: string;
+  readonly task: TaskName;
+  readonly ids: Readonly<Record<string, string>>;
+  readonly tries: number;
+  readonly reason: string;
+  readonly created_at: Date;
+  readonly replayed_at: Date | null;
+}
+
+function toDeadLetter(row: DeadLetterRow): DeadLetter {
+  return {
+    id: row.id,
+    sourceJobId: BigInt(row.source_job_id),
+    task: row.task,
+    ids: row.ids,
+    tries: row.tries,
+    reason: row.reason,
+    createdAt: row.created_at,
+    replayedAt: row.replayed_at,
+  };
+}
+
+const DEAD_LETTER_COLUMNS = sql.raw(
+  'id, source_job_id, task, ids, tries, reason, created_at, replayed_at',
+);
+
+export const deadLetters = {
+  // Writes the row once per job, however many times a job dies on the way.
+  record: async (
+    tx: Tx,
+    input: NewDeadLetter,
+  ): Promise<{ readonly id: string; readonly created: boolean }> => {
+    const inserted = await sql<{ id: string }>`
+      insert into ujira.job_dead_letters
+        (principal_id, project_id, source_job_id, task, ids, tries, reason)
+      values (
+        ujira.current_principal_id(), ujira.current_project_id(),
+        ${input.sourceJobId.toString()}::bigint, ${input.task},
+        ${JSON.stringify(input.ids)}::jsonb, ${input.tries}, ${input.reason}
+      )
+      on conflict on constraint job_dead_letters_once do nothing
+      returning id
+    `.execute(tx);
+    const created = inserted.rows[0]?.id;
+    if (created !== undefined) return { id: created, created: true };
+    const existing = await sql<{ id: string }>`
+      select id from ujira.job_dead_letters
+       where source_job_id = ${input.sourceJobId.toString()}::bigint
+    `.execute(tx);
+    const id = existing.rows[0]?.id;
+    if (id === undefined) throw new Error('a dead letter conflicted and could not be read back');
+    return { id, created: false };
+  },
+
+  // Those still waiting for someone to decide.
+  open: async (tx: Tx, page: PageRequest): Promise<Page<DeadLetter>> => {
+    const limit = checkedLimit(page.limit);
+    const after = page.after === undefined ? sql`` : sql`and id > ${page.after}::uuid`;
+    const result = await sql<DeadLetterRow>`
+      select ${DEAD_LETTER_COLUMNS} from ujira.job_dead_letters
+       where replayed_at is null ${after}
+       order by id
+       limit ${limit + 1}
+    `.execute(tx);
+    return pageOf(result.rows.map(toDeadLetter), limit, (letter) => letter.id);
+  },
+
+  get: async (tx: Tx, id: string): Promise<DeadLetter | undefined> => {
+    const result = await sql<DeadLetterRow>`
+      select ${DEAD_LETTER_COLUMNS} from ujira.job_dead_letters where id = ${id}::uuid
+    `.execute(tx);
+    const row = result.rows[0];
+    return row === undefined ? undefined : toDeadLetter(row);
+  },
+
+  // True for the one caller that got there first, so two operators replaying one
+  // letter make one job.
+  markReplayed: async (tx: Tx, id: string): Promise<boolean> => {
+    const result = await sql`
+      update ujira.job_dead_letters set replayed_at = now()
+       where id = ${id}::uuid and replayed_at is null
+    `.execute(tx);
+    return result.numAffectedRows === 1n;
+  },
+};
+
+// The targets of the cross-tenant crons, each with its own tenant. Called inside
+// db.unscoped() on the app login, and the only cross-tenant read that login has.
+export interface ReconcileTarget {
+  readonly principalId: string;
+  readonly projectId: string;
+  readonly mandateInstanceId: string;
+}
+
+export const cronTargets = {
+  reconcile: async (
+    tx: Tx,
+    after: string | undefined,
+    limit: number,
+  ): Promise<readonly ReconcileTarget[]> => {
+    const result = await sql<{
+      principal_id: string;
+      project_id: string;
+      mandate_instance_id: string;
+    }>`
+      select principal_id, project_id, mandate_instance_id
+        from ujira.reconcile_targets(${after ?? null}::uuid, ${limit})
+    `.execute(tx);
+    return result.rows.map((row) => ({
+      principalId: row.principal_id,
+      projectId: row.project_id,
+      mandateInstanceId: row.mandate_instance_id,
+    }));
+  },
+};
+
+// What a worker pool says about itself, on the worker login inside
+// db.unscoped(work, 'worker'). A job is locked by its pool's id, which is what a
+// heartbeat is keyed by.
+export const workerPools = {
+  beat: async (tx: Tx, poolId: string): Promise<void> => {
+    await sql`
+      insert into ujira_jobs.worker_heartbeats (worker_id) values (${poolId})
+      on conflict (worker_id) do update set last_seen_at = now()
+    `.execute(tx);
+  },
+
+  forget: async (tx: Tx, poolId: string): Promise<void> => {
+    await sql`delete from ujira_jobs.worker_heartbeats where worker_id = ${poolId}`.execute(tx);
+  },
+
+  // Frees the locks of pools that stopped beating, and returns those pools. A lock
+  // younger than the limit is left alone even with no heartbeat, because a pool
+  // that has only just started may hold a lock before its first beat lands.
+  unlockStale: async (tx: Tx, staleAfterSeconds: number): Promise<readonly string[]> => {
+    const cutoff = sql`now() - make_interval(secs => ${staleAfterSeconds})`;
+    const stale = await sql<{ pool: string }>`
+      with holders as (
+        select locked_by from graphile_worker._private_jobs where locked_at < ${cutoff}
+        union
+        select locked_by from graphile_worker._private_job_queues where locked_at < ${cutoff}
+      )
+      select holders.locked_by as pool
+        from holders
+        left join ujira_jobs.worker_heartbeats as beat on beat.worker_id = holders.locked_by
+       where beat.worker_id is null or beat.last_seen_at < ${cutoff}
+       order by 1
+    `.execute(tx);
+    const pools = stale.rows.map((row) => row.pool);
+    if (pools.length > 0) {
+      await sql`select graphile_worker.force_unlock_workers(${pools}::text[])`.execute(tx);
+    }
+    // A killed pool cannot say goodbye, so its row goes once nothing can need it.
+    await sql`
+      delete from ujira_jobs.worker_heartbeats where last_seen_at < now() - interval '1 day'
+    `.execute(tx);
+    return pools;
+  },
+};
+
+export const jobRepositories = { jobQueue, deadLetters } as const;

@@ -19,7 +19,9 @@
     "lint": "eslint --max-warnings 0 .",
     "test": "vitest run"
   },
-  "devDependencies": {
+  "dependencies": {
+    "@ujira/db": "workspace:*",
+    "graphile-worker": "0.18.0",
     "zod": "4.6.7"
   }
 }

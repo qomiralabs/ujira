@@ -439,7 +439,13 @@ importers:
         version: link:../core
 
   packages/payouts:
-    devDependencies:
+    dependencies:
+      '@ujira/db':
+        specifier: workspace:*
+        version: link:../db
+      graphile-worker:
+        specifier: 0.18.0
+        version: 0.18.0(supports-color@7.2.0)(typescript@6.0.3)
       zod:
         specifier: 4.6.7
         version: 4.6.7

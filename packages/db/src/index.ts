@@ -110,8 +110,15 @@ export {
   type RoleGrant,
 } from './repositories/mandates.js';
 export {
+  cronTargets,
+  deadLetters,
   jobPayloadProblems,
   jobQueue,
+  workerPools,
+  type DeadLetter,
+  type NewDeadLetter,
+  type ReconcileTarget,
+  type TenantTx,
   type JobIds,
   type JobKeyMode,
   type JobScope,

@@ -16,7 +16,7 @@ import type { Database, ProjectContext } from './database.js';
 import type { Schema } from './schema.generated.js';
 import { audit, auditRepositories } from './repositories/audit.js';
 import { entryPoints } from './repositories/entry-points.js';
-import { jobQueue, jobRepositories } from './repositories/jobs.js';
+import { deadLetters, jobQueue, jobRepositories } from './repositories/jobs.js';
 import { ledger, ledgerRepositories } from './repositories/ledger.js';
 import {
   chainEvents,
@@ -259,6 +259,63 @@ const acrossA = async <T>(work: (tx: Kysely<Schema>) => Promise<T>): Promise<T> 
 
 // One case per repository method, each run as tenant A.
 const cases: Record<string, () => Promise<void>> = {
+  'deadLetters.record': async () => {
+    // The same job id on both sides, so the unique key is tested across tenants.
+    const input = {
+      sourceJobId: 7001n,
+      task: 'cross:tenant',
+      ids: { payoutId: 'p1' },
+      tries: 12,
+      reason: 'RPC_UNAVAILABLE',
+    } as const;
+    const theirs = await db
+      .tenant(b.first)
+      .transaction(async (tx) => deadLetters.record(tx, input));
+    const mine = await asA(async (tx) => deadLetters.record(tx, input));
+    expect(mine.created).toBe(true);
+    expect(mine.id).not.toBe(theirs.id);
+  },
+  'deadLetters.open': async () => {
+    const theirs = await db.tenant(b.first).transaction(async (tx) =>
+      deadLetters.record(tx, {
+        sourceJobId: 7002n,
+        task: 'cross:tenant',
+        ids: {},
+        tries: 1,
+        reason: 'RPC_UNAVAILABLE',
+      }),
+    );
+    const page = await asA(async (tx) => deadLetters.open(tx, { limit: 100 }));
+    expect(page.items.map((letter) => letter.id)).not.toContain(theirs.id);
+  },
+  'deadLetters.get': async () => {
+    const theirs = await db.tenant(b.first).transaction(async (tx) =>
+      deadLetters.record(tx, {
+        sourceJobId: 7003n,
+        task: 'cross:tenant',
+        ids: {},
+        tries: 1,
+        reason: 'RPC_UNAVAILABLE',
+      }),
+    );
+    expect(await asA(async (tx) => deadLetters.get(tx, theirs.id))).toBeUndefined();
+  },
+  'deadLetters.markReplayed': async () => {
+    const theirs = await db.tenant(b.first).transaction(async (tx) =>
+      deadLetters.record(tx, {
+        sourceJobId: 7004n,
+        task: 'cross:tenant',
+        ids: {},
+        tries: 1,
+        reason: 'RPC_UNAVAILABLE',
+      }),
+    );
+    expect(await asA(async (tx) => deadLetters.markReplayed(tx, theirs.id))).toBe(false);
+    const still = await db
+      .tenant(b.first)
+      .transaction(async (tx) => deadLetters.get(tx, theirs.id));
+    expect(still?.replayedAt).toBeNull();
+  },
   // A job names no other tenant's row, so the question is whether A can file one
   // under B or touch B's by key. The key below is B's own, and it lands as A's.
   'jobQueue.enqueue': async () => {

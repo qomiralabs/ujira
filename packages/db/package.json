@@ -16,6 +16,10 @@
     "./key-manager/contract": {
       "types": "./dist/key-manager/contract.d.ts",
       "default": "./dist/key-manager/contract.js"
+    },
+    "./testing": {
+      "types": "./src/testing/index.ts",
+      "default": "./src/testing/index.ts"
     }
   },
   "files": [
