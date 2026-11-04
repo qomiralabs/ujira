@@ -598,8 +598,11 @@ describe('allocate rejects bad weights', () => {
   });
 
   it('throws on a hole in a sparse weights array', () => {
-    // eslint-disable-next-line no-sparse-arrays
-    const sparse = loose([1n, , 1n]);
+    // Built with a deleted element rather than a sparse literal, so no lint
+    // disable comment is needed where inline config is ignored.
+    const withHole: unknown[] = [1n, 0n, 1n];
+    Reflect.deleteProperty(withHole, 1);
+    const sparse = loose(withHole);
     expectMoneyError(() => allocate(usd(100n), sparse), InvalidAllocationError);
     const holes = loose(new Array(3));
     expectMoneyError(() => allocate(usd(100n), holes), InvalidAllocationError);

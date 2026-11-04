@@ -36,6 +36,7 @@ import { describe, expect, it } from 'vitest';
 import { LocalSigner } from '../local-signer.js';
 import { RemoteAttesterSigner } from '../remote-attester.js';
 import { CALLER_TOKEN, OPTS, TEST_SEED, codeOf } from '../testing/service.js';
+import { TEST_SETTLEMENT } from '../testing/unpayable.js';
 import {
   attestPolicy,
   createSignerService,
@@ -171,6 +172,7 @@ function attester(backend: SignerProvider, now: string, fields: AttestationField
           executors: [],
           tenant: TENANT,
           recipientMode: 'both',
+          ...TEST_SETTLEMENT,
         },
       ]),
       log: memoryAttestationLog([

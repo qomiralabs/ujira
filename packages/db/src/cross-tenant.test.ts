@@ -16,6 +16,7 @@ import type { Database, ProjectContext } from './database.js';
 import type { Schema } from './schema.generated.js';
 import { audit, auditRepositories } from './repositories/audit.js';
 import { entryPoints } from './repositories/entry-points.js';
+import { managedSigners } from './repositories/signers.js';
 import { ledger, ledgerRepositories } from './repositories/ledger.js';
 import {
   chainEvents,
@@ -53,6 +54,8 @@ interface Tenant {
   readonly second: ProjectContext;
   readonly ownerUserId: string;
   readonly tokenId: string;
+  readonly signerId: string;
+  readonly agentId: string;
   readonly mandateId: string;
   readonly instanceId: string;
   readonly sourceId: string;
@@ -66,6 +69,7 @@ interface Tenant {
   readonly journalId: string;
   readonly accountId: string;
   readonly recipientId: string;
+  readonly identityId: string;
   readonly methodId: string;
 }
 
@@ -98,6 +102,16 @@ async function tenant(name: string): Promise<Tenant> {
       secretSha256: Buffer.alloc(32, 7),
       scopes: ['payouts:read'],
       expiresAt: null,
+    }),
+  );
+  const agentId = randomUUID();
+  const signer = await db.tenant(first).transaction(async (tx) =>
+    managedSigners.create(tx, {
+      network: 'stellar:testnet',
+      agentId,
+      keyRef: `alias/${name}`,
+      address: `G${randomUUID().replaceAll('-', '').toUpperCase()}`,
+      consentedByMemberId: ownerUserId,
     }),
   );
   const depositOperationId = randomUUID();
@@ -186,7 +200,7 @@ async function tenant(name: string): Promise<Tenant> {
       accountId: accounts[0]?.id ?? '',
     };
   });
-  const { recipientId, methodId } = await db.tenant(first).transaction(async (tx) => {
+  const { recipientId, identityId, methodId } = await db.tenant(first).transaction(async (tx) => {
     const recipient = await recipients.create(tx, {
       recipientRef: randomBytes(32),
       country: 'NG',
@@ -195,7 +209,7 @@ async function tenant(name: string): Promise<Tenant> {
       ciphertext: randomBytes(16),
       nonce: randomBytes(12),
     });
-    await recipientIdentities.upsert(tx, {
+    const identity = await recipientIdentities.upsert(tx, {
       recipientId: recipient.id,
       chain: 'stellar',
       provider: 'self',
@@ -212,13 +226,15 @@ async function tenant(name: string): Promise<Tenant> {
       details: null,
     });
     await audit.record(tx, { action: 'project.created', actor: { kind: 'system' } });
-    return { recipientId: recipient.id, methodId: method.id };
+    return { recipientId: recipient.id, identityId: identity.id, methodId: method.id };
   });
   return {
     first,
     second: { principalId: created.principalId, projectId: secondId },
     ownerUserId,
     tokenId: token.id,
+    signerId: signer.id,
+    agentId,
     mandateId,
     instanceId,
     sourceId,
@@ -232,6 +248,7 @@ async function tenant(name: string): Promise<Tenant> {
     journalId,
     accountId,
     recipientId,
+    identityId,
     methodId,
   };
 }
@@ -362,6 +379,53 @@ const cases: Record<string, () => Promise<void>> = {
       [b.tokenId],
     );
     expect(bToken.rows[0]?.revoked_at).toBeNull();
+  },
+  'managedSigners.list': async () => {
+    const page = await acrossA(async (tx) => managedSigners.list(tx, { limit: 100 }));
+    expect(page.items.map((signer) => signer.id)).not.toContain(b.signerId);
+    expect(page.items.map((signer) => signer.id)).toContain(a.signerId);
+  },
+  'managedSigners.get': async () => {
+    expect(await acrossA(async (tx) => managedSigners.get(tx, b.signerId))).toBeUndefined();
+  },
+  'managedSigners.active': async () => {
+    const found = await acrossA(async (tx) =>
+      managedSigners.active(tx, { network: 'stellar:testnet', agentId: b.agentId }),
+    );
+    expect(found).toBeUndefined();
+  },
+  'managedSigners.create': async () => {
+    const input = {
+      network: 'stellar:testnet',
+      agentId: randomUUID(),
+      keyRef: 'alias/case',
+      address: `G${randomUUID().replaceAll('-', '').toUpperCase()}`,
+      consentedByMemberId: a.ownerUserId,
+    };
+    const signer = await asA(async (tx) => managedSigners.create(tx, input));
+    expect(signer.projectId).toBe(a.first.projectId);
+    expect(await ownerOf('ujira.managed_signers', 'id', signer.id)).toBe(a.first.principalId);
+    // Another tenant's member cannot consent to a key here.
+    await expect(
+      asA(async (tx) =>
+        managedSigners.create(tx, {
+          ...input,
+          agentId: randomUUID(),
+          address: `G${randomUUID().replaceAll('-', '').toUpperCase()}`,
+          consentedByMemberId: b.ownerUserId,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: '23503' });
+  },
+  'managedSigners.setStatus': async () => {
+    expect(await asA(async (tx) => managedSigners.setStatus(tx, b.signerId, 'retired'))).toBe(
+      false,
+    );
+    const row = await admin.query<{ status: string }>(
+      'select status from ujira.managed_signers where id = $1',
+      [b.signerId],
+    );
+    expect(row.rows[0]?.status).toBe('active');
   },
   'mandates.list': async () => {
     const page = await acrossA(async (tx) => mandates.list(tx, { limit: 100 }));
@@ -587,6 +651,42 @@ const cases: Record<string, () => Promise<void>> = {
   },
   'recipientIdentities.list': async () => {
     expect(await acrossA(async (tx) => recipientIdentities.list(tx, b.recipientId))).toEqual([]);
+  },
+  'recipientIdentities.get': async () => {
+    expect(await acrossA(async (tx) => recipientIdentities.get(tx, b.identityId))).toBeUndefined();
+  },
+  'recipientIdentities.open': async () => {
+    const attempt = asA(async (tx) =>
+      recipientIdentities.open(tx, {
+        recipientId: b.recipientId,
+        provider: 'principal',
+        providerAccount: null,
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'recipientIdentities.update': async () => {
+    expect(
+      await asA(async (tx) => recipientIdentities.update(tx, b.identityId, { state: 'revoked' })),
+    ).toBeUndefined();
+  },
+  'recipientIdentities.verifiedByNullifier': async () => {
+    const nullifier = randomBytes(32);
+    await db
+      .tenant(b.first)
+      .transaction(async (tx) =>
+        recipientIdentities.update(tx, b.identityId, { nullifierHmac: nullifier }),
+      );
+    expect(
+      await acrossA(async (tx) => recipientIdentities.verifiedByNullifier(tx, nullifier)),
+    ).toBeUndefined();
+  },
+  'recipientIdentities.erase': async () => {
+    expect(await asA(async (tx) => recipientIdentities.erase(tx, b.recipientId))).toBe(0);
+    const untouched = await db
+      .tenant(b.first)
+      .transaction(async (tx) => recipientIdentities.get(tx, b.identityId));
+    expect(untouched?.state).toBe('verified');
   },
   'recipientIdentities.upsert': async () => {
     const attempt = asA(async (tx) =>

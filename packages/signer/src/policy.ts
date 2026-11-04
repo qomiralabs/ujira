@@ -16,6 +16,8 @@ import {
   decodeTransactionEnvelope,
 } from '@ujira/chain-adapter/codecs';
 
+import { refuseUnpayable } from './unpayable.js';
+
 type RefKind = SignerRef['kind'];
 
 // One key, one job. The fee sponsor pays fees and nothing else, so it can
@@ -49,7 +51,8 @@ function decoded<T>(ref: SignerRef, read: () => T): T {
 /**
  * The bytes `ref`'s key signs for `payload`, or SignerDeniedError when the
  * ref may not sign this kind of payload or the payload is not this key's to
- * sign. `account` is the G address the ref's key controls.
+ * sign, or DestinationInvalidError for an attestation to an address that can
+ * never pay out. `account` is the G address the ref's key controls.
  */
 export function messageFor(ref: SignerRef, payload: SignPayload, account: string): Uint8Array {
   if (payload.network !== ref.network || !ALLOWED[payload.kind].has(ref.kind)) throw deny(ref);
@@ -99,6 +102,9 @@ export function messageFor(ref: SignerRef, payload: SignPayload, account: string
     }
     case 'attestation': {
       if (payload.fields.mandate.network !== payload.network) throw deny(ref);
+      // Ahead of the layout, which refuses an M address outright: an unpayable
+      // one should read as unpayable, not as malformed.
+      refuseUnpayable(payload.fields);
       return decoded(ref, () => attestationMessage(payload.fields));
     }
   }
