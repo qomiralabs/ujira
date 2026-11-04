@@ -20,6 +20,7 @@ import { describe, expect, it } from 'vitest';
 
 import { LocalSigner } from '../local-signer.js';
 import { CALLER_TOKEN, OPTS, TEST_SEED, codeOf, harness } from '../testing/service.js';
+import { TEST_SETTLEMENT } from '../testing/unpayable.js';
 import {
   SIGNER_LOG_FIELDS,
   backendOnlyPolicy,
@@ -92,6 +93,7 @@ describe('signer service logs', () => {
             executors: [executor],
             tenant: TENANT,
             recipientMode: 'allowlist',
+            ...TEST_SETTLEMENT,
           },
         ]),
         sponsorships: memorySponsorshipLedger([

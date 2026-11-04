@@ -17,6 +17,7 @@ import type { Schema } from './schema.generated.js';
 import { audit, auditRepositories } from './repositories/audit.js';
 import { entryPoints } from './repositories/entry-points.js';
 import { idempotencyKeys, idempotencyRepositories } from './repositories/idempotency.js';
+import { managedSigners } from './repositories/signers.js';
 import { ledger, ledgerRepositories } from './repositories/ledger.js';
 import {
   chainEvents,
@@ -53,6 +54,8 @@ interface Tenant {
   readonly second: ProjectContext;
   readonly ownerUserId: string;
   readonly tokenId: string;
+  readonly signerId: string;
+  readonly agentId: string;
   readonly mandateId: string;
   readonly instanceId: string;
   readonly sourceId: string;
@@ -96,6 +99,16 @@ async function tenant(name: string): Promise<Tenant> {
       secretSha256: Buffer.alloc(32, 7),
       scopes: ['payouts:read'],
       expiresAt: new Date('2100-01-01T00:00:00Z'),
+    }),
+  );
+  const agentId = randomUUID();
+  const signer = await db.tenant(first).transaction(async (tx) =>
+    managedSigners.create(tx, {
+      network: 'stellar:testnet',
+      agentId,
+      keyRef: `alias/${name}`,
+      address: `G${randomUUID().replaceAll('-', '').toUpperCase()}`,
+      consentedByMemberId: ownerUserId,
     }),
   );
   const { mandateId, instanceId, sourceId } = await db.tenant(first).transaction(async (tx) => {
@@ -197,6 +210,8 @@ async function tenant(name: string): Promise<Tenant> {
     second: { principalId: created.principalId, projectId: secondId },
     ownerUserId,
     tokenId: token.id,
+    signerId: signer.id,
+    agentId,
     mandateId,
     instanceId,
     sourceId,
@@ -412,6 +427,53 @@ const cases: Record<string, () => Promise<void>> = {
       [b.tokenId],
     );
     expect(bToken.rows[0]?.revoked_at).toBeNull();
+  },
+  'managedSigners.list': async () => {
+    const page = await acrossA(async (tx) => managedSigners.list(tx, { limit: 100 }));
+    expect(page.items.map((signer) => signer.id)).not.toContain(b.signerId);
+    expect(page.items.map((signer) => signer.id)).toContain(a.signerId);
+  },
+  'managedSigners.get': async () => {
+    expect(await acrossA(async (tx) => managedSigners.get(tx, b.signerId))).toBeUndefined();
+  },
+  'managedSigners.active': async () => {
+    const found = await acrossA(async (tx) =>
+      managedSigners.active(tx, { network: 'stellar:testnet', agentId: b.agentId }),
+    );
+    expect(found).toBeUndefined();
+  },
+  'managedSigners.create': async () => {
+    const input = {
+      network: 'stellar:testnet',
+      agentId: randomUUID(),
+      keyRef: 'alias/case',
+      address: `G${randomUUID().replaceAll('-', '').toUpperCase()}`,
+      consentedByMemberId: a.ownerUserId,
+    };
+    const signer = await asA(async (tx) => managedSigners.create(tx, input));
+    expect(signer.projectId).toBe(a.first.projectId);
+    expect(await ownerOf('ujira.managed_signers', 'id', signer.id)).toBe(a.first.principalId);
+    // Another tenant's member cannot consent to a key here.
+    await expect(
+      asA(async (tx) =>
+        managedSigners.create(tx, {
+          ...input,
+          agentId: randomUUID(),
+          address: `G${randomUUID().replaceAll('-', '').toUpperCase()}`,
+          consentedByMemberId: b.ownerUserId,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: '23503' });
+  },
+  'managedSigners.setStatus': async () => {
+    expect(await asA(async (tx) => managedSigners.setStatus(tx, b.signerId, 'retired'))).toBe(
+      false,
+    );
+    const row = await admin.query<{ status: string }>(
+      'select status from ujira.managed_signers where id = $1',
+      [b.signerId],
+    );
+    expect(row.rows[0]?.status).toBe('active');
   },
   'mandates.list': async () => {
     const page = await acrossA(async (tx) => mandates.list(tx, { limit: 100 }));
