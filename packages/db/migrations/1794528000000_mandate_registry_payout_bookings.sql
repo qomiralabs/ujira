@@ -138,8 +138,8 @@ create table ujira.payout_bookings (
   updated_at timestamptz not null default now(),
   constraint payout_bookings_once unique (chain, contract_address, payout_id),
   constraint payout_bookings_tenant_key unique (principal_id, project_id, id),
-  foreign key (principal_id, project_id, mandate_instance_id, chain, contract_address)
-    references ujira.mandate_instances (principal_id, project_id, id, chain, contract_address),
+  foreign key (principal_id, project_id, mandate_instance_id, chain)
+    references ujira.mandate_instances (principal_id, project_id, id, chain),
   foreign key (principal_id, project_id, last_event_id)
     references ujira.chain_events (principal_id, project_id, id)
 );
@@ -147,6 +147,61 @@ create table ujira.payout_bookings (
 create index payout_bookings_by_instance
   on ujira.payout_bookings (principal_id, project_id, mandate_instance_id, id);
 
+-- A booking names its instance's own contract. A foreign key would need a new
+-- unique index on mandate_instances, a live table, and that index could only be
+-- built concurrently, outside a transaction and so outside the owner's rights.
+-- An instance's address never changes, since nobody may update the table, so a
+-- check when the row is written cannot go stale. It runs as the role that may read
+-- every instance, and only answers about the one the row names, in its own tenant.
+create function ujira.check_payout_booking() returns trigger
+  language plpgsql
+  security definer
+  set search_path = pg_catalog
+as $fn$
+begin
+  if not exists (
+    select 1
+      from ujira.mandate_instances as i
+     where i.id = new.mandate_instance_id
+       and i.principal_id = new.principal_id
+       and i.project_id = new.project_id
+       and i.chain = new.chain
+       and i.contract_address = new.contract_address
+  ) then
+    raise exception using
+      errcode = '23503',
+      message = 'a payout booking names its mandate instance''s own contract';
+  end if;
+  return null;
+end
+$fn$;
+
+-- What a booking is about never changes, only the last event that moved it.
+create function ujira.keep_payout_booking() returns trigger
+  language plpgsql
+  set search_path = pg_catalog
+as $fn$
+begin
+  if new.principal_id <> old.principal_id or new.project_id <> old.project_id
+     or new.mandate_instance_id <> old.mandate_instance_id or new.chain <> old.chain
+     or new.contract_address <> old.contract_address or new.payout_id <> old.payout_id then
+    raise exception using
+      errcode = 'UJ006',
+      message = 'a payout booking keeps its tenant, contract and payout';
+  end if;
+  return new;
+end
+$fn$;
+
+grant create on schema ujira to ujira_fn_instances;
+alter function ujira.check_payout_booking() owner to ujira_fn_instances;
+revoke create on schema ujira from ujira_fn_instances;
+revoke execute on function ujira.check_payout_booking(), ujira.keep_payout_booking() from public;
+
+create trigger payout_bookings_check_new after insert on ujira.payout_bookings
+  for each row execute function ujira.check_payout_booking();
+create trigger payout_bookings_keep before update on ujira.payout_bookings
+  for each row execute function ujira.keep_payout_booking();
 create trigger payout_bookings_touch before update on ujira.payout_bookings
   for each row execute function ujira.touch();
 
@@ -170,6 +225,8 @@ set local lock_timeout = '5s';
 set local statement_timeout = '60s';
 
 drop table ujira.payout_bookings;
+drop function ujira.keep_payout_booking();
+drop function ujira.check_payout_booking();
 drop function ops.registered_mandate(text, text);
 drop function ops.flag_mandate(text, text);
 drop function ops.register_mandate(text, text, text, bytea, bytea, bigint, bigint);
