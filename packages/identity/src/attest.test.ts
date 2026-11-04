@@ -3,6 +3,7 @@
 
 import type { UnixSeconds } from '@ujira/chain-adapter';
 import {
+  DestinationInvalidError,
   RpcTimeoutError,
   SignerDeniedError,
   SignerUnavailableError,
@@ -264,6 +265,20 @@ describe('the pending row comes first', () => {
     await expect(w.attest()).rejects.toThrow(AttestationMessageError);
     expect(w.log.events).toEqual([]);
     expect(w.attester.signed).toEqual([]);
+  });
+});
+
+describe('a destination the attester refuses as unpayable', () => {
+  it('is a refusal and not a signing failure, with the row failed and nothing signed', async () => {
+    const w = attestationWorld();
+    w.attester.signFailure = new DestinationInvalidError();
+    expect(await w.attest()).toEqual({
+      attested: false,
+      reason: 'DESTINATION_NOT_RECEIVABLE',
+      detail: 'DESTINATION_UNPAYABLE',
+    });
+    expect(w.attester.signed).toEqual([]);
+    expect(onlyRow(w)).toMatchObject({ status: 'failed', failureCode: 'DESTINATION_INVALID' });
   });
 });
 
