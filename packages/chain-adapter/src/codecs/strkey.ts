@@ -115,6 +115,39 @@ export function encodeAccountAddress(publicKey: Uint8Array): string {
   return encodeStrkey(STRKEY_VERSION.account, publicKey);
 }
 
+const ZERO_KEY = new Uint8Array(KEY_BYTES);
+
+/** The account whose ed25519 key is 32 zero bytes; nobody holds its key. */
+export const ZERO_ACCOUNT_ADDRESS = encodeStrkey(STRKEY_VERSION.account, ZERO_KEY);
+/** The contract whose ID is the same 32 zero bytes; nothing can ever run there. */
+export const ZERO_CONTRACT_ADDRESS = encodeStrkey(STRKEY_VERSION.contract, ZERO_KEY);
+
+/** Whether a strkey payload starts with an all-zero key: an M payload carries its id after it. */
+export function isZeroKey(payload: Uint8Array): boolean {
+  return payload.subarray(0, KEY_BYTES).every((byte) => byte === 0);
+}
+
+/**
+ * The contract's is_zero_address, in strkeys: whatever is sent to one of these
+ * is gone for good. An M address is judged by its base account, since the id
+ * only tells that account's owner who a payment is for. Text that is no
+ * address is not zero; refusing it is the codecs' job.
+ */
+export function isZeroAddress(address: string): boolean {
+  const base = baseAddress(address);
+  return base === ZERO_ACCOUNT_ADDRESS || base === ZERO_CONTRACT_ADDRESS;
+}
+
+/**
+ * The G account an M address pays, or the text unchanged. The id in an M
+ * address only tells that account's owner who a payment is for, so any rule
+ * about where money lands has to look through it.
+ */
+export function baseAddress(address: string): string {
+  const muxed = readStrkey(address, STRKEY_VERSION.muxed, MUXED_BYTES);
+  return typeof muxed === 'string' ? address : encodeAccountAddress(splitMuxed(muxed).publicKey);
+}
+
 /** The account key and the id an M address payload carries. */
 export function splitMuxed(payload: Uint8Array): {
   readonly publicKey: Uint8Array;
