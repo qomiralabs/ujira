@@ -58,6 +58,7 @@ function world(t: TestSetup) {
     wait: { attempts: 2, intervalMs: 0, sleep: () => Promise.resolve() },
     leaseSeconds: 60,
     submitTimeoutMs: 5_000,
+    lowBalanceAlerted: new Set(),
   };
   const metrics = new RecordingTtlMetrics();
   const ports: TtlPorts = {

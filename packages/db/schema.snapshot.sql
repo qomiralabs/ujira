@@ -998,20 +998,6 @@ ALTER TABLE ops.routing_config_versions ALTER COLUMN version ADD GENERATED ALWAY
 
 
 --
--- Name: signing_keys_id_seq; Type: SEQUENCE; Schema: ops; Owner: ujira_owner
---
-
-ALTER TABLE ops.signing_keys ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
-    SEQUENCE NAME ops.signing_keys_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1
-);
-
-
---
 -- Name: signing_keys; Type: TABLE; Schema: ops; Owner: ujira_owner
 --
 
@@ -1045,6 +1031,20 @@ END),
 
 
 ALTER TABLE ops.signing_keys OWNER TO ujira_owner;
+
+--
+-- Name: signing_keys_id_seq; Type: SEQUENCE; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ops.signing_keys ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME ops.signing_keys_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
 
 --
 -- Name: ujira_migrations; Type: TABLE; Schema: public; Owner: test
