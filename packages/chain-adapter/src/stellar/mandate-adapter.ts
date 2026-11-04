@@ -494,6 +494,11 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     const { network } = this;
     const loaded = await this.#requests.load(req.scope, req.requestId);
     if (loaded === null) throw invalid(network, 'requestId (not_found)');
+    // The sponsor's own transaction, paid for as a reserve sandwich rather than
+    // fee bumped, so it has its own way in.
+    if (loaded.request.op === 'create_funding_account') {
+      throw invalid(network, 'requestId (wrong_flow)');
+    }
     if (loaded.use !== null) return this.#replay(loaded.use, req.signed, opts);
     const { request } = loaded;
     if (this.#ports.clock.nowSeconds() > request.validUntil) {
