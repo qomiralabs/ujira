@@ -6,6 +6,8 @@
 // this mounts a route built the way they will be, on the real pipeline, so
 // what a client sees for each kind of destination is pinned now.
 
+import { randomUUID } from 'node:crypto';
+
 import { Problem } from '@ujira/api-schema';
 import {
   InvalidInputError,
@@ -20,6 +22,7 @@ import type { Authenticate } from './auth.js';
 import { RecipientDestinationBody, readRecipientDestination } from './destination.js';
 import { toApiError } from './errors.js';
 import { memoryLogger } from './log.js';
+import { allowEveryRequest } from './rate-limit.js';
 import { defineTenantRoute } from './route.js';
 
 const TENANT = {
@@ -33,7 +36,7 @@ const MUXED_123456 = 'MA3D5KRYM6CB7OWQ6TWYRR3Z4T7GNZLKERYNZGGA5SOAOPIFY6YQGAAAAA
 const authenticate: Authenticate = (credentials) =>
   Promise.resolve(
     credentials.authorization === 'Bearer writer'
-      ? { ok: true, tenant: { ...TENANT, scopes: ['payouts:write'] } }
+      ? { ok: true, tenant: { ...TENANT, tokenId: randomUUID(), scopes: ['payouts:write'] } }
       : { ok: false, code: 'TOKEN_INVALID' },
   );
 
@@ -59,7 +62,12 @@ const recipientDestination = defineTenantRoute({
 });
 
 function post(body: unknown): Promise<Response> {
-  const app = createApp({ routes: [recipientDestination], authenticate, logger: memoryLogger() });
+  const app = createApp({
+    routes: [recipientDestination],
+    authenticate,
+    rateLimit: allowEveryRequest,
+    logger: memoryLogger(),
+  });
   return Promise.resolve(
     app.request('/v1/recipients/destination', {
       method: 'POST',
