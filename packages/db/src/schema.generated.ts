@@ -179,6 +179,29 @@ export interface UjiraDeposits {
   scale: number;
 }
 
+export interface UjiraFundingAccounts {
+  address: string;
+  created_at: Generated<Timestamp>;
+  faults: Generated<string[]>;
+  id: Generated<string>;
+  network: string;
+  principal_id: string;
+  project_id: string;
+  sponsor: string;
+  sponsor_tx_hash: Buffer;
+  status: string;
+}
+
+export interface UjiraFundingAccountSources {
+  created_at: Generated<Timestamp>;
+  funding_account_id: string;
+  funding_source_id: string;
+  id: Generated<string>;
+  mandate_instance_id: string;
+  principal_id: string;
+  project_id: string;
+}
+
 export interface UjiraFundingSources {
   config: Generated<Json>;
   created_at: Generated<Timestamp>;
@@ -462,7 +485,7 @@ export interface UjiraStatusTransitions {
 }
 
 export interface UjiraWebhookDeliveries {
-  attempt: number;
+  attempt: Int8;
   created_at: Generated<Timestamp>;
   endpoint_id: string;
   error_code: string | null;
@@ -471,7 +494,7 @@ export interface UjiraWebhookDeliveries {
   id: Generated<string>;
   principal_id: string;
   project_id: string;
-  response_status: number | null;
+  response_status: Int8 | null;
   status: string;
 }
 
@@ -506,6 +529,8 @@ export interface Schema {
   'ujira.currencies': UjiraCurrencies;
   'ujira.currency_scales': UjiraCurrencyScales;
   'ujira.deposits': UjiraDeposits;
+  'ujira.funding_account_sources': UjiraFundingAccountSources;
+  'ujira.funding_accounts': UjiraFundingAccounts;
   'ujira.funding_sources': UjiraFundingSources;
   'ujira.funding_sweeps': UjiraFundingSweeps;
   'ujira.idempotency_keys': UjiraIdempotencyKeys;
