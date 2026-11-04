@@ -455,6 +455,9 @@ importers:
 
   packages/payouts:
     dependencies:
+      '@ujira/chain-adapter':
+        specifier: workspace:*
+        version: link:../chain-adapter
       '@ujira/db':
         specifier: workspace:*
         version: link:../db

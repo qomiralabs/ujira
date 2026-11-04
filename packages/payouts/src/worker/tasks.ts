@@ -7,6 +7,7 @@
 // Each task says how its key and queue follow from its ids, so a retry lands under
 // the same key and on the same queue as the job it replaces.
 
+import { TTL_KEEP_ALIVE_TASK, type NetworkId } from '@ujira/chain-adapter';
 import { jobQueue, type JobScope, type TaskName, type TenantTx } from '@ujira/db';
 import { z } from 'zod';
 
@@ -19,7 +20,8 @@ export interface TenantTask {
   // The payload's fields, besides the tenant, which the database adds.
   readonly ids: readonly string[];
   readonly jobKey: (ids: TaskIds) => string;
-  readonly queueName: (ids: TaskIds) => string;
+  // Absent for work that need not wait its turn on anything.
+  readonly queueName?: (ids: TaskIds) => string;
   // `principal` runs one at a time across all of a principal's projects.
   readonly scope?: JobScope;
 }
@@ -55,16 +57,33 @@ export const MANDATE_RECONCILE: TenantTask = {
   queueName: mandateQueue,
 };
 
+// Keeps a mandate's ledger entries from being archived. Not on the mandate's queue,
+// because a payout should not wait for this, nor this for a payout.
+export const TTL_KEEP_ALIVE: TenantTask = {
+  name: TTL_KEEP_ALIVE_TASK.name,
+  ids: ['network', 'mandateRef'],
+  jobKey: (ids) =>
+    TTL_KEEP_ALIVE_TASK.jobKey({
+      network: need(ids, 'network') as Parameters<typeof TTL_KEEP_ALIVE_TASK.jobKey>[0]['network'],
+      mandateRef: need(ids, 'mandateRef'),
+    }),
+};
+
 export const TENANT_TASKS: readonly TenantTask[] = [
   PAYOUT_ADVANCE,
   BATCH_ADVANCE,
   MANDATE_RECONCILE,
+  TTL_KEEP_ALIVE,
 ];
+
+export type { NetworkId };
 
 // Tasks that belong to no tenant, started by the crontab.
 export const SYSTEM_TASKS = Object.freeze({
   indexerScan: 'indexer:scan',
   reconcileSweep: 'reconcile:sweep',
+  submissionSweep: 'submissions:reconcile',
+  ttlSweep: 'ttl:sweep',
   unlockStale: 'jobs:unlock_stale',
 } as const);
 
@@ -117,7 +136,7 @@ export async function enqueueTask(
     task: task.name,
     ids: options.tryNumber === undefined ? ids : { ...ids, [TRY_FIELD]: String(options.tryNumber) },
     jobKey: task.jobKey(ids),
-    queueName: task.queueName(ids),
+    ...(task.queueName === undefined ? {} : { queueName: task.queueName(ids) }),
     keyMode: 'replace',
     ...(task.scope === undefined ? {} : { scope: task.scope }),
     ...(options.runAt === undefined ? {} : { runAt: options.runAt }),

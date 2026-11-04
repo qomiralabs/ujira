@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import { WorkerConfigError } from './errors.js';
 import { WORKER_SETTINGS, workerPreset } from './settings.js';
-import { buildTaskList } from './start.js';
+import { buildTaskList, unwiredTasks } from './start.js';
 
 const db = {} as unknown as Database;
 const alert = (): void => undefined;
@@ -71,6 +71,45 @@ describe('the task list', () => {
     ).toEqual(['indexer:scan', 'jobs:unlock_stale', 'reconcile:sweep']);
   });
 
+  it('registers and schedules the sweep that closes open chain submissions', () => {
+    const { taskList, crontab } = buildTaskList({
+      db,
+      alert,
+      handlers: { submissionSweepers: [{ reconcileUnresolved: () => Promise.resolve([]) }] },
+    });
+    expect(Object.keys(taskList)).toContain('submissions:reconcile');
+    expect(parseCrontab(crontab).map((item) => item.task)).toContain('submissions:reconcile');
+  });
+
+  it('registers the TTL keep-alive under a colon name, and schedules its fan-out', () => {
+    const { taskList, crontab, tenantTasks } = buildTaskList({
+      db,
+      alert,
+      handlers: { ttlKeepAlive: { run: work, networks: ['stellar:testnet'] } },
+    });
+    expect(Object.keys(taskList)).toContain('ttl:keep_alive');
+    expect(Object.keys(taskList)).toContain('ttl:sweep');
+    expect(tenantTasks.map((task) => task.name)).toContain('ttl:keep_alive');
+    expect(parseCrontab(crontab).map((item) => item.task)).toContain('ttl:sweep');
+  });
+
+  it('names every expected task that has no handler', () => {
+    expect(unwiredTasks({})).toEqual([
+      'payout:advance',
+      'batch:advance',
+      'mandate:reconcile',
+      'indexer:scan',
+      'submissions:reconcile',
+      'ttl:keep_alive',
+    ]);
+    expect(
+      unwiredTasks({
+        submissionSweepers: [],
+        ttlKeepAlive: { run: work, networks: [] },
+      }),
+    ).toEqual(['payout:advance', 'batch:advance', 'mandate:reconcile', 'indexer:scan']);
+  });
+
   it('takes tasks from other packages, with their cron lines', () => {
     const plugin: Task = () => undefined;
     const { taskList, crontab } = buildTaskList({
@@ -90,7 +129,7 @@ describe('the task list', () => {
       buildTaskList({
         db,
         alert,
-        handlers: { plugins: { 'chain_adapter.ttl_keep_alive': () => undefined } },
+        handlers: { plugins: { 'some_package.some_task': () => undefined } },
       }),
     ).toThrow(WorkerConfigError);
   });

@@ -14,7 +14,15 @@ import { EventEmitter } from 'node:events';
 import { workerPools, type Database } from '@ujira/db';
 import { run, type Logger, type Task, type TaskList, type WorkerEvents } from 'graphile-worker';
 
-import { reconcileSweep, unlockStale } from './crons.js';
+import type { NetworkId } from '@ujira/chain-adapter';
+
+import {
+  reconcileSweep,
+  submissionSweep,
+  ttlSweep,
+  unlockStale,
+  type SubmissionSweeper,
+} from './crons.js';
 import { WorkerConfigError } from './errors.js';
 import {
   onJobExhausted,
@@ -30,6 +38,7 @@ import {
   PAYOUT_ADVANCE,
   SYSTEM_TASKS,
   TENANT_TASKS,
+  TTL_KEEP_ALIVE,
   type TenantTask,
 } from './tasks.js';
 
@@ -38,6 +47,13 @@ export interface WorkerHandlers {
   readonly batchAdvance?: TenantWork;
   readonly mandateReconcile?: TenantWork;
   readonly indexerScan?: (signal: AbortSignal) => Promise<void>;
+  // Closes the chain submissions still open, one sweeper per network.
+  readonly submissionSweepers?: readonly SubmissionSweeper[];
+  // The adapter's keep-alive task, and the networks to run it on.
+  readonly ttlKeepAlive?: {
+    readonly run: (payload: unknown) => Promise<void>;
+    readonly networks: readonly NetworkId[];
+  };
   // Other tenant tasks on the handler's curve, such as a recheck that runs one at
   // a time per principal.
   readonly tenantTasks?: readonly { readonly task: TenantTask; readonly work: TenantWork }[];
@@ -96,7 +112,14 @@ export function buildTaskList(options: StartWorkerOptions): {
       : [{ task: MANDATE_RECONCILE, work: handlers.mandateReconcile }]),
     ...(handlers.tenantTasks ?? []),
   ];
-  const { indexerScan } = handlers;
+  const { indexerScan, ttlKeepAlive, submissionSweepers } = handlers;
+  if (ttlKeepAlive !== undefined) {
+    const { run: keepAlive } = ttlKeepAlive;
+    tenant.push({
+      task: TTL_KEEP_ALIVE,
+      work: async (job) => keepAlive({ ...job.context, ...job.ids }),
+    });
+  }
   const taskList: Record<string, Task> = {
     ...checkedPlugins(handlers.plugins ?? {}),
     [SYSTEM_TASKS.unlockStale]: unlockStale(deps),
@@ -110,6 +133,19 @@ export function buildTaskList(options: StartWorkerOptions): {
     taskList[SYSTEM_TASKS.reconcileSweep] = reconcileSweep(deps);
     crontab.push(`*/5 * * * * ${SYSTEM_TASKS.reconcileSweep}`);
   }
+  if (submissionSweepers !== undefined) {
+    taskList[SYSTEM_TASKS.submissionSweep] = submissionSweep(submissionSweepers);
+    crontab.push(`* * * * * ${SYSTEM_TASKS.submissionSweep}`);
+  }
+  if (ttlKeepAlive !== undefined) {
+    taskList[SYSTEM_TASKS.ttlSweep] = ttlSweep({
+      db: options.db,
+      networks: ttlKeepAlive.networks,
+    });
+    // Entries live for weeks, and each step is claimed per ledger window, so an
+    // hourly look is plenty, and a missed one costs nothing.
+    crontab.push(`0 * * * * ${SYSTEM_TASKS.ttlSweep}`);
+  }
   if (indexerScan !== undefined) {
     taskList[SYSTEM_TASKS.indexerScan] = async (_payload, helpers) => {
       await indexerScan(helpers.abortSignal);
@@ -121,6 +157,21 @@ export function buildTaskList(options: StartWorkerOptions): {
     crontab: crontab.join('\n'),
     tenantTasks: [...TENANT_TASKS, ...(handlers.tenantTasks ?? []).map(({ task }) => task)],
   };
+}
+
+// What a deployment is expected to run and this one has no handler for. A missing
+// handler is not an error, because each lands with its own issue, but it must not be
+// silent: an open submission that nothing sweeps never closes and never alerts.
+export function unwiredTasks(handlers: WorkerHandlers): readonly string[] {
+  const expected: readonly (readonly [string, boolean])[] = [
+    [PAYOUT_ADVANCE.name, handlers.payoutAdvance !== undefined],
+    [BATCH_ADVANCE.name, handlers.batchAdvance !== undefined],
+    [MANDATE_RECONCILE.name, handlers.mandateReconcile !== undefined],
+    [SYSTEM_TASKS.indexerScan, handlers.indexerScan !== undefined],
+    [SYSTEM_TASKS.submissionSweep, handlers.submissionSweepers !== undefined],
+    [TTL_KEEP_ALIVE.name, handlers.ttlKeepAlive !== undefined],
+  ];
+  return expected.filter(([, wired]) => !wired).map(([name]) => name);
 }
 
 function describe(error: unknown): string {
@@ -170,6 +221,10 @@ export async function startWorker(options: StartWorkerOptions): Promise<RunningW
     taskList,
     crontab: options.crontabEnabled === false ? '' : crontab,
     events,
+    // The library's handler kills the process again once it has shut down, which
+    // can be before this file has taken the heartbeat away. Whoever runs this owns
+    // signals, and calls stop.
+    noHandleSignals: true,
     preset: workerPreset(options.concurrency ?? DEFAULT_CONCURRENCY),
     ...(options.logger === undefined ? {} : { logger: options.logger }),
   });

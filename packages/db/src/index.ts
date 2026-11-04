@@ -138,6 +138,7 @@ export {
   workerPools,
   type DeadLetter,
   type NewDeadLetter,
+  type QueueState,
   type ReconcileTarget,
   type TenantTx,
   type JobIds,

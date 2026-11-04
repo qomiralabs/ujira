@@ -117,6 +117,7 @@ export default defineConfig({
         // A real pool in a child process, so a test can stop it with a signal or
         // kill it outright. Coverage cannot see into that process.
         'packages/payouts/src/worker/testing/pool-process.ts',
+        'packages/payouts/src/worker/main.ts',
       ],
       reporter: ['text', 'json-summary', 'lcov'],
       thresholds: {

@@ -136,6 +136,13 @@ export type {
   BatchSimulation,
   BatchSimulationPort,
 } from './bisect.js';
+export { parseTtlConfig, TTL_KEEP_ALIVE_TASK, ttlKeepAliveTask } from './stellar/ttl-job.js';
+export type {
+  KeepAliveTargets,
+  TtlConfig,
+  TtlKeepAlivePayload,
+  TtlPorts,
+} from './stellar/ttl-job.js';
 export { tenantRefOf, tenantTagOf } from './tenant-ref.js';
 export { CHAIN_ADAPTER_INTERFACE_VERSION } from './types.js';
 export type * from './types.js';

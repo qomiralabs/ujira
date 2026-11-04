@@ -36,7 +36,12 @@ describe('the task registry', () => {
     const registry = Object.fromEntries(
       TENANT_TASKS.map((task) => [task.name, [...task.ids, 'try']]),
     );
-    expect(Object.keys(registry)).toEqual(['payout:advance', 'batch:advance', 'mandate:reconcile']);
+    expect(Object.keys(registry)).toEqual([
+      'payout:advance',
+      'batch:advance',
+      'mandate:reconcile',
+      'ttl:keep_alive',
+    ]);
     expect(jobPayloadProblems(registry)).toEqual([]);
 
     // And what the database really stores is exactly that, plus the tenant it adds.

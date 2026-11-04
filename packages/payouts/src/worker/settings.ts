@@ -34,8 +34,22 @@ export const DEFAULT_CONCURRENCY = 3;
 
 export const HEARTBEAT_EVERY_MS = 15_000;
 
+// The queue schema Graphile Worker 0.18.0 installs. A pool on an older schema would
+// upgrade it, which is the deploy step's job, so a worker refuses to start on any
+// other revision. A test holds this equal to what the pinned library installs.
+export const WORKER_SCHEMA_REVISION = 20;
+
 // A pool silent this long is taken for dead, and its locks are freed.
 export const STALE_AFTER_SECONDS = 120;
+
+// The sweep over chain submissions still open. A funding account's submission stays
+// broadcast until this runs, so this is what closes it, and what raises the stuck
+// alert when it cannot be closed.
+export const SUBMISSION_SWEEP = Object.freeze({
+  olderThanSeconds: 60,
+  limit: 100,
+  stuckAfterSeconds: 900,
+});
 
 // The most the reconcile function returns at once.
 export const SWEEP_PAGE_SIZE = 500;

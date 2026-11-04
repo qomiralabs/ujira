@@ -229,10 +229,39 @@ export const cronTargets = {
   },
 };
 
+export interface QueueState {
+  readonly reachesTenantData: boolean;
+  readonly schemaRevision: number | null;
+}
+
 // What a worker pool says about itself, on the worker login inside
 // db.unscoped(work, 'worker'). A job is locked by its pool's id, which is what a
 // heartbeat is keyed by.
 export const workerPools = {
+  // Who this connection really logged in as, whatever its URL says.
+  login: async (tx: Tx): Promise<string> => {
+    const result = await sql<{ login: string }>`select current_user as login`.execute(tx);
+    return result.rows[0]?.login ?? '';
+  },
+
+  // What a worker checks about the queue before it claims a job, once it knows it is
+  // on the worker login, the only one that can read the queue's tables. The revision
+  // is null when the worker's schema was never installed.
+  queueState: async (tx: Tx): Promise<QueueState> => {
+    const state = await sql<{ reaches: boolean; installed: boolean }>`
+      select has_schema_privilege(current_user, 'ujira', 'USAGE')
+               or has_schema_privilege(current_user, 'ujira', 'CREATE') as reaches,
+             to_regclass('graphile_worker.migrations') is not null as installed
+    `.execute(tx);
+    const row = state.rows[0];
+    if (row === undefined) throw new Error('a select with no table returned no row');
+    if (!row.installed) return { reachesTenantData: row.reaches, schemaRevision: null };
+    const revision = await sql<{ revision: number | null }>`
+      select max(id)::int as revision from graphile_worker.migrations
+    `.execute(tx);
+    return { reachesTenantData: row.reaches, schemaRevision: revision.rows[0]?.revision ?? null };
+  },
+
   beat: async (tx: Tx, poolId: string): Promise<void> => {
     await sql`
       insert into ujira_jobs.worker_heartbeats (worker_id) values (${poolId})
