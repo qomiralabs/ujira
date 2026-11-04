@@ -112,6 +112,7 @@ export {
   type NewReservation,
   type Reservation,
 } from './repositories/idempotency.js';
+export {
   agentIdentityLinks,
   attestations,
   destinationVerifications,
