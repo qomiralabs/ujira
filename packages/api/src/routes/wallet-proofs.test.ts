@@ -4,6 +4,8 @@
 // The wallet proof routes over HTTP, through the whole pipeline, with the real
 // identity flow on its in-memory ports and a fake chain.
 
+import { randomUUID } from 'node:crypto';
+
 import { Problem, WalletChallenge, WalletProofAccepted } from '@ujira/api-schema';
 import type { WalletProofFlow } from '@ujira/identity';
 import { TEST_NOW, newScope, walletProofWorld } from '@ujira/identity/testing';
@@ -13,10 +15,16 @@ import { describe, expect, it } from 'vitest';
 import { createApp } from '../app.js';
 import type { Authenticate } from '../auth.js';
 import { refuseAllCredentials } from '../auth.js';
+import { memoryIdempotencyStore } from '../idempotency.js';
 import { memoryLogger } from '../log.js';
+import { allowEveryRequest } from '../rate-limit.js';
 
 import { V1_ROUTES, v1Routes } from './index.js';
+import { MANDATES_NOT_CONFIGURED } from './mandates.js';
+import { RECIPIENTS_NOT_CONFIGURED } from './recipients.js';
 import { SELF_WEBHOOK_NOT_CONFIGURED } from './self-webhook.js';
+
+const TOKEN_ID = randomUUID();
 
 // Keys by what they prove: the world's tenant with the scope or without it,
 // and a key of another tenant.
@@ -27,14 +35,20 @@ function authFor(w: WalletProofWorld): Authenticate {
     if (token === 'writer') {
       return Promise.resolve({
         ok: true,
-        tenant: { ...w.scope, scopes: ['recipients:write'] },
+        tenant: { ...w.scope, tokenId: TOKEN_ID, scopes: ['recipients:write'] },
       });
     }
     if (token === 'reader') {
-      return Promise.resolve({ ok: true, tenant: { ...w.scope, scopes: ['recipients:read'] } });
+      return Promise.resolve({
+        ok: true,
+        tenant: { ...w.scope, tokenId: TOKEN_ID, scopes: ['recipients:read'] },
+      });
     }
     if (token === 'intruder') {
-      return Promise.resolve({ ok: true, tenant: { ...other, scopes: ['recipients:write'] } });
+      return Promise.resolve({
+        ok: true,
+        tenant: { ...other, tokenId: TOKEN_ID, scopes: ['recipients:write'] },
+      });
     }
     return Promise.resolve({ ok: false, code: 'TOKEN_MALFORMED' });
   };
@@ -43,14 +57,22 @@ function authFor(w: WalletProofWorld): Authenticate {
 function served(w: WalletProofWorld, flow: WalletProofFlow = w.flow) {
   const logger = memoryLogger();
   const app = createApp({
-    routes: v1Routes({ selfWebhook: SELF_WEBHOOK_NOT_CONFIGURED, walletProof: flow }),
+    routes: v1Routes({
+      selfWebhook: SELF_WEBHOOK_NOT_CONFIGURED,
+      walletProof: flow,
+      mandates: MANDATES_NOT_CONFIGURED,
+      recipients: RECIPIENTS_NOT_CONFIGURED,
+    }),
     authenticate: authFor(w),
+    rateLimit: allowEveryRequest,
+    idempotency: memoryIdempotencyStore(),
     logger,
   });
   const base = `/v1/recipients/${w.recipient.id}/methods/${w.method.id}`;
   const headers = (token: string) => ({
     authorization: `Bearer ${token}`,
     'content-type': 'application/json',
+    'idempotency-key': randomUUID(),
   });
   return {
     records: logger.records,
@@ -245,14 +267,27 @@ describe('wallet proofs', () => {
 describe('the served route table', () => {
   it('answers 503 until the flow is configured', async () => {
     const w = walletProofWorld();
-    const app = createApp({ routes: V1_ROUTES, authenticate: authFor(w), logger: memoryLogger() });
+    const app = createApp({
+      routes: V1_ROUTES,
+      authenticate: authFor(w),
+      rateLimit: allowEveryRequest,
+      idempotency: memoryIdempotencyStore(),
+      logger: memoryLogger(),
+    });
     const base = `/v1/recipients/${w.recipient.id}/methods/${w.method.id}`;
-    const headers = { authorization: 'Bearer writer', 'content-type': 'application/json' };
-    const challenge = await app.request(`${base}/wallet-challenges`, { method: 'POST', headers });
+    const headers = (): Record<string, string> => ({
+      authorization: 'Bearer writer',
+      'content-type': 'application/json',
+      'idempotency-key': randomUUID(),
+    });
+    const challenge = await app.request(`${base}/wallet-challenges`, {
+      method: 'POST',
+      headers: headers(),
+    });
     expect(challenge.status).toBe(503);
     const proof = await app.request(`${base}/wallet-proofs`, {
       method: 'POST',
-      headers,
+      headers: headers(),
       body: JSON.stringify({
         challengeId: w.recipient.id,
         message: 'm',
@@ -268,6 +303,8 @@ describe('the served route table', () => {
     const app = createApp({
       routes: V1_ROUTES,
       authenticate: refuseAllCredentials,
+      rateLimit: allowEveryRequest,
+      idempotency: memoryIdempotencyStore(),
       logger: memoryLogger(),
     });
     const response = await app.request(

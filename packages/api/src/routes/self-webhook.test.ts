@@ -19,19 +19,30 @@ import { z } from 'zod';
 import { createApp } from '../app.js';
 import { refuseAllCredentials } from '../auth.js';
 import { RouteRegistryError } from '../errors.js';
+import { memoryIdempotencyStore } from '../idempotency.js';
 import { memoryLogger } from '../log.js';
+import { allowEveryRequest } from '../rate-limit.js';
 import { defineWebhookRoute } from '../route.js';
 
 import { V1_ROUTES, v1Routes } from './index.js';
 import { SELF_WEBHOOK_PATH } from './self-webhook.js';
 import type { SelfWebhookHandler } from './self-webhook.js';
+import { MANDATES_NOT_CONFIGURED } from './mandates.js';
+import { RECIPIENTS_NOT_CONFIGURED } from './recipients.js';
 import { WALLET_PROOF_NOT_CONFIGURED } from './wallet-proofs.js';
 
 function served(handler: SelfWebhookHandler, bodyLimitBytes?: number) {
   const logger = memoryLogger();
   const app = createApp({
-    routes: v1Routes({ selfWebhook: handler, walletProof: WALLET_PROOF_NOT_CONFIGURED }),
+    routes: v1Routes({
+      selfWebhook: handler,
+      walletProof: WALLET_PROOF_NOT_CONFIGURED,
+      mandates: MANDATES_NOT_CONFIGURED,
+      recipients: RECIPIENTS_NOT_CONFIGURED,
+    }),
     authenticate: refuseAllCredentials,
+    rateLimit: allowEveryRequest,
+    idempotency: memoryIdempotencyStore(),
     logger,
     ...(bodyLimitBytes === undefined ? {} : { bodyLimitBytes }),
   });
@@ -266,6 +277,8 @@ describe('the served route table', () => {
     const app = createApp({
       routes: V1_ROUTES,
       authenticate: refuseAllCredentials,
+      rateLimit: allowEveryRequest,
+      idempotency: memoryIdempotencyStore(),
       logger: memoryLogger(),
     });
     const w = selfWorld();

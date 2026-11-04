@@ -46,6 +46,13 @@ import {
   SessionStateError,
   TenantContextError,
 } from '@ujira/db';
+import {
+  CustodyGuardError,
+  OperationsGuardianNotConfiguredError,
+  PolicyStoreError,
+  PolicyStoreTimeoutError,
+  PrincipalKeyRiskError,
+} from '@ujira/mandates';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -107,7 +114,7 @@ function expectWellFormed(error: ApiError): void {
   expect(error.status).toBeLessThanOrEqual(599);
   expect(error.message).toBe(PROBLEM_TITLES[error.code]);
   // A code worth retrying always says when; any other never does.
-  if (error.status === 503 || error.status === 429) {
+  if (error.status === 503 || error.status === 429 || error.status === 409) {
     expect(error.retryAfterSeconds).toBeGreaterThan(0);
   } else {
     expect(error.retryAfterSeconds).toBeNull();
@@ -168,6 +175,32 @@ describe('error model', () => {
   it('never gives a retry hint to a code that is not worth retrying', () => {
     expect(new ApiError('NOT_FOUND', { retryAfterSeconds: 30 }).retryAfterSeconds).toBeNull();
     expect(new ApiError('DB_UNAVAILABLE', { retryAfterSeconds: 1.5 }).retryAfterSeconds).toBe(5);
+  });
+
+  it('maps each mandate policy refusal, with what a client can do about it', () => {
+    const risk = toApiError(new PrincipalKeyRiskError(['instance']));
+    expect(risk).toMatchObject({ code: 'PRINCIPAL_KEY_RISK', status: 422 });
+    expect(risk.fixes).toEqual(['add_recovery_set', 'use_multisig_principal', 'lower_budget']);
+    expect(toApiError(new CustodyGuardError())).toMatchObject({
+      code: 'CUSTODY_GUARD',
+      status: 422,
+    });
+    expect(toApiError(new OperationsGuardianNotConfiguredError())).toMatchObject({
+      code: 'OPERATIONS_GUARDIAN_NOT_CONFIGURED',
+      status: 503,
+      retryAfterSeconds: 300,
+    });
+    expect(toApiError(new PolicyStoreTimeoutError())).toMatchObject({ code: 'DB_UNAVAILABLE' });
+  });
+
+  it('reads a policy store failure as whatever caused it', () => {
+    expect(toApiError(new PolicyStoreError(new DatabaseUnavailableError('x'))).code).toBe(
+      'DB_UNAVAILABLE',
+    );
+    expect(toApiError(new PolicyStoreError(new ChainUnavailableError())).code).toBe(
+      'CHAIN_UNAVAILABLE',
+    );
+    expect(toApiError(new PolicyStoreError(new Error('boom'))).code).toBe('INTERNAL');
   });
 
   it('turns anything unknown into INTERNAL and keeps none of its text', () => {

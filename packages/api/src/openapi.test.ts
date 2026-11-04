@@ -16,7 +16,9 @@ import { z } from 'zod';
 import { createApp } from './app.js';
 import { refuseAllCredentials } from './auth.js';
 import { RouteRegistryError } from './errors.js';
+import { memoryIdempotencyStore } from './idempotency.js';
 import { memoryLogger } from './log.js';
+import { allowEveryRequest } from './rate-limit.js';
 import { OPENAPI_PATH, buildOpenApiDocument, withOpenApiRoute } from './openapi.js';
 import { contractRoute, definePublicRoute, defineTenantRoute } from './route.js';
 import { V1_ROUTES } from './routes/index.js';
@@ -53,6 +55,8 @@ describe('OpenAPI document', () => {
     const app = createApp({
       routes: V1_ROUTES,
       authenticate: refuseAllCredentials,
+      rateLimit: allowEveryRequest,
+      idempotency: memoryIdempotencyStore(),
       logger: memoryLogger(),
     });
     const response = await app.request(OPENAPI_PATH);
@@ -66,7 +70,17 @@ describe('OpenAPI document', () => {
     expect(Object.keys(doc.paths).sort()).toEqual([
       '/v1/health',
       '/v1/identity/self-webhook',
+      '/v1/mandates',
+      '/v1/mandates/{id}',
+      '/v1/mandates/{id}/cancel-principal-proposal',
+      '/v1/mandates/{id}/funding',
+      '/v1/mandates/{id}/lower-fee-cap',
+      '/v1/mandates/{id}/revoke',
+      '/v1/mandates/{id}/withdraw',
       OPENAPI_PATH,
+      '/v1/recipients',
+      '/v1/recipients/{id}',
+      '/v1/recipients/{id}/methods',
       '/v1/recipients/{id}/methods/{methodId}/wallet-challenges',
       '/v1/recipients/{id}/methods/{methodId}/wallet-proofs',
     ]);
@@ -81,10 +95,23 @@ describe('OpenAPI document', () => {
     for (const ref of refs) expect(doc.components.schemas[ref], ref).toBeDefined();
     // Only what the routes reach: no contract shape the server does not send yet.
     expect(Object.keys(doc.components.schemas).sort()).toEqual([
+      'CountryPolicy',
       'Health',
+      'LowBalance',
+      'MandateActionPrepared',
+      'MandateCreated',
+      'MandateDetail',
+      'MandateFunding',
+      'MandateInstance',
+      'Money',
       'OpenApiDocument',
       'Problem',
+      'RecipientDetail',
+      'RecipientPage',
+      'RecipientPayoutMethod',
+      'RecipientSummaryView',
       'SelfWebhookAck',
+      'TokenAmount',
       'WalletChallenge',
       'WalletProofAccepted',
     ]);
@@ -111,16 +138,22 @@ describe('OpenAPI document', () => {
     const post = doc.paths['/v1/things']?.['post'];
     expect(post?.security).toEqual([{ bearer: [] }]);
     expect(post?.['x-ujira-scope']).toBe('payouts:write');
+    expect(post?.parameters.map((p) => [p.name, p.in])).toContainEqual([
+      'Idempotency-Key',
+      'header',
+    ]);
+    expect(post?.responses['409']?.headers).toHaveProperty('Retry-After');
     expect(post?.requestBody?.content['application/json']?.schema).toMatchObject({
       type: 'object',
       properties: { amount: { type: 'string' } },
     });
     expect(Object.keys(post?.responses ?? {}).sort()).toEqual(
-      ['201', '400', '401', '403', '413', '415', '422', '429', '500', '503'].sort(),
+      ['201', '400', '401', '403', '409', '413', '415', '422', '429', '500', '503'].sort(),
     );
     const list = doc.paths['/v1/approvals']?.['get'];
     expect(list?.operationId).toBe('listApprovals');
     expect(list?.parameters.map((p) => p.name)).toEqual(expect.arrayContaining(['limit']));
+    expect(list?.parameters.map((p) => p.name)).not.toContain('Idempotency-Key');
     expect(Object.keys(list?.responses ?? {}).sort()).toEqual(
       ['200', '400', '401', '403', '429', '500', '503'].sort(),
     );

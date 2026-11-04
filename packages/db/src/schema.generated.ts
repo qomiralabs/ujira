@@ -64,6 +64,12 @@ export interface OpsIdentityProviderEvents {
   received_at: Generated<Timestamp>;
 }
 
+export interface OpsRateLimitBuckets {
+  bucket_key: string;
+  refilled_at: Timestamp;
+  tokens: Numeric;
+}
+
 export interface OpsRoutingConfigActive {
   only_row: Generated<boolean>;
   updated_at: Generated<Timestamp>;
@@ -75,6 +81,15 @@ export interface OpsRoutingConfigVersions {
   created_by: string;
   document: Json;
   version: Generated<Int8>;
+}
+
+export interface OpsSecurityEvents {
+  email_hmac: Buffer | null;
+  id: Generated<Int8>;
+  ip_hmac: Buffer | null;
+  kind: string;
+  occurred_at: Generated<Timestamp>;
+  token_prefix: string | null;
 }
 
 export interface OpsSigningKeys {
@@ -93,13 +108,15 @@ export interface OpsSigningKeys {
 
 export interface UjiraApiTokens {
   created_at: Generated<Timestamp>;
-  expires_at: Timestamp | null;
+  expires_at: Timestamp;
   id: Generated<string>;
+  last_used_at: Timestamp | null;
   prefix: string;
   principal_id: string;
   project_id: string;
   revoked_at: Timestamp | null;
-  scopes: Generated<string[]>;
+  rotated_from_id: string | null;
+  scopes: string[];
   secret_sha256: Buffer;
 }
 
@@ -223,6 +240,21 @@ export interface UjiraFundingSweeps {
   updated_at: Generated<Timestamp>;
 }
 
+export interface UjiraIdempotencyKeys {
+  created_at: Generated<Timestamp>;
+  expires_at: Timestamp;
+  id: Generated<string>;
+  idempotency_key: string;
+  lease_expires_at: Timestamp | null;
+  lease_id: string | null;
+  principal_id: string;
+  project_id: string;
+  request_id: string | null;
+  request_sha256: Buffer;
+  response_body: string | null;
+  response_status: Int8 | null;
+}
+
 export interface UjiraLedgerAccounts {
   asset: string;
   balance: Generated<Numeric>;
@@ -290,6 +322,19 @@ export interface UjiraManagedSigners {
   updated_at: Generated<Timestamp>;
 }
 
+export interface UjiraMandateActionRequests {
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  idempotency_key: string;
+  instance_plan: Json | null;
+  mandate_id: string;
+  mandate_instance_id: string;
+  op: string;
+  principal_id: string;
+  project_id: string;
+  signing_request: Json;
+}
+
 export interface UjiraMandateInstanceRoles {
   address: string;
   granted_event_id: string;
@@ -338,6 +383,26 @@ export interface UjiraMandateStateSnapshots {
   project_id: string;
   spent: Numeric;
   taken_at: Generated<Timestamp>;
+}
+
+export interface UjiraMandateTerms {
+  agreed_fee_bps: Int8;
+  approval_threshold: Numeric;
+  country_policy_hash: Buffer;
+  created_at: Generated<Timestamp>;
+  creation_key: string;
+  currency: string;
+  expires_at: Timestamp;
+  mandate_id: string;
+  max_fee_bps: Int8;
+  payout_ttl_seconds: Int8;
+  per_payment_cap: Numeric;
+  per_recipient_daily_cap: Numeric;
+  principal_id: string;
+  project_id: string;
+  recipient_mode: string;
+  scale: number;
+  total_budget: Numeric;
 }
 
 export interface UjiraMigrations {
@@ -455,8 +520,10 @@ export interface Schema {
   'ops.executor_accounts': OpsExecutorAccounts;
   'ops.fee_estimates': OpsFeeEstimates;
   'ops.identity_provider_events': OpsIdentityProviderEvents;
+  'ops.rate_limit_buckets': OpsRateLimitBuckets;
   'ops.routing_config_active': OpsRoutingConfigActive;
   'ops.routing_config_versions': OpsRoutingConfigVersions;
+  'ops.security_events': OpsSecurityEvents;
   'ops.signing_keys': OpsSigningKeys;
   ujira_migrations: UjiraMigrations;
   'ujira.api_tokens': UjiraApiTokens;
@@ -472,14 +539,17 @@ export interface Schema {
   'ujira.funding_accounts': UjiraFundingAccounts;
   'ujira.funding_sources': UjiraFundingSources;
   'ujira.funding_sweeps': UjiraFundingSweeps;
+  'ujira.idempotency_keys': UjiraIdempotencyKeys;
   'ujira.ledger_accounts': UjiraLedgerAccounts;
   'ujira.ledger_entries': UjiraLedgerEntries;
   'ujira.ledger_journals': UjiraLedgerJournals;
   'ujira.ledger_reconciliation': UjiraLedgerReconciliation;
   'ujira.managed_signers': UjiraManagedSigners;
+  'ujira.mandate_action_requests': UjiraMandateActionRequests;
   'ujira.mandate_instance_roles': UjiraMandateInstanceRoles;
   'ujira.mandate_instances': UjiraMandateInstances;
   'ujira.mandate_state_snapshots': UjiraMandateStateSnapshots;
+  'ujira.mandate_terms': UjiraMandateTerms;
   'ujira.mandates': UjiraMandates;
   'ujira.payout_methods': UjiraPayoutMethods;
   'ujira.principal_members': UjiraPrincipalMembers;

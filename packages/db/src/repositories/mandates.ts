@@ -85,14 +85,20 @@ export const mandates = {
     return row === undefined ? undefined : toMandate(row);
   },
 
+  // An id may be given, for a flow that needs to know it before the row exists.
   // With no policy the list is empty and the mode is allow, which allows nobody.
   create: async (
     db: Tx,
-    input: { readonly name: string; readonly countryPolicy?: CountryPolicy },
+    input: {
+      readonly name: string;
+      readonly id?: string;
+      readonly countryPolicy?: CountryPolicy;
+    },
   ): Promise<Mandate> => {
     const row = await db
       .insertInto('ujira.mandates')
       .values({
+        ...(input.id === undefined ? {} : { id: input.id }),
         principal_id: CURRENT_PRINCIPAL,
         project_id: CURRENT_PROJECT,
         name: input.name,
