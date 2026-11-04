@@ -59,6 +59,16 @@ CREATE DOMAIN ujira.hash32 AS bytea
 ALTER DOMAIN ujira.hash32 OWNER TO ujira_owner;
 
 --
+-- Name: network_id; Type: DOMAIN; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE DOMAIN ujira.network_id AS text
+	CONSTRAINT network_id_known CHECK ((VALUE = ANY (ARRAY['stellar:pubnet'::text, 'stellar:testnet'::text])));
+
+
+ALTER DOMAIN ujira.network_id OWNER TO ujira_owner;
+
+--
 -- Name: scale; Type: DOMAIN; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1308,8 +1318,9 @@ CREATE TABLE ujira.payout_attempts (
     project_id uuid NOT NULL,
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     payout_id uuid NOT NULL,
-    attempt_number integer NOT NULL,
-    network text NOT NULL,
+    attempt_number bigint NOT NULL,
+    chain text NOT NULL,
+    network ujira.network_id NOT NULL,
     mandate_instance_id uuid NOT NULL,
     total_amount ujira.amount NOT NULL,
     asset text NOT NULL,
@@ -1322,7 +1333,8 @@ CREATE TABLE ujira.payout_attempts (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT payout_attempts_chain_id_length CHECK (((char_length(on_chain_payout_id) >= 1) AND (char_length(on_chain_payout_id) <= 128))),
     CONSTRAINT payout_attempts_dead_has_proof CHECK (((status = 'dead'::text) = (dead_proof IS NOT NULL))),
-    CONSTRAINT payout_attempts_number_positive CHECK ((attempt_number > 0)),
+    CONSTRAINT payout_attempts_network_on_chain CHECK ((split_part((network)::text, ':'::text, 1) = chain)),
+    CONSTRAINT payout_attempts_number_range CHECK (((attempt_number >= 1) AND (attempt_number <= 1000000))),
     CONSTRAINT payout_attempts_proof_object CHECK (((dead_proof IS NULL) OR (jsonb_typeof(dead_proof) = 'object'::text))),
     CONSTRAINT payout_attempts_status CHECK ((status = ANY (ARRAY['created'::text, 'requested'::text, 'pending_approval'::text, 'approved'::text, 'executing'::text, 'settled'::text, 'final'::text, 'dead'::text]))),
     CONSTRAINT payout_attempts_total_positive CHECK (((total_amount)::numeric > (0)::numeric))
@@ -1360,13 +1372,15 @@ CREATE TABLE ujira.payout_funding_holds (
     principal_id uuid NOT NULL,
     project_id uuid NOT NULL,
     payout_id uuid NOT NULL,
-    network text NOT NULL,
+    network ujira.network_id NOT NULL,
+    chain text NOT NULL,
     mandate_instance_id uuid NOT NULL,
     needed_amount ujira.amount NOT NULL,
     asset text NOT NULL,
     scale ujira.scale NOT NULL,
     held_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT payout_funding_holds_needed_positive CHECK (((needed_amount)::numeric > (0)::numeric))
+    CONSTRAINT payout_funding_holds_needed_positive CHECK (((needed_amount)::numeric > (0)::numeric)),
+    CONSTRAINT payout_funding_holds_network_on_chain CHECK ((split_part((network)::text, ':'::text, 1) = chain))
 );
 
 ALTER TABLE ONLY ujira.payout_funding_holds FORCE ROW LEVEL SECURITY;
@@ -2011,7 +2025,7 @@ ALTER TABLE ONLY ujira.payout_attempts
 --
 
 ALTER TABLE ONLY ujira.payout_attempts
-    ADD CONSTRAINT payout_attempts_leg_key UNIQUE (principal_id, project_id, payout_id, id, network, asset, scale);
+    ADD CONSTRAINT payout_attempts_leg_key UNIQUE (principal_id, project_id, payout_id, id, chain, asset, scale);
 
 
 --
@@ -2832,7 +2846,7 @@ ALTER TABLE ONLY ujira.mandates
 --
 
 ALTER TABLE ONLY ujira.payout_attempts
-    ADD CONSTRAINT payout_attempts_principal_id_project_id_mandate_instance_i_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id, network, asset, scale) REFERENCES ujira.mandate_instances(principal_id, project_id, id, chain, asset, scale);
+    ADD CONSTRAINT payout_attempts_principal_id_project_id_mandate_instance_i_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id, chain, asset, scale) REFERENCES ujira.mandate_instances(principal_id, project_id, id, chain, asset, scale);
 
 
 --
@@ -2856,7 +2870,7 @@ ALTER TABLE ONLY ujira.payout_batches
 --
 
 ALTER TABLE ONLY ujira.payout_funding_holds
-    ADD CONSTRAINT payout_funding_holds_principal_id_project_id_mandate_insta_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id, network, asset, scale) REFERENCES ujira.mandate_instances(principal_id, project_id, id, chain, asset, scale);
+    ADD CONSTRAINT payout_funding_holds_principal_id_project_id_mandate_insta_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id, chain, asset, scale) REFERENCES ujira.mandate_instances(principal_id, project_id, id, chain, asset, scale);
 
 
 --
@@ -4072,6 +4086,15 @@ GRANT ALL ON TYPE ujira.hash32 TO ujira_retention;
 GRANT ALL ON TYPE ujira.hash32 TO ujira_auth;
 GRANT ALL ON TYPE ujira.hash32 TO ujira_indexer;
 GRANT ALL ON TYPE ujira.hash32 TO ujira_fn_audit;
+
+
+--
+-- Name: TYPE network_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON TYPE ujira.network_id FROM PUBLIC;
+GRANT ALL ON TYPE ujira.network_id TO ujira_app;
+GRANT ALL ON TYPE ujira.network_id TO ujira_reader;
 
 
 --

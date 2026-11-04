@@ -74,9 +74,9 @@ async function insertAttempt(status: string): Promise<string> {
   const payoutId = await insertPayout('routed');
   const inserted = await admin.query<{ id: string }>(
     `insert into ujira.payout_attempts
-       (principal_id, project_id, payout_id, attempt_number, network, mandate_instance_id,
+       (principal_id, project_id, payout_id, attempt_number, chain, network, mandate_instance_id,
         total_amount, asset, scale, deadline, status, dead_proof)
-     values ($1, $2, $3, 1, 'stellar', $4, 1, 'USDC', 7, now(), $5, $6)
+     values ($1, $2, $3, 1, 'stellar', 'stellar:testnet', $4, 1, 'USDC', 7, now(), $5, $6)
      returning id`,
     [
       fixture.tenant.principalId,

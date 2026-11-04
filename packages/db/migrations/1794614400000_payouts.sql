@@ -11,12 +11,26 @@
 --
 -- Also here, because they reference payouts or decide how one is created: the
 -- funding holds, the project's cash-out bearer and its payout minimums.
+--
+-- An attempt and a hold are on a network, such as stellar:testnet, and the chain
+-- is only part of the unit their money is in. They keep both, and a check ties
+-- one to the other.
+--
+-- The network domain checks its values the way ujira.amount does.
+-- squawk-ignore-file ban-create-domain-with-constraint
 
 -- Up Migration
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
 
 set local role ujira_owner;
+
+-- The networks UJIRA runs on, written as the chain adapter writes them. A new
+-- network is a migration, so nothing can name one the system does not run.
+create domain ujira.network_id as text
+  constraint network_id_known check (value in ('stellar:pubnet', 'stellar:testnet'));
+
+grant usage on domain ujira.network_id to ujira_app, ujira_reader;
 
 -- recipient: the amount asked for is USDC, and the recipient bears the cash-out
 -- cost. principal: the amount asked for is what the recipient must receive.
@@ -208,11 +222,13 @@ create table ujira.payout_attempts (
   project_id uuid not null,
   id uuid primary key default gen_random_uuid(),
   payout_id uuid not null,
-  attempt_number integer not null
-    constraint payout_attempts_number_positive check (attempt_number > 0),
-  network text not null,
+  -- Bounded, so it reads back exactly as a JavaScript number.
+  attempt_number bigint not null
+    constraint payout_attempts_number_range check (attempt_number between 1 and 1000000),
+  chain text not null,
+  network ujira.network_id not null,
   mandate_instance_id uuid not null,
-  -- The total this attempt carries, in the unit of its network.
+  -- The total this attempt carries, in the unit of its chain.
   total_amount ujira.amount not null
     constraint payout_attempts_total_positive check (total_amount > 0),
   asset text not null,
@@ -243,15 +259,16 @@ create table ujira.payout_attempts (
   constraint payout_attempts_dead_has_proof check ((status = 'dead') = (dead_proof is not null)),
   constraint payout_attempts_proof_object
     check (dead_proof is null or jsonb_typeof(dead_proof) = 'object'),
+  constraint payout_attempts_network_on_chain check (split_part(network, ':', 1) = chain),
   constraint payout_attempts_number unique (principal_id, project_id, payout_id, attempt_number),
   constraint payout_attempts_chain_id unique (principal_id, project_id, mandate_instance_id, on_chain_payout_id),
   constraint payout_attempts_tenant_key unique (principal_id, project_id, id),
   -- What a leg's foreign key needs, so a leg can only belong to this attempt's
   -- payout and only be in this attempt's unit.
-  constraint payout_attempts_leg_key unique (principal_id, project_id, payout_id, id, network, asset, scale),
+  constraint payout_attempts_leg_key unique (principal_id, project_id, payout_id, id, chain, asset, scale),
   foreign key (principal_id, project_id, payout_id)
     references ujira.payouts (principal_id, project_id, id),
-  foreign key (principal_id, project_id, mandate_instance_id, network, asset, scale)
+  foreign key (principal_id, project_id, mandate_instance_id, chain, asset, scale)
     references ujira.mandate_instances (principal_id, project_id, id, chain, asset, scale)
 );
 
@@ -265,17 +282,20 @@ create table ujira.payout_funding_holds (
   principal_id uuid not null,
   project_id uuid not null,
   payout_id uuid not null,
-  network text not null,
+  -- What a deposit releases holds by.
+  network ujira.network_id not null,
+  chain text not null,
   mandate_instance_id uuid not null,
   needed_amount ujira.amount not null
     constraint payout_funding_holds_needed_positive check (needed_amount > 0),
   asset text not null,
   scale ujira.scale not null,
   held_at timestamptz not null default now(),
+  constraint payout_funding_holds_network_on_chain check (split_part(network, ':', 1) = chain),
   primary key (principal_id, project_id, payout_id, network),
   foreign key (principal_id, project_id, payout_id)
     references ujira.payouts (principal_id, project_id, id),
-  foreign key (principal_id, project_id, mandate_instance_id, network, asset, scale)
+  foreign key (principal_id, project_id, mandate_instance_id, chain, asset, scale)
     references ujira.mandate_instances (principal_id, project_id, id, chain, asset, scale)
 );
 
@@ -461,3 +481,4 @@ drop function ujira.payout_instance_matches();
 delete from ujira.status_transitions where machine in ('payout', 'payout_attempt');
 delete from ujira.audit_metadata_keys where key in ('method', 'currency', 'scale');
 alter table ujira.projects drop column cashout_cost_bearer;
+drop domain ujira.network_id;

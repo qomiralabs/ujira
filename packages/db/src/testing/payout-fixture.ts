@@ -29,6 +29,9 @@ export function usdc(amount: bigint): TokenAmount {
 
 export const ONE_USDC = 10_000_000n;
 
+// The network every fixture instance is on.
+export const TESTNET = 'stellar:testnet';
+
 export async function payoutFixture(db: Database): Promise<PayoutFixture> {
   const memberId = randomUUID();
   const tenant = await db.unscoped(async (tx) =>

@@ -70,6 +70,7 @@ export {
   type FundingHold,
   type FundingHoldInput,
   type NewPayout,
+  type NetworkId,
   type NewPayoutAttempt,
   type Payout,
   type PayoutAttempt,

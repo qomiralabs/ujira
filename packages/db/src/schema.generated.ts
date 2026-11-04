@@ -265,7 +265,8 @@ export interface UjiraMigrations {
 
 export interface UjiraPayoutAttempts {
   asset: string;
-  attempt_number: number;
+  attempt_number: Int8;
+  chain: string;
   created_at: Generated<Timestamp>;
   dead_proof: Json | null;
   deadline: Timestamp;
@@ -293,6 +294,7 @@ export interface UjiraPayoutBatches {
 
 export interface UjiraPayoutFundingHolds {
   asset: string;
+  chain: string;
   held_at: Generated<Timestamp>;
   mandate_instance_id: string;
   needed_amount: Numeric;

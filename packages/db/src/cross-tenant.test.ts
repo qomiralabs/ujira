@@ -224,12 +224,14 @@ async function tenant(name: string): Promise<Tenant> {
       const attempt = await payoutAttempts.create(tx, {
         payoutId: payout.id,
         mandateInstanceId: instanceId,
+        network: 'stellar:testnet',
         total: tokenAmount(50_000_000n, 'USDC', 'stellar'),
         deadline: new Date(Date.now() + 3_600_000),
       });
       await fundingHolds.hold(tx, held.payout.id, [
         {
           mandateInstanceId: instanceId,
+          network: 'stellar:testnet',
           needed: tokenAmount(50_000_000n, 'USDC', 'stellar'),
         },
       ]);
@@ -773,6 +775,7 @@ const cases: Record<string, () => Promise<void>> = {
       payoutAttempts.create(tx, {
         payoutId: b.payoutId,
         mandateInstanceId: b.instanceId,
+        network: 'stellar:testnet',
         total: tokenAmount(50_000_000n, 'USDC', 'stellar'),
         deadline: new Date(Date.now() + 3_600_000),
       }),
@@ -811,6 +814,7 @@ const cases: Record<string, () => Promise<void>> = {
         fundingHolds.hold(tx, b.payoutId, [
           {
             mandateInstanceId: a.instanceId,
+            network: 'stellar:testnet',
             needed: tokenAmount(50_000_000n, 'USDC', 'stellar'),
           },
         ]),
@@ -826,7 +830,9 @@ const cases: Record<string, () => Promise<void>> = {
     expect(left.rows).toHaveLength(1);
   },
   'fundingHolds.oldestOnNetwork': async () => {
-    const holds = await acrossA(async (tx) => fundingHolds.oldestOnNetwork(tx, 'stellar', 100));
+    const holds = await acrossA(async (tx) =>
+      fundingHolds.oldestOnNetwork(tx, 'stellar:testnet', 100),
+    );
     const ids = holds.map((hold) => hold.payoutId);
     expect(ids).toContain(a.heldPayoutId);
     expect(ids).not.toContain(b.heldPayoutId);

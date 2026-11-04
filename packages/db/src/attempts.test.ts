@@ -53,6 +53,7 @@ function attempt(overrides: Partial<NewPayoutAttempt> = {}): NewPayoutAttempt {
   return {
     payoutId,
     mandateInstanceId: fixture.instanceId,
+    network: 'stellar:testnet',
     total: usdc(5n * ONE_USDC),
     deadline: new Date(Date.now() + 3_600_000),
     ...overrides,
