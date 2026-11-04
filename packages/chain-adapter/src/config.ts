@@ -252,9 +252,21 @@ const feeSponsor = z
     path: ['lowBalanceStroops'],
   });
 
+// The rules for building Soroban transactions. instanceTtlExtendLedgers covers
+// the instance and the asset balance entry only; a payout record's lifetime
+// comes from its own expiry, so it takes no value here.
+const soroban = z
+  .strictObject({
+    writeBytesPadding: z.int().min(512).max(1_048_576).default(512),
+    resimulateRetries: z.int().min(0).max(10).default(2),
+    instanceTtlExtendLedgers: z.int().min(1).max(6_312_000).default(535_680),
+  })
+  .prefault({});
+
 const stellarNetwork = z
   .strictObject({
     ...common,
+    soroban,
     trustedFactories: z.strictObject({ '1': uniqueList(stellarContract) }),
     assets: z.strictObject({
       USDC: z.strictObject({ sac: stellarContract, issuer: stellarAccount }),

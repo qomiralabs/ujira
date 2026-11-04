@@ -234,6 +234,24 @@ export function decodeContractCodeEntry(base64: string): ContractCodeCost {
   return { dataXdrBytes: BigInt(bytes.length), costInputs };
 }
 
+/** The base64 ledger key of the setting that prices a ledger write. */
+export function feeWriteSettingKey(): string {
+  const key = Buffer.alloc(8);
+  key.writeUInt32BE(LEDGER_ENTRY_CONFIG_SETTING, 0);
+  key.writeUInt32BE(RENT_CONFIG_SETTING_IDS.contractLedgerCostExtV0, 4);
+  return key.toString('base64');
+}
+
+/** Stroops per 1 KB written, from that setting's LedgerEntryData. */
+export function decodeFeeWrite1KB(entry: string): bigint {
+  const { id, body } = readEntry(entry);
+  if (id !== RENT_CONFIG_SETTING_IDS.contractLedgerCostExtV0) throw malformed();
+  body.u32();
+  const fee = body.i64();
+  body.end();
+  return fee;
+}
+
 /**
  * The settings governance changes, as one string. The ledger and the state
  * size window move on their own every few minutes, so they are left out: a
