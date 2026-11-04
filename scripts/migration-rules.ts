@@ -270,6 +270,42 @@ export function checkMigration(file: string, source: string): Problem[] {
 // expand migration drops what the up section added, which is its job, so
 // linting it would only produce noise. The lines before the cut are kept as
 // they are, so squawk's line numbers are the file's.
+// Merged before the timestamp rule existed. Renaming either is not a way out:
+// the rehearsal in CI refuses a checkout where a merged migration has moved, as
+// the runner would refuse a database that had already run it. They create
+// unrelated tables, so their order does not matter. Nothing may join this pair.
+const MERGED_DUPLICATE = {
+  first: '1794182400000_ops_fee_estimates.sql',
+  second: '1794182400000_recipients_payout_methods.sql',
+};
+
+// Migrations run in name order, so with a shared timestamp the order falls to
+// the words after it, which nobody chose. It happens when pull requests built
+// in parallel each take the next free number on their own base, and each file
+// looks fine alone, so this rule needs the whole set of names. It has to catch
+// them before merge, because a merged migration cannot be renamed.
+export function checkTimestamps(files: readonly string[]): Problem[] {
+  const firstUser = new Map<string, string>();
+  const problems: Problem[] = [];
+  for (const file of [...new Set(files)].sort()) {
+    // A name with no timestamp is already refused by the file name rule.
+    const timestamp = /^\d+(?=_)/.exec(file)?.[0];
+    if (timestamp === undefined) continue;
+    const first = firstUser.get(timestamp);
+    if (first === undefined) {
+      firstUser.set(timestamp, file);
+      continue;
+    }
+    if (first === MERGED_DUPLICATE.first && file === MERGED_DUPLICATE.second) continue;
+    problems.push({
+      file,
+      line: 1,
+      message: `timestamp ${timestamp} is already used by ${first}; take the next free one`,
+    });
+  }
+  return problems;
+}
+
 export function upSectionForLint(source: string): string {
   const lines = source.split('\n');
   const down = lines.findIndex((line) => line.replace(/\r$/, '') === DOWN_MARKER);
