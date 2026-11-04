@@ -11,10 +11,10 @@
 // grants enforce that split, whichever method is called.
 
 import type { TokenAmount } from '@ujira/core';
-import { sql, type Kysely } from 'kysely';
+import { sql, type Kysely, type UpdateObject } from 'kysely';
 
 import { amountParam, tokenFromRow } from '../money-mapper.js';
-import type { Schema } from '../schema.generated.js';
+import type { Json, Schema } from '../schema.generated.js';
 import { checkedLimit, pageOf, PageRequestError, type Page, type PageRequest } from './page.js';
 
 type Tx = Kysely<Schema>;
@@ -226,25 +226,54 @@ export const mandateInstances = {
   },
 };
 
+// The transaction that sponsored a funding account's reserves. Reserves are
+// always sponsored at launch, so a principal never needs to hold the network's
+// native token.
+export interface FundingAccountConfig {
+  readonly sponsoredReserves: true;
+  readonly sponsorTxHash: Buffer;
+}
+
 export interface FundingSource {
   readonly id: string;
   readonly mandateInstanceId: string;
   readonly kind: string;
+  readonly config: FundingAccountConfig | null;
   readonly createdAt: Date;
 }
 
-const fundingColumns = ['id', 'mandate_instance_id', 'kind', 'created_at'] as const;
+export type NewFundingSource =
+  | { readonly mandateInstanceId: string; readonly kind: 'stablecoin_deposit' }
+  | {
+      readonly mandateInstanceId: string;
+      readonly kind: 'stellar_funding_account';
+      readonly config: FundingAccountConfig;
+    };
+
+const fundingColumns = ['id', 'mandate_instance_id', 'kind', 'config', 'created_at'] as const;
 
 function toFunding(row: {
   id: string;
   mandate_instance_id: string;
   kind: string;
+  config: Json;
   created_at: Date;
 }): FundingSource {
   return {
     id: row.id,
     mandateInstanceId: row.mandate_instance_id,
     kind: row.kind,
+    // The database checks the shape of what a funding account holds.
+    config:
+      row.kind === 'stellar_funding_account'
+        ? {
+            sponsoredReserves: true,
+            sponsorTxHash: Buffer.from(
+              (row.config as { sponsor_tx_hash: string }).sponsor_tx_hash,
+              'hex',
+            ),
+          }
+        : null,
     createdAt: row.created_at,
   };
 }
@@ -270,10 +299,7 @@ export const fundingSources = {
     return row === undefined ? undefined : toFunding(row);
   },
 
-  create: async (
-    db: Tx,
-    input: { readonly mandateInstanceId: string; readonly kind: 'stablecoin_deposit' },
-  ): Promise<FundingSource> => {
+  create: async (db: Tx, input: NewFundingSource): Promise<FundingSource> => {
     const row = await db
       .insertInto('ujira.funding_sources')
       .values({
@@ -281,6 +307,14 @@ export const fundingSources = {
         project_id: CURRENT_PROJECT,
         mandate_instance_id: input.mandateInstanceId,
         kind: input.kind,
+        config: JSON.stringify(
+          input.kind === 'stellar_funding_account'
+            ? {
+                sponsored_reserves: input.config.sponsoredReserves,
+                sponsor_tx_hash: input.config.sponsorTxHash.toString('hex'),
+              }
+            : {},
+        ),
       })
       .returning(fundingColumns)
       .executeTakeFirstOrThrow();
@@ -626,10 +660,191 @@ export const deposits = {
   },
 };
 
+export type FundingSweepStatus =
+  'awaiting_signature' | 'submitted' | 'settled' | 'failed' | 'cancelled';
+
+export interface FundingSweep {
+  readonly id: string;
+  readonly fundingSourceId: string;
+  readonly mandateInstanceId: string;
+  readonly depositOperationId: string;
+  readonly amount: TokenAmount;
+  readonly status: FundingSweepStatus;
+  readonly sweepTxHash: Buffer | null;
+  readonly validUntil: Date | null;
+  readonly failedLedger: bigint | null;
+  readonly createdAt: Date;
+  readonly updatedAt: Date;
+}
+
+export interface NewFundingSweep {
+  readonly fundingSourceId: string;
+  readonly mandateInstanceId: string;
+  // The chain's id for the deposit. This is the idempotency key of the sweep.
+  readonly depositOperationId: string;
+  readonly amount: TokenAmount;
+}
+
+// Written so a caller has to state what the database needs to check each move.
+// Failing takes the ledger that recorded the failure, or null to claim the time
+// bounds have passed, which is refused until they have. A transaction that might
+// still land must never be followed by another, or a deposit is swept twice.
+export type FundingSweepMove =
+  | {
+      readonly status: 'submitted';
+      readonly sweepTxHash: Buffer;
+      // The last moment the transaction can be applied, from its time bounds.
+      readonly validUntil: Date;
+    }
+  | { readonly status: 'failed'; readonly failedLedger: bigint | null }
+  | { readonly status: 'settled' | 'cancelled' | 'awaiting_signature' };
+
+const sweepColumns = [
+  'id',
+  'funding_source_id',
+  'mandate_instance_id',
+  'deposit_operation_id',
+  'amount',
+  'asset',
+  'chain',
+  'scale',
+  'status',
+  'sweep_tx_hash',
+  'sweep_valid_until',
+  'failed_ledger',
+  'created_at',
+  'updated_at',
+] as const;
+
+function toSweep(row: {
+  id: string;
+  funding_source_id: string;
+  mandate_instance_id: string;
+  deposit_operation_id: string;
+  amount: string;
+  asset: string;
+  chain: string;
+  scale: number;
+  status: string;
+  sweep_tx_hash: Buffer | null;
+  sweep_valid_until: Date | null;
+  failed_ledger: string | null;
+  created_at: Date;
+  updated_at: Date;
+}): FundingSweep {
+  return {
+    id: row.id,
+    fundingSourceId: row.funding_source_id,
+    mandateInstanceId: row.mandate_instance_id,
+    depositOperationId: row.deposit_operation_id,
+    amount: tokenFromRow(row),
+    status: row.status as FundingSweepStatus,
+    sweepTxHash: row.sweep_tx_hash,
+    validUntil: row.sweep_valid_until,
+    failedLedger: row.failed_ledger === null ? null : BigInt(row.failed_ledger),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function sweepChange(move: FundingSweepMove): UpdateObject<Schema, 'ujira.funding_sweeps'> {
+  switch (move.status) {
+    case 'submitted':
+      return {
+        status: move.status,
+        sweep_tx_hash: move.sweepTxHash,
+        sweep_valid_until: move.validUntil,
+      };
+    case 'failed':
+      return { status: move.status, failed_ledger: move.failedLedger };
+    case 'awaiting_signature':
+      return {
+        status: move.status,
+        sweep_tx_hash: null,
+        sweep_valid_until: null,
+        failed_ledger: null,
+      };
+    default:
+      return { status: move.status };
+  }
+}
+
+export const fundingSweeps = {
+  list: async (db: Tx, page: PageRequest): Promise<Page<FundingSweep>> => {
+    const limit = checkedLimit(page.limit);
+    let query = db
+      .selectFrom('ujira.funding_sweeps')
+      .select(sweepColumns)
+      .orderBy('id')
+      .limit(limit + 1);
+    if (page.after !== undefined) query = query.where('id', '>', page.after);
+    return pageOf((await query.execute()).map(toSweep), limit, (sweep) => sweep.id);
+  },
+
+  get: async (db: Tx, id: string): Promise<FundingSweep | undefined> => {
+    const row = await db
+      .selectFrom('ujira.funding_sweeps')
+      .select(sweepColumns)
+      .where('id', '=', id)
+      .executeTakeFirst();
+    return row === undefined ? undefined : toSweep(row);
+  },
+
+  // How a retry finds the row its earlier attempt wrote.
+  byDepositOperation: async (
+    db: Tx,
+    input: { readonly chain: string; readonly depositOperationId: string },
+  ): Promise<FundingSweep | undefined> => {
+    const row = await db
+      .selectFrom('ujira.funding_sweeps')
+      .select(sweepColumns)
+      .where('chain', '=', input.chain)
+      .where('deposit_operation_id', '=', input.depositOperationId)
+      .executeTakeFirst();
+    return row === undefined ? undefined : toSweep(row);
+  },
+
+  // A deposit operation already swept is refused with 23505, by any tenant,
+  // rather than quietly returning a row: the key is global and the row may not
+  // be this tenant's to see.
+  create: async (db: Tx, input: NewFundingSweep): Promise<FundingSweep> => {
+    const row = await db
+      .insertInto('ujira.funding_sweeps')
+      .values({
+        principal_id: CURRENT_PRINCIPAL,
+        project_id: CURRENT_PROJECT,
+        funding_source_id: input.fundingSourceId,
+        mandate_instance_id: input.mandateInstanceId,
+        chain: input.amount.chain,
+        asset: input.amount.asset,
+        scale: input.amount.scale,
+        deposit_operation_id: input.depositOperationId,
+        amount: amountParam(input.amount),
+      })
+      .returning(sweepColumns)
+      .executeTakeFirstOrThrow();
+    return toSweep(row);
+  },
+
+  // False when this tenant has no such sweep. A move the status machine forbids,
+  // or failing while the transaction might still land, is refused with UJ004.
+  // Going back to awaiting a signature gives up the failed transaction, since the
+  // next attempt will have its own.
+  setStatus: async (db: Tx, id: string, move: FundingSweepMove): Promise<boolean> => {
+    const result = await db
+      .updateTable('ujira.funding_sweeps')
+      .set(sweepChange(move))
+      .where('id', '=', id)
+      .executeTakeFirst();
+    return result.numUpdatedRows > 0n;
+  },
+};
+
 export const mandateRepositories = {
   mandates,
   mandateInstances,
   fundingSources,
+  fundingSweeps,
   chainEvents,
   instanceRoles,
   deposits,

@@ -496,6 +496,38 @@ $$;
 ALTER FUNCTION ujira.authenticate_token(token_prefix text) OWNER TO ujira_fn_tokens;
 
 --
+-- Name: check_new_funding_sweep(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.check_new_funding_sweep() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if new.status <> 'awaiting_signature' then
+    raise exception using
+      errcode = 'UJ004',
+      message = format('a funding sweep starts awaiting a signature, not %s', new.status);
+  end if;
+  if not exists (
+    select 1
+      from ujira.funding_sources as s
+     where s.id = new.funding_source_id
+       and s.mandate_instance_id = new.mandate_instance_id
+       and s.kind = 'stellar_funding_account'
+  ) then
+    raise exception using
+      errcode = '23503',
+      message = 'a funding sweep comes from a funding account on its own mandate instance';
+  end if;
+  return null;
+end
+$$;
+
+
+ALTER FUNCTION ujira.check_new_funding_sweep() OWNER TO ujira_owner;
+
+--
 -- Name: check_reporting_time_zone(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -640,6 +672,59 @@ $$;
 
 
 ALTER FUNCTION ujira.forbid_mutation() OWNER TO ujira_owner;
+
+--
+-- Name: keep_funding_sweep(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.keep_funding_sweep() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if new.principal_id <> old.principal_id or new.project_id <> old.project_id
+     or new.funding_source_id <> old.funding_source_id
+     or new.mandate_instance_id <> old.mandate_instance_id
+     or new.chain <> old.chain or new.asset <> old.asset or new.scale <> old.scale
+     or new.deposit_operation_id <> old.deposit_operation_id
+     or new.amount <> old.amount then
+    raise exception using
+      errcode = 'UJ006',
+      message = 'a funding sweep keeps its tenant, source, operation and amount';
+  end if;
+  if (new.sweep_tx_hash is distinct from old.sweep_tx_hash
+      or new.sweep_valid_until is distinct from old.sweep_valid_until)
+     and not (old.status = 'awaiting_signature' and new.status = 'submitted')
+     and not (old.status = 'failed' and new.status = 'awaiting_signature') then
+    raise exception using
+      errcode = 'UJ006',
+      message = 'a funding sweep takes its transaction on submission and drops it only to try again';
+  end if;
+  if new.failed_ledger is distinct from old.failed_ledger
+     and not (old.status = 'submitted' and new.status = 'failed')
+     and not (old.status = 'failed' and new.status = 'awaiting_signature') then
+    raise exception using
+      errcode = 'UJ006',
+      message = 'a funding sweep takes its failed ledger only when it fails';
+  end if;
+  if old.status = 'awaiting_signature' and new.status = 'submitted'
+     and new.sweep_valid_until <= now() then
+    raise exception using
+      errcode = 'UJ004',
+      message = 'a funding sweep cannot be submitted with time bounds already past';
+  end if;
+  if old.status = 'submitted' and new.status = 'failed' and new.failed_ledger is null
+     and now() < old.sweep_valid_until + interval '5 minutes' then
+    raise exception using
+      errcode = 'UJ004',
+      message = 'a funding sweep cannot fail while its transaction might still land';
+  end if;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.keep_funding_sweep() OWNER TO ujira_owner;
 
 --
 -- Name: keep_managed_signer(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
@@ -1412,13 +1497,58 @@ CREATE TABLE ujira.funding_sources (
     mandate_instance_id uuid NOT NULL,
     kind text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT funding_sources_kind CHECK ((kind = 'stablecoin_deposit'::text))
+    config jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT funding_sources_config_shape CHECK (
+CASE
+    WHEN (kind <> 'stellar_funding_account'::text) THEN (config = '{}'::jsonb)
+    WHEN (jsonb_typeof(config) <> 'object'::text) THEN false
+    ELSE COALESCE(((((config - 'sponsored_reserves'::text) - 'sponsor_tx_hash'::text) = '{}'::jsonb) AND ((config -> 'sponsored_reserves'::text) = 'true'::jsonb) AND (jsonb_typeof((config -> 'sponsor_tx_hash'::text)) = 'string'::text) AND ((config ->> 'sponsor_tx_hash'::text) ~ '^[0-9a-f]{64}$'::text)), false)
+END),
+    CONSTRAINT funding_sources_kind CHECK ((kind = ANY (ARRAY['stablecoin_deposit'::text, 'stellar_funding_account'::text])))
 );
 
 ALTER TABLE ONLY ujira.funding_sources FORCE ROW LEVEL SECURITY;
 
 
 ALTER TABLE ujira.funding_sources OWNER TO ujira_owner;
+
+--
+-- Name: funding_sweeps; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.funding_sweeps (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    funding_source_id uuid NOT NULL,
+    mandate_instance_id uuid NOT NULL,
+    chain text NOT NULL,
+    asset text NOT NULL,
+    scale ujira.scale NOT NULL,
+    deposit_operation_id text NOT NULL,
+    amount ujira.amount NOT NULL,
+    status text DEFAULT 'awaiting_signature'::text NOT NULL,
+    sweep_tx_hash ujira.hash32,
+    sweep_valid_until timestamp with time zone,
+    failed_ledger bigint,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT funding_sweeps_amount_positive CHECK (((amount)::numeric > (0)::numeric)),
+    CONSTRAINT funding_sweeps_attempt_by_status CHECK (
+CASE
+    WHEN (status = ANY (ARRAY['submitted'::text, 'settled'::text])) THEN ((sweep_tx_hash IS NOT NULL) AND (sweep_valid_until IS NOT NULL) AND (failed_ledger IS NULL))
+    WHEN (status = 'failed'::text) THEN ((sweep_tx_hash IS NOT NULL) AND (sweep_valid_until IS NOT NULL))
+    ELSE ((sweep_tx_hash IS NULL) AND (sweep_valid_until IS NULL) AND (failed_ledger IS NULL))
+END),
+    CONSTRAINT funding_sweeps_failed_ledger_positive CHECK ((failed_ledger >= 0)),
+    CONSTRAINT funding_sweeps_operation_length CHECK (((char_length(deposit_operation_id) >= 1) AND (char_length(deposit_operation_id) <= 128))),
+    CONSTRAINT funding_sweeps_status CHECK ((status = ANY (ARRAY['awaiting_signature'::text, 'submitted'::text, 'settled'::text, 'failed'::text, 'cancelled'::text])))
+);
+
+ALTER TABLE ONLY ujira.funding_sweeps FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.funding_sweeps OWNER TO ujira_owner;
 
 --
 -- Name: ledger_accounts; Type: TABLE; Schema: ujira; Owner: ujira_owner
@@ -2211,6 +2341,30 @@ ALTER TABLE ONLY ujira.funding_sources
 
 
 --
+-- Name: funding_sweeps funding_sweeps_once; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_sweeps
+    ADD CONSTRAINT funding_sweeps_once UNIQUE (chain, deposit_operation_id);
+
+
+--
+-- Name: funding_sweeps funding_sweeps_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_sweeps
+    ADD CONSTRAINT funding_sweeps_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: funding_sweeps funding_sweeps_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_sweeps
+    ADD CONSTRAINT funding_sweeps_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
 -- Name: ledger_accounts ledger_accounts_per_kind; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2581,6 +2735,13 @@ CREATE UNIQUE INDEX destination_verifications_one_session ON ujira.destination_v
 
 
 --
+-- Name: funding_sweeps_by_instance; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX funding_sweeps_by_instance ON ujira.funding_sweeps USING btree (principal_id, project_id, mandate_instance_id, created_at);
+
+
+--
 -- Name: ledger_entries_by_journal; Type: INDEX; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2781,6 +2942,34 @@ CREATE TRIGGER destination_verifications_append_only BEFORE DELETE OR UPDATE ON 
 --
 
 CREATE TRIGGER destination_verifications_no_truncate BEFORE TRUNCATE ON ujira.destination_verifications FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: funding_sweeps funding_sweeps_check_new; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER funding_sweeps_check_new AFTER INSERT ON ujira.funding_sweeps FOR EACH ROW EXECUTE FUNCTION ujira.check_new_funding_sweep();
+
+
+--
+-- Name: funding_sweeps funding_sweeps_keep; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER funding_sweeps_keep BEFORE UPDATE ON ujira.funding_sweeps FOR EACH ROW EXECUTE FUNCTION ujira.keep_funding_sweep();
+
+
+--
+-- Name: funding_sweeps funding_sweeps_touch; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER funding_sweeps_touch BEFORE UPDATE ON ujira.funding_sweeps FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
+-- Name: funding_sweeps funding_sweeps_transition; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER funding_sweeps_transition BEFORE UPDATE ON ujira.funding_sweeps FOR EACH ROW EXECUTE FUNCTION ujira.check_transition('funding_sweep');
 
 
 --
@@ -3128,6 +3317,30 @@ ALTER TABLE ONLY ujira.funding_sources
 
 
 --
+-- Name: funding_sweeps funding_sweeps_asset_chain_scale_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_sweeps
+    ADD CONSTRAINT funding_sweeps_asset_chain_scale_fkey FOREIGN KEY (asset, chain, scale) REFERENCES ujira.settlement_tokens(asset, chain, token_scale);
+
+
+--
+-- Name: funding_sweeps funding_sweeps_principal_id_project_id_funding_source_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_sweeps
+    ADD CONSTRAINT funding_sweeps_principal_id_project_id_funding_source_id_fkey FOREIGN KEY (principal_id, project_id, funding_source_id) REFERENCES ujira.funding_sources(principal_id, project_id, id);
+
+
+--
+-- Name: funding_sweeps funding_sweeps_principal_id_project_id_mandate_instance_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_sweeps
+    ADD CONSTRAINT funding_sweeps_principal_id_project_id_mandate_instance_id_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id, chain, asset, scale) REFERENCES ujira.mandate_instances(principal_id, project_id, id, chain, asset, scale);
+
+
+--
 -- Name: ledger_accounts ledger_accounts_principal_id_project_id_mandate_instance_i_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3423,6 +3636,12 @@ ALTER TABLE ujira.embed_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ujira.funding_sources ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: funding_sweeps; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.funding_sweeps ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: chain_events indexer_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3674,6 +3893,13 @@ CREATE POLICY owner_all ON ujira.funding_sources TO ujira_owner USING (true) WIT
 
 
 --
+-- Name: funding_sweeps owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.funding_sweeps TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: ledger_accounts owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3905,6 +4131,13 @@ CREATE POLICY tenant_insert ON ujira.funding_sources FOR INSERT TO ujira_app WIT
 
 
 --
+-- Name: funding_sweeps tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.funding_sweeps FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: ledger_accounts tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4080,6 +4313,13 @@ CREATE POLICY tenant_read ON ujira.funding_sources FOR SELECT TO ujira_app, ujir
 
 
 --
+-- Name: funding_sweeps tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.funding_sweeps FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
 -- Name: ledger_accounts tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4252,6 +4492,13 @@ CREATE POLICY tenant_update ON ujira.embed_sessions FOR UPDATE TO ujira_app USIN
 --
 
 CREATE POLICY tenant_update ON ujira.funding_sources FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: funding_sweeps tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.funding_sweeps FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -4565,6 +4812,13 @@ GRANT ALL ON FUNCTION ujira.authenticate_token(token_prefix text) TO ujira_auth;
 
 
 --
+-- Name: FUNCTION check_new_funding_sweep(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.check_new_funding_sweep() FROM PUBLIC;
+
+
+--
 -- Name: FUNCTION check_reporting_time_zone(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4615,6 +4869,13 @@ GRANT ALL ON FUNCTION ujira.current_project_id() TO ujira_indexer;
 --
 
 REVOKE ALL ON FUNCTION ujira.forbid_mutation() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION keep_funding_sweep(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.keep_funding_sweep() FROM PUBLIC;
 
 
 --
@@ -4892,6 +5153,14 @@ GRANT SELECT,INSERT,UPDATE ON TABLE ujira.embed_sessions TO ujira_app;
 
 GRANT SELECT,INSERT ON TABLE ujira.funding_sources TO ujira_app;
 GRANT SELECT ON TABLE ujira.funding_sources TO ujira_reader;
+
+
+--
+-- Name: TABLE funding_sweeps; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE ujira.funding_sweeps TO ujira_app;
+GRANT SELECT ON TABLE ujira.funding_sweeps TO ujira_reader;
 
 
 --
