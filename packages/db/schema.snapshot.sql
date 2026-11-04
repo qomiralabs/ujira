@@ -418,10 +418,8 @@ begin
   alter default privileges for role ujira_worker revoke execute on functions from public;
   alter default privileges for role ujira_worker revoke usage on types from public;
 
-  -- The installer runs `create schema if not exists` even when the schema is
-  -- there, which needs CREATE on the database. A database grant is not in a
-  -- dump, so a restore loses it, which is one reason this function exists.
-  execute format('grant create on database %I to ujira_worker', current_database());
+  -- Left over from an install that stopped before taking it back.
+  execute format('revoke create on database %I from ujira_worker', current_database());
 end
 $$;
 
@@ -522,6 +520,20 @@ begin
     raise exception using
       errcode = 'UJ001',
       message = 'no tenant context: the settings belong to another transaction';
+  end if;
+  if current_setting('ujira.defaults_checked', true) is distinct from bound then
+    if exists (
+      select 1
+        from pg_db_role_setting as s
+       where s.setrole in (0, (select r.oid from pg_roles as r where r.rolname = session_user))
+         and s.setdatabase in (0, (select d.oid from pg_database as d where d.datname = current_database()))
+         and exists (select 1 from unnest(s.setconfig) as c (setting) where c.setting like 'ujira.%')
+    ) then
+      raise exception using
+        errcode = 'UJ001',
+        message = 'no tenant context: a role or database default sets a ujira setting, and only a transaction may';
+    end if;
+    perform set_config('ujira.defaults_checked', bound, true);
   end if;
   return principal::uuid;
 end
@@ -900,6 +912,16 @@ begin
   if v_txid is distinct from txid_current()::text then
     raise exception using errcode = 'UJ001', message = 'no tenant context: the settings belong to another transaction';
   end if;
+  -- A default would hand every session a tenant before any transaction set one.
+  if exists (
+    select 1
+      from pg_db_role_setting as s
+     where s.setrole in (0, (select r.oid from pg_roles as r where r.rolname = session_user))
+       and s.setdatabase in (0, (select d.oid from pg_database as d where d.datname = current_database()))
+       and exists (select 1 from unnest(s.setconfig) as c (setting) where c.setting like 'ujira.%')
+  ) then
+    raise exception using errcode = 'UJ001', message = 'no tenant context: a role or database default sets a ujira setting, and only a transaction may';
+  end if;
   if v_tenant_scope is distinct from 'project' then
     raise exception using errcode = 'UJ001', message = 'a job needs one project: scope all cannot enqueue';
   end if;
@@ -939,6 +961,14 @@ begin
   end if;
   if p_max_attempts not between 1 and 100 then
     raise exception using errcode = '22023', message = 'max attempts must be from 1 to 100';
+  end if;
+  -- A run time no job could mean: never, the start of time, or further away than
+  -- any schedule here reaches. Such a job would sit in the queue or jump it.
+  if not isfinite(p_run_at) then
+    raise exception using errcode = '22023', message = 'run at must be a finite time';
+  end if;
+  if p_run_at not between clock_timestamp() - interval '1 year' and clock_timestamp() + interval '1 year' then
+    raise exception using errcode = '22023', message = 'run at must be within a year of now';
   end if;
 
   v_prefix := v_principal || ':' || case p_scope when 'project' then v_project else '*' end || ':';

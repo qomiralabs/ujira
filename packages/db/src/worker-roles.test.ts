@@ -5,6 +5,7 @@
 // connect as the real logins, against a database with the pinned worker schema
 // installed by ujira_worker, the way the deploy step installs it.
 
+import { Logger, runMigrations } from 'graphile-worker';
 import { sql } from 'kysely';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
@@ -279,5 +280,28 @@ describe('ujira_scheduler', () => {
         where p.polname = 'scheduler_read' and p.polrelid = 'ujira.mandate_instances'::regclass`,
     );
     expect(policies.rows).toEqual([{ roles: ['ujira_scheduler'], command: 'r', usable: 'true' }]);
+  });
+});
+
+describe('after the install', () => {
+  it('after install ujira_worker cannot create a schema, and the app search_path is pinned', async () => {
+    await as('ujira_worker', async (client) => {
+      expect(await codeOf(client.query('create schema shadow'))).toBe('42501');
+    });
+    const privilege = await admin.query<{ allowed: boolean }>(
+      `select has_database_privilege('ujira_worker', current_database(), 'CREATE') as allowed`,
+    );
+    expect(privilege.rows).toEqual([{ allowed: false }]);
+    // An installed pool still starts, because it creates nothing once installed.
+    await runMigrations({
+      connectionString: roleUrl(roleUrls, 'ujira_worker', database.name),
+      logger: new Logger(() => () => undefined),
+    });
+    await as('ujira_app', async (client) => {
+      const path = await client.query<{ path: string }>(
+        `select current_setting('search_path') as path`,
+      );
+      expect(path.rows).toEqual([{ path: 'pg_catalog, pg_temp' }]);
+    });
   });
 });

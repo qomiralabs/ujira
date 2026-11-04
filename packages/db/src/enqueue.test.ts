@@ -250,6 +250,29 @@ describe('arguments', () => {
     expect(await codeOf(inRawTenant(app, A, () => enqueue(statement)))).toBe('22023');
   });
 
+  it.each([
+    ['infinity run_at is refused', `'infinity'::timestamptz`],
+    ['-infinity run_at is refused', `'-infinity'::timestamptz`],
+    ['run_at ten years ahead is refused', `clock_timestamp() + interval '10 years'`],
+    ['run_at ten years ago is refused', `clock_timestamp() - interval '10 years'`],
+  ])('%s', async (_name, runAt) => {
+    const code = await codeOf(
+      inRawTenant(app, A, () => enqueue(`'payout:advance', ${IDS}, p_run_at => ${runAt}`)),
+    );
+    expect(code).toBe('22023');
+  });
+
+  it('a run time within the year is taken as given', async () => {
+    await inRawTenant(
+      app,
+      A,
+      () =>
+        enqueue(`'payout:advance', ${IDS}, p_run_at => clock_timestamp() + interval '11 months'`),
+      'commit',
+    );
+    expect(await queuedJobs(admin)).toHaveLength(1);
+  });
+
   it('a queue at the limit fits the worker table with the prefix on it', async () => {
     await inRawTenant(
       app,

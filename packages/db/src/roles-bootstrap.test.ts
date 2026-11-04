@@ -80,9 +80,9 @@ describe('the worker roles bootstrap', () => {
     expect(await state()).toEqual(first);
   });
 
-  // A database grant is not in a dump, and a clone has none either, so a test
-  // database starts where a restored one does. The worker install needs it.
-  it('gives back the database grant a restore loses', async () => {
+  // The install step grants CREATE for the install and takes it back. One that
+  // stopped half way could leave it behind, and running the bootstrap ends that.
+  it('takes back CREATE on the database, which only the install step holds', async () => {
     const hasCreate = async (): Promise<boolean | undefined> => {
       const result = await admin.query<{ allowed: boolean }>(
         `select has_database_privilege('ujira_worker', current_database(), 'CREATE') as allowed`,
@@ -90,15 +90,15 @@ describe('the worker roles bootstrap', () => {
       return result.rows[0]?.allowed;
     };
     await admin.query(`
-      do $revoke$
+      do $grant$
       begin
-        execute format('revoke create on database %I from ujira_worker', current_database());
+        execute format('grant create on database %I to ujira_worker', current_database());
       end
-      $revoke$
+      $grant$
     `);
-    expect(await hasCreate()).toBe(false);
-    await bootstrap();
     expect(await hasCreate()).toBe(true);
+    await bootstrap();
+    expect(await hasCreate()).toBe(false);
   });
 
   it('puts back what someone changed by hand', async () => {

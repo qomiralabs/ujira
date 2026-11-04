@@ -150,7 +150,7 @@ describe('jobQueue.enqueue', () => {
   });
 
   it('passes every option through, with the tenant in front of the names', async () => {
-    const runAt = new Date('2030-01-01T00:00:00.000Z');
+    const runAt = new Date(Date.now() + 86_400_000);
     await db.tenant(tenant).transaction(async (tx) =>
       jobQueue.enqueue(tx, {
         task: 'test:tenant',

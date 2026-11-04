@@ -297,6 +297,7 @@ describe('roles', () => {
     expect(settings.rows.map((row) => row.setting)).toEqual([
       'idle_in_transaction_session_timeout=10s',
       'lock_timeout=3s',
+      'search_path=pg_catalog, pg_temp',
       'statement_timeout=5s',
     ]);
   });
