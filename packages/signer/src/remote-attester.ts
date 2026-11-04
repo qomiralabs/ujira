@@ -19,11 +19,13 @@ import { attestationMessage, decodeAccountAddress } from '@ujira/chain-adapter/c
 import { z } from 'zod';
 
 import { RemoteSigner, signatureSchema } from './remote.js';
+import { refuseUnpayable } from './unpayable.js';
 
 const attestResponse = z.strictObject({ signature: signatureSchema });
 
 export class RemoteAttesterSigner extends RemoteSigner implements AttesterSigner {
   async signAttestation(fields: AttestationFields, opts: CallOptions): Promise<SignatureResult> {
+    refuseUnpayable(fields);
     const network = fields.mandate.network;
     const parsed = attestResponse.safeParse(
       await this.call('POST', '/v1/attest', { fields }, opts, network),
