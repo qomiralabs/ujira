@@ -5,7 +5,9 @@
 // authenticates its caller, reads the request, checks it against the ref
 // kinds it serves and its policy, and only then asks its backend, whose own
 // policy runs again before any key is used. Responses carry a code and
-// never a reason, so a caller cannot probe the policy.
+// never a reason, so a caller cannot probe the policy. DESTINATION_INVALID is
+// the one refusal with a code of its own: the caller has to tell a recipient
+// to fix the address, and it says nothing the caller could not read itself.
 
 import { createHash, randomUUID } from 'node:crypto';
 
@@ -38,11 +40,12 @@ export interface SignerServiceOptions {
 }
 
 /** HTTP status for each code a service answers with. */
-const STATUS: Readonly<Record<string, 401 | 403 | 404 | 413 | 500 | 503>> = Object.freeze({
+const STATUS: Readonly<Record<string, 401 | 403 | 404 | 413 | 422 | 500 | 503>> = Object.freeze({
   UNAUTHENTICATED: 401,
   SIGNER_DENIED: 403,
   NOT_FOUND: 404,
   TOO_LARGE: 413,
+  DESTINATION_INVALID: 422,
   SIGNER_ADDRESS_MISMATCH: 500,
   INTERNAL: 500,
   SIGNER_UNAVAILABLE: 503,
