@@ -7,7 +7,10 @@
 // reserve sandwich and is never a signer on the account.
 
 import { Keypair, StrKey, TransactionBuilder, xdr } from '@stellar/stellar-base';
-import { TransactionBuilder as SdkTransactionBuilder } from '@stellar/stellar-sdk/base';
+import {
+  TransactionBuilder as SdkTransactionBuilder,
+  xdr as sdkXdr,
+} from '@stellar/stellar-sdk/base';
 import type { Transaction as SdkTransaction } from '@stellar/stellar-sdk/base';
 import { describe, expect, it } from 'vitest';
 
@@ -24,12 +27,13 @@ import {
 import type { SignerProvider, SignPayload } from '../signer.js';
 import { createSponsorshipPolicy } from '../sponsorship/policy.js';
 import { createMemorySponsorshipLedger } from '../testing/sponsorship-ledger.js';
-import type { SigningRequest, TenantScope, UnixSeconds } from '../types.js';
+import type { AdapterPorts, SigningRequest, TenantScope, UnixSeconds } from '../types.js';
 
 import type { FundingAccountFlow, FundingAccountStore } from '../funding-account.js';
 
 import { createFundingAccountFlow } from './funding-account.js';
 import type { ForwarderFault, ForwarderRecord } from './forwarder.js';
+import { reconcileSubmission } from './lifecycle.js';
 import { NETWORK, NOW, OPTS, addAccount, setup } from './test-adapter.js';
 import type { TestSetup } from './test-adapter.js';
 import { accountKey, PASSPHRASES } from './tx.js';
@@ -47,6 +51,7 @@ function stranger(n: number): TenantScope {
 
 interface World {
   readonly t: TestSetup;
+  readonly ports: AdapterPorts;
   readonly flow: FundingAccountFlow;
   readonly signed: SignPayload[];
   readonly flags: { readonly faults: readonly ForwarderFault[] }[];
@@ -86,10 +91,11 @@ function world(
   };
   const flags: { readonly faults: readonly ForwarderFault[] }[] = [];
   let id = 0;
+  const ports: AdapterPorts = { ...t.ports, signer, sponsorship };
   const flow = createFundingAccountFlow({
     network: overrides.network ?? NETWORK,
     rpc: t.rpc,
-    ports: { ...t.ports, signer, sponsorship },
+    ports,
     requests: t.requests,
     accounts,
     flags: {
@@ -101,7 +107,31 @@ function world(
     submitTimeoutMs: 5_000,
     newRequestId: () => `funding-${String((id += 1))}`,
   });
-  return { t, flow, signed, flags, ledger, rows };
+  return { t, ports, flow, signed, flags, ledger, rows };
+}
+
+function resultXdr(feeCharged: bigint): string {
+  return new sdkXdr.TransactionResult({
+    feeCharged,
+    result: sdkXdr.TransactionResultResult.txSuccess([]),
+    ext: sdkXdr.TransactionResultExt.v0(),
+  }).toXdr('base64');
+}
+
+// What the reconciliation sweep does with the one submission on record.
+async function reconciled(w: World): Promise<string> {
+  const [record] = [...w.t.store.submissions.values()];
+  if (record === undefined) throw new Error('expected a submission');
+  const context = { network: NETWORK, rpc: w.t.rpc, ports: w.ports };
+  return (await reconcileSubmission(context, record, OPTS)).state;
+}
+
+function fundingTotals(w: World) {
+  return w.ledger.totals({
+    network: NETWORK,
+    since: 0n as UnixSeconds,
+    intents: ['create_funding_account'],
+  });
 }
 
 function transactionOf(request: SigningRequest): SdkTransaction {
@@ -520,8 +550,6 @@ describe('funding-account.test.ts', { timeout: 30_000 }, () => {
         faults: [],
       });
       expect(w.flags).toEqual([]);
-      const records = [...w.t.store.submissions.values()];
-      expect(records.map((r) => r.state)).toEqual(['landed']);
       const spent = await w.ledger.totals({
         network: NETWORK,
         since: 0n as UnixSeconds,
@@ -529,6 +557,62 @@ describe('funding-account.test.ts', { timeout: 30_000 }, () => {
       });
       // 1.5 XLM of reserves and four operations at the inclusion fee.
       expect(spent.stroops).toBe(15_000_400n);
+    });
+
+    describe('alongside the reconciliation sweep', () => {
+      it('books the reserves and still confirms when the sweep sees it land first', async () => {
+        const w = world();
+        const wallet = Keypair.random();
+        const { request, ref } = await submitted(w, wallet);
+        land(w, wallet);
+        w.t.rpc.txs.set(ref.txHash, { status: 'SUCCESS', ledger: 9, resultXdr: resultXdr(400n) });
+        expect(await reconciled(w)).toBe('landed');
+        expect((await fundingTotals(w)).stroops).toBe(15_000_400n);
+        const row = await w.flow.confirm({ scope: w.t.scope, requestId: request.requestId }, OPTS);
+        expect(row.status).toBe('active');
+        expect(await fundingTotals(w)).toEqual({ count: 1, stroops: 15_000_400n });
+      });
+
+      it('closes the record after a confirmation, without booking anything twice', async () => {
+        const w = world();
+        const wallet = Keypair.random();
+        const { request, ref } = await submitted(w, wallet);
+        land(w, wallet);
+        w.t.rpc.txs.set(ref.txHash, { status: 'SUCCESS', ledger: 9, resultXdr: resultXdr(400n) });
+        await w.flow.confirm({ scope: w.t.scope, requestId: request.requestId }, OPTS);
+        expect(await reconciled(w)).toBe('landed');
+        expect(await fundingTotals(w)).toEqual({ count: 1, stroops: 15_000_400n });
+      });
+
+      it('gives the slot back when the sweep sees it fail first, so a retry is allowed', async () => {
+        const w = world();
+        const wallet = Keypair.random();
+        const { request, ref } = await submitted(w, wallet);
+        w.t.rpc.txs.set(ref.txHash, { status: 'FAILED', ledger: 9, resultXdr: resultXdr(400n) });
+        expect(await reconciled(w)).toBe('failed');
+        expect((await fundingTotals(w)).count).toBe(0);
+        await expect(
+          w.flow.confirm({ scope: w.t.scope, requestId: request.requestId }, OPTS),
+        ).rejects.toBeInstanceOf(SubmissionRejectedError);
+        expect((await fundingTotals(w)).count).toBe(0);
+        await expect(submitted(w, Keypair.random())).resolves.toBeDefined();
+      });
+
+      it('gives the slot back for a failure whose fee cannot be read', async () => {
+        const w = world();
+        const { ref } = await submitted(w, Keypair.random());
+        w.t.rpc.txs.set(ref.txHash, { status: 'FAILED', ledger: 9 });
+        expect(await reconciled(w)).toBe('failed');
+        expect((await fundingTotals(w)).count).toBe(0);
+      });
+
+      it('records what the sweep needs to prove a lost transaction is gone', async () => {
+        const w = world();
+        await submitted(w, Keypair.random());
+        const [record] = [...w.t.store.submissions.values()];
+        expect(record?.submittedAtLedger).not.toBeNull();
+        expect(record?.reservationId).not.toBeNull();
+      });
     });
 
     it('answers from the record when asked again', async () => {

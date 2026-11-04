@@ -15,6 +15,7 @@ import { sql, type Kysely } from 'kysely';
 
 import type { Schema } from '../schema.generated.js';
 import { checkedLimit, pageOf, type Page, type PageRequest } from './page.js';
+import { managedSigners } from './signers.js';
 
 type Tx = Kysely<Schema>;
 
@@ -58,7 +59,8 @@ export interface NewApiToken {
   // SHA-256 of the secret, 32 bytes. The secret itself never reaches here.
   readonly secretSha256: Buffer;
   readonly scopes: readonly string[];
-  readonly expiresAt: Date | null;
+  // Every token expires: rotation is the only way to keep one working.
+  readonly expiresAt: Date;
 }
 
 const MEMBER_ROLES: ReadonlySet<string> = new Set<MemberRole>([
@@ -310,4 +312,10 @@ export const apiTokens = {
 
 // Every tenant repository, for the cross-tenant matrix, which requires a
 // case for each method listed here.
-export const tenancyRepositories = { principals, projects, members, apiTokens } as const;
+export const tenancyRepositories = {
+  principals,
+  projects,
+  members,
+  apiTokens,
+  managedSigners,
+} as const;

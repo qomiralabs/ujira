@@ -8,11 +8,15 @@
 // the structured fields. It signs nothing but that message, only for a
 // mandate that accepts attestations, and never for longer than the mandate
 // would accept. With no record it refuses, which is also how it behaves
-// until the attestation log exists.
+// until the attestation log exists. It never signs for an address the
+// mandate could not pay out to, and that is the one refusal a caller can
+// tell apart.
 
 import { InvalidInputError } from '@ujira/chain-adapter';
 import type { SignPayload, SignerRef } from '@ujira/chain-adapter';
 import { attestationMessage } from '@ujira/chain-adapter/codecs';
+
+import { refuseSettlement, refuseUnpayable } from '../unpayable.js';
 
 import { deny } from './policy.js';
 import type { PolicyContext, PolicyDecision, RefKind, ServicePolicy } from './policy.js';
@@ -42,13 +46,17 @@ export function attestPolicy(options: AttestPolicyOptions): ServicePolicy {
     async check(ref, payload, { now, opts }: PolicyContext): Promise<PolicyDecision> {
       if (ref.kind !== 'attester' || payload.kind !== 'attestation') throw deny(ref);
       const { fields } = payload;
+      // Ahead of the layout, which refuses an M address outright: an unpayable
+      // one should read as unpayable, not as malformed.
+      refuseUnpayable(fields);
+      const mandate = await mandates.find(ref.network, fields.mandate.address.value, opts);
+      if (mandate === null || mandate.recipientMode === 'allowlist') throw deny(ref);
+      refuseSettlement(fields, mandate);
       const message = messageOf(ref, payload);
       // Already expired at the mandate, or valid for longer than it accepts.
       if (fields.validUntil <= now || fields.validUntil - now > MAX_ATTESTATION_VALIDITY_SECONDS) {
         throw deny(ref);
       }
-      const mandate = await mandates.find(ref.network, fields.mandate.address.value, opts);
-      if (mandate === null || mandate.recipientMode === 'allowlist') throw deny(ref);
       const pending = await log.pending(message, opts);
       // A pending row only for this mandate's own tenant, so one tenant's
       // record can never authorize an attestation on another's mandate.
