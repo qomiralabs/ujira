@@ -71,6 +71,14 @@ export function memoryStore(
       submissions.set(key, { ...row, ...patch });
       return Promise.resolve();
     },
+    findSubmission(scope, net, txHash) {
+      const row = submissions.get(`${net}:${txHash}`);
+      return Promise.resolve(
+        row?.scope.principalId === scope.principalId && row.scope.projectId === scope.projectId
+          ? row
+          : null,
+      );
+    },
     leaseExecutor(net, leaseSeconds) {
       const account = executors[next % executors.length];
       next += 1;

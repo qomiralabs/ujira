@@ -51,6 +51,8 @@ export interface RpcTransaction {
   readonly ledger?: number;
   /** Base64 TransactionResult once included. */
   readonly resultXdr?: string;
+  /** Base64 TransactionMeta once included, which lists any restored entries. */
+  readonly resultMetaXdr?: string;
   /** The RPC's window at the time of the answer, which says what a NOT_FOUND can prove. */
   readonly latestLedger?: number;
   readonly latestLedgerCloseTime?: bigint;
@@ -316,6 +318,7 @@ export function createStellarRpc(options: JsonRpcOptions): StellarRpc {
         if (!TX_STATUSES.has(status)) throw new TypeError('malformed RPC result');
         const ledger = optionalInt(result, 'ledger');
         const resultXdr = result['resultXdr'];
+        const resultMetaXdr = result['resultMetaXdr'];
         const latestLedger = optionalInt(result, 'latestLedger');
         const oldestLedger = optionalInt(result, 'oldestLedger');
         const closeTime = result['latestLedgerCloseTime'];
@@ -323,6 +326,7 @@ export function createStellarRpc(options: JsonRpcOptions): StellarRpc {
           status: status as RpcTransaction['status'],
           ...(ledger === undefined ? {} : { ledger }),
           ...(typeof resultXdr === 'string' ? { resultXdr } : {}),
+          ...(typeof resultMetaXdr === 'string' ? { resultMetaXdr } : {}),
           ...(latestLedger === undefined ? {} : { latestLedger }),
           ...(oldestLedger === undefined ? {} : { oldestLedger }),
           ...(typeof closeTime === 'string' ? { latestLedgerCloseTime: BigInt(closeTime) } : {}),

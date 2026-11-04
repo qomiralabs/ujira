@@ -34,6 +34,7 @@ export type { ExecutionMirror, MirroredExecution, PayoutMethodSource } from './p
 export type { DestinationState, NotReceivable, ProofSigner } from './destination-check.js';
 export { createStellarRpc } from './rpc.js';
 export { accountBalance } from './tx.js';
+export { horizonDexSource, reflectorOracleSource } from './xlm-rate-sources.js';
 export { fateOf } from './lifecycle.js';
 export type { ReconcileResult, SubmissionFate, SweepOptions } from './lifecycle.js';
 export type {
@@ -49,11 +50,6 @@ export type {
   StellarRpc,
 } from './rpc.js';
 export { createFundingAccountFlow } from './funding-account.js';
-export type {
-  FundingAccountFlow,
-  FundingAccountFlowOptions,
-  FundingAccountStore,
-  PrepareFundingAccount,
-} from './funding-account.js';
+export type { FundingAccountFlowOptions } from './funding-account.js';
 export { CONTRACT_ADDRESS_LABEL, parseForwarderRequest, stellarFundingView } from './forwarder.js';
 export type { ForwarderFault, ForwarderRecord, StellarFundingView } from './forwarder.js';

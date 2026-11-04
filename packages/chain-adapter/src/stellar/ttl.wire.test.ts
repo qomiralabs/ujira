@@ -14,6 +14,7 @@ import { MemoryTtlStepStore, RecordingTtlMetrics } from '../testing/ttl.js';
 import type { ExecutorContext } from './executor.js';
 import { NETWORK, setup } from './test-adapter.js';
 import type { TestSetup } from './test-adapter.js';
+import { failedResult } from './test-results.js';
 import { FIXTURE_USDC } from './test-rpc.js';
 import { parseTtlConfig, runTtlKeepAlive } from './ttl-job.js';
 import type { TtlPorts } from './ttl-job.js';
@@ -153,5 +154,42 @@ describe('the keep-alive job on the Stellar adapter', { timeout: 30_000 }, () =>
     expect(result).toMatchObject({ missing: 1, extended: 0 });
     expect(metrics.total('ttl_entries_missing')).toBe(1);
     expect(t.rpc.sent).toEqual([]);
+  });
+
+  it('re-simulates an extension the network refused for resources', async () => {
+    const t = setup();
+    const { key, put, latest, ports, job } = world(t);
+    put(key('balance'), latest + 10);
+    const failures = [failedResult('resource_limit')];
+    const getTransaction = t.rpc.getTransaction.bind(t.rpc);
+    t.rpc.getTransaction = (hash) => {
+      const resultXdr = failures.shift();
+      return resultXdr === undefined
+        ? getTransaction(hash)
+        : Promise.resolve({ status: 'FAILED', resultXdr });
+    };
+    const result = await runTtlKeepAlive(job, CONFIG, ports);
+    expect(result).toMatchObject({ extended: 1 });
+    expect(sent(t).map((s) => s.type)).toEqual(['extendFootprintTtl', 'extendFootprintTtl']);
+  });
+
+  it('gives up on a resource failure as SUBMISSION_REJECTED, not an internal signal', async () => {
+    const t = setup();
+    const { key, ports } = world(t);
+    t.rpc.getTransaction = () =>
+      Promise.resolve({ status: 'FAILED', resultXdr: failedResult('resource_limit') });
+    const failure: unknown = await ports.submitter
+      .extend(
+        {
+          scope: t.scope,
+          network: NETWORK,
+          mandate: t.mandate.address.value,
+          keys: [key('balance')],
+          extendToLedgers: 500_000,
+        },
+        new AbortController().signal,
+      )
+      .catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: 'SUBMISSION_REJECTED', landed: 'no' });
   });
 });

@@ -122,6 +122,17 @@ export class FakeAdapterStore implements AdapterStore {
     return !this.#off.has(rule);
   }
 
+  findSubmission(
+    scope: TenantScope,
+    network: NetworkId,
+    txHash: string,
+  ): Promise<SubmissionRecord | null> {
+    const row = this.#submissions.find(
+      (r) => r.network === network && r.txHash === txHash && sameScope(r.scope, scope),
+    );
+    return Promise.resolve(row ?? null);
+  }
+
   recordSubmission(s: SubmissionRecord): Promise<void> {
     if (this.#on('starts_built') && s.state !== 'built') {
       return Promise.reject(refused('submission.state (not_built)'));
