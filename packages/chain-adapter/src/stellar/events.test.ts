@@ -15,7 +15,7 @@ import {
   stellarTenantTag,
 } from './events.js';
 import type { RpcEvent } from './rpc.js';
-import { address, bytes, bytes32, i128, struct, sym, u32, u64, vec } from './scval.js';
+import { address, bytes, bytes32, destination, i128, struct, sym, u32, u64, vec } from './scval.js';
 import { FIXTURE_FACTORY } from './test-rpc.js';
 import { NETWORK, OPTS, setup } from './test-adapter.js';
 import type { Bytes32 } from '../types.js';
@@ -93,7 +93,14 @@ describe('reading an event off the ledger', () => {
       NETWORK,
       raw({
         value: struct({
-          legs: vec([struct({ destination: xdr.ScVal.scvString(muxed) })]),
+          legs: vec([
+            struct({
+              destination: destination('d', {
+                address: { network: NETWORK, value: account },
+                tag: 9n,
+              }),
+            }),
+          ]),
         }).toXdr('base64'),
       }),
     ).fields;
