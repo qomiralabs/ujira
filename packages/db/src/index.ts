@@ -37,6 +37,15 @@ export {
   type Project,
 } from './repositories/tenancy.js';
 export {
+  managedSigners,
+  signingKeys,
+  type ManagedSigner,
+  type NewManagedSigner,
+  type SignerKeyStatus,
+  type SigningKey,
+  type SigningKeyPurpose,
+} from './repositories/signers.js';
+export {
   entryPoints,
   type CreatedPrincipal,
   type NewPrincipal,
