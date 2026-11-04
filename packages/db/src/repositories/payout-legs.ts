@@ -69,7 +69,7 @@ function toLeg(row: {
   id: string;
   payout_id: string;
   attempt_id: string;
-  leg_index: number;
+  leg_index: string;
   payout_method_id: string;
   method: string;
   destination_address: string;
@@ -88,7 +88,8 @@ function toLeg(row: {
     id: row.id,
     payoutId: row.payout_id,
     attemptId: row.attempt_id,
-    index: row.leg_index,
+    // Checked to be 0 to 3, so this is exact.
+    index: Number(row.leg_index),
     payoutMethodId: row.payout_method_id,
     method: row.method,
     destinationAddress: row.destination_address,

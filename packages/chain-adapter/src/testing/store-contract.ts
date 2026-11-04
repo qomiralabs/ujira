@@ -104,6 +104,8 @@ function submission(
     errorCode: null,
     specCode: null,
     replacesTxHash: null,
+    submittedAtLedger: null,
+    reservationId: null,
     correlationId: `corr-${label}`,
     createdAt: h.now(),
     ...o,

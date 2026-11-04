@@ -27,6 +27,8 @@
  * when it is reached through a const binding in the same file. A let is not
  * followed, since it can be reassigned. Test files relax only the regex and
  * plain property read checks.
+ * Inline config is ignored wherever the rule applies, JavaScript included,
+ * so a disable comment cannot switch it off for a line.
  * Inside packages/chain-adapter the same code passes. Snippets are linted
  * in memory under real file paths so the scoped config applies.
  *
@@ -365,6 +367,30 @@ describe('the chain branching rule', () => {
       expect(config.rules?.[RULE]).toEqual([2]);
     },
   );
+
+  it.each([
+    'packages/payouts/src/x.js',
+    'packages/payouts/src/x.mjs',
+    'packages/payouts/src/x.cjs',
+    'packages/payouts/src/x.jsx',
+    'apps/web/src/x.js',
+    'packages/payouts/src/x.test.js',
+    'packages/payouts/src/x.ts',
+    'packages/payouts/src/x.test.ts',
+  ])('ignores inline config, so no comment can switch the rule off: %s', async (file) => {
+    const config = (await eslint.calculateConfigForFile(path.join(REPO_ROOT, file))) as {
+      linterOptions?: { noInlineConfig?: boolean };
+    };
+    expect(config.linterOptions?.noInlineConfig).toBe(true);
+  });
+
+  it('still reports a comparison under a disable comment', async () => {
+    const disabled = [
+      '// eslint-disable-next-line ujira/no-chain-branching',
+      "export const f = (chain: string) => chain === 'stellar';\n",
+    ].join('\n');
+    expect(await ruleHits(disabled, PAYOUTS_FILE)).toBe(1);
+  });
 
   it.each([
     ['a chain as data', "export const chain = 'stellar';\n"],

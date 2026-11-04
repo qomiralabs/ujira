@@ -546,6 +546,10 @@ export const payoutBatches = {
   },
 };
 
+// A network as the chain adapter names it, such as `stellar:testnet`. The chain is
+// only part of it, and two networks can share one.
+export type NetworkId = string;
+
 export interface NewPayoutLeg {
   readonly payoutMethodId: string;
   readonly method: PayoutMinimumMethod;
@@ -560,6 +564,8 @@ export interface NewPayoutLeg {
 export interface NewPayoutAttempt {
   readonly payoutId: string;
   readonly mandateInstanceId: string;
+  // Must be on the total's chain, or the database refuses it.
+  readonly network: NetworkId;
   readonly total: TokenAmount;
   readonly deadline: Date;
   readonly onChainPayoutId?: string | null;
@@ -571,7 +577,7 @@ export interface PayoutAttempt {
   readonly id: string;
   readonly payoutId: string;
   readonly attemptNumber: number;
-  readonly network: string;
+  readonly network: NetworkId;
   readonly mandateInstanceId: string;
   readonly total: TokenAmount;
   readonly onChainPayoutId: string | null;
@@ -585,6 +591,7 @@ const attemptColumns = [
   'id',
   'payout_id',
   'attempt_number',
+  'chain',
   'network',
   'mandate_instance_id',
   'total_amount',
@@ -600,7 +607,8 @@ const attemptColumns = [
 function toAttempt(row: {
   id: string;
   payout_id: string;
-  attempt_number: number;
+  attempt_number: string;
+  chain: string;
   network: string;
   mandate_instance_id: string;
   total_amount: string;
@@ -615,13 +623,14 @@ function toAttempt(row: {
   return {
     id: row.id,
     payoutId: row.payout_id,
-    attemptNumber: row.attempt_number,
+    // The column is bounded well below 2^53, so this is exact.
+    attemptNumber: Number(row.attempt_number),
     network: row.network,
     mandateInstanceId: row.mandate_instance_id,
     total: tokenFromRow({
       amount: row.total_amount,
       asset: row.asset,
-      chain: row.network,
+      chain: row.chain,
       scale: row.scale,
     }),
     onChainPayoutId: row.on_chain_payout_id,
@@ -650,12 +659,13 @@ export const payoutAttempts = {
         principal_id: CURRENT_PRINCIPAL,
         project_id: CURRENT_PROJECT,
         payout_id: input.payoutId,
-        attempt_number: sql<number>`(
+        attempt_number: sql<string>`(
           select coalesce(max(a.attempt_number), 0) + 1
             from ujira.payout_attempts as a
            where a.payout_id = ${input.payoutId}
         )`,
-        network: input.total.chain,
+        chain: input.total.chain,
+        network: input.network,
         mandate_instance_id: input.mandateInstanceId,
         total_amount: amountParam(input.total),
         asset: input.total.asset,
@@ -766,12 +776,15 @@ export const payoutAttempts = {
 
 export interface FundingHoldInput {
   readonly mandateInstanceId: string;
+  // What a deposit on this network releases the hold by. Must be on the needed
+  // amount's chain.
+  readonly network: NetworkId;
   readonly needed: TokenAmount;
 }
 
 export interface FundingHold {
   readonly payoutId: string;
-  readonly network: string;
+  readonly network: NetworkId;
   readonly mandateInstanceId: string;
   readonly needed: TokenAmount;
   readonly heldAt: Date;
@@ -780,6 +793,7 @@ export interface FundingHold {
 const holdColumns = [
   'payout_id',
   'network',
+  'chain',
   'mandate_instance_id',
   'needed_amount',
   'asset',
@@ -790,6 +804,7 @@ const holdColumns = [
 function toHold(row: {
   payout_id: string;
   network: string;
+  chain: string;
   mandate_instance_id: string;
   needed_amount: string;
   asset: string;
@@ -803,7 +818,7 @@ function toHold(row: {
     needed: tokenFromRow({
       amount: row.needed_amount,
       asset: row.asset,
-      chain: row.network,
+      chain: row.chain,
       scale: row.scale,
     }),
     heldAt: row.held_at,
@@ -836,7 +851,8 @@ export const fundingHolds = {
           principal_id: CURRENT_PRINCIPAL,
           project_id: CURRENT_PROJECT,
           payout_id: payoutId,
-          network: hold.needed.chain,
+          network: hold.network,
+          chain: hold.needed.chain,
           mandate_instance_id: hold.mandateInstanceId,
           needed_amount: amountParam(hold.needed),
           asset: hold.needed.asset,
