@@ -7,7 +7,7 @@
 // can never answer the same failure with different codes.
 
 import { PROBLEM_CODES, PROBLEM_TITLES } from '@ujira/api-schema';
-import type { FieldError, ProblemCode } from '@ujira/api-schema';
+import type { FieldError, ProblemCode, ProblemFix } from '@ujira/api-schema';
 import { ChainAdapterError, MandateRuleError } from '@ujira/chain-adapter';
 import type { ChainAdapterErrorCode, MandateErrorName } from '@ujira/chain-adapter';
 import {
@@ -16,6 +16,8 @@ import {
   SessionStateError,
   TenantContextError,
 } from '@ujira/db';
+import { MandatePolicyError, PolicyStoreError, PrincipalKeyRiskError } from '@ujira/mandates';
+import type { MandatePolicyErrorCode } from '@ujira/mandates';
 
 /**
  * Seconds a client should wait before retrying, for each code that is worth
@@ -23,6 +25,8 @@ import {
  */
 export const RETRY_AFTER_SECONDS: Readonly<Partial<Record<ProblemCode, number>>> = Object.freeze({
   RATE_LIMITED: 1,
+  // A person has to set one up, so there is no point hurrying.
+  OPERATIONS_GUARDIAN_NOT_CONFIGURED: 300,
   IDEMPOTENCY_IN_PROGRESS: 1,
   DB_UNAVAILABLE: 5,
   CHAIN_UNAVAILABLE: 5,
@@ -36,6 +40,8 @@ export interface ApiErrorOptions {
   readonly detail?: string;
   readonly errors?: readonly FieldError[];
   readonly retryAfterSeconds?: number;
+  /** What the client can do about it, from a closed list. */
+  readonly fixes?: readonly ProblemFix[];
 }
 
 /** A failure with a stable code. The message is the code's fixed title. */
@@ -45,6 +51,7 @@ export class ApiError extends Error {
   readonly status: number;
   readonly detail: string | undefined;
   readonly errors: readonly FieldError[];
+  readonly fixes: readonly ProblemFix[];
   /** Null for a code that is not worth retrying. */
   readonly retryAfterSeconds: number | null;
 
@@ -54,6 +61,7 @@ export class ApiError extends Error {
     this.status = PROBLEM_CODES[code];
     this.detail = options.detail;
     this.errors = Object.freeze([...(options.errors ?? [])]);
+    this.fixes = Object.freeze([...(options.fixes ?? [])]);
     const base = RETRY_AFTER_SECONDS[code];
     const asked = options.retryAfterSeconds;
     this.retryAfterSeconds =
@@ -166,6 +174,25 @@ export const MANDATE_ERROR_MAP: Readonly<Record<MandateErrorName, ProblemCode>> 
   INTERNAL_INVARIANT: 'INTERNAL',
 });
 
+/**
+ * What each mandate policy refusal means to an API client. A record over every
+ * code, so one added to the rules does not compile until someone decides.
+ *
+ * - The guardian rule and the custody rule are the client's to change.
+ * - No operations guardian being set up is our gap, not the client's mistake:
+ *   its request was valid. So it is a 503 that says to come back, and it is logged
+ *   as a failure of ours, though a principal can also opt out to go ahead now.
+ * - A policy store outage is treated as what caused it.
+ */
+export const MANDATE_POLICY_ERROR_MAP: Readonly<
+  Record<Exclude<MandatePolicyErrorCode, 'POLICY_STORE_FAILED'>, ProblemCode>
+> = Object.freeze({
+  CUSTODY_GUARD: 'CUSTODY_GUARD',
+  PRINCIPAL_KEY_RISK: 'PRINCIPAL_KEY_RISK',
+  OPERATIONS_GUARDIAN_NOT_CONFIGURED: 'OPERATIONS_GUARDIAN_NOT_CONFIGURED',
+  POLICY_STORE_TIMEOUT: 'DB_UNAVAILABLE',
+});
+
 // Errors of the database package and what they mean to a client. Only the
 // outage is the client's business; the rest are bugs on our side.
 const DATABASE_ERRORS: readonly (readonly [new (...args: never[]) => Error, ProblemCode])[] = [
@@ -200,6 +227,15 @@ export function toApiError(error: unknown): ApiError {
   }
   for (const [type, code] of DATABASE_ERRORS) {
     if (error instanceof type) return new ApiError(code);
+  }
+  if (error instanceof PolicyStoreError) return toApiError(error.cause);
+  if (error instanceof PrincipalKeyRiskError) {
+    return new ApiError('PRINCIPAL_KEY_RISK', { fixes: error.fixes });
+  }
+  if (error instanceof MandatePolicyError) {
+    return new ApiError(
+      MANDATE_POLICY_ERROR_MAP[error.code as keyof typeof MANDATE_POLICY_ERROR_MAP],
+    );
   }
   return new ApiError('INTERNAL');
 }

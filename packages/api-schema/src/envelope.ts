@@ -97,6 +97,10 @@ export const PROBLEM_CODES = Object.freeze({
   WALLET_PROOF_EXPIRED: 422,
   WALLET_SIGNER_NOT_AUTHORIZED: 422,
   DESTINATION_NOT_RECEIVABLE: 422,
+  FEE_CAP_INVALID: 422,
+  PRINCIPAL_KEY_RISK: 422,
+  CUSTODY_GUARD: 422,
+  TRANSFER_FAILED: 422,
   IDEMPOTENCY_KEY_REUSED: 422,
   RATE_LIMITED: 429,
   INTERNAL: 500,
@@ -104,11 +108,23 @@ export const PROBLEM_CODES = Object.freeze({
   CHAIN_UNAVAILABLE: 503,
   REQUEST_TIMEOUT: 503,
   WEBHOOK_UNAVAILABLE: 503,
+  OPERATIONS_GUARDIAN_NOT_CONFIGURED: 503,
 } as const);
 export type ProblemCode = keyof typeof PROBLEM_CODES;
 const CODES = Object.keys(PROBLEM_CODES) as [ProblemCode, ...ProblemCode[]];
 
 export const PROBLEM_TYPE_BASE = 'https://docs.ujira.co/errors/';
+
+/** What a client can do about a refusal, so it can offer the fix and not only the failure. */
+export const PROBLEM_FIXES = Object.freeze([
+  'add_recovery_set',
+  'use_multisig_principal',
+  'lower_budget',
+  'principal_trustline_missing',
+  'principal_unreceivable',
+] as const);
+export const ProblemFix = z.enum(PROBLEM_FIXES);
+export type ProblemFix = z.infer<typeof ProblemFix>;
 
 export const FieldErrorCode = z.enum([
   'unknown_field',
@@ -137,6 +153,7 @@ export const Problem = z
       .min(1)
       .max(50)
       .optional(),
+    fixes: z.array(ProblemFix).min(1).max(5).optional(),
   })
   .superRefine((value, ctx) => {
     if (value.type !== `${PROBLEM_TYPE_BASE}${value.code}`) {

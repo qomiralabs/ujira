@@ -4,7 +4,7 @@
 import type { z } from 'zod';
 
 import { FieldErrorCode, PROBLEM_CODES, PROBLEM_TYPE_BASE, Problem } from './envelope.js';
-import type { ProblemCode } from './envelope.js';
+import type { ProblemCode, ProblemFix } from './envelope.js';
 import { ContractMismatchError, UnknownRouteError } from './errors.js';
 import type { ContractIssue } from './errors.js';
 import { ROUTES } from './routes.js';
@@ -40,6 +40,10 @@ export const PROBLEM_TITLES: Readonly<Record<ProblemCode, string>> = Object.free
   WALLET_PROOF_EXPIRED: 'The wallet proof challenge has expired',
   WALLET_SIGNER_NOT_AUTHORIZED: 'That key cannot sign for this wallet',
   DESTINATION_NOT_RECEIVABLE: 'This destination cannot receive a payout yet',
+  FEE_CAP_INVALID: 'The fee cap can be at most 100 basis points',
+  PRINCIPAL_KEY_RISK: 'Above 50,000 USD a mandate needs a multisig principal or a recovery set',
+  CUSTODY_GUARD: 'A mandate with a UJIRA held agent key must use allowlist or both mode',
+  TRANSFER_FAILED: 'The principal could not receive the transfer',
   IDEMPOTENCY_KEY_REUSED: 'This Idempotency-Key was used for a different request',
   RATE_LIMITED: 'Too many requests',
   INTERNAL: 'Something went wrong on our side',
@@ -47,6 +51,7 @@ export const PROBLEM_TITLES: Readonly<Record<ProblemCode, string>> = Object.free
   CHAIN_UNAVAILABLE: 'The network is temporarily unavailable',
   REQUEST_TIMEOUT: 'The request took too long',
   WEBHOOK_UNAVAILABLE: 'This webhook cannot be received right now',
+  OPERATIONS_GUARDIAN_NOT_CONFIGURED: 'No operations guardian is set up for this network yet',
 });
 
 export interface FieldError {
@@ -58,7 +63,11 @@ export interface FieldError {
 export function buildProblem(
   code: ProblemCode,
   requestId: string,
-  extra: { readonly detail?: string; readonly errors?: readonly FieldError[] } = {},
+  extra: {
+    readonly detail?: string;
+    readonly errors?: readonly FieldError[];
+    readonly fixes?: readonly ProblemFix[];
+  } = {},
 ): Problem {
   return {
     type: `${PROBLEM_TYPE_BASE}${code}`,
@@ -70,6 +79,7 @@ export function buildProblem(
     ...(extra.errors === undefined || extra.errors.length === 0
       ? {}
       : { errors: [...extra.errors] }),
+    ...(extra.fixes === undefined || extra.fixes.length === 0 ? {} : { fixes: [...extra.fixes] }),
   };
 }
 

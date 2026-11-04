@@ -31,7 +31,7 @@
             }
           },
           "503": {
-            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now",
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now. OPERATIONS_GUARDIAN_NOT_CONFIGURED: No operations guardian is set up for this network yet",
             "headers": {
               "Request-Id": { "schema": { "type": "string" } },
               "Retry-After": { "schema": { "type": "string" } }
@@ -97,7 +97,7 @@
             }
           },
           "503": {
-            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now",
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now. OPERATIONS_GUARDIAN_NOT_CONFIGURED: No operations guardian is set up for this network yet",
             "headers": {
               "Request-Id": { "schema": { "type": "string" } },
               "Retry-After": { "schema": { "type": "string" } }
@@ -196,7 +196,7 @@
             }
           },
           "422": {
-            "description": "DESTINATION_INVALID: The destination cannot receive this payout. MANDATE_REFUSED: The mandate does not allow this. QUOTE_UNAVAILABLE: No quote is available for this payout right now. WALLET_PROOF_INVALID: The wallet proof is not valid. WALLET_PROOF_EXPIRED: The wallet proof challenge has expired. WALLET_SIGNER_NOT_AUTHORIZED: That key cannot sign for this wallet. DESTINATION_NOT_RECEIVABLE: This destination cannot receive a payout yet. IDEMPOTENCY_KEY_REUSED: This Idempotency-Key was used for a different request",
+            "description": "DESTINATION_INVALID: The destination cannot receive this payout. MANDATE_REFUSED: The mandate does not allow this. QUOTE_UNAVAILABLE: No quote is available for this payout right now. WALLET_PROOF_INVALID: The wallet proof is not valid. WALLET_PROOF_EXPIRED: The wallet proof challenge has expired. WALLET_SIGNER_NOT_AUTHORIZED: That key cannot sign for this wallet. DESTINATION_NOT_RECEIVABLE: This destination cannot receive a payout yet. FEE_CAP_INVALID: The fee cap can be at most 100 basis points. PRINCIPAL_KEY_RISK: Above 50,000 USD a mandate needs a multisig principal or a recovery set. CUSTODY_GUARD: A mandate with a UJIRA held agent key must use allowlist or both mode. TRANSFER_FAILED: The principal could not receive the transfer. IDEMPOTENCY_KEY_REUSED: This Idempotency-Key was used for a different request",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -223,7 +223,7 @@
             }
           },
           "503": {
-            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now",
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now. OPERATIONS_GUARDIAN_NOT_CONFIGURED: No operations guardian is set up for this network yet",
             "headers": {
               "Request-Id": { "schema": { "type": "string" } },
               "Retry-After": { "schema": { "type": "string" } }
@@ -361,7 +361,7 @@
             }
           },
           "422": {
-            "description": "DESTINATION_INVALID: The destination cannot receive this payout. MANDATE_REFUSED: The mandate does not allow this. QUOTE_UNAVAILABLE: No quote is available for this payout right now. WALLET_PROOF_INVALID: The wallet proof is not valid. WALLET_PROOF_EXPIRED: The wallet proof challenge has expired. WALLET_SIGNER_NOT_AUTHORIZED: That key cannot sign for this wallet. DESTINATION_NOT_RECEIVABLE: This destination cannot receive a payout yet. IDEMPOTENCY_KEY_REUSED: This Idempotency-Key was used for a different request",
+            "description": "DESTINATION_INVALID: The destination cannot receive this payout. MANDATE_REFUSED: The mandate does not allow this. QUOTE_UNAVAILABLE: No quote is available for this payout right now. WALLET_PROOF_INVALID: The wallet proof is not valid. WALLET_PROOF_EXPIRED: The wallet proof challenge has expired. WALLET_SIGNER_NOT_AUTHORIZED: That key cannot sign for this wallet. DESTINATION_NOT_RECEIVABLE: This destination cannot receive a payout yet. FEE_CAP_INVALID: The fee cap can be at most 100 basis points. PRINCIPAL_KEY_RISK: Above 50,000 USD a mandate needs a multisig principal or a recovery set. CUSTODY_GUARD: A mandate with a UJIRA held agent key must use allowlist or both mode. TRANSFER_FAILED: The principal could not receive the transfer. IDEMPOTENCY_KEY_REUSED: This Idempotency-Key was used for a different request",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -388,7 +388,1035 @@
             }
           },
           "503": {
-            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now",
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now. OPERATIONS_GUARDIAN_NOT_CONFIGURED: No operations guardian is set up for this network yet",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/mandates": {
+      "post": {
+        "operationId": "createMandate",
+        "summary": "Create a mandate, returning what its principal must sign on each chain",
+        "security": [{ "bearer": [] }],
+        "x-ujira-scope": "mandates:write",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Unique per write. A retry with the same key and the same request gets the first answer for 7 days; the same key on a different request is refused.",
+            "schema": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,255}$" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+                  "recipientMode": { "type": "string", "enum": ["allowlist", "attested", "both"] },
+                  "limits": {
+                    "type": "object",
+                    "properties": {
+                      "totalBudget": {
+                        "type": "object",
+                        "properties": {
+                          "amount": {
+                            "type": "string",
+                            "maxLength": 39,
+                            "pattern": "^(0|[1-9][0-9]*)$"
+                          },
+                          "currency": {
+                            "type": "string",
+                            "enum": [
+                              "USD",
+                              "NGN",
+                              "KES",
+                              "GHS",
+                              "ZAR",
+                              "PHP",
+                              "INR",
+                              "BRL",
+                              "COP",
+                              "MXN",
+                              "EUR",
+                              "GBP"
+                            ]
+                          },
+                          "scale": { "type": "integer", "minimum": 0, "maximum": 18 }
+                        },
+                        "required": ["amount", "currency", "scale"],
+                        "additionalProperties": false
+                      },
+                      "perPaymentCap": {
+                        "type": "object",
+                        "properties": {
+                          "amount": {
+                            "type": "string",
+                            "maxLength": 39,
+                            "pattern": "^(0|[1-9][0-9]*)$"
+                          },
+                          "currency": {
+                            "type": "string",
+                            "enum": [
+                              "USD",
+                              "NGN",
+                              "KES",
+                              "GHS",
+                              "ZAR",
+                              "PHP",
+                              "INR",
+                              "BRL",
+                              "COP",
+                              "MXN",
+                              "EUR",
+                              "GBP"
+                            ]
+                          },
+                          "scale": { "type": "integer", "minimum": 0, "maximum": 18 }
+                        },
+                        "required": ["amount", "currency", "scale"],
+                        "additionalProperties": false
+                      },
+                      "perRecipientDailyCap": {
+                        "type": "object",
+                        "properties": {
+                          "amount": {
+                            "type": "string",
+                            "maxLength": 39,
+                            "pattern": "^(0|[1-9][0-9]*)$"
+                          },
+                          "currency": {
+                            "type": "string",
+                            "enum": [
+                              "USD",
+                              "NGN",
+                              "KES",
+                              "GHS",
+                              "ZAR",
+                              "PHP",
+                              "INR",
+                              "BRL",
+                              "COP",
+                              "MXN",
+                              "EUR",
+                              "GBP"
+                            ]
+                          },
+                          "scale": { "type": "integer", "minimum": 0, "maximum": 18 }
+                        },
+                        "required": ["amount", "currency", "scale"],
+                        "additionalProperties": false
+                      },
+                      "approvalThreshold": {
+                        "type": "object",
+                        "properties": {
+                          "amount": {
+                            "type": "string",
+                            "maxLength": 39,
+                            "pattern": "^(0|[1-9][0-9]*)$"
+                          },
+                          "currency": {
+                            "type": "string",
+                            "enum": [
+                              "USD",
+                              "NGN",
+                              "KES",
+                              "GHS",
+                              "ZAR",
+                              "PHP",
+                              "INR",
+                              "BRL",
+                              "COP",
+                              "MXN",
+                              "EUR",
+                              "GBP"
+                            ]
+                          },
+                          "scale": { "type": "integer", "minimum": 0, "maximum": 18 }
+                        },
+                        "required": ["amount", "currency", "scale"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "totalBudget",
+                      "perPaymentCap",
+                      "perRecipientDailyCap",
+                      "approvalThreshold"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "payoutTtlSeconds": { "type": "integer", "minimum": 3600, "maximum": 2592000 },
+                  "expiresAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  "maxFeeBps": { "type": "integer", "minimum": 0, "maximum": 65535 },
+                  "countryPolicy": {
+                    "type": "object",
+                    "properties": {
+                      "mode": { "type": "string", "enum": ["allow", "block"] },
+                      "countries": {
+                        "maxItems": 250,
+                        "type": "array",
+                        "items": { "type": "string", "pattern": "^[A-Z]{2}$" }
+                      }
+                    },
+                    "required": ["mode", "countries"],
+                    "additionalProperties": false
+                  },
+                  "chains": {
+                    "minItems": 1,
+                    "maxItems": 16,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "network": {
+                          "type": "string",
+                          "enum": ["stellar:pubnet", "stellar:testnet"]
+                        },
+                        "asset": { "type": "string", "enum": ["USDC"] },
+                        "principal": { "type": "string", "minLength": 1, "maxLength": 128 },
+                        "agents": {
+                          "minItems": 1,
+                          "maxItems": 16,
+                          "type": "array",
+                          "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+                        },
+                        "approvers": {
+                          "maxItems": 16,
+                          "type": "array",
+                          "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+                        },
+                        "approvalsRequired": { "type": "integer", "minimum": 0, "maximum": 10 },
+                        "guardians": {
+                          "maxItems": 16,
+                          "type": "array",
+                          "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+                        },
+                        "recovery": {
+                          "maxItems": 16,
+                          "type": "array",
+                          "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+                        },
+                        "recoveryThreshold": { "type": "integer", "minimum": 0, "maximum": 16 }
+                      },
+                      "required": [
+                        "network",
+                        "asset",
+                        "principal",
+                        "agents",
+                        "approvers",
+                        "approvalsRequired",
+                        "guardians",
+                        "recovery",
+                        "recoveryThreshold"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "guardian": { "type": "boolean" },
+                  "managedAgent": { "type": "boolean" }
+                },
+                "required": [
+                  "name",
+                  "recipientMode",
+                  "limits",
+                  "payoutTtlSeconds",
+                  "expiresAt",
+                  "maxFeeBps",
+                  "countryPolicy",
+                  "chains"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/MandateCreated" } }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. IDEMPOTENCY_KEY_INVALID: The Idempotency-Key header is missing or not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "401": {
+            "description": "TOKEN_MALFORMED: The API key is missing or malformed. TOKEN_INVALID: The API key is not valid. TOKEN_ENVIRONMENT_MISMATCH: The API key is for another environment. EMBED_TOKEN_INVALID: The embed session is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "403": {
+            "description": "INSUFFICIENT_SCOPE: The API key lacks the scope this route needs. ORIGIN_NOT_ALLOWED: The request origin is not allowed. EMBED_SCOPE_VIOLATION: The embed session cannot reach this route",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "409": {
+            "description": "IDEMPOTENCY_IN_PROGRESS: A request with this Idempotency-Key is still running",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "413": {
+            "description": "PAYLOAD_TOO_LARGE: The request body is too large",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE: The request body must be application/json",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "422": {
+            "description": "DESTINATION_INVALID: The destination cannot receive this payout. MANDATE_REFUSED: The mandate does not allow this. QUOTE_UNAVAILABLE: No quote is available for this payout right now. WALLET_PROOF_INVALID: The wallet proof is not valid. WALLET_PROOF_EXPIRED: The wallet proof challenge has expired. WALLET_SIGNER_NOT_AUTHORIZED: That key cannot sign for this wallet. DESTINATION_NOT_RECEIVABLE: This destination cannot receive a payout yet. FEE_CAP_INVALID: The fee cap can be at most 100 basis points. PRINCIPAL_KEY_RISK: Above 50,000 USD a mandate needs a multisig principal or a recovery set. CUSTODY_GUARD: A mandate with a UJIRA held agent key must use allowlist or both mode. TRANSFER_FAILED: The principal could not receive the transfer. IDEMPOTENCY_KEY_REUSED: This Idempotency-Key was used for a different request",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now. OPERATIONS_GUARDIAN_NOT_CONFIGURED: No operations guardian is set up for this network yet",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/mandates/{id}": {
+      "get": {
+        "operationId": "getMandate",
+        "summary": "One mandate with its limits, usage, roles, country policy and instances",
+        "security": [{ "bearer": [] }],
+        "x-ujira-scope": "mandates:read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/MandateDetail" } }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. IDEMPOTENCY_KEY_INVALID: The Idempotency-Key header is missing or not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "401": {
+            "description": "TOKEN_MALFORMED: The API key is missing or malformed. TOKEN_INVALID: The API key is not valid. TOKEN_ENVIRONMENT_MISMATCH: The API key is for another environment. EMBED_TOKEN_INVALID: The embed session is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "403": {
+            "description": "INSUFFICIENT_SCOPE: The API key lacks the scope this route needs. ORIGIN_NOT_ALLOWED: The request origin is not allowed. EMBED_SCOPE_VIOLATION: The embed session cannot reach this route",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND: Not found",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now. OPERATIONS_GUARDIAN_NOT_CONFIGURED: No operations guardian is set up for this network yet",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/mandates/{id}/funding": {
+      "get": {
+        "operationId": "getMandateFunding",
+        "summary": "How to fund a mandate, on each chain it has an instance",
+        "security": [{ "bearer": [] }],
+        "x-ujira-scope": "mandates:read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/MandateFunding" } }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. IDEMPOTENCY_KEY_INVALID: The Idempotency-Key header is missing or not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "401": {
+            "description": "TOKEN_MALFORMED: The API key is missing or malformed. TOKEN_INVALID: The API key is not valid. TOKEN_ENVIRONMENT_MISMATCH: The API key is for another environment. EMBED_TOKEN_INVALID: The embed session is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "403": {
+            "description": "INSUFFICIENT_SCOPE: The API key lacks the scope this route needs. ORIGIN_NOT_ALLOWED: The request origin is not allowed. EMBED_SCOPE_VIOLATION: The embed session cannot reach this route",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND: Not found",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now. OPERATIONS_GUARDIAN_NOT_CONFIGURED: No operations guardian is set up for this network yet",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/mandates/{id}/lower-fee-cap": {
+      "post": {
+        "operationId": "lowerMandateFeeCap",
+        "summary": "Prepare a lower fee cap for the principal to sign",
+        "security": [{ "bearer": [] }],
+        "x-ujira-scope": "mandates:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Unique per write. A retry with the same key and the same request gets the first answer for 7 days; the same key on a different request is refused.",
+            "schema": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,255}$" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "maxFeeBps": { "type": "integer", "minimum": 0, "maximum": 65535 }
+                },
+                "required": ["maxFeeBps"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MandateActionPrepared" }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. IDEMPOTENCY_KEY_INVALID: The Idempotency-Key header is missing or not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "401": {
+            "description": "TOKEN_MALFORMED: The API key is missing or malformed. TOKEN_INVALID: The API key is not valid. TOKEN_ENVIRONMENT_MISMATCH: The API key is for another environment. EMBED_TOKEN_INVALID: The embed session is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "403": {
+            "description": "INSUFFICIENT_SCOPE: The API key lacks the scope this route needs. ORIGIN_NOT_ALLOWED: The request origin is not allowed. EMBED_SCOPE_VIOLATION: The embed session cannot reach this route",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND: Not found",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "409": {
+            "description": "IDEMPOTENCY_IN_PROGRESS: A request with this Idempotency-Key is still running",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "413": {
+            "description": "PAYLOAD_TOO_LARGE: The request body is too large",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE: The request body must be application/json",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "422": {
+            "description": "DESTINATION_INVALID: The destination cannot receive this payout. MANDATE_REFUSED: The mandate does not allow this. QUOTE_UNAVAILABLE: No quote is available for this payout right now. WALLET_PROOF_INVALID: The wallet proof is not valid. WALLET_PROOF_EXPIRED: The wallet proof challenge has expired. WALLET_SIGNER_NOT_AUTHORIZED: That key cannot sign for this wallet. DESTINATION_NOT_RECEIVABLE: This destination cannot receive a payout yet. FEE_CAP_INVALID: The fee cap can be at most 100 basis points. PRINCIPAL_KEY_RISK: Above 50,000 USD a mandate needs a multisig principal or a recovery set. CUSTODY_GUARD: A mandate with a UJIRA held agent key must use allowlist or both mode. TRANSFER_FAILED: The principal could not receive the transfer. IDEMPOTENCY_KEY_REUSED: This Idempotency-Key was used for a different request",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now. OPERATIONS_GUARDIAN_NOT_CONFIGURED: No operations guardian is set up for this network yet",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/mandates/{id}/revoke": {
+      "post": {
+        "operationId": "revokeMandate",
+        "summary": "Prepare a revoke for the principal to sign, and say what to withdraw after it",
+        "security": [{ "bearer": [] }],
+        "x-ujira-scope": "mandates:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Unique per write. A retry with the same key and the same request gets the first answer for 7 days; the same key on a different request is refused.",
+            "schema": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,255}$" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MandateActionPrepared" }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. IDEMPOTENCY_KEY_INVALID: The Idempotency-Key header is missing or not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "401": {
+            "description": "TOKEN_MALFORMED: The API key is missing or malformed. TOKEN_INVALID: The API key is not valid. TOKEN_ENVIRONMENT_MISMATCH: The API key is for another environment. EMBED_TOKEN_INVALID: The embed session is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "403": {
+            "description": "INSUFFICIENT_SCOPE: The API key lacks the scope this route needs. ORIGIN_NOT_ALLOWED: The request origin is not allowed. EMBED_SCOPE_VIOLATION: The embed session cannot reach this route",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND: Not found",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "409": {
+            "description": "IDEMPOTENCY_IN_PROGRESS: A request with this Idempotency-Key is still running",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "422": {
+            "description": "DESTINATION_INVALID: The destination cannot receive this payout. MANDATE_REFUSED: The mandate does not allow this. QUOTE_UNAVAILABLE: No quote is available for this payout right now. WALLET_PROOF_INVALID: The wallet proof is not valid. WALLET_PROOF_EXPIRED: The wallet proof challenge has expired. WALLET_SIGNER_NOT_AUTHORIZED: That key cannot sign for this wallet. DESTINATION_NOT_RECEIVABLE: This destination cannot receive a payout yet. FEE_CAP_INVALID: The fee cap can be at most 100 basis points. PRINCIPAL_KEY_RISK: Above 50,000 USD a mandate needs a multisig principal or a recovery set. CUSTODY_GUARD: A mandate with a UJIRA held agent key must use allowlist or both mode. TRANSFER_FAILED: The principal could not receive the transfer. IDEMPOTENCY_KEY_REUSED: This Idempotency-Key was used for a different request",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now. OPERATIONS_GUARDIAN_NOT_CONFIGURED: No operations guardian is set up for this network yet",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/mandates/{id}/withdraw": {
+      "post": {
+        "operationId": "withdrawMandate",
+        "summary": "Prepare a withdrawal of the whole balance for the principal to sign",
+        "security": [{ "bearer": [] }],
+        "x-ujira-scope": "mandates:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Unique per write. A retry with the same key and the same request gets the first answer for 7 days; the same key on a different request is refused.",
+            "schema": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,255}$" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MandateActionPrepared" }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. IDEMPOTENCY_KEY_INVALID: The Idempotency-Key header is missing or not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "401": {
+            "description": "TOKEN_MALFORMED: The API key is missing or malformed. TOKEN_INVALID: The API key is not valid. TOKEN_ENVIRONMENT_MISMATCH: The API key is for another environment. EMBED_TOKEN_INVALID: The embed session is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "403": {
+            "description": "INSUFFICIENT_SCOPE: The API key lacks the scope this route needs. ORIGIN_NOT_ALLOWED: The request origin is not allowed. EMBED_SCOPE_VIOLATION: The embed session cannot reach this route",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND: Not found",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "409": {
+            "description": "IDEMPOTENCY_IN_PROGRESS: A request with this Idempotency-Key is still running",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "422": {
+            "description": "DESTINATION_INVALID: The destination cannot receive this payout. MANDATE_REFUSED: The mandate does not allow this. QUOTE_UNAVAILABLE: No quote is available for this payout right now. WALLET_PROOF_INVALID: The wallet proof is not valid. WALLET_PROOF_EXPIRED: The wallet proof challenge has expired. WALLET_SIGNER_NOT_AUTHORIZED: That key cannot sign for this wallet. DESTINATION_NOT_RECEIVABLE: This destination cannot receive a payout yet. FEE_CAP_INVALID: The fee cap can be at most 100 basis points. PRINCIPAL_KEY_RISK: Above 50,000 USD a mandate needs a multisig principal or a recovery set. CUSTODY_GUARD: A mandate with a UJIRA held agent key must use allowlist or both mode. TRANSFER_FAILED: The principal could not receive the transfer. IDEMPOTENCY_KEY_REUSED: This Idempotency-Key was used for a different request",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now. OPERATIONS_GUARDIAN_NOT_CONFIGURED: No operations guardian is set up for this network yet",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/mandates/{id}/cancel-principal-proposal": {
+      "post": {
+        "operationId": "cancelMandatePrincipalProposal",
+        "summary": "Prepare the cancelling of a pending principal change for the principal to sign",
+        "security": [{ "bearer": [] }],
+        "x-ujira-scope": "mandates:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Unique per write. A retry with the same key and the same request gets the first answer for 7 days; the same key on a different request is refused.",
+            "schema": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,255}$" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MandateActionPrepared" }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. IDEMPOTENCY_KEY_INVALID: The Idempotency-Key header is missing or not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "401": {
+            "description": "TOKEN_MALFORMED: The API key is missing or malformed. TOKEN_INVALID: The API key is not valid. TOKEN_ENVIRONMENT_MISMATCH: The API key is for another environment. EMBED_TOKEN_INVALID: The embed session is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "403": {
+            "description": "INSUFFICIENT_SCOPE: The API key lacks the scope this route needs. ORIGIN_NOT_ALLOWED: The request origin is not allowed. EMBED_SCOPE_VIOLATION: The embed session cannot reach this route",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND: Not found",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "409": {
+            "description": "IDEMPOTENCY_IN_PROGRESS: A request with this Idempotency-Key is still running",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "422": {
+            "description": "DESTINATION_INVALID: The destination cannot receive this payout. MANDATE_REFUSED: The mandate does not allow this. QUOTE_UNAVAILABLE: No quote is available for this payout right now. WALLET_PROOF_INVALID: The wallet proof is not valid. WALLET_PROOF_EXPIRED: The wallet proof challenge has expired. WALLET_SIGNER_NOT_AUTHORIZED: That key cannot sign for this wallet. DESTINATION_NOT_RECEIVABLE: This destination cannot receive a payout yet. FEE_CAP_INVALID: The fee cap can be at most 100 basis points. PRINCIPAL_KEY_RISK: Above 50,000 USD a mandate needs a multisig principal or a recovery set. CUSTODY_GUARD: A mandate with a UJIRA held agent key must use allowlist or both mode. TRANSFER_FAILED: The principal could not receive the transfer. IDEMPOTENCY_KEY_REUSED: This Idempotency-Key was used for a different request",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now. OPERATIONS_GUARDIAN_NOT_CONFIGURED: No operations guardian is set up for this network yet",
             "headers": {
               "Request-Id": { "schema": { "type": "string" } },
               "Retry-After": { "schema": { "type": "string" } }
@@ -429,7 +1457,7 @@
             }
           },
           "503": {
-            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now",
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now. OPERATIONS_GUARDIAN_NOT_CONFIGURED: No operations guardian is set up for this network yet",
             "headers": {
               "Request-Id": { "schema": { "type": "string" } },
               "Retry-After": { "schema": { "type": "string" } }
@@ -444,6 +1472,43 @@
   },
   "components": {
     "schemas": {
+      "Money": {
+        "type": "object",
+        "properties": {
+          "amount": { "type": "string", "maxLength": 39, "pattern": "^(0|[1-9][0-9]*)$" },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "USD",
+              "NGN",
+              "KES",
+              "GHS",
+              "ZAR",
+              "PHP",
+              "INR",
+              "BRL",
+              "COP",
+              "MXN",
+              "EUR",
+              "GBP"
+            ]
+          },
+          "scale": { "type": "integer", "minimum": 0, "maximum": 18 }
+        },
+        "required": ["amount", "currency", "scale"],
+        "additionalProperties": false
+      },
+      "TokenAmount": {
+        "type": "object",
+        "properties": {
+          "amount": { "type": "string", "maxLength": 39, "pattern": "^(0|[1-9][0-9]*)$" },
+          "asset": { "type": "string", "enum": ["USDC"] },
+          "network": { "type": "string", "enum": ["stellar:pubnet", "stellar:testnet"] },
+          "scale": { "type": "integer", "minimum": 0, "maximum": 18 }
+        },
+        "required": ["amount", "asset", "network", "scale"],
+        "additionalProperties": false
+      },
       "Problem": {
         "type": "object",
         "properties": {
@@ -482,13 +1547,18 @@
               "WALLET_PROOF_EXPIRED",
               "WALLET_SIGNER_NOT_AUTHORIZED",
               "DESTINATION_NOT_RECEIVABLE",
+              "FEE_CAP_INVALID",
+              "PRINCIPAL_KEY_RISK",
+              "CUSTODY_GUARD",
+              "TRANSFER_FAILED",
               "IDEMPOTENCY_KEY_REUSED",
               "RATE_LIMITED",
               "INTERNAL",
               "DB_UNAVAILABLE",
               "CHAIN_UNAVAILABLE",
               "REQUEST_TIMEOUT",
-              "WEBHOOK_UNAVAILABLE"
+              "WEBHOOK_UNAVAILABLE",
+              "OPERATIONS_GUARDIAN_NOT_CONFIGURED"
             ]
           },
           "requestId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{8,128}$" },
@@ -515,9 +1585,253 @@
               "required": ["field", "code"],
               "additionalProperties": false
             }
+          },
+          "fixes": {
+            "minItems": 1,
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "add_recovery_set",
+                "use_multisig_principal",
+                "lower_budget",
+                "principal_trustline_missing",
+                "principal_unreceivable"
+              ]
+            }
           }
         },
         "required": ["type", "title", "status", "code", "requestId"],
+        "additionalProperties": false
+      },
+      "CountryPolicy": {
+        "type": "object",
+        "properties": {
+          "mode": { "type": "string", "enum": ["allow", "block"] },
+          "countries": {
+            "maxItems": 250,
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[A-Z]{2}$" }
+          }
+        },
+        "required": ["mode", "countries"],
+        "additionalProperties": false
+      },
+      "LowBalance": {
+        "type": "object",
+        "properties": {
+          "runwayDays": {
+            "anyOf": [{ "type": "integer", "minimum": 1, "maximum": 90 }, { "type": "null" }]
+          },
+          "fixed": { "anyOf": [{ "$ref": "#/components/schemas/TokenAmount" }, { "type": "null" }] }
+        },
+        "required": ["runwayDays", "fixed"],
+        "additionalProperties": false
+      },
+      "MandateInstance": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "network": { "type": "string", "enum": ["stellar:pubnet", "stellar:testnet"] },
+          "asset": { "type": "string", "enum": ["USDC"] },
+          "status": {
+            "type": "string",
+            "enum": ["deploying", "active", "paused", "revoked", "expired", "deploy_failed"]
+          },
+          "budget": {
+            "type": "object",
+            "properties": {
+              "total": { "$ref": "#/components/schemas/TokenAmount" },
+              "used": { "$ref": "#/components/schemas/TokenAmount" },
+              "pending": { "$ref": "#/components/schemas/TokenAmount" },
+              "committed": { "$ref": "#/components/schemas/TokenAmount" },
+              "remaining": { "$ref": "#/components/schemas/TokenAmount" }
+            },
+            "required": ["total", "used", "pending", "committed", "remaining"],
+            "additionalProperties": false
+          },
+          "specVersion": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+          "fundingAddress": {
+            "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 128 }, { "type": "null" }]
+          },
+          "roles": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": ["agent", "approver", "guardian", "executor", "recovery"]
+                },
+                "address": { "type": "string", "minLength": 1, "maxLength": 128 },
+                "memberId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    { "type": "null" }
+                  ]
+                }
+              },
+              "required": ["role", "address", "memberId"],
+              "additionalProperties": false
+            }
+          },
+          "approvalsRequired": { "type": "integer", "minimum": 0, "maximum": 10 },
+          "maxFeeBps": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "payoutTtlSeconds": { "type": "integer", "minimum": 3600, "maximum": 2592000 },
+          "policyEpoch": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "operationsGuardian": { "type": "string", "enum": ["present", "absent"] },
+          "proposedPrincipal": {
+            "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 128 }, { "type": "null" }]
+          },
+          "sweepGraceEndsAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "nextAction": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "action": { "type": "string", "const": "withdraw" },
+                  "amount": { "$ref": "#/components/schemas/TokenAmount" }
+                },
+                "required": ["action", "amount"],
+                "additionalProperties": false
+              },
+              { "type": "null" }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "network",
+          "asset",
+          "status",
+          "budget",
+          "specVersion",
+          "fundingAddress",
+          "roles",
+          "approvalsRequired",
+          "maxFeeBps",
+          "payoutTtlSeconds",
+          "policyEpoch",
+          "expiresAt",
+          "operationsGuardian",
+          "proposedPrincipal",
+          "sweepGraceEndsAt",
+          "nextAction"
+        ],
+        "additionalProperties": false
+      },
+      "MandateDetail": {
+        "type": "object",
+        "properties": {
+          "principalId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "status": {
+            "type": "string",
+            "enum": ["draft", "active", "paused", "revoked", "expired"]
+          },
+          "recipientMode": { "type": "string", "enum": ["allowlist", "attested", "both"] },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "totalBudget": { "$ref": "#/components/schemas/Money" },
+              "perPaymentCap": { "$ref": "#/components/schemas/Money" },
+              "perRecipientDailyCap": { "$ref": "#/components/schemas/Money" },
+              "approvalThreshold": { "$ref": "#/components/schemas/Money" }
+            },
+            "required": [
+              "totalBudget",
+              "perPaymentCap",
+              "perRecipientDailyCap",
+              "approvalThreshold"
+            ],
+            "additionalProperties": false
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "countryPolicy": { "$ref": "#/components/schemas/CountryPolicy" },
+          "countryPolicyHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "countryPolicyHashMatches": { "type": "boolean" },
+          "lowBalance": { "$ref": "#/components/schemas/LowBalance" },
+          "instances": {
+            "maxItems": 16,
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/MandateInstance" }
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "warnings": {
+            "maxItems": 2,
+            "type": "array",
+            "items": { "type": "string", "enum": ["single_key_principal", "unverified_principal"] }
+          }
+        },
+        "required": [
+          "principalId",
+          "projectId",
+          "id",
+          "name",
+          "status",
+          "recipientMode",
+          "limits",
+          "expiresAt",
+          "createdAt",
+          "countryPolicy",
+          "countryPolicyHash",
+          "countryPolicyHashMatches",
+          "lowBalance",
+          "instances",
+          "updatedAt",
+          "warnings"
+        ],
         "additionalProperties": false
       },
       "Health": {
@@ -565,6 +1879,478 @@
           "signerKey": { "type": "string", "minLength": 1 }
         },
         "required": ["verificationId", "level", "signerKey"],
+        "additionalProperties": false
+      },
+      "MandateCreated": {
+        "type": "object",
+        "properties": {
+          "principalId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "status": {
+            "type": "string",
+            "enum": ["draft", "active", "paused", "revoked", "expired"]
+          },
+          "recipientMode": { "type": "string", "enum": ["allowlist", "attested", "both"] },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "totalBudget": { "$ref": "#/components/schemas/Money" },
+              "perPaymentCap": { "$ref": "#/components/schemas/Money" },
+              "perRecipientDailyCap": { "$ref": "#/components/schemas/Money" },
+              "approvalThreshold": { "$ref": "#/components/schemas/Money" }
+            },
+            "required": [
+              "totalBudget",
+              "perPaymentCap",
+              "perRecipientDailyCap",
+              "approvalThreshold"
+            ],
+            "additionalProperties": false
+          },
+          "maxFeeBps": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "agreedFeeBps": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "instances": {
+            "minItems": 1,
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "network": { "type": "string", "enum": ["stellar:pubnet", "stellar:testnet"] },
+                "asset": { "type": "string", "enum": ["USDC"] },
+                "address": { "type": "string", "minLength": 1, "maxLength": 128 },
+                "operationsGuardian": { "type": "string", "enum": ["present", "absent"] },
+                "warnings": {
+                  "maxItems": 2,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": ["single_key_principal", "unverified_principal"]
+                  }
+                },
+                "signingRequest": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "network": {
+                          "type": "string",
+                          "enum": ["stellar:pubnet", "stellar:testnet"]
+                        },
+                        "signer": { "type": "string", "minLength": 1, "maxLength": 128 },
+                        "summary": {
+                          "type": "object",
+                          "properties": {
+                            "action": { "type": "string", "minLength": 1, "maxLength": 64 },
+                            "mandateAddress": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "amount": { "$ref": "#/components/schemas/TokenAmount" },
+                            "feePaidBy": { "type": "string", "enum": ["ujira", "signer"] },
+                            "estimatedFee": {
+                              "type": "object",
+                              "properties": {
+                                "amount": {
+                                  "type": "string",
+                                  "maxLength": 39,
+                                  "pattern": "^(0|[1-9][0-9]*)$"
+                                },
+                                "asset": { "type": "string", "minLength": 1, "maxLength": 12 },
+                                "scale": { "type": "integer", "minimum": 0, "maximum": 18 }
+                              },
+                              "required": ["amount", "asset", "scale"],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": ["action", "feePaidBy"],
+                          "additionalProperties": false
+                        },
+                        "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+                        "kind": { "type": "string", "const": "stellar_transaction" },
+                        "xdr": { "type": "string", "minLength": 1 },
+                        "validUntil": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        "sponsored": { "type": "boolean" }
+                      },
+                      "required": [
+                        "network",
+                        "signer",
+                        "summary",
+                        "requestId",
+                        "kind",
+                        "xdr",
+                        "validUntil",
+                        "sponsored"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "network": {
+                          "type": "string",
+                          "enum": ["stellar:pubnet", "stellar:testnet"]
+                        },
+                        "signer": { "type": "string", "minLength": 1, "maxLength": 128 },
+                        "summary": {
+                          "type": "object",
+                          "properties": {
+                            "action": { "type": "string", "minLength": 1, "maxLength": 64 },
+                            "mandateAddress": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "amount": { "$ref": "#/components/schemas/TokenAmount" },
+                            "feePaidBy": { "type": "string", "enum": ["ujira", "signer"] },
+                            "estimatedFee": {
+                              "type": "object",
+                              "properties": {
+                                "amount": {
+                                  "type": "string",
+                                  "maxLength": 39,
+                                  "pattern": "^(0|[1-9][0-9]*)$"
+                                },
+                                "asset": { "type": "string", "minLength": 1, "maxLength": 12 },
+                                "scale": { "type": "integer", "minimum": 0, "maximum": 18 }
+                              },
+                              "required": ["amount", "asset", "scale"],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": ["action", "feePaidBy"],
+                          "additionalProperties": false
+                        },
+                        "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+                        "kind": { "type": "string", "const": "stellar_auth_entry" },
+                        "entryXdr": { "type": "string", "minLength": 1 },
+                        "expirationLedger": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "network",
+                        "signer",
+                        "summary",
+                        "requestId",
+                        "kind",
+                        "entryXdr",
+                        "expirationLedger"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "network",
+                "asset",
+                "address",
+                "operationsGuardian",
+                "warnings",
+                "signingRequest"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "principalId",
+          "projectId",
+          "id",
+          "name",
+          "status",
+          "recipientMode",
+          "limits",
+          "maxFeeBps",
+          "agreedFeeBps",
+          "instances"
+        ],
+        "additionalProperties": false
+      },
+      "MandateFunding": {
+        "type": "object",
+        "properties": {
+          "principalId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "mandateId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "instances": {
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "instanceId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "network": { "type": "string", "enum": ["stellar:pubnet", "stellar:testnet"] },
+                "instructions": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "address": { "type": "string", "minLength": 1, "maxLength": 128 },
+                        "asset": { "type": "string", "enum": ["USDC"] },
+                        "assetContract": { "type": "string", "minLength": 1, "maxLength": 128 },
+                        "label": { "type": "string", "minLength": 1, "maxLength": 100 },
+                        "memoRequired": { "type": "boolean", "const": false },
+                        "warnings": {
+                          "maxItems": 3,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "other_assets_not_credited",
+                              "wrong_network_lost",
+                              "exchange_contract_address_support"
+                            ]
+                          }
+                        },
+                        "availableAt": {
+                          "type": "string",
+                          "enum": ["none", "included", "safe", "final"]
+                        }
+                      },
+                      "required": [
+                        "address",
+                        "asset",
+                        "assetContract",
+                        "label",
+                        "memoRequired",
+                        "warnings",
+                        "availableAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                }
+              },
+              "required": ["instanceId", "network", "instructions"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["principalId", "projectId", "mandateId", "instances"],
+        "additionalProperties": false
+      },
+      "MandateActionPrepared": {
+        "type": "object",
+        "properties": {
+          "principalId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "mandateId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "op": {
+            "type": "string",
+            "enum": ["lower_fee_cap", "revoke", "withdraw", "cancel_principal_proposal"]
+          },
+          "instances": {
+            "minItems": 1,
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "instanceId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "network": { "type": "string", "enum": ["stellar:pubnet", "stellar:testnet"] },
+                "signingRequest": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "network": {
+                          "type": "string",
+                          "enum": ["stellar:pubnet", "stellar:testnet"]
+                        },
+                        "signer": { "type": "string", "minLength": 1, "maxLength": 128 },
+                        "summary": {
+                          "type": "object",
+                          "properties": {
+                            "action": { "type": "string", "minLength": 1, "maxLength": 64 },
+                            "mandateAddress": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "amount": { "$ref": "#/components/schemas/TokenAmount" },
+                            "feePaidBy": { "type": "string", "enum": ["ujira", "signer"] },
+                            "estimatedFee": {
+                              "type": "object",
+                              "properties": {
+                                "amount": {
+                                  "type": "string",
+                                  "maxLength": 39,
+                                  "pattern": "^(0|[1-9][0-9]*)$"
+                                },
+                                "asset": { "type": "string", "minLength": 1, "maxLength": 12 },
+                                "scale": { "type": "integer", "minimum": 0, "maximum": 18 }
+                              },
+                              "required": ["amount", "asset", "scale"],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": ["action", "feePaidBy"],
+                          "additionalProperties": false
+                        },
+                        "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+                        "kind": { "type": "string", "const": "stellar_transaction" },
+                        "xdr": { "type": "string", "minLength": 1 },
+                        "validUntil": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        "sponsored": { "type": "boolean" }
+                      },
+                      "required": [
+                        "network",
+                        "signer",
+                        "summary",
+                        "requestId",
+                        "kind",
+                        "xdr",
+                        "validUntil",
+                        "sponsored"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "network": {
+                          "type": "string",
+                          "enum": ["stellar:pubnet", "stellar:testnet"]
+                        },
+                        "signer": { "type": "string", "minLength": 1, "maxLength": 128 },
+                        "summary": {
+                          "type": "object",
+                          "properties": {
+                            "action": { "type": "string", "minLength": 1, "maxLength": 64 },
+                            "mandateAddress": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "amount": { "$ref": "#/components/schemas/TokenAmount" },
+                            "feePaidBy": { "type": "string", "enum": ["ujira", "signer"] },
+                            "estimatedFee": {
+                              "type": "object",
+                              "properties": {
+                                "amount": {
+                                  "type": "string",
+                                  "maxLength": 39,
+                                  "pattern": "^(0|[1-9][0-9]*)$"
+                                },
+                                "asset": { "type": "string", "minLength": 1, "maxLength": 12 },
+                                "scale": { "type": "integer", "minimum": 0, "maximum": 18 }
+                              },
+                              "required": ["amount", "asset", "scale"],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": ["action", "feePaidBy"],
+                          "additionalProperties": false
+                        },
+                        "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+                        "kind": { "type": "string", "const": "stellar_auth_entry" },
+                        "entryXdr": { "type": "string", "minLength": 1 },
+                        "expirationLedger": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "network",
+                        "signer",
+                        "summary",
+                        "requestId",
+                        "kind",
+                        "entryXdr",
+                        "expirationLedger"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "nextAction": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "action": { "type": "string", "const": "withdraw" },
+                        "amount": { "$ref": "#/components/schemas/TokenAmount" }
+                      },
+                      "required": ["action", "amount"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                }
+              },
+              "required": ["instanceId", "network", "signingRequest", "nextAction"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["principalId", "projectId", "mandateId", "op", "instances"],
         "additionalProperties": false
       },
       "OpenApiDocument": {

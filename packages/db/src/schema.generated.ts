@@ -243,6 +243,19 @@ export interface UjiraLedgerReconciliation {
   taken_at: Timestamp | null;
 }
 
+export interface UjiraMandateActionRequests {
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  idempotency_key: string;
+  instance_plan: Json | null;
+  mandate_id: string;
+  mandate_instance_id: string;
+  op: string;
+  principal_id: string;
+  project_id: string;
+  signing_request: Json;
+}
+
 export interface UjiraMandateInstanceRoles {
   address: string;
   granted_event_id: string;
@@ -287,6 +300,27 @@ export interface UjiraMandateStateSnapshots {
   project_id: string;
   spent: Numeric;
   taken_at: Generated<Timestamp>;
+}
+
+export interface UjiraMandateTerms {
+  agreed_fee_bps: Int8;
+  approval_threshold: Numeric;
+  country_policy: Json;
+  country_policy_hash: Buffer;
+  created_at: Generated<Timestamp>;
+  creation_key: string;
+  currency: string;
+  expires_at: Timestamp;
+  mandate_id: string;
+  max_fee_bps: Int8;
+  payout_ttl_seconds: Int8;
+  per_payment_cap: Numeric;
+  per_recipient_daily_cap: Numeric;
+  principal_id: string;
+  project_id: string;
+  recipient_mode: string;
+  scale: number;
+  total_budget: Numeric;
 }
 
 export interface UjiraMigrations {
@@ -410,9 +444,11 @@ export interface Schema {
   'ujira.ledger_entries': UjiraLedgerEntries;
   'ujira.ledger_journals': UjiraLedgerJournals;
   'ujira.ledger_reconciliation': UjiraLedgerReconciliation;
+  'ujira.mandate_action_requests': UjiraMandateActionRequests;
   'ujira.mandate_instance_roles': UjiraMandateInstanceRoles;
   'ujira.mandate_instances': UjiraMandateInstances;
   'ujira.mandate_state_snapshots': UjiraMandateStateSnapshots;
+  'ujira.mandate_terms': UjiraMandateTerms;
   'ujira.mandates': UjiraMandates;
   'ujira.payout_methods': UjiraPayoutMethods;
   'ujira.principal_members': UjiraPrincipalMembers;

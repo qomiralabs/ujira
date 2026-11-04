@@ -81,6 +81,16 @@ export {
   type RecipientStatus,
 } from './repositories/recipients.js';
 export {
+  mandateActionRequests,
+  mandateTerms,
+  type MandateActionOp,
+  type MandateActionRequest,
+  type MandateLimitsRecord,
+  type MandateTerms,
+  type NewMandateActionRequest,
+  type NewMandateTerms,
+} from './repositories/mandate-terms.js';
+export {
   idempotencyKeys,
   type FinishedRequest,
   type NewReservation,

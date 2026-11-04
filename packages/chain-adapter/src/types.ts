@@ -627,6 +627,7 @@ export interface MandateActionRequest {
 /** Human readable and chain neutral, shown before signing. Amounts are core values. */
 export interface SigningSummary {
   readonly action: MandateAction['op'] | 'fund' | 'request_payout' | 'request_payouts';
+  /** The mandate acted on. For a create, the one it will deploy, so its row can exist first. */
   readonly mandate?: MandateRef;
   readonly amount?: TokenAmount;
   readonly feePaidBy: 'ujira' | 'signer';

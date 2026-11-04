@@ -161,6 +161,37 @@ with `rateLimit: 'payout_creation'`. Tenant responses carry `RateLimit-Limit`,
 429 adds `Retry-After`. If the buckets cannot be reached the answer is 503, never
 an unlimited request.
 
+## Mandates
+
+`POST /v1/mandates` takes the limits, the recipient mode, the fee cap and, per chain,
+the roles. A principal's own wallet signs everything that changes a mandate, so it
+answers with one signing request per chain, along with the address the contract
+will deploy at, the fee cap beside the agreed rate, whether the operations guardian
+is on it, and any warning about a single key principal.
+
+| Route                                              | Prepares or reads                     |
+| -------------------------------------------------- | ------------------------------------- |
+| `GET /v1/mandates/{id}`                            | Limits, usage, roles, pending changes |
+| `GET /v1/mandates/{id}/funding`                    | Per chain funding instructions        |
+| `POST /v1/mandates/{id}/lower-fee-cap`             | `lower_fee_cap`                       |
+| `POST /v1/mandates/{id}/revoke`                    | `revoke`, and what to withdraw after  |
+| `POST /v1/mandates/{id}/withdraw`                  | `withdraw` of the whole balance       |
+| `POST /v1/mandates/{id}/cancel-principal-proposal` | `cancel_principal_proposal`           |
+
+A mandate reads as `deploying` until its factory's `mandate_created` event has been
+read, whatever is at its address. After a revoke, the mandate names the withdrawal
+as its next action until the balance is gone. A withdrawal the principal cannot
+receive answers `422 TRANSFER_FAILED` with a `fixes` entry, and nothing changes on
+chain; prepare it again with a new key once that is fixed.
+
+A second run of a request, after a process died mid way, finds the rows the first
+run wrote, under a unique constraint on the request's key, and hands back the same
+mandate and the same things to sign. The create salt comes from the key too, so a
+retry can only ever target the same contract.
+
+The served table uses `MANDATES_NOT_CONFIGURED` until an assembled chain adapter and
+the production stores exist.
+
 ## Idempotency
 
 Every tenant write, meaning anything but a `GET`, needs an `Idempotency-Key` header
@@ -185,6 +216,12 @@ who wins a key, so all of this holds across instances. It cannot cover a process
 that dies mid request: the lease runs out after two minutes and a retry runs the
 handler again. So **a handler that moves money must also write
 `context.idempotencyKey` under a unique constraint of its own**.
+
+A write's answer is stored in clear for those 7 days, and personal data has one
+home, encrypted. So a write route cannot be declared with personal data in its
+response: the server refuses to start with one, by the field's name or by
+`personalData()` in the schema. `storedResponseProblems` runs that over the route
+table. A read route serves personal data instead, which is not stored.
 
 ## Errors
 

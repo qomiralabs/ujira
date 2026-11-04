@@ -43,7 +43,12 @@ import type { Logger, RequestLog } from './log.js';
 import { withOpenApiRoute } from './openapi.js';
 import { rateLimitHeaders } from './rate-limit.js';
 import type { RateLimit } from './rate-limit.js';
-import { fieldErrors, requiresIdempotencyKey, routeAccessProblems } from './route.js';
+import {
+  fieldErrors,
+  requiresIdempotencyKey,
+  routeAccessProblems,
+  storedResponseProblems,
+} from './route.js';
 import type { Route, WebhookInput } from './route.js';
 import { foreignTenantPath } from './tenant-guard.js';
 
@@ -115,6 +120,7 @@ function problemResponse(error: ApiError, requestId: string, extra: Record<strin
   const body = buildProblem(error.code, requestId, {
     ...(error.detail === undefined ? {} : { detail: error.detail }),
     errors: error.errors,
+    fixes: error.fixes,
   });
   const headers =
     error.retryAfterSeconds === null
@@ -197,8 +203,10 @@ interface Outcome {
 /** Builds the API. The OpenAPI route is added to the routes given. */
 export function createApp(deps: ApiDependencies): Hono {
   // Before the document is built, which reads what each route declares.
-  const [problem] = routeAccessProblems(deps.routes);
-  if (problem !== undefined) throw new RouteRegistryError(problem);
+  const [accessProblem] = routeAccessProblems(deps.routes);
+  if (accessProblem !== undefined) throw new RouteRegistryError(accessProblem);
+  const [storedProblem] = storedResponseProblems(deps.routes);
+  if (storedProblem !== undefined) throw new RouteRegistryError(storedProblem);
   const { routes } = withOpenApiRoute(deps.routes);
   checkRegistry(routes);
   const timeoutMs = deps.requestTimeoutMs ?? API_DEFAULTS.requestTimeoutMs;

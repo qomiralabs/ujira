@@ -49,6 +49,7 @@ export { OPENAPI_PATH, buildOpenApiDocument, withOpenApiRoute } from './openapi.
 export {
   databaseBucketStore,
   databaseIdempotencyStore,
+  databaseMandateRecords,
   databaseSecurityEvents,
   databaseTokenStore,
 } from './postgres-stores.js';
@@ -70,6 +71,17 @@ export type {
   RateLimitRules,
   RateLimitSubject,
 } from './rate-limit.js';
+export { MAX_FEE_CAP_BPS, SWEEP_GRACE_SECONDS, createMandateEndpoints } from './mandate-service.js';
+export type {
+  ChainDefaults,
+  MandateRecords,
+  MandateServiceDeps,
+  NewStoredMandate,
+  StoredMandate,
+  TransferFix,
+} from './mandate-service.js';
+export { MANDATES_NOT_CONFIGURED, mandateRoutes } from './routes/mandates.js';
+export type { MandateEndpoints } from './routes/mandates.js';
 export {
   contractRoute,
   definePublicRoute,
@@ -78,6 +90,7 @@ export {
   queryParser,
   requiresIdempotencyKey,
   routeAccessProblems,
+  storedResponseProblems,
 } from './route.js';
 export type {
   Access,

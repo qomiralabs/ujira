@@ -70,6 +70,13 @@ describe('OpenAPI document', () => {
     expect(Object.keys(doc.paths).sort()).toEqual([
       '/v1/health',
       '/v1/identity/self-webhook',
+      '/v1/mandates',
+      '/v1/mandates/{id}',
+      '/v1/mandates/{id}/cancel-principal-proposal',
+      '/v1/mandates/{id}/funding',
+      '/v1/mandates/{id}/lower-fee-cap',
+      '/v1/mandates/{id}/revoke',
+      '/v1/mandates/{id}/withdraw',
       OPENAPI_PATH,
       '/v1/recipients/{id}/methods/{methodId}/wallet-challenges',
       '/v1/recipients/{id}/methods/{methodId}/wallet-proofs',
@@ -85,10 +92,19 @@ describe('OpenAPI document', () => {
     for (const ref of refs) expect(doc.components.schemas[ref], ref).toBeDefined();
     // Only what the routes reach: no contract shape the server does not send yet.
     expect(Object.keys(doc.components.schemas).sort()).toEqual([
+      'CountryPolicy',
       'Health',
+      'LowBalance',
+      'MandateActionPrepared',
+      'MandateCreated',
+      'MandateDetail',
+      'MandateFunding',
+      'MandateInstance',
+      'Money',
       'OpenApiDocument',
       'Problem',
       'SelfWebhookAck',
+      'TokenAmount',
       'WalletChallenge',
       'WalletProofAccepted',
     ]);

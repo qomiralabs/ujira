@@ -222,8 +222,8 @@ describe('prepareMandateAction', { timeout: 30_000 }, () => {
     const signing = await t.adapter.prepareMandateAction(request(t, action), OPTS);
     const call = callOf(signing);
     expect(call).toMatchObject({ contract: FIXTURE_FACTORY, fn: 'create' });
-    expect(signing.summary.mandate).toBeUndefined();
     const deployed = mandateAddressOf(NETWORK, FIXTURE_FACTORY, t.principal.publicKey(), REF);
+    expect(signing.summary.mandate?.address.value).toBe(deployed);
     const stored = await t.requests.load(t.scope, signing.requestId);
     expect(stored?.request.mandate).toBe(deployed);
 

@@ -61,10 +61,19 @@ export const mandates = {
     return row === undefined ? undefined : toMandate(row);
   },
 
-  create: async (db: Tx, input: { readonly name: string }): Promise<Mandate> => {
+  // An id may be given, for a flow that needs to know it before the row exists.
+  create: async (
+    db: Tx,
+    input: { readonly name: string; readonly id?: string },
+  ): Promise<Mandate> => {
     const row = await db
       .insertInto('ujira.mandates')
-      .values({ principal_id: CURRENT_PRINCIPAL, project_id: CURRENT_PROJECT, name: input.name })
+      .values({
+        ...(input.id === undefined ? {} : { id: input.id }),
+        principal_id: CURRENT_PRINCIPAL,
+        project_id: CURRENT_PROJECT,
+        name: input.name,
+      })
       .returning(mandateColumns)
       .executeTakeFirstOrThrow();
     return toMandate(row);
