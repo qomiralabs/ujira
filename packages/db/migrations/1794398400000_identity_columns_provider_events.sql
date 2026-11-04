@@ -50,7 +50,10 @@ alter table ujira.recipient_identities
   -- When the verification lapses, which eligibility and the attester read.
   add column expires_at timestamptz;
 
--- Validated by the next migration, on its own, so the swap holds no long lock.
+-- Validated by a later migration, on its own, so the swap holds no long lock.
+-- The new check is wider and goes in straight after, in this transaction, so no
+-- reader sees the table without one.
+-- squawk-ignore ban-drop-constraint
 alter table ujira.recipient_identities drop constraint recipient_identities_state;
 alter table ujira.recipient_identities
   add constraint recipient_identities_state
