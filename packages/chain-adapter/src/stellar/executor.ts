@@ -12,9 +12,9 @@
 import type { Transaction } from '@stellar/stellar-sdk/base';
 
 import {
-  ChainUnavailableError,
   ExecutorUnfundedError,
   SubmissionRejectedError,
+  SubmissionUnknownError,
   isChainAdapterError,
 } from '../errors.js';
 import type { StellarNetworkId } from '../networks.js';
@@ -28,7 +28,7 @@ import type {
 } from '../types.js';
 import type { RpcTransaction, StellarRpc } from './rpc.js';
 import { submitEnvelope } from './submit.js';
-import { accountSequence, attach, txHash, waitForTransaction } from './tx.js';
+import { accountState, attach, txHash, waitForTransaction } from './tx.js';
 import type { WaitOptions } from './tx.js';
 
 export interface ExecutorContext {
@@ -39,6 +39,26 @@ export interface ExecutorContext {
   readonly leaseSeconds: number;
   /** How long a send may take before its outcome counts as unknown. */
   readonly submitTimeoutMs: number;
+  /** Channels already reported low, so a drop alerts once and not on every job. */
+  readonly lowBalanceAlerted: Set<string>;
+}
+
+function checkChannelBalance(ctx: ExecutorContext, address: string, balance: bigint): void {
+  const { network, ports, lowBalanceAlerted } = ctx;
+  const limits = ports.config()[network]?.executor;
+  if (limits === undefined) return;
+  if (balance >= limits.lowBalanceStroops) {
+    lowBalanceAlerted.delete(address);
+  } else if (!lowBalanceAlerted.has(address)) {
+    lowBalanceAlerted.add(address);
+    ports.alerts.lowBalance({
+      network,
+      account: 'executor',
+      balance: { network, asset: 'XLM', amount: balance, scale: 7 },
+      threshold: { network, asset: 'XLM', amount: limits.lowBalanceStroops, scale: 7 },
+    });
+  }
+  if (balance < limits.minBalanceStroops) throw new ExecutorUnfundedError({ network });
 }
 
 export interface SendRecord {
@@ -72,15 +92,22 @@ export class ExecutorSession {
     const lease = await ctx.ports.store.leaseExecutor(ctx.network, ctx.leaseSeconds);
     let session: ExecutorSession | null = null;
     try {
-      const sequence = await accountSequence(ctx.rpc, lease.address.value, opts);
-      if (sequence === null) throw new ExecutorUnfundedError({ network: ctx.network });
-      session = new ExecutorSession(ctx, lease, sequence);
+      const account = await accountState(ctx.rpc, lease.address.value, opts);
+      if (account === null) throw new ExecutorUnfundedError({ network: ctx.network });
+      checkChannelBalance(ctx, lease.address.value, account.balance);
+      session = new ExecutorSession(ctx, lease, account.sequence);
       return await work(session);
     } finally {
       // The next holder reads the chain anyway; this is the best guess of
       // what it will find.
       const next = session === null ? lease.sequenceOrNonce : session.sequence + 1n;
-      await ctx.ports.store.releaseExecutor(lease, { sequenceOrNonce: next });
+      // A refusal here means the lease was taken over or the store is down.
+      // Either way the fencing did its job and the lease lapses on its own, and
+      // neither changes what this job did, so it never replaces the job's
+      // own outcome.
+      await ctx.ports.store
+        .releaseExecutor(lease, { sequenceOrNonce: next })
+        .catch(() => undefined);
     }
   }
 
@@ -121,12 +148,14 @@ export class ExecutorSession {
       errorCode: null,
       specCode: null,
       replacesTxHash: null,
+      submittedAtLedger: BigInt((await rpc.getLatestLedger(opts)).sequence),
+      reservationId: null,
       correlationId: record.correlationId,
       createdAt: ports.clock.nowSeconds(),
     });
     // From here the sequence may be used, whatever the answer.
     this.sequence = BigInt(tx.sequence);
-    await sendAndRecord(this.ctx, record.scope, hash, tx.toXdr(), opts);
+    await sendAndRecord(this.ctx, record.scope, hash, tx.toXdr(), maxTime, opts);
     if (!wait) return { hash, landed: null };
     const landed = await waitForTransaction(rpc, network, hash, this.ctx.wait, opts);
     if (landed.status !== 'SUCCESS') {
@@ -145,51 +174,61 @@ export class ExecutorSession {
 }
 
 /**
- * Sends a recorded envelope and moves its record on. Only an answer that the
- * node holds the transaction counts as broadcast; a refusal is final for this
- * envelope, and anything unanswered is left unknown for reconciliation.
+ * Sends a recorded envelope and moves its record on. It is marked broadcast
+ * before the send, the only way out of built, so a crash during the send
+ * leaves a record that says it may have left. TRY_AGAIN_LATER means the node
+ * is busy, not that it refused, so the identical envelope goes again until its
+ * attempts or its maxTime run out, and it stays broadcast for reconciliation,
+ * since an earlier try may have been taken. A definite refusal is final.
  */
 export async function sendAndRecord(
-  ctx: Pick<ExecutorContext, 'network' | 'rpc' | 'ports' | 'submitTimeoutMs'>,
+  ctx: Pick<ExecutorContext, 'network' | 'rpc' | 'ports' | 'submitTimeoutMs' | 'wait'>,
   scope: TenantScope,
   hash: string,
   envelopeXdr: string,
+  maxTime: bigint | null,
   opts: CallOptions,
 ): Promise<void> {
-  const { network, rpc, ports } = ctx;
-  let result;
-  try {
-    result = await submitEnvelope(
-      {
-        send: (envelope, signal) =>
-          rpc.sendTransaction(envelope, {
-            ...opts,
-            signal: opts.signal === undefined ? signal : AbortSignal.any([signal, opts.signal]),
-          }),
-      },
-      envelopeXdr,
-      { network, timeoutMs: ctx.submitTimeoutMs },
-    );
-  } catch (error) {
-    // Refused with nothing sent is final for this envelope. Anything else may
-    // have reached the network, so it stays open for reconciliation.
-    const refused = isChainAdapterError(error) && error.landed === 'no';
-    await ports.store.updateSubmission(
-      scope,
-      network,
-      hash,
-      refused ? { state: 'failed', errorCode: error.code } : { state: 'unknown' },
-    );
-    throw error;
+  const { network, rpc, ports, wait } = ctx;
+  await ports.store.updateSubmission(scope, network, hash, { state: 'broadcast' });
+  for (let attempt = 1; ; attempt += 1) {
+    let result;
+    try {
+      result = await submitEnvelope(
+        {
+          send: (envelope, signal) =>
+            rpc.sendTransaction(envelope, {
+              ...opts,
+              signal: opts.signal === undefined ? signal : AbortSignal.any([signal, opts.signal]),
+            }),
+        },
+        envelopeXdr,
+        { network, timeoutMs: ctx.submitTimeoutMs },
+      );
+    } catch (error) {
+      // Refused with nothing sent is final for this envelope. Anything else
+      // may have reached the network, so it stays open for reconciliation.
+      const refused = isChainAdapterError(error) && error.landed === 'no';
+      await ports.store.updateSubmission(
+        scope,
+        network,
+        hash,
+        refused ? { state: 'failed', errorCode: error.code } : { state: 'unknown' },
+      );
+      throw error;
+    }
+    if (result.status === 'PENDING' || result.status === 'DUPLICATE') return;
+    if (result.status === 'ERROR') {
+      await ports.store.updateSubmission(scope, network, hash, {
+        state: 'failed',
+        errorCode: 'SUBMISSION_REJECTED',
+      });
+      throw new SubmissionRejectedError({ network });
+    }
+    const now = ports.clock.nowSeconds();
+    if (attempt >= wait.attempts || (maxTime !== null && now >= maxTime)) {
+      throw new SubmissionUnknownError({ network });
+    }
+    await wait.sleep(wait.intervalMs);
   }
-  if (result.status === 'PENDING' || result.status === 'DUPLICATE') {
-    await ports.store.updateSubmission(scope, network, hash, { state: 'broadcast' });
-    return;
-  }
-  const busy = result.status === 'TRY_AGAIN_LATER';
-  await ports.store.updateSubmission(scope, network, hash, {
-    state: 'failed',
-    errorCode: busy ? 'CHAIN_UNAVAILABLE' : 'SUBMISSION_REJECTED',
-  });
-  throw busy ? new ChainUnavailableError({ network }) : new SubmissionRejectedError({ network });
 }
