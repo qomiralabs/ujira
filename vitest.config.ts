@@ -179,6 +179,13 @@ export default defineConfig({
           branches: 95,
           statements: 95,
         },
+        // A sweep is a money move, so a gap here is a gap in exactly once.
+        'packages/funding/src/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
         // The mandate rules decide which mandates may be created and served,
         // so a gap there is a gap in the custody guarantees.
         'packages/mandates/src/**': {
