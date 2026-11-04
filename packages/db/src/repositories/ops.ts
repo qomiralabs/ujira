@@ -157,3 +157,38 @@ export const routingConfig = {
     return row === undefined ? undefined : { version: BigInt(row.version), document: row.document };
   },
 };
+
+export interface IdentityProviderEvent {
+  readonly provider: string;
+  readonly providerAccount: string;
+  readonly eventKey: string;
+  // 32 bytes. The digest of the body, which is discarded.
+  readonly rawSha256: Buffer;
+}
+
+// Deduplicates what identity providers deliver. A delivery arrives before anyone
+// can know whose it is, so these rows belong to no tenant, and the table holds
+// only the provider's event key and a digest.
+export const identityProviderEvents = {
+  // True when this delivery is the first with its key.
+  record: async (db: Tx, event: IdentityProviderEvent): Promise<boolean> => {
+    const result = await sql<{ stored: boolean }>`
+      select ops.record_identity_provider_event(
+        ${event.provider}, ${event.providerAccount}, ${event.eventKey}, ${event.rawSha256}
+      ) as stored
+    `.execute(db);
+    return result.rows[0]?.stored === true;
+  },
+
+  seen: async (
+    db: Tx,
+    key: { readonly provider: string; readonly providerAccount: string; readonly eventKey: string },
+  ): Promise<boolean> => {
+    const result = await sql<{ seen: boolean }>`
+      select ops.identity_provider_event_seen(
+        ${key.provider}, ${key.providerAccount}, ${key.eventKey}
+      ) as seen
+    `.execute(db);
+    return result.rows[0]?.seen === true;
+  },
+};
