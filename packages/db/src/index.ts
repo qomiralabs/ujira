@@ -60,6 +60,12 @@ export {
   type SigningKeyPurpose,
 } from './repositories/signers.js';
 export {
+  fundingAccounts,
+  type FundingAccount,
+  type FundingAccountStatus,
+  type NewFundingAccount,
+} from './repositories/funding-accounts.js';
+export {
   entryPoints,
   type CreatedPrincipal,
   type NewPrincipal,
@@ -113,10 +119,35 @@ export {
   type Reservation,
 } from './repositories/idempotency.js';
 export {
+  agentIdentityLinks,
+  attestations,
+  destinationVerifications,
+  embedSessions,
+  identityEvidenceRepositories,
+  walletChallenges,
+  type AgentIdentityLink,
+  type AgentLinkStatus,
+  type Attestation,
+  type DestinationVerification,
+  type EmbedSession,
+  type EmbedSessionPurpose,
+  type NewAgentIdentityLink,
+  type NewAttestation,
+  type NewDestinationVerification,
+  type NewEmbedSession,
+  type NewWalletChallenge,
+  type VerificationLevel,
+  type WalletChallengePurpose,
+  type WalletChallengeRow,
+} from './repositories/identity-evidence.js';
+export {
   SECURITY_EVENT_KINDS,
+  emailQuota,
   executors,
   identityProviderEvents,
   rateLimits,
+  type EmailKind,
+  type EmailQuotaRequest,
   routingConfig,
   securityEvents,
   type IdentityProviderEvent,
