@@ -32,11 +32,11 @@ interface Span {
 }
 
 // Records when each job ran, grouped by what should keep it serial.
-function recording(groupOf: (job: Parameters<TenantWork>[0]) => string) {
+function recording(groupOf: (job: Parameters<TenantWork>[0]) => string, workMs = 150) {
   const spans: Span[] = [];
   const work: TenantWork = async (job) => {
     const start = Date.now();
-    await sleep(150);
+    await sleep(workMs);
     spans.push({ group: groupOf(job), start, end: Date.now() });
   };
   return { spans, work };
@@ -79,7 +79,10 @@ describe('per mandate queues', () => {
         await enqueueTask(tx, PAYOUT_ADVANCE, { payoutId, mandateInstanceId: 'two' });
       }
     });
-    const { spans, work } = recording((job) => job.ids['mandateInstanceId'] ?? '');
+    // Longer than the 2 s poll: these jobs were queued before the pool started, so
+    // no notification wakes it, and a worker that lost the first claim sleeps until
+    // its next poll. Shorter jobs would all finish on one worker before it woke.
+    const { spans, work } = recording((job) => job.ids['mandateInstanceId'] ?? '', 2_500);
     await runUntilDrained({ payoutAdvance: work });
 
     const of = (group: string): Span[] => spans.filter((span) => span.group === group);
