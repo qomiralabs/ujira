@@ -23,12 +23,15 @@ import type pg from 'pg';
 
 export const CATALOG_SCHEMA = 'ujira';
 
-// Reference data, the same for every tenant and writable only by the owner.
+// Reference data, the same for every tenant and writable only by the owner, and
+// member sessions, which belong to a person who has not chosen a tenant yet and
+// which no service role can reach except through functions.
 export const CATALOG_EXCEPTIONS: readonly string[] = [
   'ujira.audit_metadata_keys',
   'ujira.chains',
   'ujira.currencies',
   'ujira.currency_scales',
+  'ujira.member_sessions',
   'ujira.settlement_tokens',
   'ujira.status_transitions',
 ];

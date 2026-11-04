@@ -919,6 +919,23 @@ $$;
 ALTER FUNCTION ujira.ledger_stamp() OWNER TO ujira_fn_ledger;
 
 --
+-- Name: member_memberships(uuid); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_sessions
+--
+
+CREATE FUNCTION ujira.member_memberships(subject uuid) RETURNS TABLE(principal_id uuid, role text)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select m.principal_id, m.role
+    from ujira.principal_members as m
+   where m.user_id = subject and m.status = 'active'
+   order by m.principal_id
+$$;
+
+
+ALTER FUNCTION ujira.member_memberships(subject uuid) OWNER TO ujira_fn_sessions;
+
+--
 -- Name: project_scope_all(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -961,6 +978,223 @@ $$;
 
 
 ALTER FUNCTION ujira.resolve_mandate_instance(target_chain text, target_address text) OWNER TO ujira_fn_instances;
+
+--
+-- Name: session_create(bytea, uuid, text, text, integer, integer, bytea, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_sessions
+--
+
+CREATE FUNCTION ujira.session_create(session_secret_hash bytea, subject uuid, supabase_id text, assurance text, idle_seconds integer, absolute_seconds integer, client_ip_hmac bytea, client_user_agent_family text) RETURNS TABLE(session_id uuid, idle_expires_at timestamp with time zone, absolute_expires_at timestamp with time zone)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if idle_seconds is null or idle_seconds < 1 or absolute_seconds is null or absolute_seconds < 1 then
+    raise exception using errcode = '22023', message = 'a session lasts at least a second';
+  end if;
+  return query
+    insert into ujira.member_sessions as s (
+      secret_hash, auth_subject, supabase_session_id, aal, idle_expires_at, absolute_expires_at,
+      ip_hmac, user_agent_family
+    ) values (
+      session_secret_hash, subject, supabase_id, assurance,
+      now() + make_interval(secs => least(idle_seconds, absolute_seconds)),
+      now() + make_interval(secs => absolute_seconds),
+      client_ip_hmac, client_user_agent_family
+    )
+    returning s.id, s.idle_expires_at, s.absolute_expires_at;
+end
+$$;
+
+
+ALTER FUNCTION ujira.session_create(session_secret_hash bytea, subject uuid, supabase_id text, assurance text, idle_seconds integer, absolute_seconds integer, client_ip_hmac bytea, client_user_agent_family text) OWNER TO ujira_fn_sessions;
+
+--
+-- Name: session_delete_expired(integer); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_sessions
+--
+
+CREATE FUNCTION ujira.session_delete_expired(batch_size integer) RETURNS bigint
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  removed bigint;
+begin
+  if batch_size is null or batch_size < 1 or batch_size > 10000 then
+    raise exception using errcode = '22023', message = 'a batch is from 1 to 10000 rows';
+  end if;
+  delete from ujira.member_sessions as s
+   where s.id in (
+     select c.id
+       from ujira.member_sessions as c
+      where least(c.revoked_at, c.idle_expires_at, c.absolute_expires_at) < now() - interval '30 days'
+      order by c.absolute_expires_at
+      limit batch_size
+   );
+  get diagnostics removed = row_count;
+  return removed;
+end
+$$;
+
+
+ALTER FUNCTION ujira.session_delete_expired(batch_size integer) OWNER TO ujira_fn_sessions;
+
+--
+-- Name: session_resolve(bytea); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_sessions
+--
+
+CREATE FUNCTION ujira.session_resolve(session_secret_hash bytea) RETURNS TABLE(session_id uuid, auth_subject uuid, supabase_session_id text, aal text, principal_id uuid, project_id uuid, member_role text, stepped_up_at timestamp with time zone, idle_expires_at timestamp with time zone, absolute_expires_at timestamp with time zone)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select s.id, s.auth_subject, s.supabase_session_id, s.aal, s.principal_id, s.project_id, m.role,
+         s.stepped_up_at, s.idle_expires_at, s.absolute_expires_at
+    from ujira.member_sessions as s
+    left join ujira.principal_members as m
+      on m.principal_id = s.principal_id and m.user_id = s.auth_subject and m.status = 'active'
+   where s.secret_hash = session_secret_hash::ujira.hash32
+     and s.revoked_at is null
+     and s.idle_expires_at > now()
+     and s.absolute_expires_at > now()
+     and (s.principal_id is null or m.user_id is not null)
+$$;
+
+
+ALTER FUNCTION ujira.session_resolve(session_secret_hash bytea) OWNER TO ujira_fn_sessions;
+
+--
+-- Name: session_revoke(bytea, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_sessions
+--
+
+CREATE FUNCTION ujira.session_revoke(session_secret_hash bytea, reason text) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  changed integer;
+begin
+  update ujira.member_sessions as s
+     set revoked_at = now(), revoked_reason = reason
+   where s.secret_hash = session_secret_hash::ujira.hash32 and s.revoked_at is null;
+  get diagnostics changed = row_count;
+  return changed = 1;
+end
+$$;
+
+
+ALTER FUNCTION ujira.session_revoke(session_secret_hash bytea, reason text) OWNER TO ujira_fn_sessions;
+
+--
+-- Name: session_revoke_subject(uuid, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_sessions
+--
+
+CREATE FUNCTION ujira.session_revoke_subject(subject uuid, reason text) RETURNS bigint
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  changed bigint;
+begin
+  update ujira.member_sessions as s
+     set revoked_at = now(), revoked_reason = reason
+   where s.auth_subject = subject and s.revoked_at is null;
+  get diagnostics changed = row_count;
+  return changed;
+end
+$$;
+
+
+ALTER FUNCTION ujira.session_revoke_subject(subject uuid, reason text) OWNER TO ujira_fn_sessions;
+
+--
+-- Name: session_select(bytea, uuid, uuid); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_sessions
+--
+
+CREATE FUNCTION ujira.session_select(session_secret_hash bytea, selected_principal uuid, selected_project uuid) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  changed integer;
+begin
+  update ujira.member_sessions as s
+     set principal_id = selected_principal, project_id = selected_project
+   where s.secret_hash = session_secret_hash::ujira.hash32
+     and s.revoked_at is null
+     and s.idle_expires_at > now()
+     and s.absolute_expires_at > now()
+     and exists (
+       select from ujira.principal_members as m
+        where m.principal_id = selected_principal
+          and m.user_id = s.auth_subject
+          and m.status = 'active'
+     )
+     and (
+       selected_project is null
+       or exists (
+         select from ujira.projects as p
+          where p.principal_id = selected_principal and p.id = selected_project
+       )
+     );
+  get diagnostics changed = row_count;
+  return changed = 1;
+end
+$$;
+
+
+ALTER FUNCTION ujira.session_select(session_secret_hash bytea, selected_principal uuid, selected_project uuid) OWNER TO ujira_fn_sessions;
+
+--
+-- Name: session_step_up(bytea, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_sessions
+--
+
+CREATE FUNCTION ujira.session_step_up(session_secret_hash bytea, assurance text) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  changed integer;
+begin
+  update ujira.member_sessions as s
+     set aal = assurance, stepped_up_at = now()
+   where s.secret_hash = session_secret_hash::ujira.hash32
+     and s.revoked_at is null
+     and s.idle_expires_at > now()
+     and s.absolute_expires_at > now();
+  get diagnostics changed = row_count;
+  return changed = 1;
+end
+$$;
+
+
+ALTER FUNCTION ujira.session_step_up(session_secret_hash bytea, assurance text) OWNER TO ujira_fn_sessions;
+
+--
+-- Name: session_touch(bytea, integer); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_sessions
+--
+
+CREATE FUNCTION ujira.session_touch(session_secret_hash bytea, idle_seconds integer) RETURNS timestamp with time zone
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  extended timestamptz;
+begin
+  if idle_seconds is null or idle_seconds < 1 then
+    raise exception using errcode = '22023', message = 'a session lasts at least a second';
+  end if;
+  update ujira.member_sessions as s
+     set idle_expires_at = least(now() + make_interval(secs => idle_seconds), s.absolute_expires_at)
+   where s.secret_hash = session_secret_hash::ujira.hash32
+     and s.revoked_at is null
+     and s.idle_expires_at > now()
+     and s.absolute_expires_at > now()
+  returning s.idle_expires_at into extended;
+  return extended;
+end
+$$;
+
+
+ALTER FUNCTION ujira.session_touch(session_secret_hash bytea, idle_seconds integer) OWNER TO ujira_fn_sessions;
 
 --
 -- Name: touch(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
@@ -1733,6 +1967,40 @@ ALTER TABLE ONLY ujira.mandates FORCE ROW LEVEL SECURITY;
 ALTER TABLE ujira.mandates OWNER TO ujira_owner;
 
 --
+-- Name: member_sessions; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.member_sessions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    secret_hash ujira.hash32 NOT NULL,
+    auth_subject uuid NOT NULL,
+    supabase_session_id text NOT NULL,
+    aal text NOT NULL,
+    principal_id uuid,
+    project_id uuid,
+    stepped_up_at timestamp with time zone,
+    idle_expires_at timestamp with time zone NOT NULL,
+    absolute_expires_at timestamp with time zone NOT NULL,
+    revoked_at timestamp with time zone,
+    revoked_reason text,
+    ip_hmac ujira.hash32,
+    user_agent_family text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT member_sessions_aal CHECK ((aal = ANY (ARRAY['aal1'::text, 'aal2'::text]))),
+    CONSTRAINT member_sessions_idle_within_absolute CHECK ((idle_expires_at <= absolute_expires_at)),
+    CONSTRAINT member_sessions_project_needs_principal CHECK (((project_id IS NULL) OR (principal_id IS NOT NULL))),
+    CONSTRAINT member_sessions_reason_format CHECK ((revoked_reason ~ '^[a-z][a-z0-9_]{0,63}$'::text)),
+    CONSTRAINT member_sessions_revocation_whole CHECK (((revoked_at IS NULL) = (revoked_reason IS NULL))),
+    CONSTRAINT member_sessions_supabase_length CHECK (((char_length(supabase_session_id) >= 1) AND (char_length(supabase_session_id) <= 128))),
+    CONSTRAINT member_sessions_user_agent_format CHECK ((user_agent_family ~ '^[A-Za-z0-9 ._-]{1,32}$'::text))
+);
+
+ALTER TABLE ONLY ujira.member_sessions FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.member_sessions OWNER TO ujira_owner;
+
+--
 -- Name: payout_methods; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1777,7 +2045,9 @@ CREATE TABLE ujira.principal_members (
     role text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT principal_members_role CHECK ((role = ANY (ARRAY['owner'::text, 'admin'::text, 'developer'::text, 'viewer'::text])))
+    status text DEFAULT 'active'::text NOT NULL,
+    CONSTRAINT principal_members_role CHECK ((role = ANY (ARRAY['owner'::text, 'admin'::text, 'developer'::text, 'viewer'::text]))),
+    CONSTRAINT principal_members_status CHECK ((status = ANY (ARRAY['invited'::text, 'active'::text, 'suspended'::text, 'removed'::text])))
 );
 
 ALTER TABLE ONLY ujira.principal_members FORCE ROW LEVEL SECURITY;
@@ -2398,6 +2668,22 @@ ALTER TABLE ONLY ujira.mandates
 
 
 --
+-- Name: member_sessions member_sessions_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.member_sessions
+    ADD CONSTRAINT member_sessions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: member_sessions member_sessions_secret_hash_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.member_sessions
+    ADD CONSTRAINT member_sessions_secret_hash_key UNIQUE (secret_hash);
+
+
+--
 -- Name: payout_methods payout_methods_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2571,6 +2857,27 @@ CREATE INDEX ledger_entries_by_journal ON ujira.ledger_entries USING btree (prin
 --
 
 CREATE UNIQUE INDEX managed_signers_one_active ON ujira.managed_signers USING btree (principal_id, project_id, agent_id, network) WHERE (status = 'active'::text);
+
+
+--
+-- Name: member_sessions_project_scope; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX member_sessions_project_scope ON ujira.member_sessions USING btree (principal_id, project_id) WHERE (principal_id IS NOT NULL);
+
+
+--
+-- Name: member_sessions_retention; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX member_sessions_retention ON ujira.member_sessions USING btree (absolute_expires_at);
+
+
+--
+-- Name: member_sessions_subject; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX member_sessions_subject ON ujira.member_sessions USING btree (auth_subject);
 
 
 --
@@ -3172,6 +3479,22 @@ ALTER TABLE ONLY ujira.mandates
 
 
 --
+-- Name: member_sessions member_sessions_principal_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.member_sessions
+    ADD CONSTRAINT member_sessions_principal_id_fkey FOREIGN KEY (principal_id) REFERENCES ujira.principals(id);
+
+
+--
+-- Name: member_sessions member_sessions_project_scope; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.member_sessions
+    ADD CONSTRAINT member_sessions_project_scope FOREIGN KEY (principal_id, project_id) REFERENCES ujira.projects(principal_id, id);
+
+
+--
 -- Name: payout_methods payout_methods_chain_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3508,6 +3831,12 @@ ALTER TABLE ujira.mandate_state_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ujira.mandates ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: member_sessions; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.member_sessions ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: api_tokens owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3620,6 +3949,13 @@ CREATE POLICY owner_all ON ujira.mandates TO ujira_owner USING (true) WITH CHECK
 
 
 --
+-- Name: member_sessions owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.member_sessions TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: payout_methods owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3715,6 +4051,27 @@ ALTER TABLE ujira.recipients ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY resolve_instance ON ujira.mandate_instances FOR SELECT TO ujira_fn_instances USING (true);
+
+
+--
+-- Name: member_sessions sessions_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY sessions_all ON ujira.member_sessions TO ujira_fn_sessions USING (true) WITH CHECK (true);
+
+
+--
+-- Name: principal_members sessions_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY sessions_read ON ujira.principal_members FOR SELECT TO ujira_fn_sessions USING (true);
+
+
+--
+-- Name: projects sessions_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY sessions_read ON ujira.projects FOR SELECT TO ujira_fn_sessions USING (true);
 
 
 --
@@ -4205,6 +4562,7 @@ GRANT USAGE ON SCHEMA ujira TO ujira_signer_attester;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_instances;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_ledger;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_audit;
+GRANT USAGE ON SCHEMA ujira TO ujira_fn_sessions;
 
 
 --
@@ -4231,6 +4589,7 @@ GRANT ALL ON TYPE ujira.hash32 TO ujira_retention;
 GRANT ALL ON TYPE ujira.hash32 TO ujira_auth;
 GRANT ALL ON TYPE ujira.hash32 TO ujira_indexer;
 GRANT ALL ON TYPE ujira.hash32 TO ujira_fn_audit;
+GRANT ALL ON TYPE ujira.hash32 TO ujira_fn_sessions;
 
 
 --
@@ -4486,6 +4845,15 @@ REVOKE ALL ON FUNCTION ujira.ledger_stamp() FROM PUBLIC;
 
 
 --
+-- Name: FUNCTION member_memberships(subject uuid); Type: ACL; Schema: ujira; Owner: ujira_fn_sessions
+--
+
+REVOKE ALL ON FUNCTION ujira.member_memberships(subject uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.member_memberships(subject uuid) TO ujira_app;
+GRANT ALL ON FUNCTION ujira.member_memberships(subject uuid) TO ujira_auth;
+
+
+--
 -- Name: FUNCTION project_scope_all(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4503,6 +4871,77 @@ GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_indexer;
 
 REVOKE ALL ON FUNCTION ujira.resolve_mandate_instance(target_chain text, target_address text) FROM PUBLIC;
 GRANT ALL ON FUNCTION ujira.resolve_mandate_instance(target_chain text, target_address text) TO ujira_indexer;
+
+
+--
+-- Name: FUNCTION session_create(session_secret_hash bytea, subject uuid, supabase_id text, assurance text, idle_seconds integer, absolute_seconds integer, client_ip_hmac bytea, client_user_agent_family text); Type: ACL; Schema: ujira; Owner: ujira_fn_sessions
+--
+
+REVOKE ALL ON FUNCTION ujira.session_create(session_secret_hash bytea, subject uuid, supabase_id text, assurance text, idle_seconds integer, absolute_seconds integer, client_ip_hmac bytea, client_user_agent_family text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.session_create(session_secret_hash bytea, subject uuid, supabase_id text, assurance text, idle_seconds integer, absolute_seconds integer, client_ip_hmac bytea, client_user_agent_family text) TO ujira_app;
+GRANT ALL ON FUNCTION ujira.session_create(session_secret_hash bytea, subject uuid, supabase_id text, assurance text, idle_seconds integer, absolute_seconds integer, client_ip_hmac bytea, client_user_agent_family text) TO ujira_auth;
+
+
+--
+-- Name: FUNCTION session_delete_expired(batch_size integer); Type: ACL; Schema: ujira; Owner: ujira_fn_sessions
+--
+
+REVOKE ALL ON FUNCTION ujira.session_delete_expired(batch_size integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.session_delete_expired(batch_size integer) TO ujira_retention;
+
+
+--
+-- Name: FUNCTION session_resolve(session_secret_hash bytea); Type: ACL; Schema: ujira; Owner: ujira_fn_sessions
+--
+
+REVOKE ALL ON FUNCTION ujira.session_resolve(session_secret_hash bytea) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.session_resolve(session_secret_hash bytea) TO ujira_app;
+GRANT ALL ON FUNCTION ujira.session_resolve(session_secret_hash bytea) TO ujira_auth;
+
+
+--
+-- Name: FUNCTION session_revoke(session_secret_hash bytea, reason text); Type: ACL; Schema: ujira; Owner: ujira_fn_sessions
+--
+
+REVOKE ALL ON FUNCTION ujira.session_revoke(session_secret_hash bytea, reason text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.session_revoke(session_secret_hash bytea, reason text) TO ujira_app;
+GRANT ALL ON FUNCTION ujira.session_revoke(session_secret_hash bytea, reason text) TO ujira_auth;
+
+
+--
+-- Name: FUNCTION session_revoke_subject(subject uuid, reason text); Type: ACL; Schema: ujira; Owner: ujira_fn_sessions
+--
+
+REVOKE ALL ON FUNCTION ujira.session_revoke_subject(subject uuid, reason text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.session_revoke_subject(subject uuid, reason text) TO ujira_app;
+GRANT ALL ON FUNCTION ujira.session_revoke_subject(subject uuid, reason text) TO ujira_auth;
+
+
+--
+-- Name: FUNCTION session_select(session_secret_hash bytea, selected_principal uuid, selected_project uuid); Type: ACL; Schema: ujira; Owner: ujira_fn_sessions
+--
+
+REVOKE ALL ON FUNCTION ujira.session_select(session_secret_hash bytea, selected_principal uuid, selected_project uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.session_select(session_secret_hash bytea, selected_principal uuid, selected_project uuid) TO ujira_app;
+GRANT ALL ON FUNCTION ujira.session_select(session_secret_hash bytea, selected_principal uuid, selected_project uuid) TO ujira_auth;
+
+
+--
+-- Name: FUNCTION session_step_up(session_secret_hash bytea, assurance text); Type: ACL; Schema: ujira; Owner: ujira_fn_sessions
+--
+
+REVOKE ALL ON FUNCTION ujira.session_step_up(session_secret_hash bytea, assurance text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.session_step_up(session_secret_hash bytea, assurance text) TO ujira_app;
+GRANT ALL ON FUNCTION ujira.session_step_up(session_secret_hash bytea, assurance text) TO ujira_auth;
+
+
+--
+-- Name: FUNCTION session_touch(session_secret_hash bytea, idle_seconds integer); Type: ACL; Schema: ujira; Owner: ujira_fn_sessions
+--
+
+REVOKE ALL ON FUNCTION ujira.session_touch(session_secret_hash bytea, idle_seconds integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.session_touch(session_secret_hash bytea, idle_seconds integer) TO ujira_app;
+GRANT ALL ON FUNCTION ujira.session_touch(session_secret_hash bytea, idle_seconds integer) TO ujira_auth;
 
 
 --
@@ -4766,6 +5205,13 @@ GRANT SELECT ON TABLE ujira.mandates TO ujira_reader;
 
 
 --
+-- Name: TABLE member_sessions; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE ujira.member_sessions TO ujira_fn_sessions;
+
+
+--
 -- Name: TABLE payout_methods; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4780,6 +5226,7 @@ GRANT SELECT ON TABLE ujira.payout_methods TO ujira_reader;
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.principal_members TO ujira_app;
 GRANT SELECT ON TABLE ujira.principal_members TO ujira_reader;
 GRANT INSERT ON TABLE ujira.principal_members TO ujira_fn_principals;
+GRANT SELECT ON TABLE ujira.principal_members TO ujira_fn_sessions;
 
 
 --
@@ -4798,6 +5245,7 @@ GRANT INSERT ON TABLE ujira.principals TO ujira_fn_principals;
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.projects TO ujira_app;
 GRANT SELECT ON TABLE ujira.projects TO ujira_reader;
 GRANT INSERT ON TABLE ujira.projects TO ujira_fn_principals;
+GRANT SELECT ON TABLE ujira.projects TO ujira_fn_sessions;
 
 
 --

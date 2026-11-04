@@ -18,6 +18,14 @@ export {
   type ProjectContext,
   type TenantSession,
 } from './database.js';
+export { memberSessions } from './repositories/sessions.js';
+export type {
+  CreatedSession,
+  Membership,
+  NewMemberSession,
+  ResolvedSession,
+  SessionAssurance,
+} from './repositories/sessions.js';
 export {
   MAX_PAGE_SIZE,
   PageRequestError,

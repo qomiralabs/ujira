@@ -349,6 +349,24 @@ export interface UjiraMandateStateSnapshots {
   taken_at: Generated<Timestamp>;
 }
 
+export interface UjiraMemberSessions {
+  aal: string;
+  absolute_expires_at: Timestamp;
+  auth_subject: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  idle_expires_at: Timestamp;
+  ip_hmac: Buffer | null;
+  principal_id: string | null;
+  project_id: string | null;
+  revoked_at: Timestamp | null;
+  revoked_reason: string | null;
+  secret_hash: Buffer;
+  stepped_up_at: Timestamp | null;
+  supabase_session_id: string;
+  user_agent_family: string | null;
+}
+
 export interface UjiraMigrations {
   id: Generated<number>;
   name: string;
@@ -377,6 +395,7 @@ export interface UjiraPrincipalMembers {
   created_at: Generated<Timestamp>;
   principal_id: string;
   role: string;
+  status: Generated<string>;
   updated_at: Generated<Timestamp>;
   user_id: string;
 }
@@ -491,6 +510,7 @@ export interface Schema {
   'ujira.mandate_instances': UjiraMandateInstances;
   'ujira.mandate_state_snapshots': UjiraMandateStateSnapshots;
   'ujira.mandates': UjiraMandates;
+  'ujira.member_sessions': UjiraMemberSessions;
   'ujira.payout_methods': UjiraPayoutMethods;
   'ujira.principal_members': UjiraPrincipalMembers;
   'ujira.principals': UjiraPrincipals;
