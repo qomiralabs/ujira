@@ -171,6 +171,29 @@ export interface UjiraDeposits {
   scale: number;
 }
 
+export interface UjiraFundingAccounts {
+  address: string;
+  created_at: Generated<Timestamp>;
+  faults: Generated<string[]>;
+  id: Generated<string>;
+  network: string;
+  principal_id: string;
+  project_id: string;
+  sponsor: string;
+  sponsor_tx_hash: Buffer;
+  status: string;
+}
+
+export interface UjiraFundingAccountSources {
+  created_at: Generated<Timestamp>;
+  funding_account_id: string;
+  funding_source_id: string;
+  id: Generated<string>;
+  mandate_instance_id: string;
+  principal_id: string;
+  project_id: string;
+}
+
 export interface UjiraFundingSources {
   config: Generated<Json>;
   created_at: Generated<Timestamp>;
@@ -445,6 +468,8 @@ export interface Schema {
   'ujira.currencies': UjiraCurrencies;
   'ujira.currency_scales': UjiraCurrencyScales;
   'ujira.deposits': UjiraDeposits;
+  'ujira.funding_account_sources': UjiraFundingAccountSources;
+  'ujira.funding_accounts': UjiraFundingAccounts;
   'ujira.funding_sources': UjiraFundingSources;
   'ujira.funding_sweeps': UjiraFundingSweeps;
   'ujira.ledger_accounts': UjiraLedgerAccounts;
