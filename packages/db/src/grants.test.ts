@@ -143,7 +143,12 @@ describe('grants on ujira', () => {
       auditHash,
       'function ujira.authenticate_token(text)',
       'function ujira.create_principal(text,text,uuid,text)',
-      ...context,
+      'function ujira.current_principal_id()',
+      'function ujira.current_project_id()',
+      'function ujira.due_attempt_deadlines(timestamp with time zone,integer)',
+      'function ujira.overdue_fee_refunds(integer)',
+      'function ujira.project_scope_all()',
+      'function ujira.reconcile_targets(uuid,integer)',
     ]);
     expect(await executable('ujira_auth')).toEqual([
       'function ujira.authenticate_token(text)',
@@ -182,11 +187,14 @@ describe('roles', () => {
       'ujira_owner',
       'ujira_reader',
       'ujira_retention',
+      'ujira_scheduler',
       'ujira_signer_attester',
       'ujira_signer_read',
+      'ujira_worker',
     ]);
     const nologin = new Set([
       'ujira_owner',
+      'ujira_scheduler',
       'ujira_fn_audit',
       'ujira_fn_instances',
       'ujira_fn_ledger',
@@ -213,8 +221,14 @@ describe('roles', () => {
       { fn: 'ujira.audit_chain()', owner: 'ujira_fn_audit' },
       { fn: 'ujira.authenticate_token(text)', owner: 'ujira_fn_tokens' },
       { fn: 'ujira.create_principal(text,text,uuid,text)', owner: 'ujira_fn_principals' },
+      {
+        fn: 'ujira.due_attempt_deadlines(timestamp with time zone,integer)',
+        owner: 'ujira_scheduler',
+      },
       { fn: 'ujira.ledger_balanced()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.ledger_stamp()', owner: 'ujira_fn_ledger' },
+      { fn: 'ujira.overdue_fee_refunds(integer)', owner: 'ujira_scheduler' },
+      { fn: 'ujira.reconcile_targets(uuid,integer)', owner: 'ujira_scheduler' },
       { fn: 'ujira.resolve_mandate_instance(text,text)', owner: 'ujira_fn_instances' },
     ]);
     // Each holds only what its one function needs, and never CREATE.
