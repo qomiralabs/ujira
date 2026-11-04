@@ -103,7 +103,7 @@ async function tenant(name: string): Promise<Tenant> {
       prefix: `uj_${name}_${randomUUID().slice(0, 8)}`,
       secretSha256: Buffer.alloc(32, 7),
       scopes: ['payouts:read'],
-      expiresAt: null,
+      expiresAt: new Date('2100-01-01T00:00:00Z'),
     }),
   );
   const agentId = randomUUID();
@@ -445,8 +445,8 @@ const cases: Record<string, () => Promise<void>> = {
       apiTokens.create(tx, {
         prefix: `uj_case_${randomUUID().slice(0, 8)}`,
         secretSha256: Buffer.alloc(32, 9),
-        scopes: [],
-        expiresAt: null,
+        scopes: ['payouts:read'],
+        expiresAt: new Date('2100-01-01T00:00:00Z'),
       }),
     );
     expect(token.projectId).toBe(a.first.projectId);
