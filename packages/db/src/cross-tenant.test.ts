@@ -16,6 +16,7 @@ import type { Database, ProjectContext } from './database.js';
 import type { Schema } from './schema.generated.js';
 import { audit, auditRepositories } from './repositories/audit.js';
 import { entryPoints } from './repositories/entry-points.js';
+import { fundingAccountRepositories, fundingAccounts } from './repositories/funding-accounts.js';
 import { managedSigners } from './repositories/signers.js';
 import { ledger, ledgerRepositories } from './repositories/ledger.js';
 import {
@@ -68,6 +69,7 @@ interface Tenant {
   readonly instanceId: string;
   readonly sourceId: string;
   readonly accountSourceId: string;
+  readonly fundingAccountId: string;
   readonly sweepId: string;
   readonly depositOperationId: string;
   readonly eventId: string;
@@ -89,6 +91,7 @@ interface Tenant {
 const REPOSITORIES = {
   ...tenancyRepositories,
   ...mandateRepositories,
+  ...fundingAccountRepositories,
   ...ledgerRepositories,
   ...recipientRepositories,
   ...identityEvidenceRepositories,
@@ -115,7 +118,7 @@ async function tenant(name: string): Promise<Tenant> {
       prefix: `uj_${name}_${randomUUID().slice(0, 8)}`,
       secretSha256: Buffer.alloc(32, 7),
       scopes: ['payouts:read'],
-      expiresAt: null,
+      expiresAt: new Date('2100-01-01T00:00:00Z'),
     }),
   );
   const agentId = randomUUID();
@@ -129,7 +132,7 @@ async function tenant(name: string): Promise<Tenant> {
     }),
   );
   const depositOperationId = randomUUID();
-  const { mandateId, instanceId, sourceId, accountSourceId, sweepId } = await db
+  const { mandateId, instanceId, sourceId, accountSourceId, sweepId, fundingAccountId } = await db
     .tenant(first)
     .transaction(async (tx) => {
       const mandate = await mandates.create(tx, { name: `${name} mandate` });
@@ -156,12 +159,20 @@ async function tenant(name: string): Promise<Tenant> {
         depositOperationId,
         amount: tokenAmount(100n, 'USDC', 'stellar'),
       });
+      const forwarder = await fundingAccounts.record(tx, {
+        network: 'stellar:testnet',
+        address: `G${randomUUID()}`,
+        sponsor: `G${randomUUID()}`,
+        sponsorTxHash: randomBytes(32),
+        faults: [],
+      });
       return {
         mandateId: mandate.id,
         instanceId: instance.id,
         sourceId: source.id,
         accountSourceId: account.id,
         sweepId: sweep.id,
+        fundingAccountId: forwarder?.id ?? '',
       };
     });
   const eventTxHash = randomBytes(32);
@@ -314,6 +325,7 @@ async function tenant(name: string): Promise<Tenant> {
     instanceId,
     sourceId,
     accountSourceId,
+    fundingAccountId,
     sweepId,
     depositOperationId,
     eventId,
@@ -438,8 +450,8 @@ const cases: Record<string, () => Promise<void>> = {
       apiTokens.create(tx, {
         prefix: `uj_case_${randomUUID().slice(0, 8)}`,
         secretSha256: Buffer.alloc(32, 9),
-        scopes: [],
-        expiresAt: null,
+        scopes: ['payouts:read'],
+        expiresAt: new Date('2100-01-01T00:00:00Z'),
       }),
     );
     expect(token.projectId).toBe(a.first.projectId);
@@ -602,6 +614,50 @@ const cases: Record<string, () => Promise<void>> = {
       fundingSources.create(tx, { mandateInstanceId: b.instanceId, kind: 'stablecoin_deposit' }),
     );
     expect(await codeOf(attempt)).toBe('23503');
+  },
+  'fundingAccounts.forNetwork': async () => {
+    const seen = await asA(async (tx) => fundingAccounts.forNetwork(tx, 'stellar:testnet'));
+    expect(seen?.id).toBe(a.fundingAccountId);
+    const across = await acrossA(async (tx) => fundingAccounts.forNetwork(tx, 'stellar:testnet'));
+    expect(across?.id).toBe(a.fundingAccountId);
+  },
+  'fundingAccounts.record': async () => {
+    const saved = await asA(async (tx) =>
+      fundingAccounts.record(tx, {
+        network: 'stellar:pubnet',
+        address: `G${randomUUID()}`,
+        sponsor: `G${randomUUID()}`,
+        sponsorTxHash: randomBytes(32),
+        faults: [],
+      }),
+    );
+    expect(await ownerOf('ujira.funding_accounts', 'id', saved?.id ?? '')).toBe(
+      a.first.principalId,
+    );
+  },
+  'fundingAccounts.attach': async () => {
+    // Another tenant's account is simply not there to attach.
+    expect(
+      await asA(async (tx) =>
+        fundingAccounts.attach(tx, {
+          accountId: b.fundingAccountId,
+          mandateInstanceId: a.instanceId,
+        }),
+      ),
+    ).toBeUndefined();
+    // And another tenant's instance fails its key, with the tenant on the row.
+    const attempt = asA(async (tx) =>
+      fundingAccounts.attach(tx, {
+        accountId: a.fundingAccountId,
+        mandateInstanceId: b.instanceId,
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+    const count = await admin.query<{ count: string }>(
+      'select count(*)::text as count from ujira.funding_account_sources where mandate_instance_id = $1',
+      [b.instanceId],
+    );
+    expect(count.rows[0]?.count).toBe('0');
   },
   'chainEvents.record': async () => {
     const event = {
