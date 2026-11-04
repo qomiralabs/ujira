@@ -30,6 +30,7 @@ export {
   RailRejectedError,
   RailTimeoutError,
   RailUnavailableError,
+  RateUnavailableError,
   ReorgedError,
   RpcLaggingError,
   RpcRateLimitedError,
@@ -118,6 +119,7 @@ export {
   signerRetryDecision,
 } from './retry.js';
 export type { AlertKind, RetryDecision, RetryRule, SignerErrorCode } from './retry.js';
+export type * from './funding-account.js';
 export type * from './signer.js';
 export { createRentWatch, utcDay } from './stellar/rent-watch.js';
 export type {
@@ -144,5 +146,15 @@ export type {
   TtlPorts,
 } from './stellar/ttl-job.js';
 export { tenantRefOf, tenantTagOf } from './tenant-ref.js';
+export { createXlmRateReader, deviationBps } from './stellar/xlm-rate.js';
+export type {
+  XlmRate,
+  XlmRateAlerts,
+  XlmRateObservation,
+  XlmRateReader,
+  XlmRateReaderOptions,
+  XlmRateSource,
+  XlmRateSourceName,
+} from './stellar/xlm-rate.js';
 export { CHAIN_ADAPTER_INTERFACE_VERSION } from './types.js';
 export type * from './types.js';

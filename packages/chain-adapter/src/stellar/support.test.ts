@@ -55,8 +55,10 @@ describe('the stellar entry', { timeout: 30_000 }, () => {
       'createStellarRpc',
       'extensionPlan',
       'fateOf',
+      'horizonDexSource',
       'mandateAddressOf',
       'parseForwarderRequest',
+      'reflectorOracleSource',
       'stellarFundingView',
     ]);
   });

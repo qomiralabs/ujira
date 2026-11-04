@@ -25,7 +25,10 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint --max-warnings 0 .",
-    "test": "vitest run --coverage"
+    "test": "vitest run --coverage",
+    "start:chain": "node dist/service/main/chain.js",
+    "start:agent": "node dist/service/main/agent.js",
+    "start:attester": "node dist/service/main/attester.js"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "3.1152.0",
