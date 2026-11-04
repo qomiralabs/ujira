@@ -22,6 +22,7 @@ import { testTransactionXdr } from '@ujira/chain-adapter/testing';
 import { describe, expect, it } from 'vitest';
 
 import { LOCAL_SEED_VARIABLE, LocalAttesterSigner, LocalSigner } from './index.js';
+import { TEST_MANDATES } from './testing/unpayable.js';
 
 const SEED = '3c'.repeat(32);
 const OPTS: CallOptions = { correlationId: 'local-signer-test' };
@@ -42,11 +43,16 @@ describe('LocalSigner', () => {
       SignerDeniedError,
     );
     expect(
-      thrown(() => new LocalAttesterSigner({ seed: SEED, nodeEnv: 'production' })),
+      thrown(
+        () =>
+          new LocalAttesterSigner({ seed: SEED, nodeEnv: 'production', mandates: TEST_MANDATES }),
+      ),
     ).toBeInstanceOf(SignerDeniedError);
     const env = { [LOCAL_SEED_VARIABLE]: SEED, NODE_ENV: 'production' };
     expect(thrown(() => LocalSigner.fromEnv(env))).toBeInstanceOf(SignerDeniedError);
-    expect(thrown(() => LocalAttesterSigner.fromEnv(env))).toBeInstanceOf(SignerDeniedError);
+    expect(thrown(() => LocalAttesterSigner.fromEnv(TEST_MANDATES, env))).toBeInstanceOf(
+      SignerDeniedError,
+    );
   });
 
   it('health returns healthy with p95', async () => {
@@ -79,7 +85,7 @@ describe('LocalSigner', () => {
     );
     expect(a).toEqual(b);
     expect(a.value).not.toBe(c.value);
-    const attester = LocalAttesterSigner.fromEnv(env);
+    const attester = LocalAttesterSigner.fromEnv(TEST_MANDATES, env);
     expect(await attester.publicKey('stellar:testnet', OPTS)).toHaveLength(32);
   });
 
@@ -109,7 +115,7 @@ describe('LocalSigner', () => {
   it('never shows its seed', () => {
     for (const signer of [
       new LocalSigner({ seed: SEED, nodeEnv: 'test' }),
-      new LocalAttesterSigner({ seed: SEED, nodeEnv: 'test' }),
+      new LocalAttesterSigner({ seed: SEED, nodeEnv: 'test', mandates: TEST_MANDATES }),
     ]) {
       expect(JSON.stringify(signer)).not.toContain(SEED);
       expect(inspect(signer, { depth: 10, showHidden: true })).not.toContain(SEED);
@@ -134,7 +140,11 @@ describe('LocalSigner', () => {
     controller.abort();
     const opts: CallOptions = { ...OPTS, signal: controller.signal };
     const signer = new LocalSigner({ seed: SEED, nodeEnv: 'test' });
-    const attester = new LocalAttesterSigner({ seed: SEED, nodeEnv: 'test' });
+    const attester = new LocalAttesterSigner({
+      seed: SEED,
+      nodeEnv: 'test',
+      mandates: TEST_MANDATES,
+    });
     await expect(signer.address(EXECUTOR, opts)).rejects.toBeInstanceOf(SignerUnavailableError);
     await expect(signer.health(opts)).rejects.toBeInstanceOf(SignerUnavailableError);
     await expect(attester.publicKey('stellar:testnet', opts)).rejects.toBeInstanceOf(

@@ -80,6 +80,15 @@ export {
   type ProjectPayoutMinimum,
 } from './repositories/payouts.js';
 export {
+  managedSigners,
+  signingKeys,
+  type ManagedSigner,
+  type NewManagedSigner,
+  type SignerKeyStatus,
+  type SigningKey,
+  type SigningKeyPurpose,
+} from './repositories/signers.js';
+export {
   entryPoints,
   type CreatedPrincipal,
   type NewPrincipal,

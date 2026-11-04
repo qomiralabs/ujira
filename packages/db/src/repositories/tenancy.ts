@@ -17,6 +17,7 @@ import type { Schema } from '../schema.generated.js';
 import { audit, type AuditActor } from './audit.js';
 import { checkedLimit, pageOf, type Page, type PageRequest } from './page.js';
 import type { CashoutCostBearer } from './payouts.js';
+import { managedSigners } from './signers.js';
 
 type Tx = Kysely<Schema>;
 
@@ -419,4 +420,10 @@ export const apiTokens = {
 
 // Every tenant repository, for the cross-tenant matrix, which requires a
 // case for each method listed here.
-export const tenancyRepositories = { principals, projects, members, apiTokens } as const;
+export const tenancyRepositories = {
+  principals,
+  projects,
+  members,
+  apiTokens,
+  managedSigners,
+} as const;

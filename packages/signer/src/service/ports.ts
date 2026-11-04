@@ -8,9 +8,12 @@
 
 import type { CallOptions, NetworkId, TenantScope } from '@ujira/chain-adapter';
 
+import type { MandateSettlement } from '../unpayable.js';
+
 export type RecipientMode = 'allowlist' | 'attested' | 'both';
 
-export interface IndexedMandate {
+/** With what the mandate settles through, as it was deployed, so none of it is ever attested. */
+export interface IndexedMandate extends MandateSettlement {
   readonly tenant: TenantScope;
   readonly recipientMode: RecipientMode;
 }
