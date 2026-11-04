@@ -23,19 +23,9 @@ export {
 } from './restore-policy.js';
 export type { ExtensionGroup, ExtensionPolicy, RestoredEntry } from './restore-policy.js';
 export { createStellarRpc } from './rpc.js';
-export {
-  MIN_WRITE_BYTES_PADDING,
-  PADDED_CALLS,
-  checkPaddingValidated,
-  createMemoryStepLog,
-  ledgerEntryState,
-  padWriteBytes,
-  resourceFailureOf,
-  restoredKeysOf,
-  ttlExtensionKey,
-} from './soroban-rules.js';
-export type { LedgerEntryState, ResourceFailure, StepLog } from './soroban-rules.js';
 export { accountBalance } from './tx.js';
+export { fateOf } from './lifecycle.js';
+export type { ReconcileResult, SubmissionFate, SweepOptions } from './lifecycle.js';
 export type {
   JsonRpcOptions,
   RpcLatestLedger,

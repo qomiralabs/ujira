@@ -51,6 +51,10 @@ export interface RpcTransaction {
   readonly resultXdr?: string;
   /** Base64 TransactionMeta once included, which lists any restored entries. */
   readonly resultMetaXdr?: string;
+  /** The RPC's window at the time of the answer, which says what a NOT_FOUND can prove. */
+  readonly latestLedger?: number;
+  readonly latestLedgerCloseTime?: bigint;
+  readonly oldestLedger?: number;
 }
 
 export type RawSimulation = Api.RawSimulateTransactionResponse;
@@ -231,11 +235,17 @@ export function createStellarRpc(options: JsonRpcOptions): StellarRpc {
         const ledger = optionalInt(result, 'ledger');
         const resultXdr = result['resultXdr'];
         const resultMetaXdr = result['resultMetaXdr'];
+        const latestLedger = optionalInt(result, 'latestLedger');
+        const oldestLedger = optionalInt(result, 'oldestLedger');
+        const closeTime = result['latestLedgerCloseTime'];
         return {
           status: status as RpcTransaction['status'],
           ...(ledger === undefined ? {} : { ledger }),
           ...(typeof resultXdr === 'string' ? { resultXdr } : {}),
           ...(typeof resultMetaXdr === 'string' ? { resultMetaXdr } : {}),
+          ...(latestLedger === undefined ? {} : { latestLedger }),
+          ...(oldestLedger === undefined ? {} : { oldestLedger }),
+          ...(typeof closeTime === 'string' ? { latestLedgerCloseTime: BigInt(closeTime) } : {}),
         };
       });
     },

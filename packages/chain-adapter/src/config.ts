@@ -257,6 +257,9 @@ const stellarNetwork = z
       txValiditySeconds: z.int().min(10).max(300),
       // The channel account pool. Jobs lease one key at a time from it.
       keys: z.array(keyRef).min(1).max(256),
+      // A channel holds far less than the sponsor, so it has its own lines.
+      lowBalanceStroops: stroops.default(500_000_000n),
+      minBalanceStroops: stroops.default(50_000_000n),
     }),
     feeSponsor,
     fees,

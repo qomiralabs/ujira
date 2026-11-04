@@ -13,7 +13,6 @@ import type { FeeBumpTransaction, Transaction } from '@stellar/stellar-sdk/base'
 import { describe, expect, it } from 'vitest';
 
 import {
-  ChainUnavailableError,
   InvalidInputError,
   MandateRuleError,
   MemoOnContractCallError,
@@ -197,16 +196,18 @@ describe('submitSigned for an account signer', { timeout: 30_000 }, () => {
     });
     expect(rejected.sponsorship.calls.map((c) => c.kind)).toEqual(['reserve', 'release']);
 
+    // Busy is not a refusal: the identical envelope goes again, and a send that
+    // never got through stays open with its reservation held.
     const busy = setup();
     busy.rpc.sendResult = () => ({ status: 'TRY_AGAIN_LATER', hash: 'x' });
     const r2 = await prepare(busy, { op: 'pause' });
     await expect(submit(busy, r2.requestId, sign(r2, busy.principal))).rejects.toBeInstanceOf(
-      ChainUnavailableError,
+      SubmissionUnknownError,
     );
-    expect([...busy.store.submissions.values()][0]).toMatchObject({
-      errorCode: 'CHAIN_UNAVAILABLE',
-    });
-    expect(busy.sponsorship.calls.map((c) => c.kind)).toEqual(['reserve', 'release']);
+    expect(busy.rpc.sent.length).toBeGreaterThan(1);
+    expect(new Set(busy.rpc.sent).size).toBe(1);
+    expect([...busy.store.submissions.values()][0]).toMatchObject({ state: 'broadcast' });
+    expect(busy.sponsorship.calls.map((c) => c.kind)).toEqual(['reserve']);
 
     const lost = setup();
     lost.rpc.sendResult = () => {
@@ -509,6 +510,21 @@ describe('re-simulating after a resource failure', { timeout: 30_000 }, () => {
       landed: 'yes',
     });
     expect(t.rpc.sent).toHaveLength(1);
+  });
+
+  it('reads a failed outcome again, and one the sweep already closed, without a store error', async () => {
+    const t = setup();
+    const req = pauseReq(t);
+    const first = await t.adapter.prepareMandateAction(req, OPTS);
+    const ref = await submit(t, first.requestId, sign(first, t.principal));
+    t.rpc.txs.set(ref.txHash, { status: 'FAILED', resultXdr: failedResult('trapped') });
+    const rejected = { code: 'SUBMISSION_REJECTED', landed: 'yes' };
+    await expect(t.adapter.signedOutcome(req, first.requestId, OPTS)).rejects.toMatchObject(
+      rejected,
+    );
+    await expect(t.adapter.signedOutcome(req, first.requestId, OPTS)).rejects.toMatchObject(
+      rejected,
+    );
   });
 
   it('a re-simulated principal action returns a new signing request with reason RESIMULATED', async () => {

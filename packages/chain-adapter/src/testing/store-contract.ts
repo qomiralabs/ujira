@@ -104,6 +104,8 @@ function submission(
     errorCode: null,
     specCode: null,
     replacesTxHash: null,
+    submittedAtLedger: null,
+    reservationId: null,
     correlationId: `corr-${label}`,
     createdAt: h.now(),
     ...o,
@@ -281,6 +283,20 @@ export const STORE_CHECKS: readonly StoreCheck[] = Object.freeze([
         await refused(h.store.updateSubmission(h.otherScope, r.network, r.txHash, patch)),
       ).toBe(true);
       expect((await live(h, r))?.state).toBe('built');
+    },
+  },
+  {
+    name: 'finds a record in any state, for its own tenant only',
+    run: async (h) => {
+      const r = submission(h, 'find-me');
+      expect(await h.store.findSubmission(r.scope, r.network, r.txHash)).toBeNull();
+      await h.store.recordSubmission(r);
+      await walk(h, r, 'landed');
+      expect(await h.store.findSubmission(r.scope, r.network, r.txHash)).toMatchObject({
+        txHash: r.txHash,
+        state: 'landed',
+      });
+      expect(await h.store.findSubmission(h.otherScope, r.network, r.txHash)).toBeNull();
     },
   },
   {

@@ -100,26 +100,26 @@ export interface RestoreRequest {
   readonly correlationId: string;
 }
 
-// Builds a footprint call from its own simulation, called again for each try,
-// so a retry uses the session's next sequence and a footprint of its own.
-function preparer(
+/**
+ * A restore or an extension for the session's next sequence, built from a
+ * fresh simulation of the footprint in `data`. Called again for each try, so a
+ * retry uses the next sequence and a footprint of its own.
+ */
+export async function preparedFootprintTx(
   ctx: ExecutorContext,
   session: ExecutorSession,
   mandate: string,
+  call: Parameters<typeof footprintTx>[0],
+  data: xdr.SorobanTransactionData,
   opts: CallOptions,
-) {
+): Promise<Transaction> {
   const { network, rpc, ports } = ctx;
-  return async (
-    call: Parameters<typeof footprintTx>[0],
-    data: xdr.SorobanTransactionData,
-  ): Promise<Transaction> => {
-    const maxTime =
-      ports.clock.nowSeconds() + BigInt(ports.config()[network]?.executor.txValiditySeconds ?? 60);
-    const build = { network, source: session.address, sequence: session.sequence, maxTime };
-    const tx = footprintTx(call, { ...build, sorobanData: data.toXdr('base64') });
-    const sim = await simulate(rpc, network, tx, mandate, opts);
-    return footprintTx(call, { ...build, sorobanData: simulatedData(sim) });
-  };
+  const maxTime =
+    ports.clock.nowSeconds() + BigInt(ports.config()[network]?.executor.txValiditySeconds ?? 60);
+  const build = { network, source: session.address, sequence: session.sequence, maxTime };
+  const tx = footprintTx(call, { ...build, sorobanData: data.toXdr('base64') });
+  const sim = await simulate(rpc, network, tx, mandate, opts);
+  return footprintTx(call, { ...build, sorobanData: simulatedData(sim) });
 }
 
 /** Restores `keys` from the session's account, then extends them by policy. */
@@ -134,7 +134,11 @@ export async function restoreAndExtend(
     mandate: req.target.mandate,
     correlationId: req.correlationId,
   };
-  const prepare = preparer(ctx, session, req.target.mandate, opts);
+  const prepare = (
+    call: Parameters<typeof footprintTx>[0],
+    data: xdr.SorobanTransactionData,
+  ): Promise<Transaction> =>
+    preparedFootprintTx(ctx, session, req.target.mandate, call, data, opts);
   await sendFresh(
     ctx,
     session,
@@ -166,7 +170,11 @@ export async function extendRestored(
     mandate: req.target.mandate,
     correlationId: req.correlationId,
   };
-  const prepare = preparer(ctx, session, req.target.mandate, opts);
+  const prepare = (
+    call: Parameters<typeof footprintTx>[0],
+    data: xdr.SorobanTransactionData,
+  ): Promise<Transaction> =>
+    preparedFootprintTx(ctx, session, req.target.mandate, call, data, opts);
   const ids = req.keys.map((key) => key.toXdr('base64'));
   const { entries } = await rpc.getLedgerEntries(ids, opts);
   const values = new Map<string, xdr.ScVal>();

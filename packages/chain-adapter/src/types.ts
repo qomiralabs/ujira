@@ -240,6 +240,14 @@ export interface SubmissionRecord {
   readonly specCode: number | null;
   /** The submission this one replaced, for a fee bump of the same envelope. */
   readonly replacesTxHash: string | null;
+  /**
+   * The latest ledger just before the send, or null where none was read. A
+   * transaction cannot land before it, so an RPC whose retention reaches back
+   * this far can prove the transaction is gone.
+   */
+  readonly submittedAtLedger: bigint | null;
+  /** The sponsorship reservation paying for it, or null for UJIRA's own transaction. */
+  readonly reservationId: string | null;
   readonly correlationId: string;
   readonly createdAt: UnixSeconds;
 }
@@ -325,6 +333,12 @@ export interface AdapterStore {
     txHash: string,
     patch: SubmissionPatch,
   ): Promise<void>;
+  /** One tenant's record by hash, in any state. Another tenant's row reads as null. */
+  findSubmission(
+    scope: TenantScope,
+    network: NetworkId,
+    txHash: string,
+  ): Promise<SubmissionRecord | null>;
   liveSubmission(key: {
     readonly scope: TenantScope;
     readonly network: NetworkId;
