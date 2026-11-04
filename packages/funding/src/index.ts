@@ -3,6 +3,8 @@
 
 export {
   FUNDING_ERROR_CODES,
+  FundingAccountConflictError,
+  FundingAccountStateError,
   FundingError,
   FundingInputError,
   SweepStateError,
@@ -10,7 +12,20 @@ export {
   SweepTimeoutError,
 } from './errors.js';
 export type { FundingErrorCode } from './errors.js';
+export { createFundingAccountService } from './funding-account.js';
+export type {
+  AttachFundingAccount,
+  ConfirmFundingAccount,
+  ConfirmedFundingAccount,
+  FundingAccountService,
+  FundingAccountServiceOptions,
+  FundingAccountOptionsRequest,
+  FundingSourceStore,
+  StartFundingAccount,
+  SubmitFundingAccount,
+} from './funding-account.js';
 export {
+  MemoryFundingAccounts,
   MemorySweepStore,
   RecordingSweepFunding,
   RecordingSweepPrompts,
