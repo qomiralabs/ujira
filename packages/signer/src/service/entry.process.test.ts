@@ -11,7 +11,7 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { connect } from 'node:net';
@@ -38,9 +38,6 @@ const PROCESS_TEST = { timeout: 180_000 };
 
 const PACKAGE = path.resolve(import.meta.dirname, '../..');
 const TSC = path.resolve(PACKAGE, '../../node_modules/typescript/bin/tsc');
-// Inside the package, so the build finds its dependencies as dist does, and
-// under node_modules, so it is never committed or linted.
-const BUILT = path.join(PACKAGE, 'node_modules/.entry-process-test');
 const OWN_KEY = 'b7'.repeat(32);
 
 type Role = 'chain' | 'agent' | 'attester';
@@ -55,7 +52,7 @@ interface Started {
 
 /** Only what is listed reaches the child, so this machine's own settings cannot help it. */
 function start(role: Role, env: Record<string, string>): Started {
-  const child = spawn(process.execPath, [path.join(BUILT, `service/main/${role}.js`)], {
+  const child = spawn(process.execPath, [path.join(home, 'built', `service/main/${role}.js`)], {
     env: { PATH: process.env['PATH'] ?? '', ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -171,16 +168,19 @@ let home: string;
 let networks: string;
 
 beforeAll(async () => {
-  // The entry points as tsc emits them, the same as what ships.
+  home = mkdtempSync(path.join(tmpdir(), 'signer-entry-'));
+  // The entry points as tsc emits them, the same as what ships. CI mounts the
+  // repository read-only under test, so the build goes in a temporary folder,
+  // and the link lets it find its dependencies from there.
+  symlinkSync(path.join(PACKAGE, 'node_modules'), path.join(home, 'node_modules'));
   const build = spawnSync(
     process.execPath,
-    [TSC, '-p', 'tsconfig.build.json', '--outDir', BUILT, '--noEmitOnError'],
+    [TSC, '-p', 'tsconfig.build.json', '--outDir', path.join(home, 'built'), '--noEmitOnError'],
     { cwd: PACKAGE, encoding: 'utf8' },
   );
   expect(build.status, build.stdout).toBe(0);
   aws = new AwsStandIn();
   await aws.start();
-  home = mkdtempSync(path.join(tmpdir(), 'signer-entry-'));
   writeFileSync(path.join(home, 'token'), 'stand-in-web-identity-token');
   networks = await networksDocument();
 }, 300_000);
@@ -188,7 +188,6 @@ beforeAll(async () => {
 afterAll(async () => {
   await aws.stop();
   rmSync(home, { recursive: true, force: true });
-  rmSync(BUILT, { recursive: true, force: true });
 });
 
 function kmsEnv(nodeEnv: string, port: number): Record<string, string> {
