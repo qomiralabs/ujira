@@ -30,10 +30,14 @@ export { networkIdOf, networkPassphrase } from './network.js';
 export type { DecodedOperationDetail, DecodedTrustAsset } from './operations.js';
 export { CONTRACT_OPERATION_TYPES, assertNoMemoOnContractCall } from './memo.js';
 export {
+  ZERO_ACCOUNT_ADDRESS,
+  ZERO_CONTRACT_ADDRESS,
+  baseAddress,
   decodeAccountAddress,
   encodeAccountAddress,
   encodeMuxedAddress,
   isAccountAddress,
   isContractAddress,
+  isZeroAddress,
 } from './strkey.js';
 export type { DecodedAccount, Ed25519SignatureParts } from './xdr.js';
