@@ -37,6 +37,8 @@ export interface StoredSigningRequest {
   readonly fee: bigint;
   readonly validUntil: UnixSeconds;
   readonly summary: SigningSummary;
+  /** How many times this action has been re-simulated to get here. */
+  readonly resimulations?: number;
 }
 
 export interface SigningRequestUse {

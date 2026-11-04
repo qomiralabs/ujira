@@ -47,6 +47,14 @@ import {
   recipients,
 } from './repositories/recipients.js';
 import {
+  agentIdentityLinks,
+  attestations,
+  destinationVerifications,
+  embedSessions,
+  identityEvidenceRepositories,
+  walletChallenges,
+} from './repositories/identity-evidence.js';
+import {
   apiTokens,
   members,
   principals,
@@ -88,6 +96,11 @@ interface Tenant {
   readonly attemptId: string;
   readonly heldPayoutId: string;
   readonly legId: string;
+  readonly sessionId: string;
+  readonly challengeId: string;
+  readonly verificationId: string;
+  readonly attestationId: string;
+  readonly agentLinkId: string;
 }
 
 const REPOSITORIES = {
@@ -96,6 +109,7 @@ const REPOSITORIES = {
   ...fundingAccountRepositories,
   ...ledgerRepositories,
   ...recipientRepositories,
+  ...identityEvidenceRepositories,
   ...auditRepositories,
   ...jobRepositories,
   ...payoutRepositories,
@@ -230,7 +244,7 @@ async function tenant(name: string): Promise<Tenant> {
     };
   });
   const destinationAddress = `G${randomUUID()}`;
-  const { recipientId, identityId, methodId } = await db.tenant(first).transaction(async (tx) => {
+  const evidence = await db.tenant(first).transaction(async (tx) => {
     const recipient = await recipients.create(tx, {
       recipientRef: randomBytes(32),
       country: 'NG',
@@ -256,8 +270,70 @@ async function tenant(name: string): Promise<Tenant> {
       details: null,
     });
     await audit.record(tx, { action: 'project.created', actor: { kind: 'system' } });
-    return { recipientId: recipient.id, identityId: identity.id, methodId: method.id };
+    const session = await embedSessions.create(tx, {
+      tokenHash: randomBytes(32),
+      tokenPrefix: `ujes_test_${randomUUID().slice(0, 8)}`,
+      recipientId: recipient.id,
+      purpose: 'onboarding',
+      allowedOrigins: ['https://app.example'],
+      createdByToken: null,
+      expiresAt: new Date('2027-01-15T09:00:00Z'),
+    });
+    const challenge = await walletChallenges.create(tx, {
+      methodId: method.id,
+      purpose: 'payout_destination',
+      network: 'stellar:testnet',
+      address: method.destinationAddress,
+      tag: null,
+      recipientRef: recipient.recipientRef,
+      requestId: randomUUID(),
+      nonceHash: randomBytes(32),
+      messageHash: randomBytes(32),
+      issuedAt: new Date('2027-01-15T08:00:00Z'),
+      expiresAt: new Date('2027-01-15T08:10:00Z'),
+    });
+    const verification = await destinationVerifications.record(tx, {
+      methodId: method.id,
+      level: 'partner_confirmed',
+      chain: 'stellar',
+      destinationAddress: method.destinationAddress,
+      destinationTag: null,
+      partnerRef: `partner-${name}`,
+    });
+    const attestation = await attestations.insertPending(tx, {
+      mandateInstanceId: instanceId,
+      attemptId: randomUUID(),
+      legIndex: 0,
+      recipientId: recipient.id,
+      methodId: method.id,
+      destinationAddress: method.destinationAddress,
+      destinationTag: null,
+      countryPolicyHash: randomBytes(32),
+      policyEpoch: 0n,
+      validUntil: new Date('2027-01-16T08:00:00Z'),
+      attesterKeyId: `0x${name}`,
+      digest: randomBytes(32),
+    });
+    const agentLink = await agentIdentityLinks.create(tx, {
+      network: 'stellar:testnet',
+      address: `G${randomUUID()}`,
+      registry: 'registry-1',
+      tokenId: 1n,
+      displayName: null,
+      humanBackedUntil: null,
+    });
+    return {
+      recipientId: recipient.id,
+      identityId: identity.id,
+      methodId: method.id,
+      sessionId: session.id,
+      challengeId: challenge.id,
+      verificationId: verification.id,
+      attestationId: attestation.id,
+      agentLinkId: agentLink.id,
+    };
   });
+  const { recipientId, methodId } = evidence;
   const { payoutId, batchId, attemptId, heldPayoutId, legId } = await db
     .tenant(first)
     .transaction(async (tx) => {
@@ -339,9 +415,7 @@ async function tenant(name: string): Promise<Tenant> {
     roleAddress,
     journalId,
     accountId,
-    recipientId,
-    identityId,
-    methodId,
+    ...evidence,
     payoutId,
     batchId,
     attemptId,
@@ -912,6 +986,124 @@ const cases: Record<string, () => Promise<void>> = {
   },
   'recipientIdentities.list': async () => {
     expect(await acrossA(async (tx) => recipientIdentities.list(tx, b.recipientId))).toEqual([]);
+  },
+  'embedSessions.create': async () => {
+    const attempt = asA(async (tx) =>
+      embedSessions.create(tx, {
+        tokenHash: randomBytes(32),
+        tokenPrefix: `ujes_test_${randomUUID().slice(0, 8)}`,
+        recipientId: b.recipientId,
+        purpose: 'identity',
+        allowedOrigins: ['https://app.example'],
+        createdByToken: null,
+        expiresAt: new Date('2027-01-15T09:00:00Z'),
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'embedSessions.get': async () => {
+    expect(await acrossA(async (tx) => embedSessions.get(tx, b.sessionId))).toBeUndefined();
+  },
+  'walletChallenges.create': async () => {
+    const attempt = asA(async (tx) =>
+      walletChallenges.create(tx, {
+        methodId: b.methodId,
+        purpose: 'payout_destination',
+        network: 'stellar:testnet',
+        address: 'GINTRUDER',
+        tag: null,
+        recipientRef: randomBytes(32),
+        requestId: randomUUID(),
+        nonceHash: randomBytes(32),
+        messageHash: randomBytes(32),
+        issuedAt: new Date('2027-01-15T08:00:00Z'),
+        expiresAt: new Date('2027-01-15T08:10:00Z'),
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'walletChallenges.get': async () => {
+    expect(await acrossA(async (tx) => walletChallenges.get(tx, b.challengeId))).toBeUndefined();
+  },
+  'walletChallenges.consume': async () => {
+    expect(await asA(async (tx) => walletChallenges.consume(tx, b.challengeId))).toBe(false);
+  },
+  'destinationVerifications.record': async () => {
+    const attempt = asA(async (tx) =>
+      destinationVerifications.record(tx, {
+        methodId: b.methodId,
+        level: 'partner_confirmed',
+        chain: 'stellar',
+        destinationAddress: 'GINTRUDER',
+        destinationTag: null,
+        partnerRef: 'intruder',
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'destinationVerifications.get': async () => {
+    expect(
+      await acrossA(async (tx) => destinationVerifications.get(tx, b.verificationId)),
+    ).toBeUndefined();
+  },
+  'destinationVerifications.latest': async () => {
+    expect(
+      await acrossA(async (tx) => destinationVerifications.latest(tx, b.methodId)),
+    ).toBeUndefined();
+  },
+  'attestations.insertPending': async () => {
+    const attempt = asA(async (tx) =>
+      attestations.insertPending(tx, {
+        mandateInstanceId: b.instanceId,
+        attemptId: randomUUID(),
+        legIndex: 0,
+        recipientId: b.recipientId,
+        methodId: b.methodId,
+        destinationAddress: 'GINTRUDER',
+        destinationTag: null,
+        countryPolicyHash: randomBytes(32),
+        policyEpoch: 0n,
+        validUntil: new Date('2027-01-16T08:00:00Z'),
+        attesterKeyId: '0xintruder',
+        digest: randomBytes(32),
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'attestations.get': async () => {
+    expect(await acrossA(async (tx) => attestations.get(tx, b.attestationId))).toBeUndefined();
+  },
+  'attestations.markSigned': async () => {
+    expect(
+      await asA(async (tx) => attestations.markSigned(tx, b.attestationId, randomBytes(64))),
+    ).toBe(false);
+  },
+  'attestations.markFailed': async () => {
+    expect(await asA(async (tx) => attestations.markFailed(tx, b.attestationId, 'X'))).toBe(false);
+  },
+  'agentIdentityLinks.create': async () => {
+    // A link names nothing of another tenant, so it lands in the caller's own.
+    const link = await asA(async (tx) =>
+      agentIdentityLinks.create(tx, {
+        network: 'stellar:testnet',
+        address: `G${randomUUID()}`,
+        registry: 'registry-1',
+        tokenId: 1n,
+        displayName: null,
+        humanBackedUntil: null,
+      }),
+    );
+    expect(
+      await db.tenant(b.first).transaction(async (tx) => agentIdentityLinks.get(tx, link.id)),
+    ).toBeUndefined();
+  },
+  'agentIdentityLinks.get': async () => {
+    expect(await acrossA(async (tx) => agentIdentityLinks.get(tx, b.agentLinkId))).toBeUndefined();
+  },
+  'agentIdentityLinks.setStatus': async () => {
+    expect(await asA(async (tx) => agentIdentityLinks.setStatus(tx, b.agentLinkId, 'active'))).toBe(
+      false,
+    );
   },
   'recipientIdentities.get': async () => {
     expect(await acrossA(async (tx) => recipientIdentities.get(tx, b.identityId))).toBeUndefined();
