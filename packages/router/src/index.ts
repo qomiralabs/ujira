@@ -36,4 +36,56 @@ export type {
   RoutingConfigVersionRecord,
   StoreCallOptions,
 } from './store.js';
-export { STORE_TIMEOUT_MS } from './timeout.js';
+export {
+  DEFAULT_FUNDING_HOLD_MAX_SECONDS,
+  RELEASE_BATCH,
+  RELEASE_TASK,
+  SWEEP_INTERVAL_SECONDS,
+  createMemoryFundingHoldStore,
+  heldStatus,
+  holdPayout,
+  onDeposit,
+  releaseJobSpec,
+  runReleaseHeld,
+  sweepFundingHolds,
+} from './hold.js';
+export type {
+  FundingHoldStore,
+  HeldPayout,
+  HoldDeps,
+  MemoryFundingHoldStore,
+  MemoryPayout,
+  ReleaseDeps,
+  ReleaseJobSpec,
+  ReleaseQueue,
+  ReleaseSummary,
+  ReleaseTarget,
+  StoreOptions,
+} from './hold.js';
+export {
+  QUOTE_DEADLINE_MS,
+  ROUTE_READ_DEADLINE_MS,
+  adapterRouteQuotes,
+  compareQuotes,
+  selectRoute,
+} from './select.js';
+export type {
+  MandateInstance,
+  MandateInstances,
+  NetworkShortfall,
+  PreviousAttempt,
+  ProviderHealth,
+  RouteDeps,
+  RouteLeg,
+  RouteOutcome,
+  RouteQuoteRequest,
+  RouteQuotes,
+  RouteRequest,
+  RoutedOutcome,
+  SelectedLeg,
+  UnavailableReason,
+  VerifiedDestination,
+  VerifiedDestinations,
+} from './select.js';
+export { RouteDeadlineError, STORE_TIMEOUT_MS, withinDeadline } from './timeout.js';
+export type { DeadlineResult } from './timeout.js';
