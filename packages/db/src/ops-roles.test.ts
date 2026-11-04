@@ -21,6 +21,7 @@ const TABLES = [
   'ops.executor_accounts',
   'ops.routing_config_versions',
   'ops.routing_config_active',
+  'ops.identity_provider_events',
   'ops.rate_limit_buckets',
   'ops.security_events',
 ];

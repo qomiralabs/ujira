@@ -158,15 +158,59 @@ export const recipientPii = {
   },
 };
 
-export type IdentityState = 'pending' | 'verified' | 'rejected' | 'expired';
+export type IdentityState = 'pending' | 'verified' | 'rejected' | 'expired' | 'revoked';
 
+export type IdentityAssurance = 'anchor_kyc' | 'document_zk' | 'principal_kyc' | 'none';
+
+// A copy of what a provider last said: references, statuses and digests, never
+// a document, a proof or a personal value.
 export interface RecipientIdentity {
   readonly id: string;
   readonly recipientId: string;
-  readonly chain: string;
+  // Null for a provider that is not per chain.
+  readonly chain: string | null;
   readonly provider: string;
-  readonly providerRef: string;
+  // Null before a provider has answered, and again after erasure.
+  readonly providerRef: string | null;
   readonly state: string;
+  readonly providerAccount: string | null;
+  readonly providerSubject: string | null;
+  readonly providerStatus: string | null;
+  readonly assurance: string;
+  readonly flowRef: string | null;
+  readonly nullifierHmac: Buffer | null;
+  readonly pendingSessionId: string | null;
+  readonly pendingSessionUrl: string | null;
+  readonly pendingSessionExpiresAt: Date | null;
+  readonly failureReason: string | null;
+  readonly rawSha256: Buffer | null;
+  readonly lastCheckedAt: Date | null;
+  readonly expiresAt: Date | null;
+}
+
+export interface NewProviderIdentity {
+  readonly recipientId: string;
+  readonly provider: string;
+  readonly providerAccount: string | null;
+}
+
+// What a provider's result or a new session changes. A field left out stays as
+// it is, and null clears it.
+export interface IdentityChange {
+  readonly state?: IdentityState;
+  readonly providerRef?: string | null;
+  readonly providerSubject?: string | null;
+  readonly providerStatus?: string | null;
+  readonly assurance?: IdentityAssurance;
+  readonly flowRef?: string | null;
+  readonly nullifierHmac?: Buffer | null;
+  readonly pendingSessionId?: string | null;
+  readonly pendingSessionUrl?: string | null;
+  readonly pendingSessionExpiresAt?: Date | null;
+  readonly failureReason?: string | null;
+  readonly rawSha256?: Buffer | null;
+  readonly lastCheckedAt?: Date | null;
+  readonly expiresAt?: Date | null;
 }
 
 export interface IdentityUpdate {
@@ -184,15 +228,41 @@ const identityColumns = [
   'provider',
   'provider_ref',
   'state',
+  'provider_account',
+  'provider_subject',
+  'provider_status',
+  'assurance',
+  'flow_ref',
+  'nullifier_hmac',
+  'pending_session_id',
+  'pending_session_url',
+  'pending_session_expires_at',
+  'failure_reason',
+  'raw_sha256',
+  'last_checked_at',
+  'expires_at',
 ] as const;
 
 function toIdentity(row: {
   id: string;
   recipient_id: string;
-  chain: string;
+  chain: string | null;
   provider: string;
-  provider_ref: string;
+  provider_ref: string | null;
   state: string;
+  provider_account: string | null;
+  provider_subject: string | null;
+  provider_status: string | null;
+  assurance: string;
+  flow_ref: string | null;
+  nullifier_hmac: Buffer | null;
+  pending_session_id: string | null;
+  pending_session_url: string | null;
+  pending_session_expires_at: Date | null;
+  failure_reason: string | null;
+  raw_sha256: Buffer | null;
+  last_checked_at: Date | null;
+  expires_at: Date | null;
 }): RecipientIdentity {
   return {
     id: row.id,
@@ -201,6 +271,45 @@ function toIdentity(row: {
     provider: row.provider,
     providerRef: row.provider_ref,
     state: row.state,
+    providerAccount: row.provider_account,
+    providerSubject: row.provider_subject,
+    providerStatus: row.provider_status,
+    assurance: row.assurance,
+    flowRef: row.flow_ref,
+    nullifierHmac: row.nullifier_hmac,
+    pendingSessionId: row.pending_session_id,
+    pendingSessionUrl: row.pending_session_url,
+    pendingSessionExpiresAt: row.pending_session_expires_at,
+    failureReason: row.failure_reason,
+    rawSha256: row.raw_sha256,
+    lastCheckedAt: row.last_checked_at,
+    expiresAt: row.expires_at,
+  };
+}
+
+// Only what the change names, so an update never writes back a stale copy.
+function identityColumnsOf(change: IdentityChange) {
+  return {
+    ...(change.state === undefined ? {} : { state: change.state }),
+    ...(change.providerRef === undefined ? {} : { provider_ref: change.providerRef }),
+    ...(change.providerSubject === undefined ? {} : { provider_subject: change.providerSubject }),
+    ...(change.providerStatus === undefined ? {} : { provider_status: change.providerStatus }),
+    ...(change.assurance === undefined ? {} : { assurance: change.assurance }),
+    ...(change.flowRef === undefined ? {} : { flow_ref: change.flowRef }),
+    ...(change.nullifierHmac === undefined ? {} : { nullifier_hmac: change.nullifierHmac }),
+    ...(change.pendingSessionId === undefined
+      ? {}
+      : { pending_session_id: change.pendingSessionId }),
+    ...(change.pendingSessionUrl === undefined
+      ? {}
+      : { pending_session_url: change.pendingSessionUrl }),
+    ...(change.pendingSessionExpiresAt === undefined
+      ? {}
+      : { pending_session_expires_at: change.pendingSessionExpiresAt }),
+    ...(change.failureReason === undefined ? {} : { failure_reason: change.failureReason }),
+    ...(change.rawSha256 === undefined ? {} : { raw_sha256: change.rawSha256 }),
+    ...(change.lastCheckedAt === undefined ? {} : { last_checked_at: change.lastCheckedAt }),
+    ...(change.expiresAt === undefined ? {} : { expires_at: change.expiresAt }),
   };
 }
 
@@ -237,6 +346,83 @@ export const recipientIdentities = {
       .returning(identityColumns)
       .executeTakeFirstOrThrow();
     return toIdentity(row);
+  },
+
+  get: async (db: Tx, id: string): Promise<RecipientIdentity | undefined> => {
+    const row = await db
+      .selectFrom('ujira.recipient_identities')
+      .select(identityColumns)
+      .where('id', '=', id)
+      .executeTakeFirst();
+    return row === undefined ? undefined : toIdentity(row);
+  },
+
+  // A pending row for a provider that is not per chain, before it has answered.
+  // A second one for the same provider and account is refused with 23505.
+  open: async (db: Tx, input: NewProviderIdentity): Promise<RecipientIdentity> => {
+    const row = await db
+      .insertInto('ujira.recipient_identities')
+      .values({
+        principal_id: CURRENT_PRINCIPAL,
+        project_id: CURRENT_PROJECT,
+        recipient_id: input.recipientId,
+        provider: input.provider,
+        provider_account: input.providerAccount,
+        state: 'pending',
+      })
+      .returning(identityColumns)
+      .executeTakeFirstOrThrow();
+    return toIdentity(row);
+  },
+
+  // Undefined when the row is not there. A verified row whose nullifier another
+  // verified row of the principal holds is refused with 23505.
+  update: async (
+    db: Tx,
+    id: string,
+    change: IdentityChange,
+  ): Promise<RecipientIdentity | undefined> => {
+    const row = await db
+      .updateTable('ujira.recipient_identities')
+      .set(identityColumnsOf(change))
+      .where('id', '=', id)
+      .returning(identityColumns)
+      .executeTakeFirst();
+    return row === undefined ? undefined : toIdentity(row);
+  },
+
+  // The verified row holding this nullifier. Run under a principal context to
+  // look across all of the principal's projects, as the unique rule does.
+  verifiedByNullifier: async (
+    db: Tx,
+    nullifierHmac: Buffer,
+  ): Promise<RecipientIdentity | undefined> => {
+    const row = await db
+      .selectFrom('ujira.recipient_identities')
+      .select(identityColumns)
+      .where('nullifier_hmac', '=', nullifierHmac)
+      .where('state', '=', 'verified')
+      .executeTakeFirst();
+    return row === undefined ? undefined : toIdentity(row);
+  },
+
+  // Part of erasing a recipient: every row is revoked, and everything that could
+  // tie it back to a person at the provider is cleared. Returns how many rows.
+  erase: async (db: Tx, recipientId: string): Promise<number> => {
+    const result = await db
+      .updateTable('ujira.recipient_identities')
+      .set({
+        state: 'revoked',
+        provider_ref: null,
+        provider_subject: null,
+        nullifier_hmac: null,
+        pending_session_id: null,
+        pending_session_url: null,
+        pending_session_expires_at: null,
+      })
+      .where('recipient_id', '=', recipientId)
+      .executeTakeFirst();
+    return Number(result.numUpdatedRows);
   },
 };
 
