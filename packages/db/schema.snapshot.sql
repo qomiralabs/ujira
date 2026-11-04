@@ -3371,17 +3371,17 @@ CREATE POLICY owner_all ON ujira.ledger_journals TO ujira_owner USING (true) WIT
 
 
 --
--- Name: mandate_action_requests owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
---
-
-CREATE POLICY owner_all ON ujira.mandate_action_requests TO ujira_owner USING (true) WITH CHECK (true);
-
-
---
 -- Name: managed_signers owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY owner_all ON ujira.managed_signers TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: mandate_action_requests owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.mandate_action_requests TO ujira_owner USING (true) WITH CHECK (true);
 
 
 --
@@ -3581,17 +3581,17 @@ CREATE POLICY tenant_insert ON ujira.ledger_journals FOR INSERT TO ujira_app WIT
 
 
 --
--- Name: mandate_action_requests tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
---
-
-CREATE POLICY tenant_insert ON ujira.mandate_action_requests FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
-
-
---
 -- Name: managed_signers tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY tenant_insert ON ujira.managed_signers FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: mandate_action_requests tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.mandate_action_requests FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -3742,17 +3742,17 @@ CREATE POLICY tenant_read ON ujira.ledger_journals FOR SELECT TO ujira_app, ujir
 
 
 --
--- Name: mandate_action_requests tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
---
-
-CREATE POLICY tenant_read ON ujira.mandate_action_requests FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
-
-
---
 -- Name: managed_signers tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY tenant_read ON ujira.managed_signers FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: mandate_action_requests tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.mandate_action_requests FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
 
 
 --
@@ -3903,17 +3903,17 @@ CREATE POLICY tenant_update ON ujira.ledger_journals FOR UPDATE TO ujira_app USI
 
 
 --
--- Name: mandate_action_requests tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
---
-
-CREATE POLICY tenant_update ON ujira.mandate_action_requests FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
-
-
---
 -- Name: managed_signers tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY tenant_update ON ujira.managed_signers FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: mandate_action_requests tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.mandate_action_requests FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
