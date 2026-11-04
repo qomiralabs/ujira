@@ -9,9 +9,16 @@
 
 import { randomUUID } from 'node:crypto';
 
+import type {
+  FundingAccountRecord,
+  FundingAccountStore,
+  NetworkId,
+  TenantScope,
+} from '@ujira/chain-adapter';
 import type { FundingSweep, FundingSweepMove, NewFundingSweep } from '@ujira/db';
 
-import { SweepStateError } from './errors.js';
+import { FundingAccountConflictError, SweepStateError } from './errors.js';
+import type { FundingSourceStore } from './funding-account.js';
 import { FAILED_EXPIRY_MARGIN_MS } from './sweep.js';
 import type {
   SweepFunding,
@@ -141,6 +148,74 @@ export class MemorySweepStore implements SweepStore {
       default:
         return { ...row, status: move.status, updatedAt };
     }
+  }
+}
+
+/**
+ * What funding_accounts and funding_account_sources hold: one account per
+ * principal and network, no address held twice, one source per mandate instance,
+ * and only an active account of this project attached to this project's instance.
+ */
+export class MemoryFundingAccounts implements FundingAccountStore, FundingSourceStore {
+  /** The next attach throws this, as a crash after the chain step would. */
+  failNextAttach: Error | null = null;
+  readonly #accounts = new Map<string, FundingAccountRecord>();
+  readonly #instances = new Map<string, TenantScope>();
+  readonly #sources = new Map<string, string>();
+
+  /** A mandate instance that exists for this tenant. */
+  addInstance(scope: TenantScope, mandateInstanceId: string): void {
+    this.#instances.set(mandateInstanceId, scope);
+  }
+
+  sources(): readonly string[] {
+    return [...this.#sources.values()];
+  }
+
+  forPrincipal(scope: TenantScope, network: NetworkId): Promise<FundingAccountRecord | null> {
+    return Promise.resolve(this.#accounts.get(`${scope.principalId}|${network}`) ?? null);
+  }
+
+  record(row: FundingAccountRecord): Promise<void> {
+    const key = `${row.principalId}|${row.network}`;
+    const held = this.#accounts.get(key);
+    const taken = [...this.#accounts.values()].some(
+      (other) =>
+        other.network === row.network &&
+        other.address === row.address &&
+        other.principalId !== row.principalId,
+    );
+    if (taken || (held !== undefined && held.address !== row.address)) {
+      return Promise.reject(new FundingAccountConflictError());
+    }
+    if (held === undefined) this.#accounts.set(key, row);
+    return Promise.resolve();
+  }
+
+  attach(
+    scope: TenantScope,
+    input: { readonly network: NetworkId; readonly mandateInstanceId: string },
+  ): Promise<string | null> {
+    if (this.failNextAttach !== null) {
+      const error = this.failNextAttach;
+      this.failNextAttach = null;
+      return Promise.reject(error);
+    }
+    const account = this.#accounts.get(`${scope.principalId}|${input.network}`);
+    const instance = this.#instances.get(input.mandateInstanceId);
+    if (
+      account?.status !== 'active' ||
+      account.projectId !== scope.projectId ||
+      instance === undefined ||
+      !isScope(instance, scope)
+    ) {
+      return Promise.resolve(null);
+    }
+    const existing = this.#sources.get(input.mandateInstanceId);
+    if (existing !== undefined) return Promise.resolve(existing);
+    const id = randomUUID();
+    this.#sources.set(input.mandateInstanceId, id);
+    return Promise.resolve(id);
   }
 }
 
