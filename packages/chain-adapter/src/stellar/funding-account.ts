@@ -46,6 +46,7 @@ import {
   parseForwarderRequest,
 } from './forwarder.js';
 import type { ForwarderFault, ForwarderRecord } from './forwarder.js';
+import { FUNDING_ACCOUNT_RESERVES_STROOPS } from './lifecycle.js';
 import type { SigningRequestStore, StoredSigningRequest } from './requests.js';
 import type { RpcLedgerEntry, StellarRpc } from './rpc.js';
 import {
@@ -60,8 +61,6 @@ import {
 } from './tx.js';
 import type { WaitOptions } from './tx.js';
 
-/** Two base reserves for the account and one for the trustline, at 0.5 XLM each. */
-const RESERVES_STROOPS = 15_000_000n;
 const OPERATIONS = 4n;
 // The signer refuses a sandwich valid for longer, so a signed one that is not
 // sent soon is worth nothing.
@@ -207,7 +206,7 @@ export function createFundingAccountFlow(options: FundingAccountFlowOptions): Fu
         payload,
         hostFunction: null,
         sequence: sequence + 1n,
-        fee: RESERVES_STROOPS + INCLUSION_FEE * OPERATIONS,
+        fee: FUNDING_ACCOUNT_RESERVES_STROOPS + INCLUSION_FEE * OPERATIONS,
         validUntil,
         summary,
       };
@@ -255,6 +254,9 @@ export function createFundingAccountFlow(options: FundingAccountFlowOptions): Fu
         forwarder: request.signer,
         asset: usdc(),
       });
+      // Read before the claim, because a failed read must leave nothing behind.
+      // Any ledger from before the send proves the same thing to reconciliation.
+      const submittedAtLedger = BigInt((await rpc.getLatestLedger(opts)).sequence);
       const earlier = await requests.claim(req.scope, request.requestId, req.signed);
       if (earlier !== null) return answer(earlier);
       const reservationId = reservationIdOf(network, tx.hash());
@@ -290,14 +292,17 @@ export function createFundingAccountFlow(options: FundingAccountFlowOptions): Fu
           errorCode: null,
           specCode: null,
           replacesTxHash: null,
+          submittedAtLedger,
+          reservationId,
           correlationId: req.correlationId,
           createdAt: ports.clock.nowSeconds(),
         });
         await sendAndRecord(
-          { network, rpc, ports, submitTimeoutMs: options.submitTimeoutMs },
+          { network, rpc, ports, wait, submitTimeoutMs: options.submitTimeoutMs },
           request.scope,
           hash,
           tx.toXdr(),
+          request.validUntil,
           opts,
         );
         return { network, txHash: hash, finality: 'none' };
@@ -322,20 +327,15 @@ export function createFundingAccountFlow(options: FundingAccountFlowOptions): Fu
       const hash = use.txHash;
       const reservationId = reservationOf(use.signed);
       const landed = await waitForTransaction(rpc, network, hash, wait, opts);
+      // The submission's state is left to reconciliation, which also picks up a
+      // crash here. It may already have moved the record, and the store refuses a
+      // second move, so writing it here too would fail a confirmation that is fine.
       if (landed.status !== 'SUCCESS') {
-        await ports.store.updateSubmission(scope, network, hash, {
-          state: 'failed',
-          errorCode: 'SUBMISSION_REJECTED',
-        });
         // No account exists, so the principal may try again. The fee it burned
         // is too small to be worth a slot.
         await ports.sponsorship.release({ scope, reservationId });
         throw new SubmissionRejectedError({ network, landed: 'yes' });
       }
-      await ports.store.updateSubmission(scope, network, hash, {
-        state: 'landed',
-        landedAtHeight: BigInt(landed.ledger ?? 0),
-      });
       const asset = usdc();
       const row = await confirmForwarder(
         {
