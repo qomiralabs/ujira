@@ -78,8 +78,11 @@ export {
   recipientPii,
   recipients,
   type EncryptedValue,
+  type IdentityAssurance,
+  type IdentityChange,
   type IdentityState,
   type IdentityUpdate,
+  type NewProviderIdentity,
   type NewPayoutMethod,
   type PayoutMethod,
   type PayoutMethodKind,
@@ -89,7 +92,9 @@ export {
 } from './repositories/recipients.js';
 export {
   executors,
+  identityProviderEvents,
   routingConfig,
+  type IdentityProviderEvent,
   type ExecutorLease,
   type RoutingConfig,
 } from './repositories/ops.js';
