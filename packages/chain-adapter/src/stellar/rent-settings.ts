@@ -10,7 +10,11 @@
 import { InvalidInputError } from '../errors.js';
 import type { StellarNetworkId } from '../networks.js';
 
+const LEDGER_ENTRY_CONTRACT_CODE = 7;
 const LEDGER_ENTRY_CONFIG_SETTING = 8;
+const MEMORY_COST_SETTING_ID = 7;
+/** The number of fields in ContractCodeCostInputs. */
+export const CONTRACT_CODE_COST_INPUTS = 10;
 
 /** The config setting ids rent reads, from the Stellar XDR. */
 export const RENT_CONFIG_SETTING_IDS = Object.freeze({
@@ -24,6 +28,10 @@ export interface SorobanRentSettings {
   readonly network: StellarNetworkId;
   /** The ledger the settings were read at. */
   readonly ledger: bigint;
+  /** Stroops per ledger entry read from disk; a restore reads what it brings back. */
+  readonly feeDiskReadLedgerEntry: bigint;
+  /** Stroops per 1 KB read from disk. */
+  readonly feeDiskRead1KB: bigint;
   readonly minPersistentTtlLedgers: bigint;
   readonly maxEntryTtlLedgers: bigint;
   readonly persistentRentRateDenominator: bigint;
@@ -98,9 +106,9 @@ export function decodeRentSettings(
     seen.add(id);
     if (id === ids.contractLedgerCostV0) {
       for (let i = 0; i < 8; i += 1) r.u32(); // read and write limits
-      r.i64(); // feeDiskReadLedgerEntry
+      found.feeDiskReadLedgerEntry = r.i64();
       found.feeWriteLedgerEntry = r.i64();
-      r.i64(); // feeDiskRead1KB
+      found.feeDiskRead1KB = r.i64();
       found.sorobanStateTargetSizeBytes = r.i64();
       found.rentFee1KBStateSizeLow = r.i64();
       found.rentFee1KBStateSizeHigh = r.i64();
@@ -127,6 +135,8 @@ export function decodeRentSettings(
     r.end();
   }
   const {
+    feeDiskReadLedgerEntry,
+    feeDiskRead1KB,
     minPersistentTtlLedgers,
     maxEntryTtlLedgers,
     persistentRentRateDenominator,
@@ -140,6 +150,8 @@ export function decodeRentSettings(
     averageStateSizeBytes,
   } = found;
   if (
+    feeDiskReadLedgerEntry === undefined ||
+    feeDiskRead1KB === undefined ||
     minPersistentTtlLedgers === undefined ||
     maxEntryTtlLedgers === undefined ||
     persistentRentRateDenominator === undefined ||
@@ -158,6 +170,8 @@ export function decodeRentSettings(
   return {
     network,
     ledger,
+    feeDiskReadLedgerEntry,
+    feeDiskRead1KB,
     minPersistentTtlLedgers,
     maxEntryTtlLedgers,
     persistentRentRateDenominator,
@@ -172,6 +186,54 @@ export function decodeRentSettings(
   };
 }
 
+/** One memory cost from the network's cost model. */
+export interface MemoryCost {
+  readonly constTerm: bigint;
+  readonly linearTerm: bigint;
+}
+
+/** What rent needs from a contract code entry. */
+export interface ContractCodeCost {
+  /** The size of its LedgerEntryData. */
+  readonly dataXdrBytes: bigint;
+  /** ContractCodeCostInputs, in XDR order. */
+  readonly costInputs: readonly number[];
+}
+
+/**
+ * Decodes the memory cost table from config setting 7, which prices holding a
+ * parsed contract in memory.
+ */
+export function decodeMemoryCosts(base64: string): readonly MemoryCost[] {
+  const { id, body: r } = readEntry(base64);
+  if (id !== MEMORY_COST_SETTING_ID) throw malformed();
+  const count = r.u32();
+  if (count > 10_000) throw malformed();
+  const costs: MemoryCost[] = [];
+  for (let i = 0; i < count; i += 1) {
+    r.u32(); // ext
+    costs.push({ constTerm: r.i64(), linearTerm: r.i64() });
+  }
+  r.end();
+  return costs;
+}
+
+/**
+ * Decodes a contract code LedgerEntryData far enough to price its rent. A code
+ * entry with no cost inputs predates them, and is refused rather than guessed.
+ */
+export function decodeContractCodeEntry(base64: string): ContractCodeCost {
+  const bytes = Uint8Array.from(Buffer.from(base64, 'base64'));
+  const r = new Reader(bytes);
+  if (r.u32() !== LEDGER_ENTRY_CONTRACT_CODE) throw malformed();
+  if (r.u32() !== 1) throw malformed();
+  r.u32(); // ExtensionPoint of the entry's own extension
+  r.u32(); // ExtensionPoint of the cost inputs
+  const costInputs: number[] = [];
+  for (let i = 0; i < CONTRACT_CODE_COST_INPUTS; i += 1) costInputs.push(r.u32());
+  return { dataXdrBytes: BigInt(bytes.length), costInputs };
+}
+
 /**
  * The settings governance changes, as one string. The ledger and the state
  * size window move on their own every few minutes, so they are left out: a
@@ -179,6 +241,8 @@ export function decodeRentSettings(
  */
 export function rentSettingsFingerprint(s: SorobanRentSettings): string {
   return [
+    s.feeDiskReadLedgerEntry,
+    s.feeDiskRead1KB,
     s.minPersistentTtlLedgers,
     s.maxEntryTtlLedgers,
     s.persistentRentRateDenominator,

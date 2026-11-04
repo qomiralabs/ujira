@@ -128,7 +128,9 @@ export function tombstoneRent(input: {
 
 /**
  * Restoring an archived persistent entry: it comes back for the network's
- * minimum TTL, paid like a new entry, and its bytes are written again.
+ * minimum TTL, paid like a new entry, and its bytes are read and written again.
+ * Left out is what the transaction pays for its own size, 5,167 stroops on
+ * testnet on 2026-11-04, since that is the transaction's and no entry's.
  */
 export function restoreFee(input: {
   readonly settings: SorobanRentSettings;
@@ -143,14 +145,18 @@ export function restoreFee(input: {
     oldLiveUntilLedger: 0n,
     newLiveUntilLedger: currentLedger + settings.minPersistentTtlLedgers - 1n,
   };
+  const read =
+    settings.feeDiskReadLedgerEntry + ceilDiv(entrySizeBytes * settings.feeDiskRead1KB, 1024n);
   const write =
     settings.feeWriteLedgerEntry + ceilDiv(entrySizeBytes * settings.feeWrite1KB, 1024n);
-  return xlm(settings.network, rentFee(settings, [change], currentLedger) + write);
+  return xlm(settings.network, rentFee(settings, [change], currentLedger) + read + write);
 }
 
 /** One persistent entry to keep alive: the instance, the balance entry or the code. */
 export interface LiveEntry {
+  /** What it pays rent on. For contract code, that is contractCodeRentSizeBytes. */
   readonly sizeBytes: bigint;
+  readonly code?: boolean;
   readonly liveUntilLedger: bigint;
 }
 
@@ -170,6 +176,7 @@ export function instanceExtensionRent(input: {
     .filter((entry) => entry.liveUntilLedger < target)
     .map((entry) => ({
       persistent: true,
+      ...(entry.code === true ? { code: true } : {}),
       oldSizeBytes: entry.sizeBytes,
       newSizeBytes: entry.sizeBytes,
       oldLiveUntilLedger: entry.liveUntilLedger,

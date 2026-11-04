@@ -8,11 +8,20 @@
 // charged as a ledger write. All arithmetic is bigint with ceilings where
 // the host rounds up, so the model never under-prices.
 
-import type { SorobanRentSettings } from './rent-settings.js';
+import { InvalidInputError } from '../errors.js';
+
+import { CONTRACT_CODE_COST_INPUTS } from './rent-settings.js';
+import type { ContractCodeCost, MemoryCost, SorobanRentSettings } from './rent-settings.js';
 
 const KB = 1024n;
 /** The host's floor on the rent price of 1 KB. */
 export const MINIMUM_RENT_FEE_PER_1KB = 1000n;
+/** ContractCostType of the first of the ParseWasm costs, one per code cost input. */
+const FIRST_PARSE_WASM_COST = 23;
+/** The cost model's linear terms are scaled up by this. */
+const COST_MODEL_LINEAR_SCALE = 128n;
+/** Contract code pays this fraction of the rate contract data pays. */
+const CODE_RENT_RATE_DIVISOR = 3n;
 /** Bytes of the TTL entry written for each extended entry. */
 export const TTL_ENTRY_BYTES = 48n;
 
@@ -38,21 +47,53 @@ export function rentFeePer1KB(s: SorobanRentSettings): bigint {
   return fee > MINIMUM_RENT_FEE_PER_1KB ? fee : MINIMUM_RENT_FEE_PER_1KB;
 }
 
+/**
+ * What a contract code entry pays rent on. Contract data pays on its bytes, but
+ * code stays parsed in memory while it is live, so it pays on the size of its
+ * data plus the memory the network's cost model gives its parsed form, at a
+ * third of the rate (see RentChange.code). For the mandate that comes to about
+ * 6.5 times what its bytes alone would pay. This was inferred from what testnet
+ * charged on protocol 30, not read from the host, and rent-measured.test.ts only
+ * replays that recording, so measure again after a protocol upgrade.
+ */
+export function contractCodeRentSizeBytes(
+  code: ContractCodeCost,
+  memoryCosts: readonly MemoryCost[],
+): bigint {
+  if (
+    code.costInputs.length !== CONTRACT_CODE_COST_INPUTS ||
+    memoryCosts.length < FIRST_PARSE_WASM_COST + CONTRACT_CODE_COST_INPUTS
+  ) {
+    throw new InvalidInputError({ issues: ['rentSettings (code_cost)'] });
+  }
+  let parsed = 0n;
+  code.costInputs.forEach((input, index) => {
+    const cost = memoryCosts[FIRST_PARSE_WASM_COST + index];
+    if (cost === undefined) return;
+    parsed += cost.constTerm + ceilDiv(cost.linearTerm * BigInt(input), COST_MODEL_LINEAR_SCALE);
+  });
+  return code.dataXdrBytes + parsed;
+}
+
 /** Rent for keeping `sizeBytes` alive for `ledgers` more ledgers. */
 export function rentForSizeAndLedgers(
   s: SorobanRentSettings,
   sizeBytes: bigint,
   ledgers: bigint,
   persistent: boolean,
+  code = false,
 ): bigint {
   if (sizeBytes <= 0n || ledgers <= 0n) return 0n;
   const denominator = persistent ? s.persistentRentRateDenominator : s.tempRentRateDenominator;
-  return ceilDiv(sizeBytes * rentFeePer1KB(s) * ledgers, KB * denominator);
+  const divisor = code ? CODE_RENT_RATE_DIVISOR : 1n;
+  return ceilDiv(sizeBytes * rentFeePer1KB(s) * ledgers, KB * denominator * divisor);
 }
 
 /** One entry's change in a transaction, as the host sees it for rent. */
 export interface RentChange {
   readonly persistent: boolean;
+  /** Contract code, sized by contractCodeRentSizeBytes. Left out for contract data. */
+  readonly code?: boolean;
   /** Zero for an entry the transaction creates. */
   readonly oldSizeBytes: bigint;
   readonly newSizeBytes: bigint;
@@ -76,7 +117,13 @@ export function rentForChange(
   // ledger after its old end.
   const before = isNew(c) ? currentLedger - 1n : c.oldLiveUntilLedger;
   if (c.newLiveUntilLedger > before) {
-    fee += rentForSizeAndLedgers(s, c.newSizeBytes, c.newLiveUntilLedger - before, c.persistent);
+    fee += rentForSizeAndLedgers(
+      s,
+      c.newSizeBytes,
+      c.newLiveUntilLedger - before,
+      c.persistent,
+      c.code,
+    );
   }
   // Ledgers already paid at the old size pay again for the extra bytes.
   if (!isNew(c) && c.newSizeBytes > c.oldSizeBytes && c.oldLiveUntilLedger >= currentLedger) {
@@ -85,6 +132,7 @@ export function rentForChange(
       c.newSizeBytes - c.oldSizeBytes,
       c.oldLiveUntilLedger - currentLedger + 1n,
       c.persistent,
+      c.code,
     );
   }
   return fee;
