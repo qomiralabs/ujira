@@ -35,7 +35,7 @@ create table ujira.payout_legs (
   id uuid primary key default gen_random_uuid(),
   payout_id uuid not null,
   attempt_id uuid not null,
-  leg_index integer not null
+  leg_index bigint not null
     constraint payout_legs_index_range check (leg_index between 0 and 3),
   payout_method_id uuid not null,
   method text not null
@@ -68,7 +68,7 @@ create table ujira.payout_legs (
   -- Carries the payout and the unit, so a leg cannot belong to another payout's
   -- attempt or be in a unit its attempt is not.
   foreign key (principal_id, project_id, payout_id, attempt_id, chain, asset, scale)
-    references ujira.payout_attempts (principal_id, project_id, payout_id, id, network, asset, scale),
+    references ujira.payout_attempts (principal_id, project_id, payout_id, id, chain, asset, scale),
   foreign key (principal_id, project_id, payout_method_id)
     references ujira.payout_methods (principal_id, project_id, id)
 );

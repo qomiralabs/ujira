@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { LocalSigner } from '../local-signer.js';
 import { RemoteAttesterSigner } from '../remote-attester.js';
 import { CALLER_TOKEN, OPTS, TEST_SEED, codeOf } from '../testing/service.js';
+import { TEST_SETTLEMENT } from '../testing/unpayable.js';
 import {
   SIGNER_LOG_FIELDS,
   attestPolicy,
@@ -57,6 +58,7 @@ describe('attester service logs', () => {
             executors: [],
             tenant: TENANT,
             recipientMode: 'attested',
+            ...TEST_SETTLEMENT,
           },
         ]),
         log: memoryAttestationLog([

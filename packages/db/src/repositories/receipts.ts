@@ -94,7 +94,7 @@ function toReceipt(row: {
   id: string;
   payout_id: string;
   attempt_id: string;
-  revision: number;
+  revision: string;
   chain_receipt_ref: string;
   chain: string;
   asset: string;
@@ -108,7 +108,8 @@ function toReceipt(row: {
     id: row.id,
     payoutId: row.payout_id,
     attemptId: row.attempt_id,
-    revision: row.revision,
+    // Bounded by the column's check, so this is exact.
+    revision: Number(row.revision),
     chainReceiptRef: row.chain_receipt_ref,
     settlement: tokenFromRow({ amount: row.settlement_amount, ...unit }),
     fee: tokenFromRow({ amount: row.fee_amount, ...unit }),
@@ -123,10 +124,10 @@ export const receipts = {
   record: async (db: Tx, input: NewReceipt): Promise<RecordedReceipt> => {
     const latest = await db
       .selectFrom('ujira.receipts')
-      .select((eb) => eb.fn.max<number>('revision').as('revision'))
+      .select((eb) => eb.fn.max<string>('revision').as('revision'))
       .where('payout_id', '=', input.payoutId)
       .executeTakeFirst();
-    const current = latest?.revision ?? 0;
+    const current = Number(latest?.revision ?? 0);
     if (input.revision > current + 1 || input.revision < 1) {
       throw new ReceiptRevisionError(input.revision);
     }
@@ -155,7 +156,7 @@ export const receipts = {
         .selectFrom('ujira.receipts')
         .select(receiptColumns)
         .where('payout_id', '=', input.payoutId)
-        .where('revision', '=', input.revision)
+        .where('revision', '=', input.revision.toString())
         .executeTakeFirstOrThrow();
       if (
         first.attempt_id !== input.attemptId ||
@@ -233,7 +234,7 @@ export const receipts = {
     return rows.map((row) => {
       const unit = { asset: row.asset, chain: row.chain, scale: row.scale };
       return {
-        legIndex: row.leg_index,
+        legIndex: Number(row.leg_index),
         destinationAddress: row.destination_address,
         destinationTag: row.destination_tag === null ? null : BigInt(row.destination_tag),
         amount: tokenFromRow({ amount: row.amount, ...unit }),

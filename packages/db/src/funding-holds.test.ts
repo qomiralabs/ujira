@@ -45,13 +45,15 @@ async function createPayout(): Promise<string> {
 }
 
 async function hold(payoutId: string): Promise<boolean> {
-  return db
-    .tenant(fixture.tenant)
-    .transaction(async (tx) =>
-      fundingHolds.hold(tx, payoutId, [
-        { mandateInstanceId: fixture.instanceId, needed: usdc(5n * ONE_USDC) },
-      ]),
-    );
+  return db.tenant(fixture.tenant).transaction(async (tx) =>
+    fundingHolds.hold(tx, payoutId, [
+      {
+        mandateInstanceId: fixture.instanceId,
+        network: 'stellar:testnet',
+        needed: usdc(5n * ONE_USDC),
+      },
+    ]),
+  );
 }
 
 async function holdRows(payoutId: string): Promise<number> {
@@ -118,7 +120,8 @@ describe('funding holds', () => {
               principal_id: fixture.tenant.principalId,
               project_id: fixture.tenant.projectId,
               payout_id: notHeld,
-              network: 'stellar',
+              network: 'stellar:testnet',
+              chain: 'stellar',
               mandate_instance_id: fixture.instanceId,
               needed_amount: '1',
               asset: 'USDC',
@@ -198,8 +201,16 @@ describe('funding holds', () => {
       await codeOf(
         db.tenant(fixture.tenant).transaction(async (tx) =>
           fundingHolds.hold(tx, held, [
-            { mandateInstanceId: fixture.instanceId, needed: usdc(ONE_USDC) },
-            { mandateInstanceId: fixture.instanceId, needed: usdc(ONE_USDC) },
+            {
+              mandateInstanceId: fixture.instanceId,
+              network: 'stellar:testnet',
+              needed: usdc(ONE_USDC),
+            },
+            {
+              mandateInstanceId: fixture.instanceId,
+              network: 'stellar:testnet',
+              needed: usdc(ONE_USDC),
+            },
           ]),
         ),
       ),
@@ -256,13 +267,15 @@ describe('funding holds', () => {
     const held = await createPayout();
     expect(
       await codeOf(
-        db
-          .tenant(fixture.tenant)
-          .transaction(async (tx) =>
-            fundingHolds.hold(tx, held, [
-              { mandateInstanceId: instance.id, needed: usdc(ONE_USDC) },
-            ]),
-          ),
+        db.tenant(fixture.tenant).transaction(async (tx) =>
+          fundingHolds.hold(tx, held, [
+            {
+              mandateInstanceId: instance.id,
+              network: 'stellar:testnet',
+              needed: usdc(ONE_USDC),
+            },
+          ]),
+        ),
       ),
     ).toBe('UJ014');
   });
@@ -274,7 +287,7 @@ describe('funding holds', () => {
     await hold(second);
     const session = db.tenant(fixture.tenant);
     const listed = await session.transaction(async (tx) =>
-      fundingHolds.oldestOnNetwork(tx, 'stellar', 10),
+      fundingHolds.oldestOnNetwork(tx, 'stellar:testnet', 10),
     );
     expect(listed.map((row) => row.payoutId)).toEqual([first, second]);
     expect(listed[0]?.needed).toEqual(usdc(5n * ONE_USDC));

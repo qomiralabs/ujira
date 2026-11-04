@@ -15,8 +15,9 @@ create table ujira.receipts (
   id uuid primary key default gen_random_uuid(),
   payout_id uuid not null,
   attempt_id uuid not null,
-  revision integer not null
-    constraint receipts_revision_positive check (revision > 0),
+  -- Bounded, so it reads back exactly as a JavaScript number.
+  revision bigint not null
+    constraint receipts_revision_range check (revision between 1 and 1000000),
   -- The adapter's reference, opaque here.
   chain_receipt_ref text not null
     constraint receipts_ref_length check (char_length(chain_receipt_ref) between 1 and 512),
@@ -36,7 +37,7 @@ create table ujira.receipts (
   -- Carries the payout and the unit, so a receipt cannot name another payout's
   -- attempt or be in a unit that attempt is not.
   foreign key (principal_id, project_id, payout_id, attempt_id, chain, asset, scale)
-    references ujira.payout_attempts (principal_id, project_id, payout_id, id, network, asset, scale)
+    references ujira.payout_attempts (principal_id, project_id, payout_id, id, chain, asset, scale)
 );
 
 create index receipts_by_attempt on ujira.receipts (principal_id, project_id, attempt_id);
@@ -46,7 +47,7 @@ create table ujira.receipt_legs (
   project_id uuid not null,
   receipt_id uuid not null,
   attempt_id uuid not null,
-  leg_index integer not null,
+  leg_index bigint not null,
   destination_address text not null
     constraint receipt_legs_address_length check (char_length(destination_address) between 1 and 128),
   destination_tag ujira.u64,
