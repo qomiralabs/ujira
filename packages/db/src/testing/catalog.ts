@@ -285,7 +285,10 @@ export async function infrastructureProblems(
 // paths: the one way into the queue, and the cron fan-out.
 export const DEFINER_ALLOWLIST: readonly string[] = [
   'ops.active_routing_config()',
+  'ops.active_signing_keys(text[])',
+  'ops.identity_provider_event_seen(text,text,text)',
   'ops.lease_executor(text,text,integer)',
+  'ops.record_identity_provider_event(text,text,text,bytea)',
   'ops.release_executor(text,text,text,bigint)',
   'ujira.attestation_pending(bytea)',
   'ujira.audit_chain()',
