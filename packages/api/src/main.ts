@@ -1,21 +1,24 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-// Runs the API locally: `pnpm --filter @ujira/api build`, then
-// `pnpm --filter @ujira/api start`. Until token authentication lands, every
-// tenant route refuses every key; health and the OpenAPI document answer.
+// Runs the API: `pnpm --filter @ujira/api build`, then
+// `pnpm --filter @ujira/api start`. With no database configured, every tenant
+// route refuses every key; health and the OpenAPI document answer.
 
+import { apiAccessFromEnv } from './access.js';
 import { createApp } from './app.js';
-import { refuseAllCredentials } from './auth.js';
 import { loadApiConfig } from './config.js';
 import { stdoutLogger } from './log.js';
 import { V1_ROUTES } from './routes/index.js';
 import { startServer } from './serve.js';
 
 const config = loadApiConfig(process.env);
+const access = apiAccessFromEnv(config, process.env, stdoutLogger);
 const app = createApp({
   routes: V1_ROUTES,
-  authenticate: refuseAllCredentials,
+  authenticate: access.authenticate,
+  rateLimit: access.rateLimit,
+  idempotency: access.idempotency,
   logger: stdoutLogger,
   requestTimeoutMs: config.requestTimeoutMs,
   bodyLimitBytes: config.bodyLimitBytes,
@@ -29,7 +32,7 @@ stdoutLogger.write({
 });
 
 const stop = (): void => {
-  server.close().then(
+  Promise.all([server.close(), access.close()]).then(
     () => process.exit(0),
     () => process.exit(1),
   );

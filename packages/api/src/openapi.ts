@@ -17,7 +17,7 @@ import type { ProblemCode } from '@ujira/api-schema';
 import { z } from 'zod';
 
 import { RouteRegistryError } from './errors.js';
-import { definePublicRoute } from './route.js';
+import { definePublicRoute, requiresIdempotencyKey } from './route.js';
 import type { Route } from './route.js';
 
 type JsonObject = Record<string, unknown>;
@@ -56,11 +56,18 @@ function components(routes: readonly Route[]): (readonly [string, z.ZodType])[] 
 
 const headerSchema = { schema: { type: 'string' } };
 
+const RATE_LIMIT_HEADERS = {
+  'RateLimit-Limit': headerSchema,
+  'RateLimit-Remaining': headerSchema,
+  'RateLimit-Reset': headerSchema,
+};
+
 function operation(route: Route): JsonObject {
+  const limits = route.access.kind === 'tenant' ? RATE_LIMIT_HEADERS : {};
   const responses: JsonObject = {
     [String(route.response.status)]: {
       description: 'OK',
-      headers: { 'Request-Id': headerSchema },
+      headers: { 'Request-Id': headerSchema, ...limits },
       content: { 'application/json': { schema: { $ref: `${REF}${route.response.name}` } } },
     },
   };
@@ -69,7 +76,10 @@ function operation(route: Route): JsonObject {
       description: statusDescription(status),
       headers: {
         'Request-Id': headerSchema,
-        ...(status === 429 || status === 503 ? { 'Retry-After': headerSchema } : {}),
+        ...(status === 409 || status === 429 || status === 503
+          ? { 'Retry-After': headerSchema }
+          : {}),
+        ...(status === 429 ? limits : {}),
       },
       content: { 'application/problem+json': { schema: { $ref: `${REF}Problem` } } },
     };
@@ -89,6 +99,19 @@ function operation(route: Route): JsonObject {
         required: true,
         schema: { type: 'string' },
       })),
+      ...(requiresIdempotencyKey(route)
+        ? [
+            {
+              name: 'Idempotency-Key',
+              in: 'header',
+              required: true,
+              description:
+                'Unique per write. A retry with the same key and the same request gets the ' +
+                'first answer for 7 days; the same key on a different request is refused.',
+              schema: { type: 'string', pattern: '^[A-Za-z0-9_.:-]{1,255}$' },
+            },
+          ]
+        : []),
     ],
     // A webhook body is verified as bytes, so the document does not promise
     // a shape UJIRA checks before the signature.

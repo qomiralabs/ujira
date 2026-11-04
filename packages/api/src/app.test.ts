@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
+import { randomUUID } from 'node:crypto';
+
 import { Problem, assertResponseMatchesSchema } from '@ujira/api-schema';
 import { ChainUnavailableError } from '@ujira/chain-adapter';
 import { DatabaseUnavailableError } from '@ujira/db';
@@ -11,8 +13,10 @@ import { createApp } from './app.js';
 import type { ApiDependencies } from './app.js';
 import type { Authenticate, CallOptions, Tenant } from './auth.js';
 import { ApiError, RouteRegistryError } from './errors.js';
+import { memoryIdempotencyStore } from './idempotency.js';
 import { memoryLogger } from './log.js';
 import type { LogRecord } from './log.js';
+import { allowEveryRequest } from './rate-limit.js';
 import { contractRoute, definePublicRoute, defineTenantRoute } from './route.js';
 import type { Route } from './route.js';
 
@@ -24,6 +28,7 @@ const TENANT_B: Tenant = {
   principalId: '0199a1f6-9999-7c21-9b8a-2d4e6f8a0b12',
   projectId: '0199a1f6-8888-7a55-8e21-5b9c7d3e1f04',
 };
+const TOKEN_ID = randomUUID();
 const THING_ID = '0199a1f6-7777-7a55-8e21-5b9c7d3e1f04';
 const SECRET_TOKEN = 'ujk_test_secretvaluethatmustnotbelogged';
 
@@ -34,17 +39,34 @@ const authenticate: Authenticate = (credentials) => {
     case undefined:
       return Promise.resolve({ ok: false, code: 'TOKEN_MALFORMED' });
     case SECRET_TOKEN:
-      return Promise.resolve({ ok: true, tenant: { ...TENANT_A, scopes: ['payouts:read'] } });
+      return Promise.resolve({
+        ok: true,
+        tenant: { ...TENANT_A, tokenId: TOKEN_ID, scopes: ['payouts:read'] },
+      });
     case 'writer':
-      return Promise.resolve({ ok: true, tenant: { ...TENANT_A, scopes: ['payouts:write'] } });
+      return Promise.resolve({
+        ok: true,
+        tenant: { ...TENANT_A, tokenId: TOKEN_ID, scopes: ['payouts:write'] },
+      });
     case 'receipts-only':
-      return Promise.resolve({ ok: true, tenant: { ...TENANT_A, scopes: ['receipts:read'] } });
+      return Promise.resolve({
+        ok: true,
+        tenant: { ...TENANT_A, tokenId: TOKEN_ID, scopes: ['receipts:read'] },
+      });
     case 'approver':
-      return Promise.resolve({ ok: true, tenant: { ...TENANT_A, scopes: ['approvals:write'] } });
+      return Promise.resolve({
+        ok: true,
+        tenant: { ...TENANT_A, tokenId: TOKEN_ID, scopes: ['approvals:write'] },
+      });
     case 'bad-shape':
       return Promise.resolve({
         ok: true,
-        tenant: { ...TENANT_A, principalId: TENANT_A.principalId.toUpperCase(), scopes: [] },
+        tenant: {
+          ...TENANT_A,
+          tokenId: TOKEN_ID,
+          principalId: TENANT_A.principalId.toUpperCase(),
+          scopes: [],
+        },
       });
     case 'db-down':
       return Promise.reject(new DatabaseUnavailableError('ECONNREFUSED'));
@@ -178,6 +200,8 @@ function setup(overrides: Partial<ApiDependencies> = {}) {
   const app = createApp({
     routes: [thingRoute(seen), createThing, approvals, ping],
     authenticate,
+    rateLimit: allowEveryRequest,
+    idempotency: memoryIdempotencyStore(),
     logger,
     ...overrides,
   });
@@ -185,6 +209,10 @@ function setup(overrides: Partial<ApiDependencies> = {}) {
 }
 
 const bearer = (token: string): Record<string, string> => ({ authorization: `Bearer ${token}` });
+const writer = (): Record<string, string> => ({
+  ...bearer('writer'),
+  'idempotency-key': randomUUID(),
+});
 
 async function problemOf(response: Response): Promise<Problem> {
   expect(response.headers.get('content-type')).toBe('application/problem+json; charset=utf-8');
@@ -314,7 +342,7 @@ describe('validation', () => {
     const { app } = setup();
     const response = await app.request('/v1/things', {
       method: 'POST',
-      headers: { ...bearer('writer'), 'content-type': 'application/json' },
+      headers: { ...writer(), 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'Grace' }),
     });
     expect(response.status).toBe(201);
@@ -326,7 +354,7 @@ describe('validation', () => {
     const post = (body: RequestInit['body'], headers: Record<string, string> = {}) =>
       app.request('/v1/things', {
         method: 'POST',
-        headers: { ...bearer('writer'), 'content-type': 'application/json', ...headers },
+        headers: { ...writer(), 'content-type': 'application/json', ...headers },
         body,
         ...(body instanceof ReadableStream ? { duplex: 'half' } : {}),
       } as RequestInit);
@@ -457,7 +485,7 @@ describe('logs', () => {
     await app.request(`/v1/things/${THING_ID}?behaviour=ok`, { headers: bearer(SECRET_TOKEN) });
     await app.request('/v1/things', {
       method: 'POST',
-      headers: { ...bearer('writer'), 'content-type': 'application/json' },
+      headers: { ...writer(), 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'Grace' }),
     });
     const text = JSON.stringify(logger.records);
@@ -469,7 +497,12 @@ describe('logs', () => {
 
 describe('registry', () => {
   it('refuses a route table it cannot serve as written', () => {
-    const base = { authenticate, logger: memoryLogger() };
+    const base = {
+      authenticate,
+      rateLimit: allowEveryRequest,
+      idempotency: memoryIdempotencyStore(),
+      logger: memoryLogger(),
+    };
     expect(() => createApp({ ...base, routes: [ping, ping] })).toThrow(RouteRegistryError);
     const samePath = definePublicRoute({
       id: 'pingAgain',
@@ -512,6 +545,7 @@ describe('registry', () => {
           signal: new AbortController().signal,
           call: { signal: new AbortController().signal, correlationId: 'req_0123456789' },
           log: { info: () => undefined, warn: () => undefined, error: () => undefined },
+          idempotencyKey: null,
         },
         null,
       ),

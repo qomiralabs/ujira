@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest';
 
 import { createApp } from './app.js';
 import { refuseAllCredentials } from './auth.js';
+import { memoryIdempotencyStore } from './idempotency.js';
 import { memoryLogger } from './log.js';
+import { allowEveryRequest } from './rate-limit.js';
 import { V1_ROUTES } from './routes/index.js';
 import { startServer } from './serve.js';
 
@@ -14,6 +16,8 @@ describe('startServer', () => {
     const app = createApp({
       routes: V1_ROUTES,
       authenticate: refuseAllCredentials,
+      rateLimit: allowEveryRequest,
+      idempotency: memoryIdempotencyStore(),
       logger: memoryLogger(),
     });
     const server = await startServer(app, {
@@ -38,6 +42,8 @@ describe('startServer', () => {
     const app = createApp({
       routes: V1_ROUTES,
       authenticate: refuseAllCredentials,
+      rateLimit: allowEveryRequest,
+      idempotency: memoryIdempotencyStore(),
       logger: memoryLogger(),
     });
     const first = await startServer(app, {
