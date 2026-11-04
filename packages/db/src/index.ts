@@ -110,6 +110,7 @@ export {
   type RoleGrant,
 } from './repositories/mandates.js';
 export {
+  jobPayloadProblems,
   jobQueue,
   type JobIds,
   type JobKeyMode,

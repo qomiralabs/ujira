@@ -62,4 +62,29 @@ export const jobQueue = {
   },
 };
 
+// What a task registry entry may name. A payload carries ids only, and a handler
+// reopens a tenant transaction to read anything else, so nothing personal or
+// financial can sit in the jobs table, in a log line or in a dump of the queue. A
+// field has to read as an id, and an id of a person is still refused by name.
+// `try` is the handler's retry count and `network` names where to work, neither
+// of which identifies anyone.
+const ID_FIELD = /^[a-z][A-Za-z0-9]*(?:Id|Ref)$/;
+const NON_ID_FIELDS: ReadonlySet<string> = new Set(['try', 'network']);
+const PERSONAL_FIELD = /national|passport|tax|email|phone|msisdn|birth|name|address/i;
+const TENANT_FIELDS: ReadonlySet<string> = new Set(['principalId', 'projectId']);
+
+export function jobPayloadProblems(
+  registry: Readonly<Record<string, readonly string[]>>,
+): string[] {
+  return Object.entries(registry).flatMap(([task, fields]) =>
+    fields.flatMap((field) => {
+      if (TENANT_FIELDS.has(field)) return [`${task}.${field}: the database adds the tenant ids`];
+      const idShaped = ID_FIELD.test(field) && !PERSONAL_FIELD.test(field);
+      return idShaped || NON_ID_FIELDS.has(field)
+        ? []
+        : [`${task}.${field}: a job payload carries ids only`];
+    }),
+  );
+}
+
 export const jobRepositories = { jobQueue } as const;
