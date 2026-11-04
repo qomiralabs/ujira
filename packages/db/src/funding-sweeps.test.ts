@@ -57,6 +57,7 @@ async function newInstance(as: typeof asTenant): Promise<string> {
   return as(async (tx) => {
     const mandate = await mandates.create(tx, { name: `mandate ${randomUUID()}` });
     const instance = await mandateInstances.create(tx, {
+      network: 'stellar:testnet',
       mandateId: mandate.id,
       chain: 'stellar',
       contractAddress: `C${randomUUID()}`,

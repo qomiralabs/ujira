@@ -14,12 +14,12 @@ export {
 export type { FundingErrorCode } from './errors.js';
 export { createFundingAccountService } from './funding-account.js';
 export type {
-  AttachFundingAccount,
   ConfirmFundingAccount,
   ConfirmedFundingAccount,
   FundingAccountService,
   FundingAccountServiceOptions,
-  FundingAccountOptionsRequest,
+  FundingInstance,
+  FundingInstanceRequest,
   FundingSourceStore,
   StartFundingAccount,
   SubmitFundingAccount,

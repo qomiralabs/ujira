@@ -108,8 +108,9 @@ export const fundingAccounts = {
   },
 
   // The instance's funding source for this account, made the first time it is
-  // asked for. Undefined when this tenant has no such active account, or the
-  // instance is already funded by a different one.
+  // asked for. Undefined when this tenant has no such active account, the instance
+  // is not this tenant's or not on the account's network, or it is already funded
+  // by a different account.
   //
   // The app cannot delete a funding source, so a second confirmation racing the
   // first must not get as far as creating one. The lock makes it wait and then
@@ -134,11 +135,19 @@ export const fundingAccounts = {
     }
     const account = await db
       .selectFrom('ujira.funding_accounts')
-      .select(['sponsor_tx_hash'])
+      .select(['network', 'sponsor_tx_hash'])
       .where('id', '=', input.accountId)
       .where('status', '=', 'active')
       .executeTakeFirst();
     if (account === undefined) return undefined;
+    const instance = await db
+      .selectFrom('ujira.mandate_instances')
+      .select(['network'])
+      .where('id', '=', input.mandateInstanceId)
+      .executeTakeFirst();
+    // The table refuses this too. Asking first keeps a mistake from getting as far
+    // as a funding source, which the app could not then remove.
+    if (instance?.network !== account.network) return undefined;
     const source = await fundingSources.create(db, {
       mandateInstanceId: input.mandateInstanceId,
       kind: 'stellar_funding_account',

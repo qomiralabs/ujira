@@ -430,6 +430,44 @@ $$;
 ALTER FUNCTION ujira.authenticate_token(token_prefix text) OWNER TO ujira_fn_tokens;
 
 --
+-- Name: check_funding_account_source(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.check_funding_account_source() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if not exists (
+    select 1
+      from ujira.funding_accounts as a
+      join ujira.mandate_instances as i on i.id = new.mandate_instance_id
+     where a.id = new.funding_account_id
+       and a.network = i.network
+  ) then
+    raise exception using
+      errcode = '23514',
+      message = 'a funding account funds a mandate instance on its own network only';
+  end if;
+  if not exists (
+    select 1
+      from ujira.funding_sources as s
+     where s.id = new.funding_source_id
+       and s.mandate_instance_id = new.mandate_instance_id
+       and s.kind = 'stellar_funding_account'
+  ) then
+    raise exception using
+      errcode = '23514',
+      message = 'a funding account uses a funding source of its kind on the same instance';
+  end if;
+  return null;
+end
+$$;
+
+
+ALTER FUNCTION ujira.check_funding_account_source() OWNER TO ujira_owner;
+
+--
 -- Name: check_new_funding_sweep(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1668,6 +1706,7 @@ CREATE TABLE ujira.mandate_instances (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     attester_public_key bytea,
     country_policy_hash ujira.hash32,
+    network ujira.network_id,
     CONSTRAINT mandate_instances_address_length CHECK (((char_length(contract_address) >= 1) AND (char_length(contract_address) <= 128))),
     CONSTRAINT mandate_instances_attester_key_length CHECK ((octet_length(attester_public_key) = 32)),
     CONSTRAINT mandate_instances_spec_length CHECK (((char_length(spec_version) >= 1) AND (char_length(spec_version) <= 32)))
@@ -2490,6 +2529,14 @@ ALTER TABLE ONLY ujira.mandate_instances
 
 
 --
+-- Name: mandate_instances mandate_instances_network_on_chain; Type: CHECK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.mandate_instances
+    ADD CONSTRAINT mandate_instances_network_on_chain CHECK (((network IS NOT NULL) AND (split_part((network)::text, ':'::text, 1) = chain))) NOT VALID;
+
+
+--
 -- Name: mandate_instances mandate_instances_per_asset; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3013,6 +3060,13 @@ CREATE TRIGGER deposits_append_only BEFORE DELETE OR UPDATE ON ujira.deposits FO
 --
 
 CREATE TRIGGER deposits_no_truncate BEFORE TRUNCATE ON ujira.deposits FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: funding_account_sources funding_account_sources_check_new; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER funding_account_sources_check_new AFTER INSERT ON ujira.funding_account_sources FOR EACH ROW EXECUTE FUNCTION ujira.check_funding_account_source();
 
 
 --
@@ -5095,6 +5149,13 @@ GRANT ALL ON FUNCTION ujira.audit_row_hash(prev_hash bytea, principal_id uuid, p
 REVOKE ALL ON FUNCTION ujira.authenticate_token(token_prefix text) FROM PUBLIC;
 GRANT ALL ON FUNCTION ujira.authenticate_token(token_prefix text) TO ujira_app;
 GRANT ALL ON FUNCTION ujira.authenticate_token(token_prefix text) TO ujira_auth;
+
+
+--
+-- Name: FUNCTION check_funding_account_source(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.check_funding_account_source() FROM PUBLIC;
 
 
 --

@@ -8,7 +8,12 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
 import type { Database } from './database.js';
 import { entryPoints, type CreatedPrincipal } from './repositories/entry-points.js';
-import { fundingSources, mandateInstances, mandates } from './repositories/mandates.js';
+import {
+  fundingSources,
+  mandateInstances,
+  mandates,
+  type NewMandateInstance,
+} from './repositories/mandates.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
 
@@ -41,6 +46,7 @@ async function createInstance(
 ) {
   return db.tenant(tenant).transaction(async (tx) =>
     mandateInstances.create(tx, {
+      network: 'stellar:testnet',
       mandateId,
       chain: overrides.chain ?? 'stellar',
       contractAddress: overrides.contractAddress ?? `C${randomUUID()}`,
@@ -50,6 +56,51 @@ async function createInstance(
     }),
   );
 }
+
+describe('the network of a mandate instance', () => {
+  const instance = async (network: string, chain = 'stellar') => {
+    const mandateId = await newMandate();
+    return db.tenant(tenant).transaction(async (tx) =>
+      mandateInstances.create(tx, {
+        network,
+        mandateId,
+        chain,
+        contractAddress: `C${randomUUID()}`,
+        specVersion: '1',
+        asset: 'USDC',
+        scale: 7,
+      }),
+    );
+  };
+
+  it('is recorded and read back', async () => {
+    const made = await instance('stellar:pubnet');
+    expect(made.network).toBe('stellar:pubnet');
+    const read = await db
+      .tenant(tenant)
+      .transaction(async (tx) => mandateInstances.get(tx, made.id));
+    expect(read?.network).toBe('stellar:pubnet');
+  });
+
+  it('refuses a network the system does not run', async () => {
+    expect(await codeOf(instance('stellar:futurenet'))).toBe('23514');
+  });
+
+  it('refuses a new instance that does not say', async () => {
+    const mandateId = await newMandate();
+    const attempt = db.tenant(tenant).transaction(async (tx) =>
+      mandateInstances.create(tx, {
+        mandateId,
+        chain: 'stellar',
+        contractAddress: `C${randomUUID()}`,
+        specVersion: '1',
+        asset: 'USDC',
+        scale: 7,
+      } as NewMandateInstance),
+    );
+    expect(await codeOf(attempt)).toBe('23514');
+  });
+});
 
 beforeAll(async () => {
   database = await createTestDatabase(adminUrl, import.meta.url);
@@ -86,7 +137,8 @@ describe('mandate instances', () => {
 
   it('rejects USDC at another scale, and on a chain that does not settle it', async () => {
     expect(await codeOf(createInstance(await newMandate(), { scale: 6 }))).toBe('23503');
-    expect(await codeOf(createInstance(await newMandate(), { chain: 'celo' }))).toBe('23503');
+    // The network is not on that chain, which the check says before the key can.
+    expect(await codeOf(createInstance(await newMandate(), { chain: 'celo' }))).toBe('23514');
   });
 
   it('holds one contract address once on a chain, across every tenant', async () => {
