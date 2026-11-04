@@ -123,15 +123,19 @@ async function writeEntries(
   entries: readonly LedgerEntryInput[],
 ): Promise<void> {
   if (entries.length === 0) return;
-  const kinds = [...new Set(entries.map((entry) => entry.kind))];
+  // Sorted and inserted in that order, so two journals opening the same accounts
+  // at once take them the same way round: otherwise each can wait on a row the
+  // other inserted and has not committed, and they deadlock.
+  const kinds = [...new Set(entries.map((entry) => entry.kind))].sort();
   // Accounts open on first use, in the instance's own unit. An instance of
   // another tenant is not visible here, so nothing opens for it.
   await sql`
     insert into ujira.ledger_accounts
       (principal_id, project_id, mandate_instance_id, kind, chain, asset, scale)
     select i.principal_id, i.project_id, i.id, k.kind, i.chain, i.asset, i.scale
-      from ujira.mandate_instances as i, unnest(${kinds}::text[]) as k (kind)
+      from ujira.mandate_instances as i, unnest(${kinds}::text[]) with ordinality as k (kind, at)
      where i.id = ${mandateInstanceId}
+     order by k.at
     on conflict on constraint ledger_accounts_per_kind do nothing
   `.execute(db);
   const accounts = await db
