@@ -888,6 +888,35 @@ $$;
 ALTER FUNCTION ujira.legs_match_attempt() OWNER TO ujira_owner;
 
 --
+-- Name: payout_attempt_needs_open_payout(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.payout_attempt_needs_open_payout() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  payout_status text;
+begin
+  select p.status into payout_status
+    from ujira.payouts as p
+   where p.principal_id = new.principal_id
+     and p.project_id = new.project_id
+     and p.id = new.payout_id
+   for share;
+  if payout_status in ('paid', 'blocked', 'rejected', 'cancelled', 'failed') then
+    raise exception using
+      errcode = 'UJ017',
+      message = format('a %s payout cannot take a new attempt', payout_status);
+  end if;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.payout_attempt_needs_open_payout() OWNER TO ujira_owner;
+
+--
 -- Name: payout_instance_matches(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3410,6 +3439,13 @@ CREATE TRIGGER mandates_touch BEFORE UPDATE ON ujira.mandates FOR EACH ROW EXECU
 
 
 --
+-- Name: payout_attempts payout_attempts_have_legs; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE CONSTRAINT TRIGGER payout_attempts_have_legs AFTER INSERT ON ujira.payout_attempts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ujira.legs_match_attempt('id');
+
+
+--
 -- Name: payout_attempts payout_attempts_instance; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3435,6 +3471,13 @@ CREATE TRIGGER payout_attempts_no_delete BEFORE DELETE ON ujira.payout_attempts 
 --
 
 CREATE TRIGGER payout_attempts_no_truncate BEFORE TRUNCATE ON ujira.payout_attempts FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: payout_attempts payout_attempts_open_payout; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER payout_attempts_open_payout BEFORE INSERT ON ujira.payout_attempts FOR EACH ROW EXECUTE FUNCTION ujira.payout_attempt_needs_open_payout();
 
 
 --
@@ -5640,6 +5683,13 @@ REVOKE ALL ON FUNCTION ujira.ledger_stamp() FROM PUBLIC;
 --
 
 REVOKE ALL ON FUNCTION ujira.legs_match_attempt() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION payout_attempt_needs_open_payout(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.payout_attempt_needs_open_payout() FROM PUBLIC;
 
 
 --
