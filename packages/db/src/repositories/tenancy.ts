@@ -49,8 +49,10 @@ export interface ApiToken {
   readonly projectId: string;
   readonly prefix: string;
   readonly scopes: readonly string[];
-  readonly expiresAt: Date | null;
+  readonly expiresAt: Date;
   readonly revokedAt: Date | null;
+  // The token this one replaced, in the same project, or null for a first one.
+  readonly rotatedFromId: string | null;
   readonly createdAt: Date;
 }
 
@@ -59,7 +61,9 @@ export interface NewApiToken {
   // SHA-256 of the secret, 32 bytes. The secret itself never reaches here.
   readonly secretSha256: Buffer;
   readonly scopes: readonly string[];
-  readonly expiresAt: Date | null;
+  // Every token expires: rotation is the only way to keep one working.
+  readonly expiresAt: Date;
+  readonly rotatedFromId?: string;
 }
 
 const MEMBER_ROLES: ReadonlySet<string> = new Set<MemberRole>([
@@ -236,6 +240,7 @@ const tokenColumns = [
   'scopes',
   'expires_at',
   'revoked_at',
+  'rotated_from_id',
   'created_at',
 ] as const;
 
@@ -244,8 +249,9 @@ function toToken(row: {
   project_id: string;
   prefix: string;
   scopes: string[];
-  expires_at: Date | null;
+  expires_at: Date;
   revoked_at: Date | null;
+  rotated_from_id: string | null;
   created_at: Date;
 }): ApiToken {
   return {
@@ -255,6 +261,7 @@ function toToken(row: {
     scopes: row.scopes,
     expiresAt: row.expires_at,
     revokedAt: row.revoked_at,
+    rotatedFromId: row.rotated_from_id,
     createdAt: row.created_at,
   };
 }
@@ -290,6 +297,7 @@ export const apiTokens = {
         secret_sha256: input.secretSha256,
         scopes: [...input.scopes],
         expires_at: input.expiresAt,
+        rotated_from_id: input.rotatedFromId ?? null,
       })
       .returning(tokenColumns)
       .executeTakeFirstOrThrow();

@@ -24,6 +24,7 @@ export {
 export type { ExtensionGroup, ExtensionPolicy, RestoredEntry } from './restore-policy.js';
 export { createStellarRpc } from './rpc.js';
 export { accountBalance } from './tx.js';
+export { horizonDexSource, reflectorOracleSource } from './xlm-rate-sources.js';
 export { fateOf } from './lifecycle.js';
 export type { ReconcileResult, SubmissionFate, SweepOptions } from './lifecycle.js';
 export type {
@@ -35,3 +36,7 @@ export type {
   RpcTransaction,
   StellarRpc,
 } from './rpc.js';
+export { createFundingAccountFlow } from './funding-account.js';
+export type { FundingAccountFlowOptions } from './funding-account.js';
+export { CONTRACT_ADDRESS_LABEL, parseForwarderRequest, stellarFundingView } from './forwarder.js';
+export type { ForwarderFault, ForwarderRecord, StellarFundingView } from './forwarder.js';

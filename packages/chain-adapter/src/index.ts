@@ -15,6 +15,8 @@ export {
   ChainUnavailableError,
   CrossChainLiveError,
   DestinationInvalidError,
+  UNSUPPORTED_MEMO_DESTINATION_MESSAGE,
+  UnsupportedMemoDestinationError,
   ExecutorUnfundedError,
   InternalError,
   InvalidInputError,
@@ -28,6 +30,7 @@ export {
   RailRejectedError,
   RailTimeoutError,
   RailUnavailableError,
+  RateUnavailableError,
   ReorgedError,
   RpcLaggingError,
   RpcRateLimitedError,
@@ -57,6 +60,12 @@ export type {
   Landed,
   WaitFor,
 } from './errors.js';
+export {
+  DESTINATION_MEMO_TYPES,
+  readBindableDestination,
+  readProviderDepositInstruction,
+} from './destination.js';
+export type { BindableDestination, DestinationInput, DestinationMemoType } from './destination.js';
 export { operationsGuardianOf } from './guardian.js';
 export {
   SIGNER_DOWN,
@@ -93,6 +102,7 @@ export {
   mandateErrorName,
 } from './mandate-errors.js';
 export type { MandateErrorName } from './mandate-errors.js';
+export { PUBLIC_TEST_ATTESTER_KEYS, isPublicTestAttesterKey } from './test-attester-keys.js';
 export { pinnedKeys, verifyPinnedAddresses } from './key-ref.js';
 export type { PinnedKey } from './key-ref.js';
 export { NETWORK_IDS, chainOf, isNetworkId } from './networks.js';
@@ -109,6 +119,7 @@ export {
   signerRetryDecision,
 } from './retry.js';
 export type { AlertKind, RetryDecision, RetryRule, SignerErrorCode } from './retry.js';
+export type * from './funding-account.js';
 export type * from './signer.js';
 export { createRentWatch, utcDay } from './stellar/rent-watch.js';
 export type {
@@ -128,5 +139,15 @@ export type {
   BatchSimulationPort,
 } from './bisect.js';
 export { tenantRefOf, tenantTagOf } from './tenant-ref.js';
+export { createXlmRateReader, deviationBps } from './stellar/xlm-rate.js';
+export type {
+  XlmRate,
+  XlmRateAlerts,
+  XlmRateObservation,
+  XlmRateReader,
+  XlmRateReaderOptions,
+  XlmRateSource,
+  XlmRateSourceName,
+} from './stellar/xlm-rate.js';
 export { CHAIN_ADAPTER_INTERFACE_VERSION } from './types.js';
 export type * from './types.js';
