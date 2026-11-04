@@ -8,7 +8,13 @@
 
 import { PROBLEM_CODES, PROBLEM_TITLES } from '@ujira/api-schema';
 import type { FieldError, ProblemCode } from '@ujira/api-schema';
-import { ChainAdapterError, MandateRuleError } from '@ujira/chain-adapter';
+import {
+  ChainAdapterError,
+  InvalidInputError,
+  MandateRuleError,
+  UNSUPPORTED_MEMO_DESTINATION_MESSAGE,
+  UnsupportedMemoDestinationError,
+} from '@ujira/chain-adapter';
 import type { ChainAdapterErrorCode, MandateErrorName } from '@ujira/chain-adapter';
 import {
   DatabaseConfigError,
@@ -180,6 +186,9 @@ export const DATABASE_ERROR_CLASSES: readonly string[] = Object.freeze(
   DATABASE_ERRORS.map(([type]) => type.name),
 );
 
+const DESTINATION_REFUSED_DETAIL =
+  'This destination cannot receive payouts. Check the address and memo, or choose another payout method.';
+
 function secondsFrom(ms: number | null): number | undefined {
   return ms === null ? undefined : Math.ceil(ms / 1000);
 }
@@ -191,6 +200,17 @@ function secondsFrom(ms: number | null): number | undefined {
  */
 export function toApiError(error: unknown): ApiError {
   if (error instanceof ApiError) return error;
+  // A destination the adapter refused is the client's to fix with another
+  // destination or method, so it is a 422 that says so, not a bare 400.
+  if (error instanceof InvalidInputError && error.reason !== null) {
+    return new ApiError('DESTINATION_INVALID', {
+      detail:
+        error instanceof UnsupportedMemoDestinationError
+          ? UNSUPPORTED_MEMO_DESTINATION_MESSAGE
+          : DESTINATION_REFUSED_DETAIL,
+      errors: [{ field: 'destination', code: 'invalid_value' }],
+    });
+  }
   if (error instanceof ChainAdapterError) {
     const retryAfterSeconds = secondsFrom(error.retryAfterMs);
     const code =

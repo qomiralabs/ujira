@@ -260,6 +260,7 @@ const ADAPTER_ERROR_NAMES = [
   'ActivationBudgetExhaustedError',
   'ExecutorUnfundedError',
   'DestinationInvalidError',
+  'UnsupportedMemoDestinationError',
   'QuoteExpiredError',
   'QuoteUnavailableError',
   'LiquidityUnavailableError',
@@ -653,6 +654,32 @@ export class DestinationInvalidError extends ChainAdapterError {
   override readonly name = 'DestinationInvalidError';
   constructor(options?: ChainAdapterErrorOptions) {
     super('DESTINATION_INVALID', options);
+  }
+}
+
+/**
+ * Shown to a recipient whose destination needs a text or hash memo. Plain
+ * fixed text, so a widget or an API can show it as it is.
+ */
+export const UNSUPPORTED_MEMO_DESTINATION_MESSAGE =
+  'This destination needs a text or hash memo, which a payout from a mandate cannot carry. Choose another payout method, or an address that needs no memo or only a numeric one.';
+
+/**
+ * A destination that needs a text or hash memo. A contract cannot attach a
+ * transaction memo and a muxed tag holds only a 64 bit number, so it could
+ * never be paid; it is refused when the destination is captured, not found
+ * at payout time. It is invalid input with reason MEMO_NOT_ID, so callers
+ * that branch on the code or the reason need no new case.
+ */
+export class UnsupportedMemoDestinationError extends InvalidInputError {
+  override readonly name: string = 'UnsupportedMemoDestinationError';
+
+  constructor(options: { readonly network: NetworkId | null; readonly path: string }) {
+    super({
+      network: options.network,
+      reason: 'MEMO_NOT_ID',
+      issues: [`${options.path} (memo_not_id)`],
+    });
   }
 }
 
