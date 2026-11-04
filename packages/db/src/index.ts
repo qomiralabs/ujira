@@ -18,6 +18,14 @@ export {
   type ProjectContext,
   type TenantSession,
 } from './database.js';
+export { memberSessions } from './repositories/sessions.js';
+export type {
+  CreatedSession,
+  Membership,
+  NewMemberSession,
+  ResolvedSession,
+  SessionAssurance,
+} from './repositories/sessions.js';
 export {
   MAX_PAGE_SIZE,
   PageRequestError,
@@ -59,8 +67,10 @@ export {
   type TokenRecord,
 } from './repositories/entry-points.js';
 export {
+  AUDIT_ACTIONS,
   audit,
   AuditScopeError,
+  type AuditAction,
   type AuditActor,
   type AuditChainBreak,
   type AuditEntry,
@@ -97,6 +107,11 @@ export {
   type RecipientStatus,
 } from './repositories/recipients.js';
 export {
+  idempotencyKeys,
+  type FinishedRequest,
+  type NewReservation,
+  type Reservation,
+} from './repositories/idempotency.js';
   agentIdentityLinks,
   attestations,
   destinationVerifications,
@@ -119,14 +134,21 @@ export {
   type WalletChallengeRow,
 } from './repositories/identity-evidence.js';
 export {
+  SECURITY_EVENT_KINDS,
   emailQuota,
   executors,
   identityProviderEvents,
+  rateLimits,
   type EmailKind,
   type EmailQuotaRequest,
   routingConfig,
+  securityEvents,
   type IdentityProviderEvent,
   type ExecutorLease,
+  type NewSecurityEvent,
+  type SecurityEventKind,
+  type RateLimitBucket,
+  type RateLimitTaken,
   type RoutingConfig,
 } from './repositories/ops.js';
 export {

@@ -73,6 +73,12 @@ export interface OpsIdentityProviderEvents {
   received_at: Generated<Timestamp>;
 }
 
+export interface OpsRateLimitBuckets {
+  bucket_key: string;
+  refilled_at: Timestamp;
+  tokens: Numeric;
+}
+
 export interface OpsRoutingConfigActive {
   only_row: Generated<boolean>;
   updated_at: Generated<Timestamp>;
@@ -84,6 +90,15 @@ export interface OpsRoutingConfigVersions {
   created_by: string;
   document: Json;
   version: Generated<Int8>;
+}
+
+export interface OpsSecurityEvents {
+  email_hmac: Buffer | null;
+  id: Generated<Int8>;
+  ip_hmac: Buffer | null;
+  kind: string;
+  occurred_at: Generated<Timestamp>;
+  token_prefix: string | null;
 }
 
 export interface OpsSigningKeys {
@@ -118,13 +133,15 @@ export interface UjiraAgentIdentityLinks {
 
 export interface UjiraApiTokens {
   created_at: Generated<Timestamp>;
-  expires_at: Timestamp | null;
+  expires_at: Timestamp;
   id: Generated<string>;
+  last_used_at: Timestamp | null;
   prefix: string;
   principal_id: string;
   project_id: string;
   revoked_at: Timestamp | null;
-  scopes: Generated<string[]>;
+  rotated_from_id: string | null;
+  scopes: string[];
   secret_sha256: Buffer;
 }
 
@@ -306,6 +323,21 @@ export interface UjiraFundingSweeps {
   updated_at: Generated<Timestamp>;
 }
 
+export interface UjiraIdempotencyKeys {
+  created_at: Generated<Timestamp>;
+  expires_at: Timestamp;
+  id: Generated<string>;
+  idempotency_key: string;
+  lease_expires_at: Timestamp | null;
+  lease_id: string | null;
+  principal_id: string;
+  project_id: string;
+  request_id: string | null;
+  request_sha256: Buffer;
+  response_body: string | null;
+  response_status: Int8 | null;
+}
+
 export interface UjiraLedgerAccounts {
   asset: string;
   balance: Generated<Numeric>;
@@ -423,6 +455,24 @@ export interface UjiraMandateStateSnapshots {
   taken_at: Generated<Timestamp>;
 }
 
+export interface UjiraMemberSessions {
+  aal: string;
+  absolute_expires_at: Timestamp;
+  auth_subject: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  idle_expires_at: Timestamp;
+  ip_hmac: Buffer | null;
+  principal_id: string | null;
+  project_id: string | null;
+  revoked_at: Timestamp | null;
+  revoked_reason: string | null;
+  secret_hash: Buffer;
+  stepped_up_at: Timestamp | null;
+  supabase_session_id: string;
+  user_agent_family: string | null;
+}
+
 export interface UjiraMigrations {
   id: Generated<number>;
   name: string;
@@ -451,6 +501,7 @@ export interface UjiraPrincipalMembers {
   created_at: Generated<Timestamp>;
   principal_id: string;
   role: string;
+  status: Generated<string>;
   updated_at: Generated<Timestamp>;
   user_id: string;
 }
@@ -559,8 +610,10 @@ export interface Schema {
   'ops.executor_accounts': OpsExecutorAccounts;
   'ops.fee_estimates': OpsFeeEstimates;
   'ops.identity_provider_events': OpsIdentityProviderEvents;
+  'ops.rate_limit_buckets': OpsRateLimitBuckets;
   'ops.routing_config_active': OpsRoutingConfigActive;
   'ops.routing_config_versions': OpsRoutingConfigVersions;
+  'ops.security_events': OpsSecurityEvents;
   'ops.signing_keys': OpsSigningKeys;
   ujira_migrations: UjiraMigrations;
   'ujira.agent_identity_links': UjiraAgentIdentityLinks;
@@ -580,6 +633,7 @@ export interface Schema {
   'ujira.funding_accounts': UjiraFundingAccounts;
   'ujira.funding_sources': UjiraFundingSources;
   'ujira.funding_sweeps': UjiraFundingSweeps;
+  'ujira.idempotency_keys': UjiraIdempotencyKeys;
   'ujira.ledger_accounts': UjiraLedgerAccounts;
   'ujira.ledger_entries': UjiraLedgerEntries;
   'ujira.ledger_journals': UjiraLedgerJournals;
@@ -589,6 +643,7 @@ export interface Schema {
   'ujira.mandate_instances': UjiraMandateInstances;
   'ujira.mandate_state_snapshots': UjiraMandateStateSnapshots;
   'ujira.mandates': UjiraMandates;
+  'ujira.member_sessions': UjiraMemberSessions;
   'ujira.payout_methods': UjiraPayoutMethods;
   'ujira.principal_members': UjiraPrincipalMembers;
   'ujira.principals': UjiraPrincipals;

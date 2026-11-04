@@ -23,9 +23,12 @@ Settings, all optional:
 | `UJIRA_API_HOST`               | `127.0.0.1` | Address to bind; loopback by default     |
 | `UJIRA_API_REQUEST_TIMEOUT_MS` | `10000`     | Deadline for every request, 100 to 60000 |
 | `UJIRA_API_BODY_LIMIT_BYTES`   | `1048576`   | Largest JSON body accepted               |
+| `UJIRA_API_ENVIRONMENT`        | `sandbox`   | `sandbox` or `production`                |
+| `UJIRA_API_EMBED_ORIGINS`      | none        | Origins a browser may send a key from    |
 
-Until token authentication lands, the local server refuses every key, so only
-the public routes answer.
+The database settings are the `UJIRA_DB_*` ones in `packages/db/.env.example`.
+With none of them set, the local server refuses every key, so only the public
+routes answer; `production` refuses to start that way.
 
 ## Adding an endpoint
 
@@ -87,8 +90,8 @@ the flow has its tables and the adapter has its wallet proof methods.
 
 In order: a request id (the `Request-Id` header, and `call.correlationId` for
 adapter calls); a deadline (`signal`, which aborts after the request timeout);
-for tenant routes, the credential and then the route's scope; path, query and
-body validation; the handler; the response, parsed by its schema; for tenant
+for tenant routes, the credential, the rate limits and then the route's scope; path, query and
+body validation; for tenant writes, the `Idempotency-Key`; the handler; the response, parsed by its schema; for tenant
 routes, a check that no `principalId` or `projectId` in the body belongs to
 someone else; and one access log line.
 
@@ -103,6 +106,85 @@ Rules that follow from it:
   units as a string, with its currency and scale.
 - Pass `signal` to anything that waits, and `call` to every chain adapter
   call.
+
+## API keys
+
+A key reads `ujk_<env>_<id>_<secret><checksum>`, all base32 lower case: `env` is
+`live` or `test`, `id` is 16 characters (80 random bits), `secret` is 52 characters
+(256 random bits) and `checksum` is 7 characters of CRC32 over the rest. The
+prefix `ujk_<env>_<id>` names the key and is stored; of the secret only its SHA-256
+is stored. Nothing here writes a key, a prefix or a hash to a log.
+
+A key goes in `Authorization: Bearer`, and nowhere else. What is checked, in order:
+
+| Check                                 | Refused with                     | Costs a query    |
+| ------------------------------------- | -------------------------------- | ---------------- |
+| `Origin`, if sent, is an embed        | `403 ORIGIN_NOT_ALLOWED`         | no               |
+| The header, format and checksum       | `401 TOKEN_MALFORMED`            | no               |
+| The key's environment                 | `401 TOKEN_ENVIRONMENT_MISMATCH` | records an event |
+| Known, secret, not expired or revoked | `401 TOKEN_INVALID`, all alike   | yes              |
+| The rate limits                       | `429 RATE_LIMITED`               | yes              |
+| The route's scope                     | `403 INSUFFICIENT_SCOPE`         | no               |
+
+`test` keys work only in the sandbox and `live` keys only in production. `/v1`
+sends no CORS headers to anyone.
+
+A key refused on its environment or at the lookup is recorded in
+`ops.security_events` by its public prefix, and kept for 90 days. If the record
+cannot be written the client still gets its refusal, and the failure is logged.
+
+A good lookup is cached for at most 30 seconds, so a revoked key stops working
+within that time on every instance. `last_used_at` is written at most once per
+five minutes.
+
+The closed list of scopes is `API_SCOPES` in `src/auth.ts`, and the database holds
+the same list in a check constraint. Every route declares its scope, and a server
+will not start with a route that has none; `src/scopes.test.ts` runs that check
+over the whole route table.
+
+### Rate limits
+
+Token buckets in the unlogged table `ops.rate_limit_buckets`, shared by every
+instance, one call per request. Every tenant route takes from the key's bucket and
+the principal's:
+
+| Bucket                     | Rate       | Burst |
+| -------------------------- | ---------- | ----- |
+| Per key                    | 20 per sec | 40    |
+| Per principal              | 50 per sec | 100   |
+| Payout creation, principal | 10 per sec | 10    |
+
+A request takes from every bucket it names or from none, so a key past its own
+limit does not use up its principal's bucket. A route opts into the payout limit
+with `rateLimit: 'payout_creation'`. Tenant responses carry `RateLimit-Limit`,
+`RateLimit-Remaining` and `RateLimit-Reset`, for whichever bucket is tightest; a
+429 adds `Retry-After`. If the buckets cannot be reached the answer is 503, never
+an unlimited request.
+
+## Idempotency
+
+Every tenant write, meaning anything but a `GET`, needs an `Idempotency-Key` header
+of up to 255 characters from `A-Za-z0-9_.:-`. Without one the answer is
+`400 IDEMPOTENCY_KEY_INVALID`, after the key, the limits and the scope have been
+checked and before the handler runs. A key belongs to one project, for 7 days.
+
+| A request with a key that is    | Gets                                             |
+| ------------------------------- | ------------------------------------------------ |
+| New                             | Runs the handler                                 |
+| The same request, finished      | The stored answer, unchanged                     |
+| The same request, still running | `409 IDEMPOTENCY_IN_PROGRESS` with `Retry-After` |
+| A different request             | `422 IDEMPOTENCY_KEY_REUSED`                     |
+
+"The same request" means the method, the path, the query and the exact body bytes.
+A replay carries `Idempotent-Replayed: true` and the `Request-Id` of the attempt it
+repeats. A 5xx or a 429 is not stored, because it says to try again, so a retry
+runs. A body that fails validation uses up nothing, because nothing ran.
+
+The `unique (principal_id, project_id, idempotency_key)` constraint is what decides
+who wins a key, so all of this holds across instances. It cannot cover a process
+that dies mid request: the lease runs out after two minutes and a retry runs the
+handler again. So **a handler that moves money must also write
+`context.idempotencyKey` under a unique constraint of its own**.
 
 ## Errors
 
@@ -120,8 +202,8 @@ Every failure is an RFC 9457 problem body with a stable `code`, a fixed
   `MANDATE_ERROR_MAP`, which covers every rule in the vendored spec table, `DatabaseUnavailableError` from `@ujira/db` is
   `DB_UNAVAILABLE`, and anything unknown is `INTERNAL`, logged by class name
   only.
-- `DB_UNAVAILABLE`, `CHAIN_UNAVAILABLE`, `REQUEST_TIMEOUT` (503) and
-  `RATE_LIMITED` (429) carry `Retry-After`. An adapter error's `retryAfterMs`
+- `DB_UNAVAILABLE`, `CHAIN_UNAVAILABLE`, `REQUEST_TIMEOUT` (503),
+  `RATE_LIMITED` (429) and `IDEMPOTENCY_IN_PROGRESS` (409) carry `Retry-After`. An adapter error's `retryAfterMs`
   can lengthen it.
 - A path id that does not parse is `NOT_FOUND`. A bad query is
   `INVALID_FILTER` (or, for contract routes, `INVALID_CURSOR` and

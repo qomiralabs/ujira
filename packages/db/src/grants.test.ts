@@ -139,16 +139,36 @@ describe('grants on ujira', () => {
     ];
     const auditHash =
       'function ujira.audit_row_hash(bytea,uuid,uuid,bigint,text,text,uuid,jsonb,timestamp with time zone)';
-    expect(await executable('ujira_app')).toEqual([
-      auditHash,
-      'function ujira.authenticate_token(text)',
-      'function ujira.create_principal(text,text,uuid,text)',
-      ...context,
-    ]);
-    expect(await executable('ujira_auth')).toEqual([
-      'function ujira.authenticate_token(text)',
-      ...context,
-    ]);
+    expect(await executable('ujira_app')).toEqual(
+      [
+        auditHash,
+        'function ujira.authenticate_token(text)',
+        'function ujira.create_principal(text,text,uuid,text)',
+        ...context,
+        'function ujira.member_memberships(uuid)',
+        'function ujira.session_create(bytea,uuid,text,text,integer,integer,bytea,text)',
+        'function ujira.session_resolve(bytea)',
+        'function ujira.session_revoke(bytea,text)',
+        'function ujira.session_revoke_subject(uuid,text)',
+        'function ujira.session_select(bytea,uuid,uuid)',
+        'function ujira.session_step_up(bytea,text)',
+        'function ujira.session_touch(bytea,integer)',
+      ].sort(),
+    );
+    expect(await executable('ujira_auth')).toEqual(
+      [
+        'function ujira.authenticate_token(text)',
+        ...context,
+        'function ujira.member_memberships(uuid)',
+        'function ujira.session_create(bytea,uuid,text,text,integer,integer,bytea,text)',
+        'function ujira.session_resolve(bytea)',
+        'function ujira.session_revoke(bytea,text)',
+        'function ujira.session_revoke_subject(uuid,text)',
+        'function ujira.session_select(bytea,uuid,uuid)',
+        'function ujira.session_step_up(bytea,text)',
+        'function ujira.session_touch(bytea,integer)',
+      ].sort(),
+    );
     expect(await executable('ujira_reader')).toEqual([auditHash, ...context]);
     expect(await executable('ujira_indexer')).toEqual([
       ...context,
@@ -175,6 +195,7 @@ describe('roles', () => {
       'ujira_fn_instances',
       'ujira_fn_ledger',
       'ujira_fn_principals',
+      'ujira_fn_sessions',
       'ujira_fn_tokens',
       'ujira_indexer',
       'ujira_migrator',
@@ -191,6 +212,7 @@ describe('roles', () => {
       'ujira_fn_instances',
       'ujira_fn_ledger',
       'ujira_fn_principals',
+      'ujira_fn_sessions',
       'ujira_fn_tokens',
       'ujira_signer_read',
     ]);
@@ -215,7 +237,19 @@ describe('roles', () => {
       { fn: 'ujira.create_principal(text,text,uuid,text)', owner: 'ujira_fn_principals' },
       { fn: 'ujira.ledger_balanced()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.ledger_stamp()', owner: 'ujira_fn_ledger' },
+      { fn: 'ujira.member_memberships(uuid)', owner: 'ujira_fn_sessions' },
       { fn: 'ujira.resolve_mandate_instance(text,text)', owner: 'ujira_fn_instances' },
+      {
+        fn: 'ujira.session_create(bytea,uuid,text,text,integer,integer,bytea,text)',
+        owner: 'ujira_fn_sessions',
+      },
+      { fn: 'ujira.session_delete_expired(integer)', owner: 'ujira_fn_sessions' },
+      { fn: 'ujira.session_resolve(bytea)', owner: 'ujira_fn_sessions' },
+      { fn: 'ujira.session_revoke(bytea,text)', owner: 'ujira_fn_sessions' },
+      { fn: 'ujira.session_revoke_subject(uuid,text)', owner: 'ujira_fn_sessions' },
+      { fn: 'ujira.session_select(bytea,uuid,uuid)', owner: 'ujira_fn_sessions' },
+      { fn: 'ujira.session_step_up(bytea,text)', owner: 'ujira_fn_sessions' },
+      { fn: 'ujira.session_touch(bytea,integer)', owner: 'ujira_fn_sessions' },
     ]);
     // Each holds only what its one function needs, and never CREATE.
     const rights = await client.query<{ grantee: string; object: string; privilege: string }>(
@@ -238,6 +272,12 @@ describe('roles', () => {
       { grantee: 'ujira_fn_principals', object: 'principal_members', privilege: 'INSERT' },
       { grantee: 'ujira_fn_principals', object: 'principals', privilege: 'INSERT' },
       { grantee: 'ujira_fn_principals', object: 'projects', privilege: 'INSERT' },
+      { grantee: 'ujira_fn_sessions', object: 'member_sessions', privilege: 'DELETE' },
+      { grantee: 'ujira_fn_sessions', object: 'member_sessions', privilege: 'INSERT' },
+      { grantee: 'ujira_fn_sessions', object: 'member_sessions', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_sessions', object: 'member_sessions', privilege: 'UPDATE' },
+      { grantee: 'ujira_fn_sessions', object: 'principal_members', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_sessions', object: 'projects', privilege: 'SELECT' },
       { grantee: 'ujira_fn_tokens', object: 'api_tokens', privilege: 'SELECT' },
     ]);
     const create = await client.query<{ role: string }>(
