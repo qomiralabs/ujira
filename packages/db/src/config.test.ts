@@ -44,18 +44,14 @@ describe('opsConnectionConfig', () => {
     expect(() =>
       opsConnectionConfig(base, 'postgresql://u:hunter2@db.example.com/postgres'),
     ).toThrow(/loopback/);
-    const err = (() => {
-      try {
-        return opsConnectionConfig(
-          base,
-          'postgresql://u:hunter2@127.0.0.1/postgres?sslmode=disable',
-        );
-      } catch (error) {
-        return error as Error;
-      }
-    })();
-    expect(err.message).toContain('the ops URL');
-    expect(err.message).not.toContain('hunter2');
+    let message = '';
+    try {
+      opsConnectionConfig(base, 'postgresql://u:hunter2@127.0.0.1/postgres?sslmode=disable');
+    } catch (error) {
+      message = error instanceof Error ? error.message : '';
+    }
+    expect(message).toContain('the ops URL');
+    expect(message).not.toContain('hunter2');
     expect(() => opsConnectionConfig(base, '')).toThrow(DatabaseConfigError);
   });
 });
