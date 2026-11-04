@@ -1567,6 +1567,52 @@ ALTER TABLE ONLY ujira.deposits FORCE ROW LEVEL SECURITY;
 ALTER TABLE ujira.deposits OWNER TO ujira_owner;
 
 --
+-- Name: funding_account_sources; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.funding_account_sources (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    funding_account_id uuid NOT NULL,
+    funding_source_id uuid NOT NULL,
+    mandate_instance_id uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+ALTER TABLE ONLY ujira.funding_account_sources FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.funding_account_sources OWNER TO ujira_owner;
+
+--
+-- Name: funding_accounts; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.funding_accounts (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    network text NOT NULL,
+    address text NOT NULL,
+    sponsor text NOT NULL,
+    sponsor_tx_hash ujira.hash32 NOT NULL,
+    status text NOT NULL,
+    faults text[] DEFAULT '{}'::text[] NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT funding_accounts_address_length CHECK (((char_length(address) >= 1) AND (char_length(address) <= 128))),
+    CONSTRAINT funding_accounts_network_length CHECK (((char_length(network) >= 1) AND (char_length(network) <= 64))),
+    CONSTRAINT funding_accounts_sponsor_length CHECK (((char_length(sponsor) >= 1) AND (char_length(sponsor) <= 128))),
+    CONSTRAINT funding_accounts_status CHECK ((status = ANY (ARRAY['active'::text, 'rejected'::text]))),
+    CONSTRAINT funding_accounts_status_matches_faults CHECK (((status = 'active'::text) = (cardinality(faults) = 0)))
+);
+
+ALTER TABLE ONLY ujira.funding_accounts FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.funding_accounts OWNER TO ujira_owner;
+
+--
 -- Name: funding_sources; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2289,6 +2335,70 @@ ALTER TABLE ONLY ujira.deposits
 
 
 --
+-- Name: funding_account_sources funding_account_sources_one_per_instance; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_account_sources
+    ADD CONSTRAINT funding_account_sources_one_per_instance UNIQUE (mandate_instance_id);
+
+
+--
+-- Name: funding_account_sources funding_account_sources_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_account_sources
+    ADD CONSTRAINT funding_account_sources_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: funding_account_sources funding_account_sources_source_once; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_account_sources
+    ADD CONSTRAINT funding_account_sources_source_once UNIQUE (funding_source_id);
+
+
+--
+-- Name: funding_account_sources funding_account_sources_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_account_sources
+    ADD CONSTRAINT funding_account_sources_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
+-- Name: funding_accounts funding_accounts_address_once; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_accounts
+    ADD CONSTRAINT funding_accounts_address_once UNIQUE (network, address);
+
+
+--
+-- Name: funding_accounts funding_accounts_one_per_principal; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_accounts
+    ADD CONSTRAINT funding_accounts_one_per_principal UNIQUE (principal_id, network);
+
+
+--
+-- Name: funding_accounts funding_accounts_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_accounts
+    ADD CONSTRAINT funding_accounts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: funding_accounts funding_accounts_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_accounts
+    ADD CONSTRAINT funding_accounts_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
 -- Name: funding_sources funding_sources_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2659,6 +2769,13 @@ CREATE INDEX chain_events_by_instance ON ujira.chain_events USING btree (princip
 --
 
 CREATE INDEX deposits_by_instance ON ujira.deposits USING btree (principal_id, project_id, mandate_instance_id, created_at);
+
+
+--
+-- Name: funding_account_sources_by_account; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX funding_account_sources_by_account ON ujira.funding_account_sources USING btree (principal_id, project_id, funding_account_id);
 
 
 --
@@ -3106,6 +3223,38 @@ ALTER TABLE ONLY ujira.deposits
 
 
 --
+-- Name: funding_account_sources funding_account_sources_principal_id_project_id_funding_ac_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_account_sources
+    ADD CONSTRAINT funding_account_sources_principal_id_project_id_funding_ac_fkey FOREIGN KEY (principal_id, project_id, funding_account_id) REFERENCES ujira.funding_accounts(principal_id, project_id, id);
+
+
+--
+-- Name: funding_account_sources funding_account_sources_principal_id_project_id_funding_so_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_account_sources
+    ADD CONSTRAINT funding_account_sources_principal_id_project_id_funding_so_fkey FOREIGN KEY (principal_id, project_id, funding_source_id) REFERENCES ujira.funding_sources(principal_id, project_id, id);
+
+
+--
+-- Name: funding_account_sources funding_account_sources_principal_id_project_id_mandate_in_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_account_sources
+    ADD CONSTRAINT funding_account_sources_principal_id_project_id_mandate_in_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id) REFERENCES ujira.mandate_instances(principal_id, project_id, id);
+
+
+--
+-- Name: funding_accounts funding_accounts_principal_id_project_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_accounts
+    ADD CONSTRAINT funding_accounts_principal_id_project_id_fkey FOREIGN KEY (principal_id, project_id) REFERENCES ujira.projects(principal_id, id);
+
+
+--
 -- Name: funding_sources funding_sources_principal_id_project_id_mandate_instance_i_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3395,6 +3544,18 @@ CREATE POLICY create_principal ON ujira.projects FOR INSERT TO ujira_fn_principa
 ALTER TABLE ujira.deposits ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: funding_account_sources; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.funding_account_sources ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: funding_accounts; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.funding_accounts ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: funding_sources; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3623,6 +3784,20 @@ CREATE POLICY owner_all ON ujira.deposits TO ujira_owner USING (true) WITH CHECK
 
 
 --
+-- Name: funding_account_sources owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.funding_account_sources TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: funding_accounts owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.funding_accounts TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: funding_sources owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3826,6 +4001,20 @@ CREATE POLICY tenant_insert ON ujira.deposits FOR INSERT TO ujira_app WITH CHECK
 
 
 --
+-- Name: funding_account_sources tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.funding_account_sources FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: funding_accounts tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.funding_accounts FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: funding_sources tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3973,6 +4162,20 @@ CREATE POLICY tenant_read ON ujira.deposits FOR SELECT TO ujira_app, ujira_reade
 
 
 --
+-- Name: funding_account_sources tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.funding_account_sources FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: funding_accounts tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.funding_accounts FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
 -- Name: funding_sources tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4117,6 +4320,20 @@ CREATE POLICY tenant_update ON ujira.chain_events FOR UPDATE TO ujira_app USING 
 --
 
 CREATE POLICY tenant_update ON ujira.deposits FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: funding_account_sources tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.funding_account_sources FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: funding_accounts tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.funding_accounts FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -4730,6 +4947,22 @@ GRANT SELECT ON TABLE ujira.currency_scales TO ujira_indexer;
 GRANT SELECT ON TABLE ujira.deposits TO ujira_app;
 GRANT SELECT ON TABLE ujira.deposits TO ujira_reader;
 GRANT SELECT,INSERT ON TABLE ujira.deposits TO ujira_indexer;
+
+
+--
+-- Name: TABLE funding_account_sources; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.funding_account_sources TO ujira_app;
+GRANT SELECT ON TABLE ujira.funding_account_sources TO ujira_reader;
+
+
+--
+-- Name: TABLE funding_accounts; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.funding_accounts TO ujira_app;
+GRANT SELECT ON TABLE ujira.funding_accounts TO ujira_reader;
 
 
 --
