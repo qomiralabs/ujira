@@ -191,9 +191,11 @@ interface DeliveryRow {
   id: string;
   endpoint_id: string;
   event_id: string;
-  attempt: number;
+  // bigint columns, which pg hands back as text. Both are bounded, so the
+  // conversion below is exact.
+  attempt: string;
   status: string;
-  response_status: number | null;
+  response_status: string | null;
   error_code: string | null;
   created_at: Date;
 }
@@ -203,9 +205,9 @@ function toDelivery(row: DeliveryRow): WebhookDelivery {
     id: row.id,
     endpointId: row.endpoint_id,
     eventId: row.event_id,
-    attempt: row.attempt,
+    attempt: Number(row.attempt),
     status: row.status,
-    responseStatus: row.response_status,
+    responseStatus: row.response_status === null ? null : Number(row.response_status),
     errorCode: row.error_code,
     createdAt: row.created_at,
   };
@@ -222,8 +224,8 @@ export const webhookDeliveries = {
         attempt, status, response_status, error_code
       )
       select ujira.current_principal_id(), ujira.current_project_id(), ${input.endpointId}::uuid,
-             e.id, e.created_at, ${input.attempt}::integer, ${input.status},
-             ${input.responseStatus ?? null}::integer, ${input.errorCode ?? null}
+             e.id, e.created_at, ${input.attempt}::bigint, ${input.status},
+             ${input.responseStatus ?? null}::bigint, ${input.errorCode ?? null}
         from ujira.outbox_events as e
        where e.id = ${input.eventId}::uuid
       on conflict (principal_id, project_id, endpoint_id, event_id, attempt) do nothing

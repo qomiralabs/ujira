@@ -67,11 +67,12 @@ create table ujira.webhook_deliveries (
   endpoint_id uuid not null,
   event_id uuid not null,
   event_created_at timestamptz not null,
-  attempt integer not null
-    constraint webhook_deliveries_attempt_positive check (attempt > 0),
+  -- Bounded, so it reads back exactly as a JavaScript number.
+  attempt bigint not null
+    constraint webhook_deliveries_attempt_range check (attempt between 1 and 1000),
   status text not null
     constraint webhook_deliveries_status check (status in ('succeeded', 'failed', 'dead_letter')),
-  response_status integer
+  response_status bigint
     constraint webhook_deliveries_response_range check (response_status between 100 and 599),
   error_code text
     constraint webhook_deliveries_error_length check (char_length(error_code) between 1 and 64),
