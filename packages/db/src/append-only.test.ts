@@ -142,7 +142,7 @@ beforeAll(async () => {
   await db
     .tenant(tenant)
     .transaction(async (tx) =>
-      audit.record(tx, { action: 'project.created', actor: { kind: 'system' } }),
+      audit.record(tx, { action: 'project.routing_settings_changed', actor: { kind: 'system' } }),
     );
 });
 

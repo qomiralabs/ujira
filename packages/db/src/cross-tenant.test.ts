@@ -17,6 +17,7 @@ import type { Schema } from './schema.generated.js';
 import { audit, auditRepositories } from './repositories/audit.js';
 import { entryPoints } from './repositories/entry-points.js';
 import { fundingAccountRepositories, fundingAccounts } from './repositories/funding-accounts.js';
+import { idempotencyKeys, idempotencyRepositories } from './repositories/idempotency.js';
 import { managedSigners } from './repositories/signers.js';
 import { ledger, ledgerRepositories } from './repositories/ledger.js';
 import {
@@ -82,6 +83,7 @@ const REPOSITORIES = {
   ...ledgerRepositories,
   ...recipientRepositories,
   ...auditRepositories,
+  ...idempotencyRepositories,
 };
 
 let database: TestDatabase;
@@ -236,7 +238,10 @@ async function tenant(name: string): Promise<Tenant> {
       destinationTag: null,
       details: null,
     });
-    await audit.record(tx, { action: 'project.created', actor: { kind: 'system' } });
+    await audit.record(tx, {
+      action: 'project.routing_settings_changed',
+      actor: { kind: 'system' },
+    });
     return { recipientId: recipient.id, identityId: identity.id, methodId: method.id };
   });
   return {
@@ -383,6 +388,81 @@ const cases: Record<string, () => Promise<void>> = {
     );
     expect(token.projectId).toBe(a.first.projectId);
     expect(await ownerOf('ujira.api_tokens', 'id', token.id)).toBe(a.first.principalId);
+  },
+  'idempotencyKeys.reserve': async () => {
+    // The same key in another tenant is a different key, however it was used.
+    const key = randomUUID();
+    const reserve = async (context: ProjectContext) =>
+      db.tenant(context).transaction(async (tx) =>
+        idempotencyKeys.reserve(tx, {
+          key,
+          requestSha256: Buffer.alloc(32, 1),
+          leaseSeconds: 60,
+        }),
+      );
+    expect((await reserve(b.first)).kind).toBe('started');
+    expect((await reserve(a.first)).kind).toBe('started');
+    const owners = await admin.query<{ principal_id: string }>(
+      'select principal_id from ujira.idempotency_keys where idempotency_key = $1 order by 1',
+      [key],
+    );
+    expect(owners.rows.map((row) => row.principal_id)).toEqual(
+      [a.first.principalId, b.first.principalId].sort(),
+    );
+  },
+  'idempotencyKeys.complete': async () => {
+    const key = randomUUID();
+    const held = await db.tenant(b.first).transaction(async (tx) =>
+      idempotencyKeys.reserve(tx, {
+        key,
+        requestSha256: Buffer.alloc(32, 1),
+        leaseSeconds: 60,
+      }),
+    );
+    if (held.kind !== 'started') throw new Error('expected a lease');
+    expect(
+      await asA(async (tx) =>
+        idempotencyKeys.complete(tx, {
+          key,
+          leaseId: held.leaseId,
+          status: 201,
+          requestId: 'req_intruder',
+          body: '{}',
+        }),
+      ),
+    ).toBe(false);
+    const row = await admin.query<{ response_body: string | null }>(
+      'select response_body from ujira.idempotency_keys where idempotency_key = $1',
+      [key],
+    );
+    expect(row.rows).toEqual([{ response_body: null }]);
+  },
+  'idempotencyKeys.release': async () => {
+    const key = randomUUID();
+    const held = await db.tenant(b.first).transaction(async (tx) =>
+      idempotencyKeys.reserve(tx, {
+        key,
+        requestSha256: Buffer.alloc(32, 1),
+        leaseSeconds: 60,
+      }),
+    );
+    if (held.kind !== 'started') throw new Error('expected a lease');
+    expect(
+      await asA(async (tx) => idempotencyKeys.release(tx, { key, leaseId: held.leaseId })),
+    ).toBe(false);
+    const row = await admin.query<{ running: boolean }>(
+      'select lease_expires_at > now() as running from ujira.idempotency_keys where idempotency_key = $1',
+      [key],
+    );
+    expect(row.rows).toEqual([{ running: true }]);
+  },
+  'apiTokens.touchLastUsed': async () => {
+    expect(await asA(async (tx) => apiTokens.touchLastUsed(tx, b.tokenId))).toBe(false);
+    const bToken = await admin.query<{ last_used_at: Date | null }>(
+      'select last_used_at from ujira.api_tokens where id = $1',
+      [b.tokenId],
+    );
+    expect(bToken.rows[0]?.last_used_at).toBeNull();
   },
   'apiTokens.revoke': async () => {
     expect(await asA(async (tx) => apiTokens.revoke(tx, b.tokenId))).toBe(false);
@@ -835,7 +915,7 @@ const cases: Record<string, () => Promise<void>> = {
       [b.first.principalId],
     );
     const written = await asA(async (tx) =>
-      audit.record(tx, { action: 'project.changed', actor: { kind: 'system' } }),
+      audit.record(tx, { action: 'project.routing_settings_changed', actor: { kind: 'system' } }),
     );
     expect(await ownerOf('ujira.audit_log', 'id', written.id)).toBe(a.first.principalId);
     const after = await admin.query<{ last_seq: string }>(

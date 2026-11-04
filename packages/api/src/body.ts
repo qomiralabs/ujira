@@ -39,9 +39,8 @@ export async function readRawBody(request: Request, limitBytes: number): Promise
   return bytes;
 }
 
-/** Reads and parses a JSON request body. */
-export async function readJsonBody(request: Request, limitBytes: number): Promise<unknown> {
-  const bytes = await readRawBody(request, limitBytes);
+/** Parses a JSON request body from the bytes that were sent. */
+export function parseJsonBody(bytes: Uint8Array): unknown {
   let text: string;
   try {
     text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);

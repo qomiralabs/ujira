@@ -245,6 +245,64 @@ $$;
 ALTER FUNCTION ops.release_executor(target_network text, account text, holder text, sequence_reached bigint) OWNER TO ujira_ops;
 
 --
+-- Name: take_rate_limit_tokens(text[], integer[], integer[]); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.take_rate_limit_tokens(bucket_keys text[], capacities integer[], refills_per_second integer[]) RETURNS TABLE(taken_key text, allowed boolean, remaining numeric)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  all_allowed boolean := true;
+  available numeric;
+  wanted record;
+begin
+  if coalesce(cardinality(bucket_keys), 0) not between 1 and 8
+     or cardinality(capacities) is distinct from cardinality(bucket_keys)
+     or cardinality(refills_per_second) is distinct from cardinality(bucket_keys) then
+    raise exception using
+      errcode = '22023',
+      message = 'from 1 to 8 buckets, each with a capacity and a refill rate';
+  end if;
+  for wanted in
+    select u.key_text, u.capacity, u.refill
+      from unnest(bucket_keys, capacities, refills_per_second) as u (key_text, capacity, refill)
+     order by u.key_text
+  loop
+    if wanted.capacity is null or wanted.capacity < 1
+       or wanted.refill is null or wanted.refill < 1 then
+      raise exception using
+        errcode = '22023',
+        message = 'a bucket holds at least 1 token and refills at least 1 per second';
+    end if;
+    insert into ops.rate_limit_buckets as b (bucket_key, tokens, refilled_at)
+      values (wanted.key_text, wanted.capacity, clock_timestamp())
+      on conflict (bucket_key) do update
+        set tokens = least(
+              wanted.capacity,
+              b.tokens
+                + greatest(extract(epoch from clock_timestamp() - b.refilled_at), 0) * wanted.refill
+            ),
+            refilled_at = greatest(clock_timestamp(), b.refilled_at)
+      returning b.tokens into available;
+    all_allowed := all_allowed and available >= 1;
+  end loop;
+  if all_allowed then
+    update ops.rate_limit_buckets as b
+       set tokens = b.tokens - 1
+     where b.bucket_key = any (bucket_keys);
+  end if;
+  return query
+    select b.bucket_key, all_allowed, b.tokens
+      from ops.rate_limit_buckets as b
+     where b.bucket_key = any (bucket_keys);
+end
+$$;
+
+
+ALTER FUNCTION ops.take_rate_limit_tokens(bucket_keys text[], capacities integer[], refills_per_second integer[]) OWNER TO ujira_ops;
+
+--
 -- Name: apply_tenant_policies(regclass); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -959,6 +1017,21 @@ CREATE TABLE ops.identity_provider_events (
 ALTER TABLE ops.identity_provider_events OWNER TO ujira_owner;
 
 --
+-- Name: rate_limit_buckets; Type: TABLE; Schema: ops; Owner: ujira_owner
+--
+
+CREATE UNLOGGED TABLE ops.rate_limit_buckets (
+    bucket_key text NOT NULL,
+    tokens numeric(18,6) NOT NULL,
+    refilled_at timestamp with time zone NOT NULL,
+    CONSTRAINT rate_limit_buckets_key_format CHECK ((bucket_key ~ '^[a-z_]{1,32}:[0-9a-f]{64}$'::text)),
+    CONSTRAINT rate_limit_buckets_tokens_not_negative CHECK ((tokens >= (0)::numeric))
+);
+
+
+ALTER TABLE ops.rate_limit_buckets OWNER TO ujira_owner;
+
+--
 -- Name: routing_config_active; Type: TABLE; Schema: ops; Owner: ujira_owner
 --
 
@@ -1095,12 +1168,14 @@ CREATE TABLE ujira.api_tokens (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     prefix text NOT NULL,
     secret_sha256 ujira.hash32 NOT NULL,
-    scopes text[] DEFAULT '{}'::text[] NOT NULL,
-    expires_at timestamp with time zone,
+    scopes text[] NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
     revoked_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    rotated_from_id uuid,
+    last_used_at timestamp with time zone,
     CONSTRAINT api_tokens_prefix_format CHECK ((prefix ~ '^[A-Za-z0-9_]{8,40}$'::text)),
-    CONSTRAINT api_tokens_scopes_bounded CHECK ((cardinality(scopes) <= 32))
+    CONSTRAINT api_tokens_scopes_known CHECK ((((cardinality(scopes) >= 1) AND (cardinality(scopes) <= 10)) AND (scopes <@ ARRAY['payouts:read'::text, 'payouts:write'::text, 'approvals:write'::text, 'recipients:read'::text, 'recipients:write'::text, 'mandates:read'::text, 'mandates:write'::text, 'receipts:read'::text, 'webhooks:manage'::text, 'corridors:read'::text])))
 );
 
 ALTER TABLE ONLY ujira.api_tokens FORCE ROW LEVEL SECURITY;
@@ -1360,6 +1435,32 @@ ALTER TABLE ONLY ujira.funding_sweeps FORCE ROW LEVEL SECURITY;
 
 
 ALTER TABLE ujira.funding_sweeps OWNER TO ujira_owner;
+
+--
+-- Name: idempotency_keys; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.idempotency_keys (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    idempotency_key text NOT NULL,
+    request_sha256 ujira.hash32 NOT NULL,
+    lease_id uuid,
+    lease_expires_at timestamp with time zone,
+    request_id text,
+    response_status bigint,
+    response_body text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    CONSTRAINT idempotency_keys_key_format CHECK ((idempotency_key ~ '^[A-Za-z0-9_.:-]{1,255}$'::text)),
+    CONSTRAINT idempotency_keys_running_or_finished CHECK ((((lease_id IS NOT NULL) AND (lease_expires_at IS NOT NULL) AND (request_id IS NULL) AND (response_status IS NULL) AND (response_body IS NULL)) OR ((lease_id IS NULL) AND (lease_expires_at IS NULL) AND (request_id IS NOT NULL) AND (response_body IS NOT NULL) AND ((response_status >= 200) AND (response_status <= 499)) AND (response_status <> 429))))
+);
+
+ALTER TABLE ONLY ujira.idempotency_keys FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.idempotency_keys OWNER TO ujira_owner;
 
 --
 -- Name: ledger_accounts; Type: TABLE; Schema: ujira; Owner: ujira_owner
@@ -1846,6 +1947,14 @@ ALTER TABLE ONLY ops.identity_provider_events
 
 
 --
+-- Name: rate_limit_buckets rate_limit_buckets_pkey; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.rate_limit_buckets
+    ADD CONSTRAINT rate_limit_buckets_pkey PRIMARY KEY (bucket_key);
+
+
+--
 -- Name: routing_config_active routing_config_active_pkey; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
 --
 
@@ -2107,6 +2216,22 @@ ALTER TABLE ONLY ujira.funding_sweeps
 
 ALTER TABLE ONLY ujira.funding_sweeps
     ADD CONSTRAINT funding_sweeps_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
+-- Name: idempotency_keys idempotency_keys_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.idempotency_keys
+    ADD CONSTRAINT idempotency_keys_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: idempotency_keys idempotency_keys_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.idempotency_keys
+    ADD CONSTRAINT idempotency_keys_tenant_key UNIQUE (principal_id, project_id, idempotency_key);
 
 
 --
@@ -2446,6 +2571,13 @@ CREATE INDEX funding_account_sources_by_account ON ujira.funding_account_sources
 --
 
 CREATE INDEX funding_sweeps_by_instance ON ujira.funding_sweeps USING btree (principal_id, project_id, mandate_instance_id, created_at);
+
+
+--
+-- Name: idempotency_keys_expires_at; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX idempotency_keys_expires_at ON ujira.idempotency_keys USING btree (expires_at);
 
 
 --
@@ -2822,6 +2954,14 @@ ALTER TABLE ONLY ujira.api_tokens
 
 
 --
+-- Name: api_tokens api_tokens_rotated_from_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.api_tokens
+    ADD CONSTRAINT api_tokens_rotated_from_fkey FOREIGN KEY (principal_id, project_id, rotated_from_id) REFERENCES ujira.api_tokens(principal_id, project_id, id);
+
+
+--
 -- Name: audit_heads audit_heads_principal_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2947,6 +3087,14 @@ ALTER TABLE ONLY ujira.funding_sweeps
 
 ALTER TABLE ONLY ujira.funding_sweeps
     ADD CONSTRAINT funding_sweeps_principal_id_project_id_mandate_instance_id_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id, chain, asset, scale) REFERENCES ujira.mandate_instances(principal_id, project_id, id, chain, asset, scale);
+
+
+--
+-- Name: idempotency_keys idempotency_keys_principal_id_project_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.idempotency_keys
+    ADD CONSTRAINT idempotency_keys_principal_id_project_id_fkey FOREIGN KEY (principal_id, project_id) REFERENCES ujira.projects(principal_id, id);
 
 
 --
@@ -3231,6 +3379,12 @@ ALTER TABLE ujira.funding_sources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ujira.funding_sweeps ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: idempotency_keys; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.idempotency_keys ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: chain_events indexer_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3475,6 +3629,13 @@ CREATE POLICY owner_all ON ujira.funding_sweeps TO ujira_owner USING (true) WITH
 
 
 --
+-- Name: idempotency_keys owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.idempotency_keys TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: ledger_accounts owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3685,6 +3846,13 @@ CREATE POLICY tenant_insert ON ujira.funding_sweeps FOR INSERT TO ujira_app WITH
 
 
 --
+-- Name: idempotency_keys tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.idempotency_keys FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: ledger_accounts tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3846,6 +4014,13 @@ CREATE POLICY tenant_read ON ujira.funding_sweeps FOR SELECT TO ujira_app, ujira
 
 
 --
+-- Name: idempotency_keys tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.idempotency_keys FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
 -- Name: ledger_accounts tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4004,6 +4179,13 @@ CREATE POLICY tenant_update ON ujira.funding_sources FOR UPDATE TO ujira_app USI
 --
 
 CREATE POLICY tenant_update ON ujira.funding_sweeps FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: idempotency_keys tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.idempotency_keys FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -4240,6 +4422,14 @@ GRANT ALL ON FUNCTION ops.release_executor(target_network text, account text, ho
 
 
 --
+-- Name: FUNCTION take_rate_limit_tokens(bucket_keys text[], capacities integer[], refills_per_second integer[]); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.take_rate_limit_tokens(bucket_keys text[], capacities integer[], refills_per_second integer[]) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.take_rate_limit_tokens(bucket_keys text[], capacities integer[], refills_per_second integer[]) TO ujira_app;
+
+
+--
 -- Name: FUNCTION apply_tenant_policies(target regclass); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4447,6 +4637,13 @@ GRANT SELECT,INSERT ON TABLE ops.identity_provider_events TO ujira_ops;
 
 
 --
+-- Name: TABLE rate_limit_buckets; Type: ACL; Schema: ops; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE ops.rate_limit_buckets TO ujira_ops;
+
+
+--
 -- Name: TABLE routing_config_active; Type: ACL; Schema: ops; Owner: ujira_owner
 --
 
@@ -4581,6 +4778,13 @@ GRANT SELECT ON TABLE ujira.funding_sources TO ujira_reader;
 
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.funding_sweeps TO ujira_app;
 GRANT SELECT ON TABLE ujira.funding_sweeps TO ujira_reader;
+
+
+--
+-- Name: TABLE idempotency_keys; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE ujira.idempotency_keys TO ujira_app;
 
 
 --

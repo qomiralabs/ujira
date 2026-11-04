@@ -97,11 +97,20 @@ export {
   type RecipientStatus,
 } from './repositories/recipients.js';
 export {
+  idempotencyKeys,
+  type FinishedRequest,
+  type NewReservation,
+  type Reservation,
+} from './repositories/idempotency.js';
+export {
   executors,
   identityProviderEvents,
+  rateLimits,
   routingConfig,
   type IdentityProviderEvent,
   type ExecutorLease,
+  type RateLimitBucket,
+  type RateLimitTaken,
   type RoutingConfig,
 } from './repositories/ops.js';
 export {

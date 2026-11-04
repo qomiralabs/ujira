@@ -18,9 +18,11 @@ import { OPENAPI_COMPONENTS, PROBLEM_CODES, ROUTES, parseQuery } from '@ujira/ap
 import type { FieldError, ProblemCode, RouteId, RouteQuery } from '@ujira/api-schema';
 import { z } from 'zod';
 
+import { API_SCOPES } from './auth.js';
 import type { ApiScope, CallOptions, Tenant } from './auth.js';
 import { ApiError, RouteRegistryError } from './errors.js';
 import type { RequestLog } from './log.js';
+import type { RateLimitGroup } from './rate-limit.js';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 export type SuccessStatus = 200 | 201 | 202;
@@ -32,6 +34,12 @@ export interface RequestContext {
   /** Pass to every chain adapter call, so the request id travels with it. */
   readonly call: CallOptions;
   readonly log: RequestLog;
+  /**
+   * The client's key on a tenant write, null anywhere else. A handler that moves
+   * money writes it under a unique constraint of its own, which is what stops a
+   * retry paying twice if a process dies mid request.
+   */
+  readonly idempotencyKey: string | null;
 }
 
 export interface TenantRequestContext extends RequestContext {
@@ -51,7 +59,12 @@ export type QueryParse =
 
 export type Access =
   | { readonly kind: 'public'; readonly reason: string }
-  | { readonly kind: 'tenant'; readonly scope: ApiScope };
+  | {
+      readonly kind: 'tenant';
+      readonly scope: ApiScope;
+      /** A tighter limit on top of the ones every tenant route has. */
+      readonly rateLimit?: RateLimitGroup;
+    };
 
 /** A route as the pipeline sees it, with its types erased. */
 export interface Route {
@@ -87,6 +100,37 @@ export interface WebhookInput {
   readonly rawBody: Uint8Array;
   /** Only the headers the route declared, by lower case name. */
   readonly headers: Readonly<Record<string, string | undefined>>;
+}
+
+const KNOWN_SCOPES: ReadonlySet<string> = new Set(API_SCOPES);
+
+/**
+ * Everything wrong with how these routes declare who may call them. The
+ * definers require all of it, but a route can be built as a plain object, and a
+ * route with no scope must not get as far as serving.
+ */
+export function routeAccessProblems(routes: readonly Route[]): string[] {
+  const problems: string[] = [];
+  for (const route of routes) {
+    const access = route.access as Access | undefined;
+    if (access?.kind === 'tenant') {
+      if (!KNOWN_SCOPES.has(access.scope)) {
+        problems.push(`route ${route.id} has no scope from the closed list`);
+      }
+    } else if (access?.kind === 'public') {
+      if (access.reason.trim().length < 10) {
+        problems.push(`route ${route.id} must say why it needs no key`);
+      }
+    } else {
+      problems.push(`route ${route.id} declares no access`);
+    }
+  }
+  return problems;
+}
+
+/** Every write a tenant route takes needs an Idempotency-Key. */
+export function requiresIdempotencyKey(route: Pick<Route, 'access' | 'method'>): boolean {
+  return route.access.kind === 'tenant' && route.method !== 'GET';
 }
 
 const NoInput = z.strictObject({});
@@ -150,12 +194,16 @@ function errorStatuses(
   hasParams: boolean,
   hasBody: boolean,
   extra: readonly ProblemCode[],
+  write: boolean,
 ): number[] {
   const codes: ProblemCode[] = ['INVALID_FILTER', 'INTERNAL', 'DB_UNAVAILABLE', ...extra];
   // A path id that does not parse cannot name anything.
   if (hasParams) codes.push('NOT_FOUND');
   if (access.kind === 'tenant') codes.push('TOKEN_INVALID', 'INSUFFICIENT_SCOPE', 'RATE_LIMITED');
   if (hasBody) codes.push('INVALID_REQUEST', 'PAYLOAD_TOO_LARGE', 'UNSUPPORTED_MEDIA_TYPE');
+  if (write) {
+    codes.push('IDEMPOTENCY_KEY_INVALID', 'IDEMPOTENCY_IN_PROGRESS', 'IDEMPOTENCY_KEY_REUSED');
+  }
   return [...new Set(statusesOf(codes))].sort((a, b) => a - b);
 }
 
@@ -225,6 +273,7 @@ function build<
       Object.keys(params.shape).length > 0,
       spec.body !== undefined || rawBody !== null,
       spec.errors ?? [],
+      requiresIdempotencyKey({ access, method: spec.method }),
     ),
     handle,
   });
@@ -239,10 +288,16 @@ export function defineTenantRoute<
 >(
   spec: RouteSpec<P, Q, B, R> & {
     readonly scope: ApiScope;
+    readonly rateLimit?: RateLimitGroup;
     readonly handler: (input: Input<P, Q, B>, context: TenantRequestContext) => Promise<z.input<R>>;
   },
 ): Route {
-  return build(spec, { kind: 'tenant', scope: spec.scope }, (input, context, tenant) =>
+  const access: Access = {
+    kind: 'tenant',
+    scope: spec.scope,
+    ...(spec.rateLimit === undefined ? {} : { rateLimit: spec.rateLimit }),
+  };
+  return build(spec, access, (input, context, tenant) =>
     asTenant(context, tenant, (scoped) => spec.handler(input as Input<P, Q, B>, scoped)),
   );
 }
