@@ -287,6 +287,7 @@ export const STORE_CHECKS: readonly StoreCheck[] = Object.freeze([
   },
   {
     name: 'finds a record in any state, for its own tenant only',
+    rules: ['tenant_scope'],
     run: async (h) => {
       const r = submission(h, 'find-me');
       expect(await h.store.findSubmission(r.scope, r.network, r.txHash)).toBeNull();
