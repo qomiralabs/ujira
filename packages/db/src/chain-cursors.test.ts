@@ -27,9 +27,9 @@ async function codeOf(work: Promise<unknown>): Promise<string | undefined> {
 }
 
 const read = (network: string) =>
-  db.unscoped(async (tx) => chainCursors.read(tx, network), 'worker');
+  db.unscoped(async (tx) => chainCursors.read(tx, network), 'indexer');
 const advance = (network: string, cursor: string) =>
-  db.unscoped(async (tx) => chainCursors.advance(tx, network, cursor), 'worker');
+  db.unscoped(async (tx) => chainCursors.advance(tx, network, cursor), 'indexer');
 
 beforeAll(async () => {
   database = await createTestDatabase(adminUrl, import.meta.url);

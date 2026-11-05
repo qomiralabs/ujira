@@ -58,6 +58,7 @@ export {
 export type { MandatePolicyErrorCode, PrincipalKeyFix } from './errors.js';
 export {
   createMemoryGuardianOptOutStore,
+  knownGuardians,
   onRoleRemoved,
   reconcileOperationsGuardian,
 } from './operations-guardian.js';
