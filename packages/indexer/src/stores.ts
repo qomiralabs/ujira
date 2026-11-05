@@ -14,6 +14,7 @@ import {
   type MandateRegistry,
   type NetworkId,
   type TenantScope,
+  type UnixSeconds,
 } from '@ujira/chain-adapter';
 import {
   chainCursors,
@@ -74,8 +75,8 @@ export function dbIntakeStore(db: Database): EventIntakeStore {
 
 /**
  * What mandate trust reads, as the app. Being claimed by a tenant is no reason to
- * trust a contract: it only tells a mandate still waiting for its factory's event
- * from one that will never have one.
+ * trust a contract: its age only tells a mandate still waiting for its factory's
+ * event from one that will never have one.
  */
 export function dbMandateRegistry(db: Pick<Database, 'unscoped' | 'tenant'>): MandateRegistry {
   return {
@@ -83,11 +84,12 @@ export function dbMandateRegistry(db: Pick<Database, 'unscoped' | 'tenant'>): Ma
       const row = await db.unscoped((tx) => mandateRegistry.find(tx, network, contractId));
       return row === undefined ? null : registrationOf(network, row);
     },
-    async awaiting(scope, network, contractId) {
+    async claimedAt(scope, network, contractId) {
       const instance = await db
         .tenant(scope)
         .transaction((tx) => mandateInstances.byAddress(tx, chainOf(network), contractId));
-      return instance !== undefined;
+      if (instance === undefined) return null;
+      return BigInt(Math.floor(instance.createdAt.getTime() / 1000)) as UnixSeconds;
     },
   };
 }

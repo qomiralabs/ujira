@@ -14,7 +14,7 @@ import type {
   NewRegistration,
 } from '../intake.js';
 import type { NetworkId } from '../networks.js';
-import type { MandateRegistration, MandateRegistry, TenantScope } from '../types.js';
+import type { MandateRegistration, MandateRegistry, TenantScope, UnixSeconds } from '../types.js';
 
 export interface MandateAlert {
   readonly contractId: string;
@@ -27,14 +27,19 @@ function key(...parts: readonly (string | bigint)[]): string {
 
 export class MemoryEventIntakeStore implements EventIntakeStore, MandateRegistry {
   readonly #registrations = new Map<string, MandateRegistration>();
-  readonly #tenants = new Map<string, MandateTenant>();
+  readonly #tenants = new Map<string, MandateTenant & { readonly claimedAt: UnixSeconds }>();
   readonly #events = new Map<string, EventBooking>();
   readonly #payouts = new Map<string, EventBooking[]>();
   readonly #alerts = new Map<string, MandateAlert>();
 
   /** A tenant claims a contract, as its mandate instance row does. */
-  claim(network: NetworkId, contractId: string, tenant: MandateTenant): void {
-    this.#tenants.set(key(network, contractId), tenant);
+  claim(
+    network: NetworkId,
+    contractId: string,
+    tenant: MandateTenant,
+    claimedAt = 0n as UnixSeconds,
+  ): void {
+    this.#tenants.set(key(network, contractId), { ...tenant, claimedAt });
   }
 
   /** Every stored event, oldest first. */
@@ -56,12 +61,16 @@ export class MemoryEventIntakeStore implements EventIntakeStore, MandateRegistry
     return [...this.#registrations.values()];
   }
 
-  awaiting(scope: TenantScope, network: NetworkId, contractId: string): Promise<boolean> {
+  claimedAt(
+    scope: TenantScope,
+    network: NetworkId,
+    contractId: string,
+  ): Promise<UnixSeconds | null> {
     const tenant = this.#tenants.get(key(network, contractId));
     return Promise.resolve(
-      tenant?.scope.principalId === scope.principalId &&
-        tenant.scope.projectId === scope.projectId &&
-        !this.#registrations.has(key(network, contractId)),
+      tenant?.scope.principalId === scope.principalId && tenant.scope.projectId === scope.projectId
+        ? tenant.claimedAt
+        : null,
     );
   }
 
@@ -93,7 +102,12 @@ export class MemoryEventIntakeStore implements EventIntakeStore, MandateRegistry
   }
 
   tenantOf(network: NetworkId, contractId: string): Promise<MandateTenant | null> {
-    return Promise.resolve(this.#tenants.get(key(network, contractId)) ?? null);
+    const tenant = this.#tenants.get(key(network, contractId));
+    return Promise.resolve(
+      tenant === undefined
+        ? null
+        : { scope: tenant.scope, mandateInstanceId: tenant.mandateInstanceId },
+    );
   }
 
   book(booking: EventBooking): Promise<boolean> {

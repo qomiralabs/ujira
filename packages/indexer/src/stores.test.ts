@@ -188,9 +188,11 @@ describe('the mandate registry', () => {
   it('looks for a claim only inside the tenant asking', async () => {
     const { db, opened, tx } = database();
     const registry = dbMandateRegistry(db);
-    repo.byAddress.mockResolvedValueOnce({ id: randomUUID() }).mockResolvedValueOnce(undefined);
-    expect(await registry.awaiting(scope, NETWORK, 'CMANDATE', OPTS)).toBe(true);
-    expect(await registry.awaiting(scope, NETWORK, 'COTHER', OPTS)).toBe(false);
+    repo.byAddress
+      .mockResolvedValueOnce({ createdAt: new Date(1_793_500_000_999) })
+      .mockResolvedValueOnce(undefined);
+    expect(await registry.claimedAt(scope, NETWORK, 'CMANDATE', OPTS)).toBe(1_793_500_000n);
+    expect(await registry.claimedAt(scope, NETWORK, 'COTHER', OPTS)).toBeNull();
     expect(repo.byAddress).toHaveBeenCalledWith(tx, 'stellar', 'CMANDATE');
     expect(opened).toEqual([
       { session: 'tenant', detail: scope },

@@ -22,7 +22,14 @@ import {
 } from '../errors.js';
 import type { NetworkId } from '../networks.js';
 import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
-import type { Bytes32, CallOptions, MandateRef, MandateRegistry, TenantScope } from '../types.js';
+import type {
+  Bytes32,
+  CallOptions,
+  MandateRef,
+  MandateRegistry,
+  TenantScope,
+  UnixSeconds,
+} from '../types.js';
 import { addressXdr } from './address-xdr.js';
 import type { StellarRpc } from './rpc.js';
 import { asAddress, asBytes32, asU32, asVec, field, fieldsOf, unit } from './scval.js';
@@ -84,6 +91,8 @@ export class MandateTrust {
     private readonly rpc: StellarRpc,
     private readonly trusted: () => readonly string[],
     private readonly registry: MandateRegistry,
+    private readonly clock: { nowSeconds(): UnixSeconds },
+    private readonly pendingMaxAgeSeconds: () => number,
   ) {}
 
   /** The mandate's fixed facts, after the tenant and trust checks. */
@@ -115,9 +124,7 @@ export class MandateTrust {
     const tag = tenantTagOf(tenantRefOf(scope), addressXdr(mandate));
     if (facts.tenantTag !== tag) throw new TenantMismatchError({ network });
     const registration = await this.registry.registered(network, mandate, opts);
-    if (registration === null && (await this.registry.awaiting(scope, network, mandate, opts))) {
-      throw new MandatePendingError({ network });
-    }
+    if (registration === null) await this.#refuseIfPending(scope, mandate, opts);
     if (
       registration === null ||
       registration.flagged ||
@@ -128,6 +135,19 @@ export class MandateTrust {
       throw new MandateUntrustedError({ network });
     }
     return facts;
+  }
+
+  // A tenant's own recent claim makes this something to wait for. An old one does
+  // not: a real create registers within minutes, so a contract still unregistered
+  // after the limit is treated as what it most likely is, and a payout held on it
+  // resolves. A registration arriving later still counts, since this reads no claim
+  // once a contract is registered.
+  async #refuseIfPending(scope: TenantScope, mandate: string, opts: CallOptions): Promise<void> {
+    const { network } = this;
+    const claimedAt = await this.registry.claimedAt(scope, network, mandate, opts);
+    if (claimedAt === null) return;
+    const age = this.clock.nowSeconds() - claimedAt;
+    if (age <= BigInt(this.pendingMaxAgeSeconds())) throw new MandatePendingError({ network });
   }
 
   async #agreesWithFactory(facts: MandateInstance, opts: CallOptions): Promise<boolean> {

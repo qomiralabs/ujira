@@ -9,7 +9,7 @@ import { createEventIntake } from './intake.js';
 import type { LedgerEvent } from './intake.js';
 import type { NetworkId } from './networks.js';
 import { MemoryEventIntakeStore } from './testing/event-intake-store.js';
-import type { Bytes32, TenantScope, Uuid } from './types.js';
+import type { Bytes32, TenantScope, UnixSeconds, Uuid } from './types.js';
 
 const NETWORK: NetworkId = 'stellar:testnet';
 const OPTS = { correlationId: 'scan' };
@@ -166,13 +166,15 @@ describe('a step of the scan', () => {
 });
 
 describe('a mandate UJIRA just created', () => {
-  it('reads as awaiting until the scan registers it, and never after', async () => {
+  it('shows a claim only to its own tenant, and the scan registers it', async () => {
     const w = world([page([created()])]);
-    w.store.claim(NETWORK, MANDATE, { scope: SCOPE, mandateInstanceId: 'instance-1' });
-    expect(await w.store.awaiting(SCOPE, NETWORK, MANDATE)).toBe(true);
+    const at = 1_000n as UnixSeconds;
+    w.store.claim(NETWORK, MANDATE, { scope: SCOPE, mandateInstanceId: 'instance-1' }, at);
+    expect(await w.store.claimedAt(SCOPE, NETWORK, MANDATE)).toBe(at);
     const other = { ...SCOPE, projectId: '00000000-0000-4000-8000-000000000099' as Uuid };
-    expect(await w.store.awaiting(other, NETWORK, MANDATE)).toBe(false);
+    expect(await w.store.claimedAt(other, NETWORK, MANDATE)).toBeNull();
+    expect(await w.store.registered(NETWORK, MANDATE)).toBeNull();
     await w.scan.step(OPTS);
-    expect(await w.store.awaiting(SCOPE, NETWORK, MANDATE)).toBe(false);
+    expect(await w.store.registered(NETWORK, MANDATE)).not.toBeNull();
   });
 });

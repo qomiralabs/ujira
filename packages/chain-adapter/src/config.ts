@@ -290,6 +290,15 @@ const stellarNetwork = z
     // UJIRA's login key for each anchor it pays out through.
     sep10: sep10Keys,
     signingWindowSeconds: z.int().min(30).max(SECONDS_PER_HOUR),
+    // How long a tenant's claim on a contract counts as waiting for its factory's
+    // event. A real create registers within minutes, and a day leaves room for an
+    // outage. After it the contract is refused as untrusted, so a payout held on one
+    // that will never register does resolve.
+    pendingMandateMaxAgeSeconds: z
+      .int()
+      .min(SECONDS_PER_HOUR)
+      .max(7 * 24 * SECONDS_PER_HOUR)
+      .default(24 * SECONDS_PER_HOUR),
     // The operations team's pause-only guardian, added to new mandates
     // unless the principal opts out. An address only: the key is held by
     // people, not by the signer. Optional so a network can run before one

@@ -163,17 +163,17 @@ export interface MandateRegistry {
     opts: CallOptions,
   ): Promise<MandateRegistration | null>;
   /**
-   * Whether this tenant has recorded the contract as its own mandate instance,
-   * which UJIRA's create flow does before it submits. It is never a reason to
-   * trust the contract: it only turns the refusal of one that is not registered
-   * yet into something to wait for.
+   * When this tenant recorded the contract as its own mandate instance, which
+   * UJIRA's create flow does before it submits, or null when it has not. It is
+   * never a reason to trust the contract: for a limited time it only turns the
+   * refusal of one that is not registered yet into something to wait for.
    */
-  awaiting(
+  claimedAt(
     scope: TenantScope,
     network: NetworkId,
     contractId: string,
     opts: CallOptions,
-  ): Promise<boolean>;
+  ): Promise<UnixSeconds | null>;
 }
 
 export interface AdapterPorts {
