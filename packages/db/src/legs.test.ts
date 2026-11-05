@@ -140,13 +140,13 @@ describe('legs sum to their attempt', () => {
   });
 
   it('refuses a fifth leg', async () => {
-    const legs = [1n, 1n, 1n, 1n].map((amount, index) => newLeg(fixture, amount, index));
+    const amounts = [1n, 1n, 1n, 1n, TOTAL - 4n];
     const attempt = db.tenant(fixture.tenant).transaction(async (tx) =>
       payoutAttempts.create(
         tx,
         newAttempt(fixture, payoutId, {
           total: usdc(TOTAL),
-          legs: [...legs, { ...newLeg(fixture, TOTAL - 4n, 0), destinationAddress: 'GFIFTH' }],
+          legs: amounts.map((amount, index) => newLeg(fixture, amount, index)),
         }),
       ),
     );
