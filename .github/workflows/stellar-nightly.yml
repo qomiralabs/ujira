@@ -66,12 +66,13 @@ jobs:
           pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build what the test imports
-        run: pnpm --filter @ujira/core build
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/core build
 
       # Only this step sees the keys. The test holds them in memory and never prints
       # them, and the hashes it does print are public.
       - name: Run against testnet
-        working-directory: packages/chain-adapter
         env:
           UJIRA_STELLAR_TESTNET: '1'
           UJIRA_TESTNET_KEY_DEPLOYER: ${{ secrets.UJIRA_TESTNET_KEY_DEPLOYER }}
@@ -82,7 +83,8 @@ jobs:
           UJIRA_TESTNET_KEY_SMOKE_PRINCIPAL: ${{ secrets.UJIRA_TESTNET_KEY_SMOKE_PRINCIPAL }}
           UJIRA_TESTNET_KEY_SMOKE_RECIPIENT: ${{ secrets.UJIRA_TESTNET_KEY_SMOKE_RECIPIENT }}
         run: |
-          pnpm exec vitest run src/stellar/mandate.integration.test.ts --no-file-parallelism \
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/chain-adapter exec vitest run src/stellar/mandate.integration.test.ts --no-file-parallelism \
             | tee "${RUNNER_TEMP}/testnet.txt"
 
       - name: Report the transaction hashes
