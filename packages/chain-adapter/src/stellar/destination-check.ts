@@ -10,6 +10,7 @@
 
 import { Asset, Keypair, StrKey, xdr } from '@stellar/stellar-sdk/base';
 
+import { baseAddress } from '../codecs/strkey.js';
 import type { CallOptions, Destination } from '../types.js';
 import { accountKey } from './tx.js';
 import type { StellarRpc } from './rpc.js';
@@ -73,7 +74,8 @@ export async function readDestination(
 ): Promise<DestinationState> {
   const address = request.destination.address.value;
   if (address.startsWith('C')) return { receivable: true, proofSigner: 'not_applicable' };
-  if (address === usdcIssuer) {
+  // An M address over the issuer lands on the issuer all the same.
+  if (baseAddress(address) === usdcIssuer) {
     return { receivable: false, reason: 'DESTINATION_IS_ISSUER', proofSigner: 'not_applicable' };
   }
   const accountAt = accountKey(address);

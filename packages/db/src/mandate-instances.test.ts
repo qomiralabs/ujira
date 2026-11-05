@@ -8,7 +8,12 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
 import type { Database } from './database.js';
 import { entryPoints, type CreatedPrincipal } from './repositories/entry-points.js';
-import { fundingSources, mandateInstances, mandates } from './repositories/mandates.js';
+import {
+  fundingSources,
+  mandateInstances,
+  mandates,
+  type NewMandateInstance,
+} from './repositories/mandates.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
 
@@ -79,6 +84,21 @@ describe('the network of a mandate instance', () => {
 
   it('refuses a network the system does not run', async () => {
     expect(await codeOf(instance('stellar:futurenet'))).toBe('23514');
+  });
+
+  it('refuses a new instance that does not say', async () => {
+    const mandateId = await newMandate();
+    const attempt = db.tenant(tenant).transaction(async (tx) =>
+      mandateInstances.create(tx, {
+        mandateId,
+        chain: 'stellar',
+        contractAddress: `C${randomUUID()}`,
+        specVersion: '1',
+        asset: 'USDC',
+        scale: 7,
+      } as NewMandateInstance),
+    );
+    expect(await codeOf(attempt)).toBe('23502');
   });
 
   it('refuses a network that is not on the chain', async () => {

@@ -68,6 +68,7 @@ export {
 } from './destination.js';
 export type { BindableDestination, DestinationInput, DestinationMemoType } from './destination.js';
 export { operationsGuardianOf } from './guardian.js';
+export { isUnpayableAddress, settlementAddressesOf } from './unpayable.js';
 export {
   SIGNER_DOWN,
   SPONSOR_LOW,

@@ -36,7 +36,7 @@ import { trustlineKey } from './destination-check.js';
 import { StellarMandateAdapter } from './mandate-adapter.js';
 import type { ExecutionMirror } from './pay.js';
 import type { RawSimulation, RpcEvent } from './rpc.js';
-import { bytes32, i128, struct, sym, u32, u64, vec } from './scval.js';
+import { address, bytes32, i128, struct, sym, u32, u64, vec } from './scval.js';
 import { NETWORK, addAccount, setup } from './test-adapter.js';
 import type { TestSetup } from './test-adapter.js';
 import { invoked } from './test-rpc.js';
@@ -50,7 +50,12 @@ export const payoutIdOf = (n: number): PayoutId =>
 
 export function record(
   status: 1 | 2,
-  over: { total?: bigint; fee?: bigint; expiresAt?: bigint; approvals?: number } = {},
+  over: {
+    total?: bigint;
+    fee?: bigint;
+    expiresAt?: bigint;
+    approvals?: readonly { readonly approver: string; readonly epoch: number }[];
+  } = {},
 ): xdr.ScVal {
   return vec([
     sym('Record'),
@@ -59,7 +64,11 @@ export function record(
       total: i128('total', over.total ?? TOTAL),
       fee: i128('fee', over.fee ?? 0n),
       expires_at: u64('expiresAt', over.expiresAt ?? 9_000_000_000n),
-      approvals: vec(Array.from({ length: over.approvals ?? 0 }, () => u32('a', 1))),
+      approvals: vec(
+        (over.approvals ?? []).map((a) =>
+          struct({ approver: address('approver', a.approver), epoch: u32('epoch', a.epoch) }),
+        ),
+      ),
     }),
   ]);
 }

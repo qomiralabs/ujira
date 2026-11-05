@@ -1348,6 +1348,32 @@ $$;
 ALTER FUNCTION ujira.payout_leg_stamp() OWNER TO ujira_owner;
 
 --
+-- Name: payout_network_matches(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.payout_network_matches() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if not exists (
+    select 1
+      from ujira.mandate_instances as i
+     where i.id = new.mandate_instance_id
+       and i.network = new.network
+  ) then
+    raise exception using
+      errcode = 'UJ014',
+      message = 'the mandate instance is not on the network this names';
+  end if;
+  return null;
+end
+$$;
+
+
+ALTER FUNCTION ujira.payout_network_matches() OWNER TO ujira_owner;
+
+--
 -- Name: project_scope_all(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2405,9 +2431,10 @@ CREATE TABLE ujira.mandate_instances (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     attester_public_key bytea,
     country_policy_hash ujira.hash32,
-    network ujira.network_id,
+    network ujira.network_id NOT NULL,
     CONSTRAINT mandate_instances_address_length CHECK (((char_length(contract_address) >= 1) AND (char_length(contract_address) <= 128))),
     CONSTRAINT mandate_instances_attester_key_length CHECK ((octet_length(attester_public_key) = 32)),
+    CONSTRAINT mandate_instances_network_on_chain CHECK (((network IS NULL) OR (split_part((network)::text, ':'::text, 1) = chain))),
     CONSTRAINT mandate_instances_spec_length CHECK (((char_length(spec_version) >= 1) AND (char_length(spec_version) <= 32)))
 );
 
@@ -3486,14 +3513,6 @@ ALTER TABLE ONLY ujira.mandate_instances
 
 
 --
--- Name: mandate_instances mandate_instances_network_on_chain; Type: CHECK CONSTRAINT; Schema: ujira; Owner: ujira_owner
---
-
-ALTER TABLE ujira.mandate_instances
-    ADD CONSTRAINT mandate_instances_network_on_chain CHECK (((network IS NULL) OR (split_part((network)::text, ':'::text, 1) = chain))) NOT VALID;
-
-
---
 -- Name: mandate_instances mandate_instances_per_asset; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4365,6 +4384,13 @@ CREATE CONSTRAINT TRIGGER payout_attempts_match_legs AFTER UPDATE OF total_amoun
 
 
 --
+-- Name: payout_attempts payout_attempts_network; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER payout_attempts_network AFTER INSERT OR UPDATE OF network, mandate_instance_id ON ujira.payout_attempts FOR EACH ROW EXECUTE FUNCTION ujira.payout_network_matches();
+
+
+--
 -- Name: payout_attempts payout_attempts_no_delete; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4439,6 +4465,13 @@ CREATE CONSTRAINT TRIGGER payout_funding_holds_held AFTER INSERT ON ujira.payout
 --
 
 CREATE TRIGGER payout_funding_holds_instance BEFORE INSERT ON ujira.payout_funding_holds FOR EACH ROW EXECUTE FUNCTION ujira.payout_instance_matches();
+
+
+--
+-- Name: payout_funding_holds payout_funding_holds_network; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER payout_funding_holds_network AFTER INSERT OR UPDATE OF network, mandate_instance_id ON ujira.payout_funding_holds FOR EACH ROW EXECUTE FUNCTION ujira.payout_network_matches();
 
 
 --
@@ -7107,6 +7140,13 @@ REVOKE ALL ON FUNCTION ujira.payout_left_its_holds() FROM PUBLIC;
 --
 
 REVOKE ALL ON FUNCTION ujira.payout_leg_stamp() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION payout_network_matches(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.payout_network_matches() FROM PUBLIC;
 
 
 --

@@ -122,9 +122,7 @@ export interface MandateInstance {
   readonly id: string;
   readonly mandateId: string;
   readonly chain: string;
-  // Null on an instance from before networks were recorded. Nothing may fund one
-  // until a person has said which network it is on.
-  readonly network: string | null;
+  readonly network: string;
   readonly contractAddress: string;
   readonly specVersion: string;
   readonly asset: string;
@@ -167,7 +165,7 @@ function toInstance(row: {
   id: string;
   mandate_id: string;
   chain: string;
-  network: string | null;
+  network: string;
   contract_address: string;
   spec_version: string;
   asset: string;

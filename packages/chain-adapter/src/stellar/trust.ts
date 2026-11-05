@@ -15,6 +15,7 @@
 import { Address, xdr } from '@stellar/stellar-sdk/base';
 
 import {
+  InternalError,
   InvalidInputError,
   MandatePendingError,
   MandateUntrustedError,
@@ -31,6 +32,7 @@ import type {
   UnixSeconds,
 } from '../types.js';
 import { addressXdr } from './address-xdr.js';
+import { approverEpochsOf } from './payout-views.js';
 import type { StellarRpc } from './rpc.js';
 import { asAddress, asBytes32, asU32, asVec, field, fieldsOf, unit } from './scval.js';
 
@@ -94,6 +96,19 @@ export class MandateTrust {
     private readonly clock: { nowSeconds(): UnixSeconds },
     private readonly pendingMaxAgeSeconds: () => number,
   ) {}
+
+  /**
+   * Each approver's current epoch. The mandate's config view lists approvers without
+   * their epochs, so this reads its storage, as verify does. A mandate that does not
+   * hold roles the way this expects fails here rather than giving a count nobody can
+   * trust, so call it only for a mandate that has been verified.
+   */
+  async approverEpochs(contract: string, opts: CallOptions): Promise<ReadonlyMap<string, number>> {
+    const instance = await this.#instance(contract, 'mandate.address', opts);
+    const roles = instance === null ? undefined : stored(instance, 'Roles');
+    if (roles === undefined) throw new InternalError({ network: this.network });
+    return approverEpochsOf(roles);
+  }
 
   /** The mandate's fixed facts, after the tenant and trust checks. */
   async verify(scope: TenantScope, ref: MandateRef, opts: CallOptions): Promise<MandateInstance> {

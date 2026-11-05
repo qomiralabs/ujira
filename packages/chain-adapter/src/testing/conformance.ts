@@ -107,6 +107,8 @@ export interface SuiteMandate {
 
 export interface SuiteMandateOptions {
   readonly approvers?: number;
+  /** How many of them a payout needs; all of them by default. */
+  readonly approvalsRequired?: number;
   readonly recovery?: number;
   readonly recoveryThreshold?: number;
   readonly maxFeeBps?: number;
@@ -206,7 +208,7 @@ export async function deployMandate(
     recipientMode: 'allowlist',
     agents: [h.managedAgent.address],
     approvers,
-    approvalsRequired: approvers.length,
+    approvalsRequired: o.approvalsRequired ?? approvers.length,
     guardians: [],
     executors: [...h.executors],
     recovery,
@@ -761,6 +763,37 @@ export function describeChainAdapter(
         const approver = must(m.approvers[0], 'an approver');
         await act(h, m.ref, { op: 'approve', payoutId: req.payoutId }, approver, 'approver');
         expect(last(await drive(h.adapter, req))?.kind).toBe('final');
+      });
+
+      // The mandate voids an approval with its approver's seat, and adding them back does
+      // not revive it, so counting the list would show a payout as closer than it is.
+      it('counts only the approvals the mandate would count', async () => {
+        const { h, m } = await setup({ approvers: 3, approvalsRequired: 2, approvalThreshold: 1n });
+        const req = await payRequest(h, m, 'live approvals');
+        const approver = must(m.approvers[0], 'an approver');
+        const approve = () =>
+          act(h, m.ref, { op: 'approve', payoutId: req.payoutId }, approver, 'approver');
+        const stepShows = async (count: number) => {
+          expect(last(await drive(h.adapter, req))).toEqual({
+            kind: 'awaiting_approval',
+            approvals: { count, required: 2 },
+          });
+          const status = await h.adapter.status(
+            { scope: h.scope, mandate: m.ref, payoutId: req.payoutId, legs: [] },
+            OPTS,
+          );
+          expect(status.approvals).toEqual({ count, required: 2 });
+        };
+        await stepShows(0);
+        await approve();
+        await stepShows(1);
+        const change = { role: 'approver' as const, account: approver };
+        await act(h, m.ref, { op: 'remove_role', ...change }, m.principal);
+        await stepShows(0);
+        await act(h, m.ref, { op: 'add_role', ...change }, m.principal);
+        await stepShows(0);
+        await approve();
+        await stepShows(1);
       });
 
       it('holds an approved payout until asked to execute', async () => {

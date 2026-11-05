@@ -443,7 +443,7 @@ export interface UjiraMandateInstances {
   created_at: Generated<Timestamp>;
   id: Generated<string>;
   mandate_id: string;
-  network: string | null;
+  network: string;
   principal_id: string;
   project_id: string;
   scale: number;
