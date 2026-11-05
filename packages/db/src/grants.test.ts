@@ -101,7 +101,12 @@ describe('grants on ujira', () => {
       expect(mine).toContainEqual({ object: 'schema ujira', grantee: role, privilege: 'USAGE' });
       const relations = mine.filter((grant) => grant.object.startsWith('relation '));
       expect(relations.length).toBeGreaterThan(0);
-      if (role !== 'ujira_app' && role !== 'ujira_indexer') {
+      if (role === 'ujira_retention') {
+        // Retention removes what its policies say has lapsed, and writes nothing.
+        expect(relations.filter((grant) => grant.privilege !== 'SELECT')).toEqual([
+          { object: 'relation embed_sessions', grantee: role, privilege: 'DELETE' },
+        ]);
+      } else if (role !== 'ujira_app' && role !== 'ujira_indexer') {
         expect(relations.filter((grant) => grant.privilege !== 'SELECT')).toEqual([]);
       }
     }
@@ -109,7 +114,7 @@ describe('grants on ujira', () => {
 
   it('gives the roles with no tables of their own yet read access to the reference data only', async () => {
     const all = await grants();
-    for (const role of ['ujira_retention', 'ujira_auth']) {
+    for (const role of ['ujira_auth']) {
       const relations = all
         .filter((grant) => grant.grantee === role && grant.object.startsWith('relation '))
         .map((grant) => grant.object)

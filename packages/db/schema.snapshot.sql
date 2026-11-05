@@ -2914,6 +2914,13 @@ CREATE INDEX deposits_by_instance ON ujira.deposits USING btree (principal_id, p
 
 
 --
+-- Name: destination_verifications_embed_session; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX destination_verifications_embed_session ON ujira.destination_verifications USING btree (principal_id, project_id, embed_session_id) WHERE (embed_session_id IS NOT NULL);
+
+
+--
 -- Name: destination_verifications_latest; Type: INDEX; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2925,6 +2932,20 @@ CREATE INDEX destination_verifications_latest ON ujira.destination_verifications
 --
 
 CREATE UNIQUE INDEX destination_verifications_one_session ON ujira.destination_verifications USING btree (principal_id, project_id, method_id) WHERE (level = 'wallet_session'::text);
+
+
+--
+-- Name: embed_sessions_open; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX embed_sessions_open ON ujira.embed_sessions USING btree (principal_id, project_id, recipient_id) WHERE (consumed_at IS NULL);
+
+
+--
+-- Name: embed_sessions_retention; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX embed_sessions_retention ON ujira.embed_sessions USING btree (expires_at);
 
 
 --
@@ -4327,6 +4348,31 @@ CREATE POLICY resolve_instance ON ujira.mandate_instances FOR SELECT TO ujira_fn
 
 
 --
+-- Name: embed_sessions retention_delete; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY retention_delete ON ujira.embed_sessions FOR DELETE TO ujira_retention USING (((expires_at < (now() - '7 days'::interval)) AND (NOT (EXISTS ( SELECT
+   FROM ujira.destination_verifications v
+  WHERE ((v.principal_id = embed_sessions.principal_id) AND (v.project_id = embed_sessions.project_id) AND (v.embed_session_id = embed_sessions.id)))))));
+
+
+--
+-- Name: destination_verifications retention_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY retention_read ON ujira.destination_verifications FOR SELECT TO ujira_retention USING ((embed_session_id IS NOT NULL));
+
+
+--
+-- Name: embed_sessions retention_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY retention_read ON ujira.embed_sessions FOR SELECT TO ujira_retention USING (((expires_at < (now() - '7 days'::interval)) AND (NOT (EXISTS ( SELECT
+   FROM ujira.destination_verifications v
+  WHERE ((v.principal_id = embed_sessions.principal_id) AND (v.project_id = embed_sessions.project_id) AND (v.embed_session_id = embed_sessions.id)))))));
+
+
+--
 -- Name: attestations signer_pending; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5464,10 +5510,60 @@ GRANT SELECT ON TABLE ujira.destination_verifications TO ujira_reader;
 
 
 --
+-- Name: COLUMN destination_verifications.principal_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(principal_id) ON TABLE ujira.destination_verifications TO ujira_retention;
+
+
+--
+-- Name: COLUMN destination_verifications.project_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(project_id) ON TABLE ujira.destination_verifications TO ujira_retention;
+
+
+--
+-- Name: COLUMN destination_verifications.embed_session_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(embed_session_id) ON TABLE ujira.destination_verifications TO ujira_retention;
+
+
+--
 -- Name: TABLE embed_sessions; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.embed_sessions TO ujira_app;
+GRANT DELETE ON TABLE ujira.embed_sessions TO ujira_retention;
+
+
+--
+-- Name: COLUMN embed_sessions.principal_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(principal_id) ON TABLE ujira.embed_sessions TO ujira_retention;
+
+
+--
+-- Name: COLUMN embed_sessions.project_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(project_id) ON TABLE ujira.embed_sessions TO ujira_retention;
+
+
+--
+-- Name: COLUMN embed_sessions.id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(id) ON TABLE ujira.embed_sessions TO ujira_retention;
+
+
+--
+-- Name: COLUMN embed_sessions.expires_at; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(expires_at) ON TABLE ujira.embed_sessions TO ujira_retention;
 
 
 --

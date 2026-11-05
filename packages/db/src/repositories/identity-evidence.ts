@@ -103,6 +103,45 @@ export const embedSessions = {
       .executeTakeFirst();
     return row === undefined ? undefined : toEmbedSession(row);
   },
+
+  // Uses up a session, once. False when it has lapsed or was already used, which is
+  // what makes an invite link single use: only one caller can see true.
+  consume: async (db: Tx, id: string): Promise<boolean> => {
+    const result = await db
+      .updateTable('ujira.embed_sessions')
+      .set({ consumed_at: sql<Date>`now()` })
+      .where('id', '=', id)
+      .where('consumed_at', 'is', null)
+      .where('expires_at', '>', sql<Date>`now()`)
+      .executeTakeFirst();
+    return result.numUpdatedRows > 0n;
+  },
+
+  // Part of erasing a recipient: nothing they were sent can reach them any more,
+  // lapsed sessions included, so none is left open. Returns how many it closed.
+  consumeOpen: async (db: Tx, recipientId: string): Promise<number> => {
+    const result = await db
+      .updateTable('ujira.embed_sessions')
+      .set({ consumed_at: sql<Date>`now()` })
+      .where('recipient_id', '=', recipientId)
+      .where('consumed_at', 'is', null)
+      .executeTakeFirst();
+    return Number(result.numUpdatedRows);
+  },
+};
+
+// Removes one batch of sessions past their window, run with the worker pool pointed at
+// the ujira_retention login. There is no date here on purpose: the role's policies say
+// which rows it may touch, so no change here can widen what it removes. Not in the
+// cross-tenant matrix, because it has no tenant; its bound is the role.
+export const embedSessionRetention = {
+  deleteBatch: async (db: Tx, limit: number): Promise<number> => {
+    const result = await sql`
+      delete from ujira.embed_sessions
+       where id in (select id from ujira.embed_sessions limit ${limit})
+    `.execute(db);
+    return Number(result.numAffectedRows ?? 0n);
+  },
 };
 
 export type WalletChallengePurpose = 'payout_destination' | 'member_wallet' | 'agent_link';
