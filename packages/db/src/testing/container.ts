@@ -25,6 +25,8 @@ export interface StartedHarness {
   readonly adminUrl: string;
   // A login URL per role, pointing at the server's default database.
   readonly roleUrls: Readonly<Record<string, string>>;
+  // For a test that has to run a server tool, such as pg_dump, at the server's version.
+  readonly containerId: string;
   readonly stop: () => Promise<void>;
 }
 
@@ -88,6 +90,7 @@ export async function startHarness(
   return {
     adminUrl,
     roleUrls,
+    containerId: container.getId(),
     stop: async () => {
       await container.stop();
     },

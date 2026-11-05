@@ -16,9 +16,9 @@ import { ADMIN_URL_KEY, ROLE_URLS_KEY } from './harness.js';
 // vitest 5 does not export the global setup context type, so the one method
 // used here is declared rather than imported.
 interface SetupContext {
-  readonly provide: <K extends 'dbAdminUrl' | 'dbRoleUrls'>(
+  readonly provide: <K extends 'dbAdminUrl' | 'dbRoleUrls' | 'dbContainerId'>(
     key: K,
-    value: K extends 'dbAdminUrl' ? string : Record<string, string>,
+    value: K extends 'dbRoleUrls' ? Record<string, string> : string,
   ) => void;
 }
 
@@ -28,6 +28,7 @@ export default async function setup({ provide }: SetupContext): Promise<() => Pr
   });
   provide(ADMIN_URL_KEY, harness.adminUrl);
   provide(ROLE_URLS_KEY, { ...harness.roleUrls });
+  provide('dbContainerId', harness.containerId);
   return async () => {
     await harness.stop();
   };
@@ -37,5 +38,6 @@ declare module 'vitest' {
   interface ProvidedContext {
     dbAdminUrl: string;
     dbRoleUrls: Record<string, string>;
+    dbContainerId: string;
   }
 }

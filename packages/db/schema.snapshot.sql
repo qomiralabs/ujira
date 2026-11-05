@@ -590,6 +590,44 @@ $$;
 ALTER FUNCTION ujira.current_project_id() OWNER TO ujira_owner;
 
 --
+-- Name: data_key_stays_shredded(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.data_key_stays_shredded() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if old.shredded_at is not null and new.shredded_at is null then
+    raise exception using errcode = 'UJ018', message = 'a shredded data key stays shredded';
+  end if;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.data_key_stays_shredded() OWNER TO ujira_owner;
+
+--
+-- Name: erased_subjects(uuid, bigint); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_erasure
+--
+
+CREATE FUNCTION ujira.erased_subjects(after_id uuid, page_size bigint) RETURNS TABLE(id uuid, principal_id uuid, project_id uuid, subject_id uuid, occurred_at timestamp with time zone)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select l.id, l.principal_id, l.project_id, l.subject_id, l.occurred_at
+    from ujira.erasure_log as l
+   where l.event = 'completed'
+     and (after_id is null or l.id > after_id)
+   order by l.id
+   limit least(page_size, 10000)
+$$;
+
+
+ALTER FUNCTION ujira.erased_subjects(after_id uuid, page_size bigint) OWNER TO ujira_fn_erasure;
+
+--
 -- Name: forbid_mutation(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1094,6 +1132,159 @@ $$;
 ALTER FUNCTION ujira.receipt_is_whole() OWNER TO ujira_owner;
 
 --
+-- Name: recipient_stays_erased(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.recipient_stays_erased() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if old.status = 'erased' and new.status <> 'erased' then
+    raise exception using errcode = 'UJ018', message = 'an erased recipient stays erased';
+  end if;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.recipient_stays_erased() OWNER TO ujira_owner;
+
+--
+-- Name: refuse_personal_data_after_erasure(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.refuse_personal_data_after_erasure() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if exists (
+    select 1
+      from ujira.recipients as r
+     where r.principal_id = new.principal_id
+       and r.project_id = new.project_id
+       and r.id = new.recipient_id
+       and r.status = 'erased'
+  ) then
+    raise exception using errcode = 'UJ018', message = 'this recipient has been erased';
+  end if;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.refuse_personal_data_after_erasure() OWNER TO ujira_owner;
+
+--
+-- Name: replay_erasure(uuid, uuid, uuid); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_erasure
+--
+
+CREATE FUNCTION ujira.replay_erasure(target_principal uuid, target_project uuid, target_subject uuid) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  changed boolean := false;
+  touched bigint;
+  new_erasure uuid := gen_random_uuid();
+begin
+  perform 1
+    from ujira.recipients as r
+   where r.principal_id = target_principal
+     and r.project_id = target_project
+     and r.id = target_subject
+   for update;
+  if not found then
+    return false;
+  end if;
+
+  update ujira.data_keys as k
+     set wrapped_key = null, kek_id = null, shredded_at = now()
+   where k.principal_id = target_principal
+     and k.project_id = target_project
+     and k.subject_id = target_subject
+     and k.shredded_at is null;
+  get diagnostics touched = row_count;
+  changed := changed or touched > 0;
+
+  insert into ujira.data_keys (principal_id, project_id, subject_id, shredded_at)
+    values (target_principal, target_project, target_subject, now())
+    on conflict (principal_id, project_id, subject_id) do nothing;
+  get diagnostics touched = row_count;
+  changed := changed or touched > 0;
+
+  delete from ujira.recipient_pii as p
+   where p.principal_id = target_principal
+     and p.project_id = target_project
+     and p.recipient_id = target_subject;
+  get diagnostics touched = row_count;
+  changed := changed or touched > 0;
+
+  update ujira.payout_methods as m
+     set details_ciphertext = null, details_nonce = null
+   where m.principal_id = target_principal
+     and m.project_id = target_project
+     and m.recipient_id = target_subject
+     and m.details_ciphertext is not null;
+  get diagnostics touched = row_count;
+  changed := changed or touched > 0;
+
+  -- As recipientIdentities.erase does, because a restore brings these back too.
+  update ujira.recipient_identities as i
+     set state = 'revoked',
+         provider_ref = null,
+         provider_subject = null,
+         nullifier_hmac = null,
+         pending_session_id = null,
+         pending_session_url = null,
+         pending_session_expires_at = null
+   where i.principal_id = target_principal
+     and i.project_id = target_project
+     and i.recipient_id = target_subject
+     and (
+       i.state <> 'revoked'
+       or i.provider_ref is not null
+       or i.provider_subject is not null
+       or i.nullifier_hmac is not null
+       or i.pending_session_id is not null
+       or i.pending_session_url is not null
+       or i.pending_session_expires_at is not null
+     );
+  get diagnostics touched = row_count;
+  changed := changed or touched > 0;
+
+  update ujira.recipients as r
+     set status = 'erased'
+   where r.principal_id = target_principal
+     and r.project_id = target_project
+     and r.id = target_subject
+     and r.status <> 'erased';
+  get diagnostics touched = row_count;
+  changed := changed or touched > 0;
+
+  if not exists (
+    select 1
+      from ujira.erasure_log as l
+     where l.principal_id = target_principal
+       and l.project_id = target_project
+       and l.subject_id = target_subject
+       and l.event = 'completed'
+  ) then
+    insert into ujira.erasure_log (principal_id, project_id, erasure_id, subject_id, event)
+      values
+        (target_principal, target_project, new_erasure, target_subject, 'requested'),
+        (target_principal, target_project, new_erasure, target_subject, 'completed');
+    changed := true;
+  end if;
+  return changed;
+end
+$$;
+
+
+ALTER FUNCTION ujira.replay_erasure(target_principal uuid, target_project uuid, target_subject uuid) OWNER TO ujira_fn_erasure;
+
+--
 -- Name: resolve_mandate_instance(text, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_instances
 --
 
@@ -1503,6 +1694,29 @@ CREATE TABLE ujira.currency_scales (
 ALTER TABLE ujira.currency_scales OWNER TO ujira_owner;
 
 --
+-- Name: data_keys; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.data_keys (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    subject_id uuid NOT NULL,
+    wrapped_key bytea,
+    kek_id text,
+    schema_version bigint DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    shredded_at timestamp with time zone,
+    CONSTRAINT data_keys_kek_id_length CHECK (((char_length(kek_id) >= 1) AND (char_length(kek_id) <= 128))),
+    CONSTRAINT data_keys_schema_version_range CHECK (((schema_version >= 1) AND (schema_version <= 1000))),
+    CONSTRAINT data_keys_whole CHECK ((((wrapped_key IS NOT NULL) AND (kek_id IS NOT NULL) AND (shredded_at IS NULL)) OR ((wrapped_key IS NULL) AND (kek_id IS NULL) AND (shredded_at IS NOT NULL))))
+);
+
+ALTER TABLE ONLY ujira.data_keys FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.data_keys OWNER TO ujira_owner;
+
+--
 -- Name: deposits; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1527,6 +1741,26 @@ ALTER TABLE ONLY ujira.deposits FORCE ROW LEVEL SECURITY;
 
 
 ALTER TABLE ujira.deposits OWNER TO ujira_owner;
+
+--
+-- Name: erasure_log; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.erasure_log (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    erasure_id uuid NOT NULL,
+    subject_id uuid NOT NULL,
+    event text NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT erasure_log_event CHECK ((event = ANY (ARRAY['requested'::text, 'completed'::text])))
+);
+
+ALTER TABLE ONLY ujira.erasure_log FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.erasure_log OWNER TO ujira_owner;
 
 --
 -- Name: funding_sources; Type: TABLE; Schema: ujira; Owner: ujira_owner
@@ -2483,6 +2717,14 @@ ALTER TABLE ONLY ujira.currency_scales
 
 
 --
+-- Name: data_keys data_keys_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.data_keys
+    ADD CONSTRAINT data_keys_pkey PRIMARY KEY (principal_id, project_id, subject_id);
+
+
+--
 -- Name: deposits deposits_per_event; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2504,6 +2746,22 @@ ALTER TABLE ONLY ujira.deposits
 
 ALTER TABLE ONLY ujira.deposits
     ADD CONSTRAINT deposits_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
+-- Name: erasure_log erasure_log_once; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.erasure_log
+    ADD CONSTRAINT erasure_log_once UNIQUE (principal_id, project_id, erasure_id, event);
+
+
+--
+-- Name: erasure_log erasure_log_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.erasure_log
+    ADD CONSTRAINT erasure_log_pkey PRIMARY KEY (id);
 
 
 --
@@ -3040,6 +3298,20 @@ CREATE INDEX deposits_by_instance ON ujira.deposits USING btree (principal_id, p
 
 
 --
+-- Name: erasure_log_by_subject; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX erasure_log_by_subject ON ujira.erasure_log USING btree (principal_id, project_id, subject_id);
+
+
+--
+-- Name: erasure_log_completed; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX erasure_log_completed ON ujira.erasure_log USING btree (id) WHERE (event = 'completed'::text);
+
+
+--
 -- Name: funding_sweeps_by_instance; Type: INDEX; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3285,6 +3557,27 @@ CREATE TRIGGER chain_events_no_truncate BEFORE TRUNCATE ON ujira.chain_events FO
 
 
 --
+-- Name: data_keys data_keys_no_delete; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER data_keys_no_delete BEFORE DELETE ON ujira.data_keys FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: data_keys data_keys_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER data_keys_no_truncate BEFORE TRUNCATE ON ujira.data_keys FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: data_keys data_keys_stay_shredded; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER data_keys_stay_shredded BEFORE UPDATE ON ujira.data_keys FOR EACH ROW EXECUTE FUNCTION ujira.data_key_stays_shredded();
+
+
+--
 -- Name: deposits deposits_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3296,6 +3589,20 @@ CREATE TRIGGER deposits_append_only BEFORE DELETE OR UPDATE ON ujira.deposits FO
 --
 
 CREATE TRIGGER deposits_no_truncate BEFORE TRUNCATE ON ujira.deposits FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: erasure_log erasure_log_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER erasure_log_append_only BEFORE DELETE OR UPDATE ON ujira.erasure_log FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: erasure_log erasure_log_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER erasure_log_no_truncate BEFORE TRUNCATE ON ujira.erasure_log FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
 
 
 --
@@ -3565,6 +3872,13 @@ CREATE TRIGGER payout_legs_transition BEFORE UPDATE ON ujira.payout_legs FOR EAC
 
 
 --
+-- Name: payout_methods payout_methods_details_not_erased; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER payout_methods_details_not_erased BEFORE INSERT OR UPDATE ON ujira.payout_methods FOR EACH ROW WHEN ((new.details_ciphertext IS NOT NULL)) EXECUTE FUNCTION ujira.refuse_personal_data_after_erasure();
+
+
+--
 -- Name: payout_methods payout_methods_touch; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3691,10 +4005,24 @@ CREATE TRIGGER recipient_identities_touch BEFORE UPDATE ON ujira.recipient_ident
 
 
 --
+-- Name: recipient_pii recipient_pii_not_erased; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER recipient_pii_not_erased BEFORE INSERT OR UPDATE ON ujira.recipient_pii FOR EACH ROW EXECUTE FUNCTION ujira.refuse_personal_data_after_erasure();
+
+
+--
 -- Name: recipient_pii recipient_pii_touch; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE TRIGGER recipient_pii_touch BEFORE UPDATE ON ujira.recipient_pii FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
+-- Name: recipients recipients_stay_erased; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER recipients_stay_erased BEFORE UPDATE ON ujira.recipients FOR EACH ROW EXECUTE FUNCTION ujira.recipient_stays_erased();
 
 
 --
@@ -3761,6 +4089,14 @@ ALTER TABLE ONLY ujira.currency_scales
 
 
 --
+-- Name: data_keys data_keys_principal_id_project_id_subject_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.data_keys
+    ADD CONSTRAINT data_keys_principal_id_project_id_subject_id_fkey FOREIGN KEY (principal_id, project_id, subject_id) REFERENCES ujira.recipients(principal_id, project_id, id);
+
+
+--
 -- Name: deposits deposits_asset_chain_scale_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3790,6 +4126,14 @@ ALTER TABLE ONLY ujira.deposits
 
 ALTER TABLE ONLY ujira.deposits
     ADD CONSTRAINT deposits_principal_id_project_id_mandate_instance_id_chain_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id, chain, asset, scale) REFERENCES ujira.mandate_instances(principal_id, project_id, id, chain, asset, scale);
+
+
+--
+-- Name: erasure_log erasure_log_principal_id_project_id_subject_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.erasure_log
+    ADD CONSTRAINT erasure_log_principal_id_project_id_subject_id_fkey FOREIGN KEY (principal_id, project_id, subject_id) REFERENCES ujira.recipients(principal_id, project_id, id);
 
 
 --
@@ -4234,10 +4578,64 @@ CREATE POLICY create_principal ON ujira.projects FOR INSERT TO ujira_fn_principa
 
 
 --
+-- Name: data_keys; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.data_keys ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: deposits; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
 --
 
 ALTER TABLE ujira.deposits ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: data_keys erasure_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY erasure_all ON ujira.data_keys TO ujira_fn_erasure USING (true) WITH CHECK (true);
+
+
+--
+-- Name: erasure_log erasure_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY erasure_all ON ujira.erasure_log TO ujira_fn_erasure USING (true) WITH CHECK (true);
+
+
+--
+-- Name: payout_methods erasure_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY erasure_all ON ujira.payout_methods TO ujira_fn_erasure USING (true) WITH CHECK (true);
+
+
+--
+-- Name: recipient_identities erasure_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY erasure_all ON ujira.recipient_identities TO ujira_fn_erasure USING (true) WITH CHECK (true);
+
+
+--
+-- Name: recipient_pii erasure_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY erasure_all ON ujira.recipient_pii TO ujira_fn_erasure USING (true) WITH CHECK (true);
+
+
+--
+-- Name: recipients erasure_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY erasure_all ON ujira.recipients TO ujira_fn_erasure USING (true) WITH CHECK (true);
+
+
+--
+-- Name: erasure_log; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.erasure_log ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: funding_sources; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
@@ -4468,10 +4866,24 @@ CREATE POLICY owner_all ON ujira.chain_events TO ujira_owner USING (true) WITH C
 
 
 --
+-- Name: data_keys owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.data_keys TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: deposits owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY owner_all ON ujira.deposits TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: erasure_log owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.erasure_log TO ujira_owner USING (true) WITH CHECK (true);
 
 
 --
@@ -4754,6 +5166,13 @@ CREATE POLICY tenant_delete ON ujira.payout_funding_holds FOR DELETE TO ujira_ap
 
 
 --
+-- Name: recipient_pii tenant_delete; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_delete ON ujira.recipient_pii FOR DELETE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: api_tokens tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4782,10 +5201,24 @@ CREATE POLICY tenant_insert ON ujira.chain_events FOR INSERT TO ujira_app WITH C
 
 
 --
+-- Name: data_keys tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.data_keys FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: deposits tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY tenant_insert ON ujira.deposits FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: erasure_log tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.erasure_log FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -4992,10 +5425,24 @@ CREATE POLICY tenant_read ON ujira.chain_events FOR SELECT TO ujira_app, ujira_r
 
 
 --
+-- Name: data_keys tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.data_keys FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
 -- Name: deposits tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY tenant_read ON ujira.deposits FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: erasure_log tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.erasure_log FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
 
 
 --
@@ -5202,10 +5649,24 @@ CREATE POLICY tenant_update ON ujira.chain_events FOR UPDATE TO ujira_app USING 
 
 
 --
+-- Name: data_keys tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.data_keys FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: deposits tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY tenant_update ON ujira.deposits FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: erasure_log tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.erasure_log FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -5407,6 +5868,8 @@ GRANT USAGE ON SCHEMA ujira TO ujira_signer_attester;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_instances;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_ledger;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_audit;
+GRANT USAGE ON SCHEMA ujira TO ujira_fn_erasure;
+GRANT USAGE ON SCHEMA ujira TO ujira_ops;
 
 
 --
@@ -5623,6 +6086,21 @@ GRANT ALL ON FUNCTION ujira.current_project_id() TO ujira_indexer;
 
 
 --
+-- Name: FUNCTION data_key_stays_shredded(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.data_key_stays_shredded() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION erased_subjects(after_id uuid, page_size bigint); Type: ACL; Schema: ujira; Owner: ujira_fn_erasure
+--
+
+REVOKE ALL ON FUNCTION ujira.erased_subjects(after_id uuid, page_size bigint) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.erased_subjects(after_id uuid, page_size bigint) TO ujira_ops;
+
+
+--
 -- Name: FUNCTION forbid_mutation(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5730,6 +6208,28 @@ GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_indexer;
 --
 
 REVOKE ALL ON FUNCTION ujira.receipt_is_whole() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION recipient_stays_erased(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.recipient_stays_erased() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION refuse_personal_data_after_erasure(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.refuse_personal_data_after_erasure() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION replay_erasure(target_principal uuid, target_project uuid, target_subject uuid); Type: ACL; Schema: ujira; Owner: ujira_fn_erasure
+--
+
+REVOKE ALL ON FUNCTION ujira.replay_erasure(target_principal uuid, target_project uuid, target_subject uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.replay_erasure(target_principal uuid, target_project uuid, target_subject uuid) TO ujira_ops;
 
 
 --
@@ -5881,12 +6381,49 @@ GRANT SELECT ON TABLE ujira.currency_scales TO ujira_indexer;
 
 
 --
+-- Name: TABLE data_keys; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.data_keys TO ujira_app;
+GRANT SELECT,INSERT,UPDATE ON TABLE ujira.data_keys TO ujira_fn_erasure;
+
+
+--
+-- Name: COLUMN data_keys.wrapped_key; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(wrapped_key) ON TABLE ujira.data_keys TO ujira_app;
+
+
+--
+-- Name: COLUMN data_keys.kek_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(kek_id) ON TABLE ujira.data_keys TO ujira_app;
+
+
+--
+-- Name: COLUMN data_keys.shredded_at; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(shredded_at) ON TABLE ujira.data_keys TO ujira_app;
+
+
+--
 -- Name: TABLE deposits; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
 GRANT SELECT ON TABLE ujira.deposits TO ujira_app;
 GRANT SELECT ON TABLE ujira.deposits TO ujira_reader;
 GRANT SELECT,INSERT ON TABLE ujira.deposits TO ujira_indexer;
+
+
+--
+-- Name: TABLE erasure_log; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.erasure_log TO ujira_app;
+GRANT SELECT,INSERT ON TABLE ujira.erasure_log TO ujira_fn_erasure;
 
 
 --
@@ -6060,6 +6597,7 @@ GRANT UPDATE(status) ON TABLE ujira.payout_legs TO ujira_app;
 
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.payout_methods TO ujira_app;
 GRANT SELECT ON TABLE ujira.payout_methods TO ujira_reader;
+GRANT SELECT,UPDATE ON TABLE ujira.payout_methods TO ujira_fn_erasure;
 
 
 --
@@ -6169,13 +6707,15 @@ GRANT SELECT ON TABLE ujira.receipts TO ujira_reader;
 
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.recipient_identities TO ujira_app;
 GRANT SELECT ON TABLE ujira.recipient_identities TO ujira_reader;
+GRANT SELECT,UPDATE ON TABLE ujira.recipient_identities TO ujira_fn_erasure;
 
 
 --
 -- Name: TABLE recipient_pii; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
-GRANT SELECT,INSERT,UPDATE ON TABLE ujira.recipient_pii TO ujira_app;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE ujira.recipient_pii TO ujira_app;
+GRANT SELECT,DELETE ON TABLE ujira.recipient_pii TO ujira_fn_erasure;
 
 
 --
@@ -6184,6 +6724,7 @@ GRANT SELECT,INSERT,UPDATE ON TABLE ujira.recipient_pii TO ujira_app;
 
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.recipients TO ujira_app;
 GRANT SELECT ON TABLE ujira.recipients TO ujira_reader;
+GRANT SELECT,UPDATE ON TABLE ujira.recipients TO ujira_fn_erasure;
 
 
 --

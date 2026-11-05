@@ -82,6 +82,21 @@ export {
   type ProjectPayoutMinimum,
 } from './repositories/payouts.js';
 export {
+  erasure,
+  SubjectErasedError,
+  SubjectKeyMissingError,
+  subjectKeys,
+  type ErasureEntry,
+} from './repositories/erasure.js';
+export { EnvelopeOpenError } from './envelope.js';
+export {
+  exportErasures,
+  parseExportLine,
+  replayErasures,
+  type ErasedSubject,
+  type ReplayResult,
+} from './erasure-replay.js';
+export {
   approvals,
   LEG_STATUS_VALUES,
   payoutLegs,

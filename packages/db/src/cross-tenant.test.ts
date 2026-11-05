@@ -16,6 +16,12 @@ import type { Database, ProjectContext } from './database.js';
 import type { Schema } from './schema.generated.js';
 import { audit, auditRepositories } from './repositories/audit.js';
 import { entryPoints } from './repositories/entry-points.js';
+import {
+  erasure,
+  erasureRepositories,
+  SubjectKeyMissingError,
+  subjectKeys,
+} from './repositories/erasure.js';
 import { managedSigners } from './repositories/signers.js';
 import { ledger, ledgerRepositories } from './repositories/ledger.js';
 import { approvals, legRepositories, payoutLegs } from './repositories/payout-legs.js';
@@ -52,6 +58,7 @@ import {
   projects,
   tenancyRepositories,
 } from './repositories/tenancy.js';
+import { LocalKeyManager } from './key-manager/local.js';
 import { caseProblems, methodNames } from './testing/cross-tenant.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
@@ -86,6 +93,8 @@ interface Tenant {
   readonly attemptId: string;
   readonly heldPayoutId: string;
   readonly legId: string;
+  readonly erasedRecipientId: string;
+  readonly sealed: { ciphertext: Buffer; nonce: Buffer };
   readonly receiptId: string;
 }
 
@@ -98,7 +107,10 @@ const REPOSITORIES = {
   ...payoutRepositories,
   ...legRepositories,
   ...receiptRepositories,
+  ...erasureRepositories,
 };
+
+const keyManager = new LocalKeyManager({ keks: `test-kek:${'ef'.repeat(32)}`, nodeEnv: 'test' });
 
 let database: TestDatabase;
 let db: Database;
@@ -248,6 +260,17 @@ async function tenant(name: string): Promise<Tenant> {
     await audit.record(tx, { action: 'project.created', actor: { kind: 'system' } });
     return { recipientId: recipient.id, identityId: identity.id, methodId: method.id };
   });
+  const { erasedRecipientId, sealed } = await db.tenant(first).transaction(async (tx) => {
+    const encrypted = await subjectKeys.encrypt(
+      tx,
+      keyManager,
+      recipientId,
+      Buffer.from('personal data', 'utf8'),
+    );
+    const gone = await recipients.create(tx, { recipientRef: randomBytes(32), country: 'NG' });
+    await erasure.erase(tx, gone.id);
+    return { erasedRecipientId: gone.id, sealed: encrypted };
+  });
   const { payoutId, batchId, attemptId, heldPayoutId, legId, receiptId } = await db
     .tenant(first)
     .transaction(async (tx) => {
@@ -354,6 +377,8 @@ async function tenant(name: string): Promise<Tenant> {
     heldPayoutId,
     legId,
     receiptId,
+    erasedRecipientId,
+    sealed,
   };
 }
 
@@ -1060,6 +1085,31 @@ const cases: Record<string, () => Promise<void>> = {
   'receipts.legs': async () => {
     expect(await acrossA(async (tx) => receipts.legs(tx, b.receiptId))).toEqual([]);
     expect(await acrossA(async (tx) => receipts.legs(tx, a.receiptId))).toHaveLength(1);
+  },
+  'subjectKeys.encrypt': async () => {
+    // The composite foreign key refuses a key for a recipient of another tenant.
+    const attempt = asA(async (tx) =>
+      subjectKeys.encrypt(tx, keyManager, b.erasedRecipientId, Buffer.from('x', 'utf8')),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'subjectKeys.decrypt': async () => {
+    // B's key row is out of sight, so the question cannot even be asked.
+    await expect(
+      asA(async (tx) => subjectKeys.decrypt(tx, keyManager, b.recipientId, b.sealed)),
+    ).rejects.toBeInstanceOf(SubjectKeyMissingError);
+  },
+  'erasure.erase': async () => {
+    expect(await asA(async (tx) => erasure.erase(tx, b.recipientId))).toBe(false);
+    const row = await admin.query<{ status: string }>(
+      'select status from ujira.recipients where id = $1',
+      [b.recipientId],
+    );
+    expect(row.rows[0]?.status).toBe('active');
+  },
+  'erasure.log': async () => {
+    expect(await acrossA(async (tx) => erasure.log(tx, b.erasedRecipientId))).toEqual([]);
+    expect(await acrossA(async (tx) => erasure.log(tx, a.erasedRecipientId))).toHaveLength(2);
   },
   'approvals.forAttempt': async () => {
     expect(await acrossA(async (tx) => approvals.forAttempt(tx, b.attemptId))).toEqual([]);

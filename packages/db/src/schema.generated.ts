@@ -168,6 +168,17 @@ export interface UjiraCurrencyScales {
   scale: number;
 }
 
+export interface UjiraDataKeys {
+  created_at: Generated<Timestamp>;
+  kek_id: string | null;
+  principal_id: string;
+  project_id: string;
+  schema_version: Generated<Int8>;
+  shredded_at: Timestamp | null;
+  subject_id: string;
+  wrapped_key: Buffer | null;
+}
+
 export interface UjiraDeposits {
   amount: Numeric;
   asset: string;
@@ -181,6 +192,16 @@ export interface UjiraDeposits {
   principal_id: string;
   project_id: string;
   scale: number;
+}
+
+export interface UjiraErasureLog {
+  erasure_id: string;
+  event: string;
+  id: Generated<string>;
+  occurred_at: Generated<Timestamp>;
+  principal_id: string;
+  project_id: string;
+  subject_id: string;
 }
 
 export interface UjiraFundingSources {
@@ -596,7 +617,9 @@ export interface Schema {
   'ujira.chains': UjiraChains;
   'ujira.currencies': UjiraCurrencies;
   'ujira.currency_scales': UjiraCurrencyScales;
+  'ujira.data_keys': UjiraDataKeys;
   'ujira.deposits': UjiraDeposits;
+  'ujira.erasure_log': UjiraErasureLog;
   'ujira.funding_sources': UjiraFundingSources;
   'ujira.funding_sweeps': UjiraFundingSweeps;
   'ujira.ledger_accounts': UjiraLedgerAccounts;
