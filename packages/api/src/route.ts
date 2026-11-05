@@ -22,7 +22,7 @@ import { API_SCOPES } from './auth.js';
 import type { ApiScope, CallOptions, Tenant } from './auth.js';
 import { ApiError, RouteRegistryError } from './errors.js';
 import type { RequestLog } from './log.js';
-import type { RateLimitGroup } from './rate-limit.js';
+import type { AddressLimitGroup, RateLimitGroup } from './rate-limit.js';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 export type SuccessStatus = 200 | 201 | 202;
@@ -60,7 +60,12 @@ export type QueryParse =
   | { readonly success: false; readonly code: ProblemCode; readonly errors: readonly FieldError[] };
 
 export type Access =
-  | { readonly kind: 'public'; readonly reason: string }
+  | {
+      readonly kind: 'public';
+      readonly reason: string;
+      /** Limits by client address, since there is no key to limit by. */
+      readonly addressLimit?: AddressLimitGroup;
+    }
   | {
       readonly kind: 'tenant';
       readonly scope: ApiScope;
@@ -198,6 +203,7 @@ function errorStatuses(
   // A path id that does not parse cannot name anything.
   if (hasParams) codes.push('NOT_FOUND');
   if (access.kind === 'tenant') codes.push('TOKEN_INVALID', 'INSUFFICIENT_SCOPE', 'RATE_LIMITED');
+  if (access.kind === 'public' && access.addressLimit !== undefined) codes.push('RATE_LIMITED');
   if (hasBody) codes.push('INVALID_REQUEST', 'PAYLOAD_TOO_LARGE', 'UNSUPPORTED_MEDIA_TYPE');
   return [...new Set(statusesOf(codes))].sort((a, b) => a - b);
 }
@@ -338,6 +344,10 @@ export function defineDownloadRoute<
   });
 }
 
+function publicAccess(reason: string, addressLimit: AddressLimitGroup | undefined): Access {
+  return { kind: 'public', reason, ...(addressLimit === undefined ? {} : { addressLimit }) };
+}
+
 /**
  * A route with no tenant. It gets no tenant in its context and must return
  * no tenant data; `reason` says why it needs no key, for the reviewer.
@@ -350,13 +360,14 @@ export function definePublicRoute<
 >(
   spec: RouteSpec<P, Q, B, R> & {
     readonly reason: string;
+    readonly addressLimit?: AddressLimitGroup;
     readonly handler: (input: Input<P, Q, B>, context: RequestContext) => Promise<z.input<R>>;
   },
 ): Route {
   if (spec.reason.trim().length < 10) {
     throw new RouteRegistryError(`public route ${spec.id} must say why it needs no key`);
   }
-  return build(spec, { kind: 'public', reason: spec.reason }, (input, context) =>
+  return build(spec, publicAccess(spec.reason, spec.addressLimit), (input, context) =>
     spec.handler(input as Input<P, Q, B>, context),
   );
 }
@@ -376,6 +387,7 @@ export function defineWebhookRoute<R extends z.ZodType>(spec: {
   readonly reason: string;
   /** The headers the signature check needs, by lower case name. */
   readonly headers: readonly string[];
+  readonly addressLimit?: AddressLimitGroup;
   readonly response: { readonly name: string; readonly schema: R };
   readonly errors?: readonly ProblemCode[];
   readonly handler: (input: WebhookInput, context: RequestContext) => Promise<z.input<R>>;
@@ -395,7 +407,7 @@ export function defineWebhookRoute<R extends z.ZodType>(spec: {
       response: spec.response,
       ...(spec.errors === undefined ? {} : { errors: spec.errors }),
     },
-    { kind: 'public', reason: spec.reason },
+    publicAccess(spec.reason, spec.addressLimit),
     (input, context) => spec.handler(input.body as WebhookInput, context),
     Object.freeze({ headers: Object.freeze([...spec.headers]) }),
   );

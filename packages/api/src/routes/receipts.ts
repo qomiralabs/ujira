@@ -256,6 +256,7 @@ export function receiptRoutes(reads: ReceiptReads): readonly Route[] {
       summary: 'Check a receipt by its number and verification code',
       reason:
         'Anyone holding a receipt can check it without trusting UJIRA. The code printed on the receipt stands in for a key, and the answer holds nothing that belongs to a tenant.',
+      addressLimit: 'receipt_verification',
       params: VerificationParams,
       query: VerificationQuery,
       response: { name: 'PublicReceiptVerification', schema: PublicReceiptVerification },
