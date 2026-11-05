@@ -223,6 +223,52 @@ export type RecipientReceipt = z.infer<typeof RecipientReceipt>;
 export const ReceiptView = z.discriminatedUnion('view', [PrincipalReceipt, RecipientReceipt]);
 export type ReceiptView = z.infer<typeof ReceiptView>;
 
+const PublicWalletLeg = z.strictObject({
+  method: z.literal('stellar_wallet'),
+  label: z.string().min(1).max(100),
+  received: z.string().min(1).max(64),
+  destination: MaskedDestination,
+  network: DisplayName,
+  transactionHash: TxHash,
+  transactionUrl: HttpsUrl,
+});
+
+/** Only the local amount and where it went: no token, network or transaction. */
+const PublicLocalLeg = z.strictObject({
+  method: LocalPayoutMethod,
+  label: z.string().min(1).max(100),
+  received: z.string().min(1).max(64),
+  destination: MaskedDestination,
+});
+
+/** The recipient view as anyone holding the receipt sees it, formatted for their locale. */
+export const PublicReceipt = z.strictObject({
+  view: z.literal('recipient'),
+  receiptNumber: ReceiptNumber,
+  revision: z.number().int().min(1),
+  supersedes: ReceiptNumber.nullable(),
+  issuedAt: Timestamp,
+  total: z.string().min(1).max(64),
+  summary: z.string().min(1).max(500),
+  legs: z
+    .array(z.discriminatedUnion('method', [PublicWalletLeg, PublicLocalLeg]))
+    .min(1)
+    .max(4),
+});
+
+/**
+ * The public check of a receipt. It carries no tenant, mandate or destination
+ * tag, and its reasons name no chain, because it is also read by someone paid
+ * in local currency. A document that no longer matches its hash shows no
+ * receipt, since what is stored can no longer be believed.
+ */
+export const PublicReceiptVerification = z.strictObject({
+  status: z.enum(['verified', 'failed', 'unavailable']),
+  reason: z.enum(['not_confirmed', 'document_changed']).nullable(),
+  receipt: PublicReceipt.nullable(),
+});
+export type PublicReceiptVerification = z.infer<typeof PublicReceiptVerification>;
+
 export const ReceiptListItem = z.strictObject({
   ...tenantFields,
   id: Uuid,

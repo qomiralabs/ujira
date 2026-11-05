@@ -532,16 +532,10 @@ export async function persistStep(
 // Waited out by looking again later, without using up a try.
 const WAITS: ReadonlySet<unknown> = new Set(['funding', 'utc_day', 'resume', 'approval']);
 
-async function cancelOnChain(
-  job: TenantJob,
-  deps: EngineDeps,
-  prepared: Prepared,
-  reason: 'lapsed' | 'transfer_failed',
-): Promise<void> {
+async function cancelOnChain(job: TenantJob, deps: EngineDeps, prepared: Prepared): Promise<void> {
   const { attempt, request } = prepared;
   await deps.cancelOnChain(
     {
-      reason,
       scope: request.scope,
       mandateInstanceId: attempt.mandateInstanceId,
       network: request.mandate.network,
@@ -616,8 +610,11 @@ async function afterRefusal(
   }
   if (error.retryable) throw new RetryableJobError(error.code, { cause: error });
   const name = (error as ChainAdapterError & { readonly specName?: string }).specName;
+  // Past its expiry, which can never execute. The proof comes once that is final.
   if (name === 'PAYOUT_LAPSED') {
-    await cancelOnChain(job, deps, prepared, 'lapsed');
+    await commit(job, deps, async (tx) => {
+      await scheduleNext(tx, job.ids, ENGINE_TIMING.finalityPollSeconds);
+    });
     return;
   }
   // A leg that cannot be paid blocks the whole payout, since an execute is atomic. With
@@ -626,7 +623,7 @@ async function afterRefusal(
     await commit(job, deps, async (tx) => {
       await payoutEngine.noteRefusal(tx, snapshot.payout.id, TRANSFER_FAILED);
     });
-    await cancelOnChain(job, deps, prepared, 'transfer_failed');
+    await cancelOnChain(job, deps, prepared);
     return;
   }
   // The refusal itself reached nothing, but that says nothing about what an earlier
@@ -674,19 +671,6 @@ async function submit(job: TenantJob, deps: EngineDeps, prepared: Prepared): Pro
       );
       if (proof !== null) {
         await persistDead(job, deps, prepared, proof);
-        return;
-      }
-      const seen = await adapter.status(
-        {
-          scope: request.scope,
-          mandate: request.mandate,
-          payoutId: request.payoutId,
-          legs: request.legs.map((leg) => leg.legKey),
-        },
-        options,
-      );
-      if (seen.lapsed) {
-        await cancelOnChain(job, deps, prepared, 'lapsed');
         return;
       }
     }

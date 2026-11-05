@@ -496,10 +496,7 @@ export async function engineWorld(
     signerFor: () => h.managedAgent.ref,
     attestationsFor: options.attestationsFor ?? nothingAttested,
     cancelOnChain: async (req) => {
-      // Anyone may cancel a payout past its expiry, so a stranger's wallet shows that
-      // this needs no key of the tenant's. Before then it takes someone with the right.
-      const who = req.reason === 'lapsed' ? h.wallet('anyone') : m.principal;
-      await act(h, m.ref, { op: 'cancel', payoutId: req.payoutId }, who);
+      await act(h, m.ref, { op: 'cancel', payoutId: req.payoutId }, m.principal);
     },
     alert: (alert) => alerts.push(alert),
     now: () => Number(net.now()) * 1_000,

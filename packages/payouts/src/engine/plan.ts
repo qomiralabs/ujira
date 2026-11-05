@@ -12,7 +12,6 @@ import type {
   ChainAdapterRegistry,
   CountryCode,
   NetworkId,
-  PayoutId,
   PayoutLegInput,
   Quote,
   SignerRef,
@@ -94,12 +93,10 @@ export interface EngineDeps {
     readonly attestations: readonly AttestationInput[];
     readonly earliestValidUntil: UnixSeconds | null;
   }>;
-  // Sends the cancel for a payout that cannot go on: one past its expiry, which anyone
-  // may cancel, or one whose transfer failed, which the agent that requested it may. The
-  // tombstone it leaves is the proof that frees the next attempt.
+  // Sends the cancel for a payout whose transfer failed, which the agent that requested it
+  // may do. The tombstone it leaves is the proof that frees the next attempt.
   readonly cancelOnChain: (
     req: {
-      readonly reason: 'lapsed' | 'transfer_failed';
       readonly scope: TenantScope;
       readonly mandateInstanceId: string;
       readonly network: NetworkId;

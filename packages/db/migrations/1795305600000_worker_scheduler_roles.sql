@@ -1,4 +1,5 @@
 -- expand
+-- bootstrap
 -- The job queue's two roles, so the queue cannot become a path around tenant
 -- isolation.
 --

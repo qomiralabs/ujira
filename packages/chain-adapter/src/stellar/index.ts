@@ -40,6 +40,8 @@ export {
   stellarTenantTag,
 } from './events.js';
 export type { LedgerEventPage } from './events.js';
+export type { ExecutionMirror, MirroredExecution, PayoutMethodSource } from './pay.js';
+export type { DestinationState, NotReceivable, ProofSigner } from './destination-check.js';
 export { createStellarRpc } from './rpc.js';
 export { accountBalance } from './tx.js';
 export { horizonDexSource, reflectorOracleSource } from './xlm-rate-sources.js';
