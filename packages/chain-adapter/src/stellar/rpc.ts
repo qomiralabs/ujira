@@ -57,6 +57,8 @@ export interface RpcTransaction {
   readonly latestLedger?: number;
   readonly latestLedgerCloseTime?: bigint;
   readonly oldestLedger?: number;
+  /** Unix seconds. What a NOT_FOUND can prove reaches back no further than this. */
+  readonly oldestLedgerCloseTime?: bigint;
 }
 
 export type RawSimulation = Api.RawSimulateTransactionResponse;
@@ -322,6 +324,7 @@ export function createStellarRpc(options: JsonRpcOptions): StellarRpc {
         const latestLedger = optionalInt(result, 'latestLedger');
         const oldestLedger = optionalInt(result, 'oldestLedger');
         const closeTime = result['latestLedgerCloseTime'];
+        const oldestCloseTime = result['oldestLedgerCloseTime'];
         return {
           status: status as RpcTransaction['status'],
           ...(ledger === undefined ? {} : { ledger }),
@@ -330,6 +333,9 @@ export function createStellarRpc(options: JsonRpcOptions): StellarRpc {
           ...(latestLedger === undefined ? {} : { latestLedger }),
           ...(oldestLedger === undefined ? {} : { oldestLedger }),
           ...(typeof closeTime === 'string' ? { latestLedgerCloseTime: BigInt(closeTime) } : {}),
+          ...(typeof oldestCloseTime === 'string'
+            ? { oldestLedgerCloseTime: BigInt(oldestCloseTime) }
+            : {}),
         };
       });
     },

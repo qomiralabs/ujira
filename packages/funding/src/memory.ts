@@ -93,6 +93,7 @@ export class MemorySweepStore implements SweepStore {
       sweepTxHash: null,
       validUntil: null,
       failedLedger: null,
+      authExpiresLedger: null,
       createdAt: at,
       updatedAt: at,
     };
@@ -126,6 +127,7 @@ export class MemorySweepStore implements SweepStore {
           status: move.status,
           sweepTxHash: move.sweepTxHash,
           validUntil: move.validUntil,
+          authExpiresLedger: move.authExpiresLedger,
           updatedAt,
         };
       case 'failed':
@@ -143,6 +145,7 @@ export class MemorySweepStore implements SweepStore {
           sweepTxHash: null,
           validUntil: null,
           failedLedger: null,
+          authExpiresLedger: null,
           updatedAt,
         };
       default:

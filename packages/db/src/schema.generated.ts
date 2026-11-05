@@ -318,6 +318,7 @@ export interface UjiraFundingSources {
 export interface UjiraFundingSweeps {
   amount: Numeric;
   asset: string;
+  auth_expires_ledger: Int8 | null;
   chain: string;
   created_at: Generated<Timestamp>;
   deposit_operation_id: string;

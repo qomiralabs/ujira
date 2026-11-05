@@ -911,7 +911,8 @@ begin
       message = 'a funding sweep keeps its tenant, source, operation and amount';
   end if;
   if (new.sweep_tx_hash is distinct from old.sweep_tx_hash
-      or new.sweep_valid_until is distinct from old.sweep_valid_until)
+      or new.sweep_valid_until is distinct from old.sweep_valid_until
+      or new.auth_expires_ledger is distinct from old.auth_expires_ledger)
      and not (old.status = 'awaiting_signature' and new.status = 'submitted')
      and not (old.status = 'failed' and new.status = 'awaiting_signature') then
     raise exception using
@@ -1893,6 +1894,7 @@ CREATE TABLE ujira.funding_sweeps (
     failed_ledger bigint,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    auth_expires_ledger bigint,
     CONSTRAINT funding_sweeps_amount_positive CHECK (((amount)::numeric > (0)::numeric)),
     CONSTRAINT funding_sweeps_attempt_by_status CHECK (
 CASE
@@ -1900,6 +1902,7 @@ CASE
     WHEN (status = 'failed'::text) THEN ((sweep_tx_hash IS NOT NULL) AND (sweep_valid_until IS NOT NULL))
     ELSE ((sweep_tx_hash IS NULL) AND (sweep_valid_until IS NULL) AND (failed_ledger IS NULL))
 END),
+    CONSTRAINT funding_sweeps_auth_expires_ledger_positive CHECK ((auth_expires_ledger >= 0)),
     CONSTRAINT funding_sweeps_failed_ledger_positive CHECK ((failed_ledger >= 0)),
     CONSTRAINT funding_sweeps_operation_length CHECK (((char_length(deposit_operation_id) >= 1) AND (char_length(deposit_operation_id) <= 128))),
     CONSTRAINT funding_sweeps_status CHECK ((status = ANY (ARRAY['awaiting_signature'::text, 'submitted'::text, 'settled'::text, 'failed'::text, 'cancelled'::text])))

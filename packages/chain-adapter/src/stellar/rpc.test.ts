@@ -168,6 +168,7 @@ describe('createStellarRpc', () => {
         latestLedger: 90,
         latestLedgerCloseTime: '1793483385',
         oldestLedger: 10,
+        oldestLedgerCloseTime: '1793000000',
       },
     });
     expect(await window.rpc.getTransaction('h', OPTS)).toEqual({
@@ -175,6 +176,7 @@ describe('createStellarRpc', () => {
       latestLedger: 90,
       latestLedgerCloseTime: 1_793_483_385n,
       oldestLedger: 10,
+      oldestLedgerCloseTime: 1_793_000_000n,
     });
     const missing = answering({ result: { status: 'NOT_FOUND' } });
     expect(await missing.rpc.getTransaction('h', OPTS)).toEqual({ status: 'NOT_FOUND' });
