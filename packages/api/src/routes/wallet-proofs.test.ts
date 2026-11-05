@@ -19,6 +19,7 @@ import { memoryLogger } from '../log.js';
 import { allowEveryRequest } from '../rate-limit.js';
 
 import { V1_ROUTES, v1Routes } from './index.js';
+import { API_KEYS_NOT_CONFIGURED } from './api-keys.js';
 import { SELF_WEBHOOK_NOT_CONFIGURED } from './self-webhook.js';
 
 const TOKEN_ID = randomUUID();
@@ -54,7 +55,11 @@ function authFor(w: WalletProofWorld): Authenticate {
 function served(w: WalletProofWorld, flow: WalletProofFlow = w.flow) {
   const logger = memoryLogger();
   const app = createApp({
-    routes: v1Routes({ selfWebhook: SELF_WEBHOOK_NOT_CONFIGURED, walletProof: flow }),
+    routes: v1Routes({
+      selfWebhook: SELF_WEBHOOK_NOT_CONFIGURED,
+      walletProof: flow,
+      apiKeys: API_KEYS_NOT_CONFIGURED,
+    }),
     authenticate: authFor(w),
     rateLimit: allowEveryRequest,
     logger,

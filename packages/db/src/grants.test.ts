@@ -140,6 +140,7 @@ describe('grants on ujira', () => {
     const auditHash =
       'function ujira.audit_row_hash(bytea,uuid,uuid,bigint,text,text,uuid,jsonb,timestamp with time zone)';
     expect(await executable('ujira_app')).toEqual([
+      'function ujira.api_tokens_nearing_expiry(uuid,integer)',
       auditHash,
       'function ujira.authenticate_token(text)',
       'function ujira.create_principal(text,text,uuid,text)',
@@ -209,6 +210,7 @@ describe('roles', () => {
         order by 1`,
     );
     expect(definers.rows).toEqual([
+      { fn: 'ujira.api_tokens_nearing_expiry(uuid,integer)', owner: 'ujira_fn_tokens' },
       { fn: 'ujira.attestation_pending(bytea)', owner: 'ujira_signer_read' },
       { fn: 'ujira.audit_chain()', owner: 'ujira_fn_audit' },
       { fn: 'ujira.authenticate_token(text)', owner: 'ujira_fn_tokens' },
@@ -239,6 +241,7 @@ describe('roles', () => {
       { grantee: 'ujira_fn_principals', object: 'principal_members', privilege: 'INSERT' },
       { grantee: 'ujira_fn_principals', object: 'principals', privilege: 'INSERT' },
       { grantee: 'ujira_fn_principals', object: 'projects', privilege: 'INSERT' },
+      { grantee: 'ujira_fn_tokens', object: 'api_token_expiry_warnings', privilege: 'SELECT' },
       { grantee: 'ujira_fn_tokens', object: 'api_tokens', privilege: 'SELECT' },
     ]);
     const create = await client.query<{ role: string }>(

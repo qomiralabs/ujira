@@ -24,6 +24,7 @@ import { allowEveryRequest } from '../rate-limit.js';
 import { defineWebhookRoute } from '../route.js';
 
 import { V1_ROUTES, v1Routes } from './index.js';
+import { API_KEYS_NOT_CONFIGURED } from './api-keys.js';
 import { SELF_WEBHOOK_PATH } from './self-webhook.js';
 import type { SelfWebhookHandler } from './self-webhook.js';
 import { WALLET_PROOF_NOT_CONFIGURED } from './wallet-proofs.js';
@@ -31,7 +32,11 @@ import { WALLET_PROOF_NOT_CONFIGURED } from './wallet-proofs.js';
 function served(handler: SelfWebhookHandler, bodyLimitBytes?: number) {
   const logger = memoryLogger();
   const app = createApp({
-    routes: v1Routes({ selfWebhook: handler, walletProof: WALLET_PROOF_NOT_CONFIGURED }),
+    routes: v1Routes({
+      selfWebhook: handler,
+      walletProof: WALLET_PROOF_NOT_CONFIGURED,
+      apiKeys: API_KEYS_NOT_CONFIGURED,
+    }),
     authenticate: refuseAllCredentials,
     rateLimit: allowEveryRequest,
     logger,

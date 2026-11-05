@@ -26,6 +26,7 @@ export {
 } from './repositories/page.js';
 export {
   apiTokens,
+  apiTokenWarnings,
   members,
   principals,
   projects,
@@ -54,6 +55,7 @@ export {
 export {
   entryPoints,
   type CreatedPrincipal,
+  type TokenNearingExpiry,
   type NewPrincipal,
   type ResolvedInstance,
   type TokenRecord,

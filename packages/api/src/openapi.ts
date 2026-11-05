@@ -63,7 +63,7 @@ const RATE_LIMIT_HEADERS = {
 };
 
 function operation(route: Route): JsonObject {
-  const limits = route.access.kind === 'tenant' ? RATE_LIMIT_HEADERS : {};
+  const limits = route.access.kind === 'public' ? {} : RATE_LIMIT_HEADERS;
   const responses: JsonObject = {
     [String(route.response.status)]: {
       description: 'OK',
@@ -83,11 +83,15 @@ function operation(route: Route): JsonObject {
     };
   }
   const tenant = route.access.kind === 'tenant';
+  const member = route.access.kind === 'member';
   return {
     operationId: route.id,
     summary: route.summary,
-    security: tenant ? [{ bearer: [] }] : [],
+    security: tenant ? [{ bearer: [] }] : member ? [{ memberSession: [] }] : [],
     ...(route.access.kind === 'tenant' ? { 'x-ujira-scope': route.access.scope } : {}),
+    ...(route.access.kind === 'member'
+      ? { 'x-ujira-roles': [...route.access.roles], 'x-ujira-step-up': route.access.stepUp }
+      : {}),
     parameters: [
       ...openApiParameters('path', route.params),
       ...openApiParameters('query', route.query),
@@ -160,7 +164,15 @@ export function buildOpenApiDocument(routes: readonly Route[]): JsonObject {
     paths,
     components: {
       schemas: reachable(paths, schemas),
-      securitySchemes: { bearer: { type: 'http', scheme: 'bearer' } },
+      securitySchemes: {
+        bearer: { type: 'http', scheme: 'bearer' },
+        memberSession: {
+          type: 'apiKey',
+          in: 'cookie',
+          name: 'ujira_session',
+          description: 'A dashboard session. An API key is refused here.',
+        },
+      },
     },
   };
 }

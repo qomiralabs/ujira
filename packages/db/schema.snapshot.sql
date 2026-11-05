@@ -412,6 +412,44 @@ $$;
 ALTER FUNCTION ops.take_rate_limit_tokens(bucket_keys text[], capacities integer[], refills_per_second integer[]) OWNER TO ujira_ops;
 
 --
+-- Name: api_tokens_nearing_expiry(uuid, integer); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_tokens
+--
+
+CREATE FUNCTION ujira.api_tokens_nearing_expiry(after_id uuid, max_rows integer) RETURNS TABLE(token_id uuid, principal_id uuid, project_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select t.id, t.principal_id, t.project_id
+    from ujira.api_tokens as t
+   where (after_id is null or t.id > after_id)
+     and t.revoked_at is null
+     and t.expires_at > now()
+     and t.expires_at <= now() + interval '30 days'
+     -- A rotated key is on its way out on purpose.
+     and not exists (
+       select 1
+         from ujira.api_tokens as successor
+        where successor.principal_id = t.principal_id
+          and successor.project_id = t.project_id
+          and successor.rotated_from_id = t.id
+     )
+     and not exists (
+       select 1
+         from ujira.api_token_expiry_warnings as w
+        where w.principal_id = t.principal_id
+          and w.project_id = t.project_id
+          and w.token_id = t.id
+          and w.notified_at is not null
+          and w.threshold_days = case when t.expires_at <= now() + interval '7 days' then 7 else 30 end
+     )
+   order by t.id
+   limit least(greatest(max_rows, 1), 1000)
+$$;
+
+
+ALTER FUNCTION ujira.api_tokens_nearing_expiry(after_id uuid, max_rows integer) OWNER TO ujira_fn_tokens;
+
+--
 -- Name: apply_tenant_policies(regclass); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1427,6 +1465,25 @@ ALTER TABLE ONLY ujira.agent_identity_links FORCE ROW LEVEL SECURITY;
 ALTER TABLE ujira.agent_identity_links OWNER TO ujira_owner;
 
 --
+-- Name: api_token_expiry_warnings; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.api_token_expiry_warnings (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    token_id uuid NOT NULL,
+    threshold_days bigint NOT NULL,
+    claimed_at timestamp with time zone DEFAULT now() NOT NULL,
+    notified_at timestamp with time zone,
+    CONSTRAINT api_token_expiry_warnings_threshold CHECK ((threshold_days = ANY (ARRAY[(7)::bigint, (30)::bigint])))
+);
+
+ALTER TABLE ONLY ujira.api_token_expiry_warnings FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.api_token_expiry_warnings OWNER TO ujira_owner;
+
+--
 -- Name: api_tokens; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1442,6 +1499,8 @@ CREATE TABLE ujira.api_tokens (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     rotated_from_id uuid,
     last_used_at timestamp with time zone,
+    name text,
+    CONSTRAINT api_tokens_name_length CHECK (((char_length(name) >= 1) AND (char_length(name) <= 100))),
     CONSTRAINT api_tokens_prefix_format CHECK ((prefix ~ '^[A-Za-z0-9_]{8,40}$'::text)),
     CONSTRAINT api_tokens_scopes_known CHECK ((((cardinality(scopes) >= 1) AND (cardinality(scopes) <= 10)) AND (scopes <@ ARRAY['payouts:read'::text, 'payouts:write'::text, 'approvals:write'::text, 'recipients:read'::text, 'recipients:write'::text, 'mandates:read'::text, 'mandates:write'::text, 'receipts:read'::text, 'webhooks:manage'::text, 'corridors:read'::text])))
 );
@@ -2427,6 +2486,14 @@ ALTER TABLE ONLY ujira.agent_identity_links
 
 
 --
+-- Name: api_token_expiry_warnings api_token_expiry_warnings_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.api_token_expiry_warnings
+    ADD CONSTRAINT api_token_expiry_warnings_pkey PRIMARY KEY (principal_id, project_id, token_id, threshold_days);
+
+
+--
 -- Name: api_tokens api_tokens_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3090,6 +3157,13 @@ CREATE UNIQUE INDEX signing_keys_one_active ON ops.signing_keys USING btree (pur
 
 
 --
+-- Name: api_tokens_one_successor; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE UNIQUE INDEX api_tokens_one_successor ON ujira.api_tokens USING btree (principal_id, project_id, rotated_from_id) WHERE (rotated_from_id IS NOT NULL);
+
+
+--
 -- Name: attestations_by_attempt; Type: INDEX; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3582,6 +3656,14 @@ ALTER TABLE ONLY ujira.agent_identity_links
 
 
 --
+-- Name: api_token_expiry_warnings api_token_expiry_warnings_principal_id_project_id_token_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.api_token_expiry_warnings
+    ADD CONSTRAINT api_token_expiry_warnings_principal_id_project_id_token_id_fkey FOREIGN KEY (principal_id, project_id, token_id) REFERENCES ujira.api_tokens(principal_id, project_id, id);
+
+
+--
 -- Name: api_tokens api_tokens_principal_id_project_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4028,6 +4110,12 @@ ALTER TABLE ONLY ujira.wallet_proof_challenges
 ALTER TABLE ujira.agent_identity_links ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: api_token_expiry_warnings; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.api_token_expiry_warnings ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: api_tokens; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4344,6 +4432,13 @@ CREATE POLICY owner_all ON ujira.agent_identity_links TO ujira_owner USING (true
 
 
 --
+-- Name: api_token_expiry_warnings owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.api_token_expiry_warnings TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: api_tokens owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4609,10 +4704,24 @@ CREATE POLICY signer_pending ON ujira.attestations FOR SELECT TO ujira_signer_re
 
 
 --
+-- Name: api_token_expiry_warnings sweep; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY sweep ON ujira.api_token_expiry_warnings FOR SELECT TO ujira_fn_tokens USING (true);
+
+
+--
 -- Name: agent_identity_links tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY tenant_insert ON ujira.agent_identity_links FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: api_token_expiry_warnings tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.api_token_expiry_warnings FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -4809,6 +4918,13 @@ CREATE POLICY tenant_insert ON ujira.wallet_proof_challenges FOR INSERT TO ujira
 --
 
 CREATE POLICY tenant_read ON ujira.agent_identity_links FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: api_token_expiry_warnings tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.api_token_expiry_warnings FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
 
 
 --
@@ -5019,6 +5135,13 @@ CREATE POLICY tenant_read ON ujira.wallet_proof_challenges FOR SELECT TO ujira_a
 --
 
 CREATE POLICY tenant_update ON ujira.agent_identity_links FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: api_token_expiry_warnings tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.api_token_expiry_warnings FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -5394,6 +5517,14 @@ GRANT ALL ON FUNCTION ops.take_rate_limit_tokens(bucket_keys text[], capacities 
 
 
 --
+-- Name: FUNCTION api_tokens_nearing_expiry(after_id uuid, max_rows integer); Type: ACL; Schema: ujira; Owner: ujira_fn_tokens
+--
+
+REVOKE ALL ON FUNCTION ujira.api_tokens_nearing_expiry(after_id uuid, max_rows integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.api_tokens_nearing_expiry(after_id uuid, max_rows integer) TO ujira_app;
+
+
+--
 -- Name: FUNCTION apply_tenant_policies(target regclass); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5669,6 +5800,29 @@ GRANT SELECT,INSERT,UPDATE ON TABLE ops.signing_keys TO ujira_ops;
 
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.agent_identity_links TO ujira_app;
 GRANT SELECT ON TABLE ujira.agent_identity_links TO ujira_reader;
+
+
+--
+-- Name: TABLE api_token_expiry_warnings; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.api_token_expiry_warnings TO ujira_app;
+GRANT SELECT ON TABLE ujira.api_token_expiry_warnings TO ujira_reader;
+GRANT SELECT ON TABLE ujira.api_token_expiry_warnings TO ujira_fn_tokens;
+
+
+--
+-- Name: COLUMN api_token_expiry_warnings.claimed_at; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(claimed_at) ON TABLE ujira.api_token_expiry_warnings TO ujira_app;
+
+
+--
+-- Name: COLUMN api_token_expiry_warnings.notified_at; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(notified_at) ON TABLE ujira.api_token_expiry_warnings TO ujira_app;
 
 
 --
