@@ -885,6 +885,23 @@ const cases: Record<string, () => Promise<void>> = {
       a.first.principalId,
     );
   },
+  'fundingAccounts.recordCheck': async () => {
+    const attempt = asA(async (tx) =>
+      fundingAccounts.recordCheck(tx, { accountId: b.fundingAccountId, faults: ['extra_signer'] }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+    const seen = await admin.query<{ count: string }>(
+      'select count(*)::text as count from ujira.funding_account_checks where funding_account_id = $1',
+      [b.fundingAccountId],
+    );
+    expect(seen.rows[0]?.count).toBe('0');
+    await asA(async (tx) =>
+      fundingAccounts.recordCheck(tx, { accountId: a.fundingAccountId, faults: [] }),
+    );
+    expect(
+      await ownerOf('ujira.funding_account_checks', 'funding_account_id', a.fundingAccountId),
+    ).toBe(a.first.principalId);
+  },
   'fundingAccounts.attach': async () => {
     // Another tenant's account is simply not there to attach.
     expect(

@@ -1117,7 +1117,8 @@ begin
       message = 'a funding sweep keeps its tenant, source, operation and amount';
   end if;
   if (new.sweep_tx_hash is distinct from old.sweep_tx_hash
-      or new.sweep_valid_until is distinct from old.sweep_valid_until)
+      or new.sweep_valid_until is distinct from old.sweep_valid_until
+      or new.auth_expires_ledger is distinct from old.auth_expires_ledger)
      and not (old.status = 'awaiting_signature' and new.status = 'submitted')
      and not (old.status = 'failed' and new.status = 'awaiting_signature') then
     raise exception using
@@ -1557,6 +1558,38 @@ $$;
 
 
 ALTER FUNCTION ujira.reconcile_targets(p_after uuid, p_limit integer) OWNER TO ujira_scheduler;
+
+--
+-- Name: resolve_funding_address(text, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_instances
+--
+
+CREATE FUNCTION ujira.resolve_funding_address(target_network text, target_address text) RETURNS TABLE(principal_id uuid, project_id uuid, funding_account_id uuid, account_status text, funding_source_id uuid, mandate_instance_id uuid, contract_address text, asset text)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select a.principal_id, a.project_id, a.id, a.status,
+         attached.funding_source_id, attached.mandate_instance_id,
+         attached.contract_address, attached.asset
+    from ujira.funding_accounts as a
+    left join lateral (
+      select s.funding_source_id, s.mandate_instance_id, i.contract_address, i.asset
+        from ujira.funding_account_sources as s
+        join ujira.mandate_instances as i
+          on i.principal_id = s.principal_id
+         and i.project_id = s.project_id
+         and i.id = s.mandate_instance_id
+       where s.principal_id = a.principal_id
+         and s.project_id = a.project_id
+         and s.funding_account_id = a.id
+         and i.chain = split_part(a.network, ':', 1)
+    ) as attached on true
+   where a.network = target_network
+     and a.address = target_address
+   order by attached.mandate_instance_id
+$$;
+
+
+ALTER FUNCTION ujira.resolve_funding_address(target_network text, target_address text) OWNER TO ujira_fn_instances;
 
 --
 -- Name: resolve_mandate_instance(text, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_instances
@@ -2353,6 +2386,24 @@ ALTER TABLE ONLY ujira.embed_sessions FORCE ROW LEVEL SECURITY;
 ALTER TABLE ujira.embed_sessions OWNER TO ujira_owner;
 
 --
+-- Name: funding_account_checks; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.funding_account_checks (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    funding_account_id uuid NOT NULL,
+    faults text[] DEFAULT '{}'::text[] NOT NULL,
+    checked_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL
+);
+
+ALTER TABLE ONLY ujira.funding_account_checks FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.funding_account_checks OWNER TO ujira_owner;
+
+--
 -- Name: funding_account_sources; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2445,6 +2496,7 @@ CREATE TABLE ujira.funding_sweeps (
     failed_ledger bigint,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    auth_expires_ledger bigint,
     CONSTRAINT funding_sweeps_amount_positive CHECK (((amount)::numeric > (0)::numeric)),
     CONSTRAINT funding_sweeps_attempt_by_status CHECK (
 CASE
@@ -2452,6 +2504,7 @@ CASE
     WHEN (status = 'failed'::text) THEN ((sweep_tx_hash IS NOT NULL) AND (sweep_valid_until IS NOT NULL))
     ELSE ((sweep_tx_hash IS NULL) AND (sweep_valid_until IS NULL) AND (failed_ledger IS NULL))
 END),
+    CONSTRAINT funding_sweeps_auth_expires_ledger_positive CHECK ((auth_expires_ledger >= 0)),
     CONSTRAINT funding_sweeps_failed_ledger_positive CHECK ((failed_ledger >= 0)),
     CONSTRAINT funding_sweeps_operation_length CHECK (((char_length(deposit_operation_id) >= 1) AND (char_length(deposit_operation_id) <= 128))),
     CONSTRAINT funding_sweeps_status CHECK ((status = ANY (ARRAY['awaiting_signature'::text, 'submitted'::text, 'settled'::text, 'failed'::text, 'cancelled'::text])))
@@ -3565,6 +3618,22 @@ ALTER TABLE ONLY ujira.embed_sessions
 
 
 --
+-- Name: funding_account_checks funding_account_checks_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_account_checks
+    ADD CONSTRAINT funding_account_checks_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: funding_account_checks funding_account_checks_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_account_checks
+    ADD CONSTRAINT funding_account_checks_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
 -- Name: funding_account_sources funding_account_sources_one_per_instance; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4220,6 +4289,13 @@ CREATE INDEX destination_verifications_latest ON ujira.destination_verifications
 --
 
 CREATE UNIQUE INDEX destination_verifications_one_session ON ujira.destination_verifications USING btree (principal_id, project_id, method_id) WHERE (level = 'wallet_session'::text);
+
+
+--
+-- Name: funding_account_checks_latest; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX funding_account_checks_latest ON ujira.funding_account_checks USING btree (principal_id, project_id, funding_account_id, checked_at);
 
 
 --
@@ -5087,6 +5163,14 @@ ALTER TABLE ONLY ujira.embed_sessions
 
 
 --
+-- Name: funding_account_checks funding_account_checks_principal_id_project_id_funding_acc_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.funding_account_checks
+    ADD CONSTRAINT funding_account_checks_principal_id_project_id_funding_acc_fkey FOREIGN KEY (principal_id, project_id, funding_account_id) REFERENCES ujira.funding_accounts(principal_id, project_id, id);
+
+
+--
 -- Name: funding_account_sources funding_account_sources_principal_id_project_id_funding_ac_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5598,6 +5682,12 @@ ALTER TABLE ujira.destination_verifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ujira.embed_sessions ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: funding_account_checks; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.funding_account_checks ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: funding_account_sources; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5900,6 +5990,13 @@ CREATE POLICY owner_all ON ujira.embed_sessions TO ujira_owner USING (true) WITH
 
 
 --
+-- Name: funding_account_checks owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.funding_account_checks TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: funding_account_sources owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6180,6 +6277,20 @@ ALTER TABLE ujira.recipient_pii ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ujira.recipients ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: funding_account_sources resolve_funding_address; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY resolve_funding_address ON ujira.funding_account_sources FOR SELECT TO ujira_fn_instances USING (true);
+
+
+--
+-- Name: funding_accounts resolve_funding_address; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY resolve_funding_address ON ujira.funding_accounts FOR SELECT TO ujira_fn_instances USING (true);
+
+
+--
 -- Name: mandate_instances resolve_instance; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6282,6 +6393,13 @@ CREATE POLICY tenant_insert ON ujira.destination_verifications FOR INSERT TO uji
 --
 
 CREATE POLICY tenant_insert ON ujira.embed_sessions FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: funding_account_checks tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.funding_account_checks FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -6544,6 +6662,13 @@ CREATE POLICY tenant_read ON ujira.embed_sessions FOR SELECT TO ujira_app, ujira
 
 
 --
+-- Name: funding_account_checks tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.funding_account_checks FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
 -- Name: funding_account_sources tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6800,6 +6925,13 @@ CREATE POLICY tenant_update ON ujira.destination_verifications FOR UPDATE TO uji
 --
 
 CREATE POLICY tenant_update ON ujira.embed_sessions FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: funding_account_checks tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.funding_account_checks FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -7489,6 +7621,14 @@ GRANT ALL ON FUNCTION ujira.reconcile_targets(p_after uuid, p_limit integer) TO 
 
 
 --
+-- Name: FUNCTION resolve_funding_address(target_network text, target_address text); Type: ACL; Schema: ujira; Owner: ujira_fn_instances
+--
+
+REVOKE ALL ON FUNCTION ujira.resolve_funding_address(target_network text, target_address text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.resolve_funding_address(target_network text, target_address text) TO ujira_indexer;
+
+
+--
 -- Name: FUNCTION resolve_mandate_instance(target_chain text, target_address text); Type: ACL; Schema: ujira; Owner: ujira_fn_instances
 --
 
@@ -7748,11 +7888,20 @@ GRANT SELECT,INSERT,UPDATE ON TABLE ujira.embed_sessions TO ujira_app;
 
 
 --
+-- Name: TABLE funding_account_checks; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.funding_account_checks TO ujira_app;
+GRANT SELECT ON TABLE ujira.funding_account_checks TO ujira_reader;
+
+
+--
 -- Name: TABLE funding_account_sources; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
 GRANT SELECT,INSERT ON TABLE ujira.funding_account_sources TO ujira_app;
 GRANT SELECT ON TABLE ujira.funding_account_sources TO ujira_reader;
+GRANT SELECT ON TABLE ujira.funding_account_sources TO ujira_fn_instances;
 
 
 --
@@ -7761,6 +7910,7 @@ GRANT SELECT ON TABLE ujira.funding_account_sources TO ujira_reader;
 
 GRANT SELECT,INSERT ON TABLE ujira.funding_accounts TO ujira_app;
 GRANT SELECT ON TABLE ujira.funding_accounts TO ujira_reader;
+GRANT SELECT ON TABLE ujira.funding_accounts TO ujira_fn_instances;
 
 
 --

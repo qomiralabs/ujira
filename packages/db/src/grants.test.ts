@@ -158,6 +158,7 @@ describe('grants on ujira', () => {
     expect(await executable('ujira_reader')).toEqual([auditHash, ...context]);
     expect(await executable('ujira_indexer')).toEqual([
       ...context,
+      'function ujira.resolve_funding_address(text,text)',
       'function ujira.resolve_mandate_instance(text,text)',
     ]);
   });
@@ -232,6 +233,7 @@ describe('roles', () => {
       { fn: 'ujira.ledger_stamp()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.overdue_fee_refunds(integer)', owner: 'ujira_scheduler' },
       { fn: 'ujira.reconcile_targets(uuid,integer)', owner: 'ujira_scheduler' },
+      { fn: 'ujira.resolve_funding_address(text,text)', owner: 'ujira_fn_instances' },
       { fn: 'ujira.resolve_mandate_instance(text,text)', owner: 'ujira_fn_instances' },
     ]);
     // Each holds only what its one function needs, and never CREATE.
@@ -248,6 +250,8 @@ describe('roles', () => {
       { grantee: 'ujira_fn_audit', object: 'audit_heads', privilege: 'SELECT' },
       { grantee: 'ujira_fn_audit', object: 'audit_heads', privilege: 'UPDATE' },
       { grantee: 'ujira_fn_audit', object: 'audit_metadata_keys', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_instances', object: 'funding_account_sources', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_instances', object: 'funding_accounts', privilege: 'SELECT' },
       { grantee: 'ujira_fn_instances', object: 'mandate_instances', privilege: 'SELECT' },
       { grantee: 'ujira_fn_ledger', object: 'ledger_accounts', privilege: 'SELECT' },
       { grantee: 'ujira_fn_ledger', object: 'ledger_accounts', privilege: 'UPDATE' },

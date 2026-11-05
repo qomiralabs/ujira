@@ -93,6 +93,7 @@ export class MemorySweepStore implements SweepStore {
       sweepTxHash: null,
       validUntil: null,
       failedLedger: null,
+      authExpiresLedger: null,
       createdAt: at,
       updatedAt: at,
     };
@@ -126,6 +127,7 @@ export class MemorySweepStore implements SweepStore {
           status: move.status,
           sweepTxHash: move.sweepTxHash,
           validUntil: move.validUntil,
+          authExpiresLedger: move.authExpiresLedger,
           updatedAt,
         };
       case 'failed':
@@ -143,6 +145,7 @@ export class MemorySweepStore implements SweepStore {
           sweepTxHash: null,
           validUntil: null,
           failedLedger: null,
+          authExpiresLedger: null,
           updatedAt,
         };
       default:
@@ -189,6 +192,11 @@ export class MemoryFundingAccounts implements FundingAccountStore, FundingSource
       return Promise.reject(new FundingAccountConflictError());
     }
     if (held === undefined) this.#accounts.set(key, row);
+    return Promise.resolve();
+  }
+
+  recordCheck(row: FundingAccountRecord): Promise<void> {
+    this.#accounts.set(`${row.principalId}|${row.network}`, row);
     return Promise.resolve();
   }
 
@@ -254,10 +262,19 @@ export class RecordingSweepFunding implements SweepFunding {
 
 export class RecordingSweepReports implements SweepReports {
   readonly #events: Parameters<SweepReports['sweepFailed']>[0][] = [];
+  readonly #changes: Parameters<SweepReports['accountChanged']>[0][] = [];
   readonly #alerts: Parameters<SweepReports['transferAlert']>[0][] = [];
 
   sweepFailed(event: Parameters<SweepReports['sweepFailed']>[0]): void {
     this.#events.push(event);
+  }
+
+  accountChanged(event: Parameters<SweepReports['accountChanged']>[0]): void {
+    this.#changes.push(event);
+  }
+
+  changes(): readonly Parameters<SweepReports['accountChanged']>[0][] {
+    return [...this.#changes];
   }
 
   transferAlert(event: Parameters<SweepReports['transferAlert']>[0]): void {

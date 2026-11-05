@@ -42,3 +42,7 @@ Results hold what the API returns, which can include a recipient's display name,
 ## Adding a tool
 
 Add a row to `TOOLS` naming the route and the one scope it needs, then add its call to `CALLS` in `src/tools.test.ts`. The test fails until you do.
+
+`src/safety.ts` holds every tool to the rules above. The server refuses to start with a tool that has an input for a secret or a chain, at any depth, an object taking inputs nobody named, or a write scope without being marked as a write. `src/safety.test.ts` also checks what the package can reach: nothing that can sign, or reach a chain or a database.
+
+A word list has limits. It cannot know that an input named `payload` is a signed transaction, so a person reviewing a new tool still has to read what it takes.

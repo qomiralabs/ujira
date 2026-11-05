@@ -64,7 +64,12 @@ const asTenant = async <T>(work: (tx: Kysely<Schema>) => Promise<T>): Promise<T>
 
 function moveTo(status: FundingSweepStatus): FundingSweepMove {
   if (status === 'submitted') {
-    return { status, sweepTxHash: randomBytes(32), validUntil: new Date(Date.now() + 3_600_000) };
+    return {
+      status,
+      sweepTxHash: randomBytes(32),
+      validUntil: new Date(Date.now() + 3_600_000),
+      authExpiresLedger: null,
+    };
   }
   return status === 'failed' ? { status, failedLedger: 1n } : { status };
 }

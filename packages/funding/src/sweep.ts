@@ -23,7 +23,13 @@
 // adapter's, behind the SweepChain port.
 
 import { chainOf, isNetworkId } from '@ujira/chain-adapter';
-import type { NetworkId } from '@ujira/chain-adapter';
+import type {
+  NetworkId,
+  SweepChain,
+  SweepChainResult,
+  SweepEnvelope,
+  SweepTransferEvent,
+} from '@ujira/chain-adapter';
 import { equals, isNegative, isZero } from '@ujira/core';
 import type { TokenAmount } from '@ujira/core';
 import type { FundingSweep, FundingSweepMove, NewFundingSweep } from '@ujira/db';
@@ -93,54 +99,34 @@ export interface SweepPrompts {
   requestSignature(prompt: SweepPrompt, idempotencyKey: string): Promise<void>;
 }
 
-export interface SweepTransferEvent {
-  readonly eventIndex: number;
-  readonly token: string;
-  readonly from: string;
-  readonly to: string;
-  readonly amount: TokenAmount;
-}
-
-/** What the network says of a hash. `failed` and `landed` name the ledger that applied it. */
-export type SweepChainResult =
-  | { readonly kind: 'not_found' }
-  | {
-      readonly kind: 'landed';
-      readonly ledger: number;
-      readonly transfers: readonly SweepTransferEvent[];
-    }
-  | {
-      readonly kind: 'failed';
-      readonly ledger: number;
-      readonly reason: 'insufficient_balance' | 'rejected';
-    };
-
-/** What a signed envelope itself says, so nothing about it is taken on trust. */
-export interface SweepEnvelope {
-  /** Hex. */
-  readonly txHash: string;
-  /** The last moment it can be applied, from its time bounds. */
-  readonly validUntil: Date;
-  /** The ledger its signed authorization entry expires at, or null when it has none. */
-  readonly authExpiresLedger: number | null;
-}
-
-/** The chain adapter's side. */
-export interface SweepChain {
-  /** Throws for an envelope with no upper time bound. */
-  describe(signedPayload: string): SweepEnvelope;
-  send(signedPayload: string, signal: AbortSignal): Promise<void>;
-  result(txHash: string, signal: AbortSignal): Promise<SweepChainResult>;
-  latestLedger(signal: AbortSignal): Promise<number>;
-}
+export type { SweepChain, SweepChainResult, SweepEnvelope, SweepTransferEvent };
 
 export type SweepFailureReason =
   'insufficient_balance' | 'rejected' | 'no_matching_transfer' | 'expired';
 
-export type SweepAlertKind = 'landed_after_failed' | 'unexplained';
+export type SweepAlertKind = 'landed_after_failed' | 'unexplained' | 'expiry_not_provable';
+
+/** Whether a forwarding account is still the one that was verified, read now. */
+export interface SweepAccounts {
+  usable(
+    request: {
+      readonly scope: SweepScope;
+      readonly network: NetworkId;
+      readonly forwarder: string;
+    },
+    signal: AbortSignal,
+  ): Promise<boolean>;
+}
 
 /** What a person should look at. */
 export interface SweepReports {
+  /** A deposit waits in an account that no longer matches, and nobody was prompted. */
+  accountChanged(event: {
+    readonly principalId: string;
+    readonly projectId: string;
+    readonly network: NetworkId;
+    readonly depositOperationId: string;
+  }): void;
   sweepFailed(event: {
     readonly principalId: string;
     readonly projectId: string;
@@ -180,6 +166,7 @@ export interface SweepPorts {
   readonly store: SweepStore;
   readonly prompts: SweepPrompts;
   readonly chain: SweepChain;
+  readonly accounts: SweepAccounts;
   readonly reports: SweepReports;
   readonly funding: SweepFunding;
   readonly clock: { now(): Date };
@@ -201,7 +188,10 @@ export type SweepRetry =
   | { readonly kind: 'retried'; readonly sweep: FundingSweep }
   /** Run the step again once the network reaches this ledger. */
   | { readonly kind: 'waiting'; readonly untilLedger: number }
-  | { readonly kind: 'declined'; readonly reason: 'insufficient_balance' | 'landed' };
+  | {
+      readonly kind: 'declined';
+      readonly reason: 'insufficient_balance' | 'landed' | 'account_changed';
+    };
 
 export interface ObservedTransfer {
   readonly scope: SweepScope;
@@ -247,11 +237,7 @@ const signedSchema = z.strictObject({
   signedPayload: z.string().min(1).max(350_000),
 });
 const reconcileSchema = z.strictObject({ ...keyFields, route: routeSchema });
-const retrySchema = z.strictObject({
-  ...keyFields,
-  route: routeSchema,
-  authExpiresLedger: z.int().min(0).nullable(),
-});
+const retrySchema = z.strictObject({ ...keyFields, route: routeSchema });
 const optionsSchema = z.strictObject({ timeoutMs: z.int().min(1).max(MAX_TIMEOUT_MS) });
 
 // The money module validates a value of any shape and throws on a forged one.
@@ -327,6 +313,31 @@ async function moved(
   return requireSweep(key, store);
 }
 
+// A signature is only ever asked for from an account still as it was verified. The
+// deposit stays visible, as a sweep awaiting its signature, and funds nothing.
+async function promptable(
+  key: SweepKey,
+  route: SweepRoute,
+  ports: SweepPorts,
+  limits: SweepOptions,
+): Promise<boolean> {
+  const usable = await withDeadline(limits, (signal) =>
+    ports.accounts.usable(
+      { scope: key.scope, network: key.network, forwarder: route.forwarder },
+      signal,
+    ),
+  );
+  if (!usable) {
+    ports.reports.accountChanged({
+      principalId: key.scope.principalId,
+      projectId: key.scope.projectId,
+      network: key.network,
+      depositOperationId: key.depositOperationId,
+    });
+  }
+  return usable;
+}
+
 function firstPromptKey(key: SweepKey): string {
   return `sweep:${chainOf(key.network)}:${key.depositOperationId}`;
 }
@@ -336,12 +347,18 @@ function firstPromptKey(key: SweepKey): string {
  * sighting of the same deposit. It trusts the tenant the event names, so whoever
  * attributes deposits must have checked that the forwarding account and mandate
  * are that tenant's. Throws SweepTenantError when the operation is already
- * recorded under another tenant.
+ * recorded under another tenant. An account that no longer matches gets the row and
+ * no prompt, and calling this again once it matches prompts then.
  */
-export async function recordDeposit(event: DepositEvent, ports: SweepPorts): Promise<FundingSweep> {
+export async function recordDeposit(
+  event: DepositEvent,
+  ports: SweepPorts,
+  options: SweepOptions,
+): Promise<FundingSweep> {
   const read = parsed(depositSchema, event, 'deposit');
+  const limits = parsed(optionsSchema, options, 'options');
   const row = (await find(read, ports.store)) ?? (await createSweep(read, ports.store));
-  if (row.status === 'awaiting_signature') {
+  if (row.status === 'awaiting_signature' && (await promptable(read, read.route, ports, limits))) {
     await ports.prompts.requestSignature(
       {
         scope: read.scope,
@@ -400,6 +417,8 @@ export async function acceptSweepSignature(
       status: 'submitted',
       sweepTxHash: Buffer.from(envelope.txHash, 'hex'),
       validUntil: envelope.validUntil,
+      authExpiresLedger:
+        envelope.authExpiresLedger === null ? null : BigInt(envelope.authExpiresLedger),
     },
     ports.store,
   );
@@ -453,7 +472,8 @@ async function failSweep(
  * sweep as it is. It settles only on an asset contract transfer of this amount
  * from the forwarding account to the mandate. It fails with the ledger it read
  * from the result, or, when the network has no record, only once the time bound
- * is past by the margin. A hash that landed is followed whatever the clock says.
+ * is past by the margin and the node's records reach back to the submission. A hash
+ * that landed is followed whatever the clock says.
  */
 export async function reconcileSweep(
   request: SweepKey & { readonly route: SweepRoute },
@@ -469,6 +489,23 @@ export async function reconcileSweep(
   if (result.kind === 'not_found') {
     const deadline = row.validUntil.getTime() + FAILED_EXPIRY_MARGIN_MS;
     if (ports.clock.now().getTime() < deadline) return row;
+    // A node keeps a window of ledgers, and a transaction older than the window reads
+    // exactly like one that never existed. Calling that expired would allow a second
+    // sweep after a first that worked, so it stays submitted for a person to look at.
+    // updatedAt is when it became submitted, and nothing was sent before that.
+    const covered =
+      result.recordsSince !== null &&
+      result.recordsSince.getTime() + FAILED_EXPIRY_MARGIN_MS <= row.updatedAt.getTime();
+    if (!covered) {
+      ports.reports.transferAlert({
+        principalId: read.scope.principalId,
+        projectId: read.scope.projectId,
+        network: read.network,
+        txHash,
+        kind: 'expiry_not_provable',
+      });
+      return row;
+    }
     return failSweep(read, row, null, 'expired', ports);
   }
   const ledger = BigInt(result.ledger);
@@ -504,11 +541,11 @@ export async function reconcileSweep(
  * means the money has gone, and a hash that landed means it should never have
  * been failed, which also raises an alert. Both are declined, not thrown, so the
  * queue does not retry them. While the earlier entry can still authorize a
- * transfer it answers waiting. `authExpiresLedger` comes from the envelope
- * accepted for this attempt, null when it carried no signed entry.
+ * transfer it answers waiting. The entry's expiry is on the row, read from the
+ * envelope when it was accepted, and null when it carried no signed entry.
  */
 export async function retrySweep(
-  request: SweepKey & { readonly route: SweepRoute; readonly authExpiresLedger: number | null },
+  request: SweepKey & { readonly route: SweepRoute },
   ports: SweepPorts,
   options: SweepOptions,
 ): Promise<SweepRetry> {
@@ -533,11 +570,14 @@ export async function retrySweep(
   if (result.kind === 'failed' && result.reason === 'insufficient_balance') {
     return { kind: 'declined', reason: 'insufficient_balance' };
   }
-  if (read.authExpiresLedger !== null) {
-    const expires = read.authExpiresLedger;
+  const expires = row.authExpiresLedger;
+  if (expires !== null) {
     const latest = await withDeadline(limits, (signal) => ports.chain.latestLedger(signal));
     // The entry is still good in the ledger it names.
-    if (latest <= expires) return { kind: 'waiting', untilLedger: expires + 1 };
+    if (BigInt(latest) <= expires) return { kind: 'waiting', untilLedger: Number(expires) + 1 };
+  }
+  if (!(await promptable(read, read.route, ports, limits))) {
+    return { kind: 'declined', reason: 'account_changed' };
   }
   // Queued before the row gives up the old hash, which is what keeps the key the
   // same if this step runs again after a crash. The outbox then drops the repeat.

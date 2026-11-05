@@ -14,6 +14,7 @@ export { McpConfigError, loadMcpConfig } from './config.js';
 export type { McpConfig } from './config.js';
 export { runServer } from './run.js';
 export type { RunOptions } from './run.js';
+export { KNOWN_SCOPES, UnsafeToolError, schemaProblems, toolProblems } from './safety.js';
 export { SERVER_NAME, SERVER_VERSION, createMcpServer } from './server.js';
 export type { McpServerOptions } from './server.js';
 export { TOOLS, inputSchemaOf, parseToolInput } from './tools.js';

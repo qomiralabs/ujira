@@ -120,6 +120,8 @@ export {
   entryPoints,
   type CreatedPrincipal,
   type NewPrincipal,
+  type ResolvedFundingAddress,
+  type ResolvedFundingInstance,
   type ResolvedInstance,
   type TokenRecord,
 } from './repositories/entry-points.js';

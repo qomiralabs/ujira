@@ -311,6 +311,7 @@ export const DEFINER_ALLOWLIST: readonly string[] = [
   'ujira.overdue_fee_refunds(integer)',
   'ujira.funding_hold_targets(uuid,uuid,text,integer)',
   'ujira.reconcile_targets(uuid,integer)',
+  'ujira.resolve_funding_address(text,text)',
   'ujira_jobs.enqueue(text,jsonb,text,text,timestamp with time zone,integer,text,text)',
 ];
 

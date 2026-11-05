@@ -77,6 +77,7 @@ function world(): World {
       await store.record(row);
       return row;
     },
+    recheck: ownOf,
     account: ownOf,
     fundingOptions: async ({ scope, mandate }) => {
       const own = await ownOf(scope);
@@ -266,6 +267,24 @@ describe('funding-account.test.ts', () => {
     expect(await w.service.attach({ scope, network: NETWORK, mandateInstanceId: two })).toBe(
       source,
     );
+  });
+
+  it('makes no new source from an account that has changed since it was verified', async () => {
+    const w = world();
+    const scope = tenant();
+    const first = randomUUID();
+    const second = randomUUID();
+    w.store.addInstance(scope, first);
+    w.store.addInstance(scope, second);
+    const { account } = await w.service.confirm(
+      { scope, network: NETWORK, requestId: 'r1', mandateInstanceId: first },
+      OPTS,
+    );
+    await w.store.recordCheck({ ...account, status: 'changed', faults: ['extra_signer'] });
+    await expect(
+      w.service.attach({ scope, network: NETWORK, mandateInstanceId: second }),
+    ).rejects.toBeInstanceOf(FundingAccountStateError);
+    expect(w.store.sources()).toHaveLength(1);
   });
 
   it('refuses to attach with no account', async () => {

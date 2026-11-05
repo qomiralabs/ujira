@@ -61,6 +61,8 @@ export type {
   StellarRpc,
 } from './rpc.js';
 export { createFundingAccountFlow } from './funding-account.js';
+export { createStellarSweepChain } from './funding-sweep-chain.js';
+export type { StellarSweepChainOptions } from './funding-sweep-chain.js';
 export type { FundingAccountFlowOptions } from './funding-account.js';
 export { CONTRACT_ADDRESS_LABEL, parseForwarderRequest, stellarFundingView } from './forwarder.js';
 export type { ForwarderFault, ForwarderRecord, StellarFundingView } from './forwarder.js';

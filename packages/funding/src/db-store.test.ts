@@ -17,6 +17,7 @@ import { FundingAccountConflictError } from './errors.js';
 const repo = vi.hoisted(() => ({
   forNetwork: vi.fn(),
   record: vi.fn(),
+  recordCheck: vi.fn(),
   attach: vi.fn(),
   getInstance: vi.fn(),
 }));
@@ -25,6 +26,7 @@ vi.mock('@ujira/db', () => ({
   fundingAccounts: {
     forNetwork: repo.forNetwork,
     record: repo.record,
+    recordCheck: repo.recordCheck,
     attach: repo.attach,
   },
   mandateInstances: { get: repo.getInstance },
@@ -153,6 +155,38 @@ describe('db-store.test.ts', () => {
       await expect(createDbFundingAccountStores(db).accounts.record(record)).rejects.toBeInstanceOf(
         FundingAccountConflictError,
       );
+    });
+  });
+
+  describe('accounts.recordCheck', () => {
+    const later: FundingAccountRecord = { ...record, status: 'changed', faults: ['extra_signer'] };
+
+    it("writes the finding under the row's own tenant, against its account", async () => {
+      const { db, opened } = database();
+      repo.forNetwork.mockResolvedValue(row);
+      await createDbFundingAccountStores(db).accounts.recordCheck(later);
+      expect(opened).toEqual([
+        {
+          session: 'tenant',
+          context: { principalId: scope.principalId, projectId: scope.projectId },
+        },
+      ]);
+      expect(repo.recordCheck).toHaveBeenCalledWith('tx', {
+        accountId: row.id,
+        faults: ['extra_signer'],
+      });
+    });
+
+    it.each([
+      ['no account', undefined],
+      ['another account', { ...row, address: 'GOTHER' }],
+    ])('surfaces a finding for %s', async (_name, found) => {
+      const { db } = database();
+      repo.forNetwork.mockResolvedValue(found);
+      await expect(
+        createDbFundingAccountStores(db).accounts.recordCheck(later),
+      ).rejects.toBeInstanceOf(FundingAccountConflictError);
+      expect(repo.recordCheck).not.toHaveBeenCalled();
     });
   });
 
