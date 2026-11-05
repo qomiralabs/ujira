@@ -38,7 +38,7 @@ async function asIndexer<T>(
   context: ProjectContext,
   work: (tx: Kysely<Schema>) => Promise<T>,
 ): Promise<T> {
-  return db.withTenant('worker', { ...context, scope: 'project' }, work);
+  return db.withTenant('indexer', { ...context, scope: 'project' }, work);
 }
 
 async function codeOf(promise: Promise<unknown>): Promise<string | undefined> {
@@ -199,7 +199,7 @@ describe('resolve_mandate_instance', () => {
   it('finds the tenant of a contract, and nothing for one that is not ours', async () => {
     const found = await db.unscoped(
       async (tx) => entryPoints.resolveMandateInstance(tx, 'stellar', instance.contractAddress),
-      'worker',
+      'indexer',
     );
     expect(found).toEqual({
       principalId: tenant.principalId,
@@ -211,7 +211,7 @@ describe('resolve_mandate_instance', () => {
     expect(
       await db.unscoped(
         async (tx) => entryPoints.resolveMandateInstance(tx, 'stellar', 'Cnot-ours'),
-        'worker',
+        'indexer',
       ),
     ).toBeUndefined();
   });

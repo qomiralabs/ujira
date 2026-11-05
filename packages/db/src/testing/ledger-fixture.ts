@@ -24,7 +24,7 @@ export async function asIndexer<T>(
   context: ProjectContext,
   work: (tx: Kysely<Schema>) => Promise<T>,
 ): Promise<T> {
-  return db.withTenant('worker', { ...context, scope: 'project' }, work);
+  return db.withTenant('indexer', { ...context, scope: 'project' }, work);
 }
 
 export async function ledgerFixture(db: Database): Promise<LedgerFixture> {

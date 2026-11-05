@@ -41,6 +41,7 @@ function open(hooks?: DatabaseHooks, poolSize = 2): Database {
     UJIRA_DB_APP_URL: database.url,
     UJIRA_DB_READER_URL: database.url,
     UJIRA_DB_WORKER_URL: database.url,
+    UJIRA_DB_INDEXER_URL: database.url,
     UJIRA_DB_MIGRATION_URL: database.url,
     UJIRA_DB_TLS: 'off',
     UJIRA_DB_APP_POOL_SIZE: String(poolSize),
@@ -148,6 +149,7 @@ describe('closing', () => {
         UJIRA_DB_APP_URL: own.url,
         UJIRA_DB_READER_URL: own.url,
         UJIRA_DB_WORKER_URL: own.url,
+        UJIRA_DB_INDEXER_URL: own.url,
         UJIRA_DB_MIGRATION_URL: own.url,
         UJIRA_DB_TLS: 'off',
       });
