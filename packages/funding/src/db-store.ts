@@ -6,10 +6,14 @@
 
 import { chainOf } from '@ujira/chain-adapter';
 import type { FundingAccountRecord, FundingAccountStore, NetworkId } from '@ujira/chain-adapter';
-import { fundingAccounts, fundingSweeps, mandateInstances } from '@ujira/db';
+import { FundingAccountInUse, fundingAccounts, fundingSweeps, mandateInstances } from '@ujira/db';
 import type { Database, FundingAccount } from '@ujira/db';
 
-import { FundingAccountConflictError, SweepStateError } from './errors.js';
+import {
+  FundingAccountConflictError,
+  FundingAccountInUseError,
+  SweepStateError,
+} from './errors.js';
 import type { FundingSourceStore } from './funding-account.js';
 import type { SweepStore } from './sweep.js';
 
@@ -120,16 +124,21 @@ export function createDbFundingAccountStores(db: Pick<Database, 'tenant' | 'prin
 
     sources: {
       async attach(scope, { network, mandateInstanceId }) {
-        return db.tenant(scope).transaction(async (tx) => {
-          const account = await fundingAccounts.forNetwork(tx, network);
-          const instance = await mandateInstances.get(tx, mandateInstanceId);
-          if (account === undefined || instance?.chain !== chainOf(network)) return null;
-          const source = await fundingAccounts.attach(tx, {
-            accountId: account.id,
-            mandateInstanceId,
+        try {
+          return await db.tenant(scope).transaction(async (tx) => {
+            const account = await fundingAccounts.forNetwork(tx, network);
+            const instance = await mandateInstances.get(tx, mandateInstanceId);
+            if (account === undefined || instance?.chain !== chainOf(network)) return null;
+            const source = await fundingAccounts.attach(tx, {
+              accountId: account.id,
+              mandateInstanceId,
+            });
+            return source?.id ?? null;
           });
-          return source?.id ?? null;
-        });
+        } catch (error) {
+          if (error instanceof FundingAccountInUse) throw new FundingAccountInUseError();
+          throw error;
+        }
       },
     },
   };

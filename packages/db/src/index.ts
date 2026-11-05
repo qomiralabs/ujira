@@ -46,6 +46,7 @@ export {
   type SigningKeyPurpose,
 } from './repositories/signers.js';
 export {
+  FundingAccountInUse,
   fundingAccounts,
   type FundingAccount,
   type FundingAccountStatus,

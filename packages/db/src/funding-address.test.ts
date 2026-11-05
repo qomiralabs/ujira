@@ -8,12 +8,13 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
 import { sql, type Kysely } from 'kysely';
+import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
 import type { Database, ProjectContext } from './database.js';
 import { entryPoints } from './repositories/entry-points.js';
 import { fundingAccounts } from './repositories/funding-accounts.js';
-import { mandateInstances, mandates } from './repositories/mandates.js';
+import { fundingSources, mandateInstances, mandates } from './repositories/mandates.js';
 import type { Schema } from './schema.generated.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
@@ -135,7 +136,28 @@ describe('resolving a forwarding account', () => {
     const second = await newInstance(tenant);
     const account = await newAccount(tenant);
     await attach(tenant, account.id, first.id);
-    await attach(tenant, account.id, second.id);
+    // Attaching refuses this today, and the function still has to tell the truth
+    // about it, because the guard in the scan depends on it if the rule is lifted.
+    const extra = await as(tenant, async (tx) =>
+      fundingSources.create(tx, {
+        mandateInstanceId: second.id,
+        kind: 'stellar_funding_account',
+        config: { sponsoredReserves: true, sponsorTxHash: randomBytes(32) },
+      }),
+    );
+    const owner = new pg.Client({ connectionString: database.url });
+    await owner.connect();
+    try {
+      await owner.query('drop index if exists ujira.funding_account_sources_one_per_account');
+      await owner.query(
+        `insert into ujira.funding_account_sources
+           (principal_id, project_id, funding_account_id, funding_source_id, mandate_instance_id)
+         values ($1, $2, $3, $4, $5)`,
+        [tenant.principalId, tenant.projectId, account.id, extra.id, second.id],
+      );
+    } finally {
+      await owner.end();
+    }
     const found = await resolve(account.address);
     expect(found?.instances.map((instance) => instance.mandateInstanceId).sort()).toEqual(
       [first.id, second.id].sort(),

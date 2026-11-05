@@ -17,7 +17,11 @@ import type {
 } from '@ujira/chain-adapter';
 import type { FundingSweep, FundingSweepMove, NewFundingSweep } from '@ujira/db';
 
-import { FundingAccountConflictError, SweepStateError } from './errors.js';
+import {
+  FundingAccountConflictError,
+  FundingAccountInUseError,
+  SweepStateError,
+} from './errors.js';
 import type { FundingSourceStore } from './funding-account.js';
 import { FAILED_EXPIRY_MARGIN_MS } from './sweep.js';
 import type {
@@ -157,7 +161,8 @@ export class MemorySweepStore implements SweepStore {
 /**
  * What funding_accounts and funding_account_sources hold: one account per
  * principal and network, no address held twice, one source per mandate instance,
- * and only an active account of this project attached to this project's instance.
+ * one mandate instance per account, and only an active account of this project
+ * attached to this project's instance.
  */
 export class MemoryFundingAccounts implements FundingAccountStore, FundingSourceStore {
   /** The next attach throws this, as a crash after the chain step would. */
@@ -165,6 +170,8 @@ export class MemoryFundingAccounts implements FundingAccountStore, FundingSource
   readonly #accounts = new Map<string, FundingAccountRecord>();
   readonly #instances = new Map<string, TenantScope>();
   readonly #sources = new Map<string, string>();
+  /** The instance each account funds, by principal and network. */
+  readonly #funding = new Map<string, string>();
 
   /** A mandate instance that exists for this tenant. */
   addInstance(scope: TenantScope, mandateInstanceId: string): void {
@@ -221,6 +228,9 @@ export class MemoryFundingAccounts implements FundingAccountStore, FundingSource
     }
     const existing = this.#sources.get(input.mandateInstanceId);
     if (existing !== undefined) return Promise.resolve(existing);
+    const key = `${scope.principalId}|${input.network}`;
+    if (this.#funding.has(key)) return Promise.reject(new FundingAccountInUseError());
+    this.#funding.set(key, input.mandateInstanceId);
     const id = randomUUID();
     this.#sources.set(input.mandateInstanceId, id);
     return Promise.resolve(id);

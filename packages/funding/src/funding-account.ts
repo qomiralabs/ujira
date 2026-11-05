@@ -110,6 +110,7 @@ export interface FundingSourceStore {
   /**
    * The source's id, made the first time it is asked for. Null when this tenant
    * has no active account on the network, or the instance cannot use that one.
+   * Throws FundingAccountInUseError when the account already funds another instance.
    */
   attach(
     scope: TenantScope,

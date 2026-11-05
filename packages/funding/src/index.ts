@@ -4,6 +4,7 @@
 export {
   FUNDING_ERROR_CODES,
   FundingAccountConflictError,
+  FundingAccountInUseError,
   FundingAccountStateError,
   FundingError,
   FundingInputError,
