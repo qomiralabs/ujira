@@ -49,3 +49,14 @@ export {
   withFee,
 } from './fee-builder.js';
 export type { AppliedFee, FeeBasis, FeeTerms, FeeTermsSource } from './fee-builder.js';
+export { isTransferFailed, onTransferFailed, zeroFeeRequest } from './fee-fallback.js';
+export type {
+  CancelSigner,
+  FeeFallbackAdapter,
+  FeeFallbackDeps,
+  FeeFallbackOutcome,
+  FeeFallbackStore,
+  FeeTransferFailure,
+  ResendIdentity,
+  ZeroFeeResend,
+} from './fee-fallback.js';
