@@ -1422,7 +1422,7 @@ CREATE FUNCTION ujira.resolve_funding_address(target_network text, target_addres
        where s.principal_id = a.principal_id
          and s.project_id = a.project_id
          and s.funding_account_id = a.id
-         and i.chain = split_part(a.network, ':', 1)
+         and i.network = a.network
     ) as attached on true
    where a.network = target_network
      and a.address = target_address
@@ -1431,6 +1431,23 @@ $$;
 
 
 ALTER FUNCTION ujira.resolve_funding_address(target_network text, target_address text) OWNER TO ujira_fn_instances;
+
+--
+-- Name: resolve_mandate_address(text, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_instances
+--
+
+CREATE FUNCTION ujira.resolve_mandate_address(target_network text, target_address text) RETURNS TABLE(principal_id uuid, project_id uuid, mandate_instance_id uuid, asset text, scale smallint)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select i.principal_id, i.project_id, i.id, i.asset, i.scale::smallint
+    from ujira.mandate_instances as i
+   where i.network = target_network
+     and i.contract_address = target_address
+$$;
+
+
+ALTER FUNCTION ujira.resolve_mandate_address(target_network text, target_address text) OWNER TO ujira_fn_instances;
 
 --
 -- Name: resolve_mandate_instance(text, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_instances
@@ -7173,6 +7190,14 @@ GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_indexer;
 
 REVOKE ALL ON FUNCTION ujira.resolve_funding_address(target_network text, target_address text) FROM PUBLIC;
 GRANT ALL ON FUNCTION ujira.resolve_funding_address(target_network text, target_address text) TO ujira_indexer;
+
+
+--
+-- Name: FUNCTION resolve_mandate_address(target_network text, target_address text); Type: ACL; Schema: ujira; Owner: ujira_fn_instances
+--
+
+REVOKE ALL ON FUNCTION ujira.resolve_mandate_address(target_network text, target_address text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.resolve_mandate_address(target_network text, target_address text) TO ujira_indexer;
 
 
 --

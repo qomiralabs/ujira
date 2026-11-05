@@ -153,6 +153,7 @@ describe('grants on ujira', () => {
     expect(await executable('ujira_indexer')).toEqual([
       ...context,
       'function ujira.resolve_funding_address(text,text)',
+      'function ujira.resolve_mandate_address(text,text)',
       'function ujira.resolve_mandate_instance(text,text)',
     ]);
   });
@@ -218,6 +219,7 @@ describe('roles', () => {
       { fn: 'ujira.ledger_balanced()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.ledger_stamp()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.resolve_funding_address(text,text)', owner: 'ujira_fn_instances' },
+      { fn: 'ujira.resolve_mandate_address(text,text)', owner: 'ujira_fn_instances' },
       { fn: 'ujira.resolve_mandate_instance(text,text)', owner: 'ujira_fn_instances' },
     ]);
     // Each holds only what its one function needs, and never CREATE.
