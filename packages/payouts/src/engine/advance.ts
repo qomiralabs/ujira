@@ -33,6 +33,7 @@ import { isChainAdapterError } from '@ujira/chain-adapter';
 import {
   fundingHolds,
   jobQueue,
+  liveLegs,
   LiveAttemptError,
   payoutAttempts,
   payoutEngine,
@@ -61,6 +62,8 @@ import { bytes32Of, legKeyOf, taskRefOf } from './ids.js';
 import {
   attemptPlan,
   belowMinimum,
+  plannedLegs,
+  TRANSFER_FAILED,
   collapsed,
   legsMeetMinimums,
   LostRace,
@@ -118,7 +121,7 @@ async function readSnapshot(job: TenantJob, deps: EngineDeps): Promise<Snapshot 
     if (payout === undefined) return undefined;
     const attempts = await payoutAttempts.forPayout(tx, payout.id);
     const live = attempts.find((attempt) => attempt.status !== 'dead');
-    const legs = live === undefined ? [] : await payoutLegs.forAttempt(tx, live.id);
+    const legs = live === undefined ? [] : liveLegs(await payoutLegs.forAttempt(tx, live.id));
     return { payout, attempts, live, legs };
   });
 }
@@ -337,11 +340,11 @@ async function prepare(
     address: adapter.parseAddress(found.instance.contractAddress),
     specVersion: 1,
   };
-  const legInputs = legs.map((leg): PayoutLegInput => {
+  const legInputs = legs.map((leg, index): PayoutLegInput => {
     if (leg.rail === null) throw new Error('a leg of a live attempt names no rail');
     return {
-      index: leg.index,
-      legKey: legKeyOf(payoutId, leg.index),
+      index,
+      legKey: legKeyOf(payoutId, index),
       rail: leg.rail as RailId,
       recipientMethodId: leg.payoutMethodId as Uuid,
       amount: leg.amount,
@@ -442,9 +445,9 @@ async function persistFinal(
   const { attempt, snapshot, request } = prepared;
   const payoutId = snapshot.payout.id;
   // These start from what this transaction has just written.
-  const legs = await payoutLegs.forAttempt(tx, attempt.id);
+  const legs = liveLegs(await payoutLegs.forAttempt(tx, attempt.id));
   const states = legs.map(
-    (leg) => delivered.get(legKeyOf(request.payoutId, leg.index)) ?? 'delivering',
+    (_leg, position) => delivered.get(legKeyOf(request.payoutId, position)) ?? 'delivering',
   );
   for (const [index, leg] of legs.entries()) {
     const state = states[index];
@@ -529,10 +532,16 @@ export async function persistStep(
 // Waited out by looking again later, without using up a try.
 const WAITS: ReadonlySet<unknown> = new Set(['funding', 'utc_day', 'resume', 'approval']);
 
-async function cancelLapsed(job: TenantJob, deps: EngineDeps, prepared: Prepared): Promise<void> {
+async function cancelOnChain(
+  job: TenantJob,
+  deps: EngineDeps,
+  prepared: Prepared,
+  reason: 'lapsed' | 'transfer_failed',
+): Promise<void> {
   const { attempt, request } = prepared;
-  await deps.cancelLapsed(
+  await deps.cancelOnChain(
     {
+      reason,
       scope: request.scope,
       mandateInstanceId: attempt.mandateInstanceId,
       network: request.mandate.network,
@@ -545,6 +554,51 @@ async function cancelLapsed(job: TenantJob, deps: EngineDeps, prepared: Prepared
   });
 }
 
+// A rail that fell over before anything was requested. The chain has not heard of these
+// legs, so the same attempt, under the same id, can go to the main method instead.
+const RESOLUTION_FAILURES: ReadonlySet<string> = new Set(['RAIL_UNAVAILABLE', 'QUOTE_UNAVAILABLE']);
+
+async function reallocated(
+  job: TenantJob,
+  deps: EngineDeps,
+  prepared: Prepared,
+  error: ChainAdapterError,
+): Promise<boolean> {
+  const { adapter, attempt, request, snapshot } = prepared;
+  if (
+    !RESOLUTION_FAILURES.has(error.code) ||
+    attempt.status !== 'created' ||
+    snapshot.legs.length < 2
+  ) {
+    return false;
+  }
+  // A job that died after sending would have left this at created too. The chain is what
+  // says nothing has gone, and a request it knows of cannot change its legs.
+  const seen = await adapter.status(
+    {
+      scope: request.scope,
+      mandate: request.mandate,
+      payoutId: request.payoutId,
+      legs: request.legs.map((leg) => leg.legKey),
+    },
+    { signal: job.signal, correlationId: snapshot.payout.id },
+  );
+  if (seen.onChain !== 'absent') return false;
+  const plan = await routePlan(deps, job.context, snapshot.payout, job.signal);
+  if (plan === undefined) return false;
+  const single = await selectRoute(collapsed(plan, attempt.total), deps.routing);
+  if (single.kind !== 'routed' || single.network !== attempt.network) return false;
+  if (single.mandateInstanceId !== attempt.mandateInstanceId) return false;
+  if (!(await legsMeetMinimums(deps, job.context, single))) return false;
+  const legs = await plannedLegs(deps, job.context, plan, single, job.signal);
+  let moved = false;
+  await commit(job, deps, async (tx) => {
+    moved = await payoutAttempts.replaceLegs(tx, attempt, legs);
+    if (moved) await scheduleNext(tx, job.ids, 0);
+  });
+  return moved;
+}
+
 async function afterRefusal(
   job: TenantJob,
   deps: EngineDeps,
@@ -553,6 +607,7 @@ async function afterRefusal(
 ): Promise<void> {
   const { adapter, request, snapshot } = prepared;
   const options = { signal: job.signal, correlationId: snapshot.payout.id };
+  if (await reallocated(job, deps, prepared, error)) return;
   if (WAITS.has(error.waitFor)) {
     await commit(job, deps, async (tx) => {
       await scheduleNext(tx, job.ids, ENGINE_TIMING.waitPollSeconds);
@@ -562,7 +617,16 @@ async function afterRefusal(
   if (error.retryable) throw new RetryableJobError(error.code, { cause: error });
   const name = (error as ChainAdapterError & { readonly specName?: string }).specName;
   if (name === 'PAYOUT_LAPSED') {
-    await cancelLapsed(job, deps, prepared);
+    await cancelOnChain(job, deps, prepared, 'lapsed');
+    return;
+  }
+  // A leg that cannot be paid blocks the whole payout, since an execute is atomic. With
+  // other legs on it, cancel and pay the main method. Alone, it has nowhere else to go.
+  if (name === TRANSFER_FAILED && snapshot.legs.length > 1) {
+    await commit(job, deps, async (tx) => {
+      await payoutEngine.noteRefusal(tx, snapshot.payout.id, TRANSFER_FAILED);
+    });
+    await cancelOnChain(job, deps, prepared, 'transfer_failed');
     return;
   }
   // The refusal itself reached nothing, but that says nothing about what an earlier
@@ -622,7 +686,7 @@ async function submit(job: TenantJob, deps: EngineDeps, prepared: Prepared): Pro
         options,
       );
       if (seen.lapsed) {
-        await cancelLapsed(job, deps, prepared);
+        await cancelOnChain(job, deps, prepared, 'lapsed');
         return;
       }
     }

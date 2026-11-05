@@ -1280,17 +1280,24 @@ declare
   target uuid := (to_jsonb(new) ->> tg_argv[0])::uuid;
   expected numeric;
   actual numeric;
+  live bigint;
 begin
   select a.total_amount into expected
     from ujira.payout_attempts as a
    where a.principal_id = new.principal_id
      and a.project_id = new.project_id
      and a.id = target;
-  select coalesce(sum(l.amount), 0) into actual
+  select coalesce(sum(l.amount), 0), count(*) into actual, live
     from ujira.payout_legs as l
    where l.principal_id = new.principal_id
      and l.project_id = new.project_id
-     and l.attempt_id = target;
+     and l.attempt_id = target
+     and l.status <> 'cancelled';
+  if live > 4 then
+    raise exception using
+      errcode = '23514',
+      message = 'an attempt has at most four live legs';
+  end if;
   if actual is distinct from expected then
     raise exception using
       errcode = 'UJ005',
@@ -2764,7 +2771,7 @@ CREATE TABLE ujira.payout_legs (
     CONSTRAINT payout_legs_fee_not_negative CHECK (((fee_amount)::numeric >= (0)::numeric)),
     CONSTRAINT payout_legs_fx_denominator_positive CHECK (((fx_denominator)::numeric > (0)::numeric)),
     CONSTRAINT payout_legs_fx_numerator_positive CHECK (((fx_numerator)::numeric > (0)::numeric)),
-    CONSTRAINT payout_legs_index_range CHECK (((leg_index >= 0) AND (leg_index <= 3))),
+    CONSTRAINT payout_legs_index_range CHECK (((leg_index >= 0) AND (leg_index <= 7))),
     CONSTRAINT payout_legs_key_format CHECK ((leg_key ~ '^[0-9a-f]{64}$'::text)),
     CONSTRAINT payout_legs_method CHECK ((method = ANY (ARRAY['stellar_wallet'::text, 'bank'::text, 'mobile_money'::text, 'cash_pickup'::text]))),
     CONSTRAINT payout_legs_quote_id_length CHECK (((char_length(quote_id) >= 1) AND (char_length(quote_id) <= 128))),

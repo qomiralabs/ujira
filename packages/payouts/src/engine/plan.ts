@@ -59,6 +59,8 @@ import { legKeyOf, onChainPayoutId } from './ids.js';
 // How long an attempt may take before it can be proven dead.
 export const ATTEMPT_TTL_SECONDS = 3_600;
 
+export const TRANSFER_FAILED = 'TRANSFER_FAILED';
+
 // Another job moved the row first, so this run has nothing left to say.
 export class LostRace extends Error {
   override readonly name = 'LostRace';
@@ -92,10 +94,12 @@ export interface EngineDeps {
     readonly attestations: readonly AttestationInput[];
     readonly earliestValidUntil: UnixSeconds | null;
   }>;
-  // Sends the cancel for a payout past its expiry, which anyone may do. The tombstone
-  // it leaves is the proof that frees the next attempt.
-  readonly cancelLapsed: (
+  // Sends the cancel for a payout that cannot go on: one past its expiry, which anyone
+  // may cancel, or one whose transfer failed, which the agent that requested it may. The
+  // tombstone it leaves is the proof that frees the next attempt.
+  readonly cancelOnChain: (
     req: {
+      readonly reason: 'lapsed' | 'transfer_failed';
       readonly scope: TenantScope;
       readonly mandateInstanceId: string;
       readonly network: NetworkId;
@@ -191,7 +195,7 @@ async function grossUp(
 }
 
 // Splits with the remainder on the first leg, so the legs always sum to the total.
-function splitLegs(
+export function splitLegs(
   total: TokenAmount,
   shares: readonly LegShare[],
   main: RouteLeg,
@@ -229,6 +233,7 @@ export async function routePlan(
     recipient: await recipients.get(tx, payout.recipientId),
     settings: await projects.settings(tx),
     attempts: await payoutAttempts.forPayout(tx, payout.id),
+    refusal: await payoutEngine.refusalCode(tx, payout.id),
   }));
   if (found.recipient === undefined) throw new Error('a payout names no recipient');
   const { country } = found.recipient;
@@ -248,8 +253,12 @@ export async function routePlan(
         : deliveryCurrency(deps, country, payout.method, total),
     amount: total,
   };
+  // A transfer that failed is a leg that cannot be paid, so the next attempt goes to the
+  // main method alone.
   const shares =
-    payout.requested.kind === 'token' && deps.splitOf !== undefined
+    payout.requested.kind === 'token' &&
+    deps.splitOf !== undefined &&
+    found.refusal !== TRANSFER_FAILED
       ? await deps.splitOf(context, payout)
       : [];
   const previous = found.attempts.at(-1);
@@ -285,8 +294,12 @@ function deliveryCurrency(
   return corridor?.currency ?? total.asset;
 }
 
-// A proof comes back from JSON with its ledger number as a string.
+// A proof comes back from JSON with its ledger number as a string. An attempt still live
+// pins the payout to its network.
 function previousOf(previous: PayoutAttempt): PreviousAttempt {
+  if (previous.status !== 'dead') {
+    return { state: 'live', network: previous.network as NetworkId };
+  }
   const proof = previous.deadProof as PreviousDeadProof;
   return {
     state: 'dead',
@@ -399,27 +412,14 @@ function legInputsOf(
   }));
 }
 
-// What one attempt will carry. The take is on the total in either mode, so in principal
-// mode on the grossed-up total.
-export async function attemptPlan(
+// The legs a route comes to, with what each cash-out will deliver.
+export async function plannedLegs(
   deps: EngineDeps,
   context: ProjectContext,
   plan: RoutePlan,
   route: RoutedOutcome,
-  key: string,
   signal: AbortSignal,
-): Promise<AttemptPlan> {
-  const attemptNumber = plan.attempts.length + 1;
-  const onChainId = onChainPayoutId(context, key, attemptNumber);
-  const { earliestValidUntil } = await deps.attestationsFor({
-    scope: plan.request.scope,
-    payoutId: onChainId,
-    attemptNumber,
-    network: route.network,
-    legs: legInputsOf(route, onChainId),
-  });
-  const ttlEnd = nowOf(deps) + ATTEMPT_TTL_SECONDS * 1_000;
-  const attestEnd = earliestValidUntil === null ? ttlEnd : Number(earliestValidUntil) * 1_000;
+): Promise<readonly NewPayoutLeg[]> {
   const methods = await deps.db
     .tenant(context)
     .transaction(async (tx) =>
@@ -452,6 +452,31 @@ export async function attemptPlan(
           }),
     });
   }
+  return legs;
+}
+
+// What one attempt will carry. The take is on the total in either mode, so in principal
+// mode on the grossed-up total.
+export async function attemptPlan(
+  deps: EngineDeps,
+  context: ProjectContext,
+  plan: RoutePlan,
+  route: RoutedOutcome,
+  key: string,
+  signal: AbortSignal,
+): Promise<AttemptPlan> {
+  const attemptNumber = plan.attempts.length + 1;
+  const onChainId = onChainPayoutId(context, key, attemptNumber);
+  const { earliestValidUntil } = await deps.attestationsFor({
+    scope: plan.request.scope,
+    payoutId: onChainId,
+    attemptNumber,
+    network: route.network,
+    legs: legInputsOf(route, onChainId),
+  });
+  const ttlEnd = nowOf(deps) + ATTEMPT_TTL_SECONDS * 1_000;
+  const attestEnd = earliestValidUntil === null ? ttlEnd : Number(earliestValidUntil) * 1_000;
+  const legs = await plannedLegs(deps, context, plan, route, signal);
   const total = plan.request.total;
   return {
     route,

@@ -11,6 +11,7 @@ import type {
   Bytes32,
   ChainAdapter,
   ChainAdapterRegistry,
+  ChainAddress,
   CountryCode,
   NetworkId,
   UnixSeconds,
@@ -25,7 +26,7 @@ import {
   type FakeWorld,
   type SuiteMandate,
 } from '@ujira/chain-adapter/testing';
-import { tokenAmount, type Money, type TokenAmount } from '@ujira/core';
+import type { Money, TokenAmount } from '@ujira/core';
 import {
   mandateInstances,
   mandates,
@@ -49,6 +50,7 @@ import { PAYOUT_ADVANCE, type TaskIds } from '../../worker/tasks.js';
 import { helpersFor, type WorkerHarness } from '../../worker/testing/support.js';
 import { advanceWork } from '../advance.js';
 import type { EngineDeps } from '../plan.js';
+import { usdc } from './usdc.js';
 import { databaseDestinations, databaseMandates } from '../routing.js';
 
 export const NETWORK: NetworkId = 'stellar:testnet';
@@ -57,7 +59,7 @@ export const TENANT: ProjectContext = {
   projectId: FAKE_SCOPES.scope.projectId,
 };
 
-export const usdc = (raw: bigint): TokenAmount => tokenAmount(raw, 'USDC', 'stellar');
+export { usdc };
 
 // 1.00 USDC at seven decimals, which is the wallet method's floor.
 export const ONE_USDC = 10_000_000n;
@@ -191,12 +193,19 @@ export interface EngineWorld {
   readonly quotes: unknown[];
   readonly pays: unknown[];
   readonly batches: unknown[];
+  // A method at a destination of its own, which the mandate allows. Two legs of one payout
+  // cannot pay the same destination.
+  addAllowedMethod(method: PayoutMinimumMethod, walletName: string): Promise<ChainAddress>;
   batch(
     key: string,
     amounts: readonly TokenAmount[],
     options?: { readonly secondRecipientAt?: number },
   ): Promise<{ readonly batchId: string; readonly payouts: readonly Payout[] }>;
-  addMethod(method: PayoutMinimumMethod, recipient?: 0 | 1): Promise<string>;
+  addMethod(
+    method: PayoutMinimumMethod,
+    recipient?: 0 | 1,
+    address?: ChainAddress,
+  ): Promise<string>;
   payout(key: string, requested: Money | TokenAmount, extra?: Partial<NewPayout>): Promise<Payout>;
   // One job, as a pool would run it.
   run(
@@ -486,10 +495,11 @@ export async function engineWorld(
     },
     signerFor: () => h.managedAgent.ref,
     attestationsFor: options.attestationsFor ?? nothingAttested,
-    cancelLapsed: async (req) => {
+    cancelOnChain: async (req) => {
       // Anyone may cancel a payout past its expiry, so a stranger's wallet shows that
-      // this needs no key of the tenant's.
-      await act(h, m.ref, { op: 'cancel', payoutId: req.payoutId }, h.wallet('anyone'));
+      // this needs no key of the tenant's. Before then it takes someone with the right.
+      const who = req.reason === 'lapsed' ? h.wallet('anyone') : m.principal;
+      await act(h, m.ref, { op: 'cancel', payoutId: req.payoutId }, who);
     },
     alert: (alert) => alerts.push(alert),
     now: () => Number(net.now()) * 1_000,
@@ -505,6 +515,22 @@ export async function engineWorld(
     quotes,
     pays,
     batches,
+    addAllowedMethod: async (method, walletName) => {
+      const wallet = h.wallet(walletName);
+      await act(
+        h,
+        m.ref,
+        {
+          op: 'allow_recipients',
+          entries: [
+            { recipientRef: first.recipientRef, destination: { address: wallet, tag: null } },
+          ],
+        },
+        m.principal,
+      );
+      await world.addMethod(method, 0, wallet);
+      return wallet;
+    },
     batch: async (key, amounts, batch = {}) =>
       harness.db.tenant(TENANT).transaction(async (tx) => {
         const created = await payoutBatches.create(tx, {
@@ -525,10 +551,11 @@ export async function engineWorld(
           ),
         };
       }),
-    addMethod: async (method, recipient = 0) => {
+    addMethod: async (method, recipient = 0, address?: ChainAddress) => {
       const holder = recipient === 0 ? rows.recipientId : rows.secondRecipientId;
-      const destination = m.recipients[recipient];
-      if (destination === undefined) throw new Error('no such recipient');
+      const holderAddress = address ?? m.recipients[recipient]?.address;
+      if (holderAddress === undefined) throw new Error('no such recipient');
+      const destination = { address: holderAddress };
       const row = await harness.db.tenant(TENANT).transaction(async (tx) => {
         const existing = await payoutMethods.forRecipient(tx, holder, 100);
         return (

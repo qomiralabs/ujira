@@ -1282,6 +1282,20 @@ const cases: Record<string, () => Promise<void>> = {
     );
     expect(page.items).toEqual([]);
   },
+  'payoutAttempts.replaceLegs': async () => {
+    const theirs = {
+      id: b.attemptId,
+      payoutId: b.payoutId,
+      total: tokenAmount(1n, 'USDC', 'stellar'),
+    };
+    const leg = {
+      payoutMethodId: a.methodId,
+      method: 'stellar_wallet' as const,
+      destinationAddress: 'GNOPE',
+      amount: 1n,
+    };
+    expect(await asA(async (tx) => payoutAttempts.replaceLegs(tx, theirs, [leg]))).toBe(false);
+  },
   'payoutEngine.refusalCode': async () => {
     expect(await asA(async (tx) => payoutEngine.refusalCode(tx, b.payoutId))).toBeUndefined();
   },

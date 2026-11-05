@@ -93,6 +93,7 @@ export {
   type NewApproval,
   type PayoutLeg,
   type RecordedApproval,
+  liveLegs,
   type LegDelivery,
 } from './repositories/payout-legs.js';
 export {

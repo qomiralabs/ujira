@@ -690,6 +690,39 @@ function proofJson(proof: Readonly<Record<string, unknown>>): string {
   );
 }
 
+function legRow(
+  payoutId: string,
+  attemptId: string,
+  total: TokenAmount,
+  leg: NewPayoutLeg,
+  index: number,
+) {
+  return {
+    principal_id: CURRENT_PRINCIPAL,
+    project_id: CURRENT_PROJECT,
+    payout_id: payoutId,
+    attempt_id: attemptId,
+    leg_index: index,
+    payout_method_id: leg.payoutMethodId,
+    method: leg.method,
+    rail: leg.rail ?? null,
+    destination_address: leg.destinationAddress,
+    destination_tag: leg.destinationTag?.toString() ?? null,
+    amount: leg.amount.toString(),
+    chain: total.chain,
+    asset: total.asset,
+    scale: total.scale,
+    fee_amount: (leg.fee ?? 0n).toString(),
+    receive_amount: leg.delivery === undefined ? null : amountParam(leg.delivery.receive),
+    receive_currency: leg.delivery?.receive.currency ?? null,
+    receive_scale: leg.delivery?.receive.scale ?? null,
+    fx_numerator: leg.delivery?.fxNumerator.toString() ?? null,
+    fx_denominator: leg.delivery?.fxDenominator.toString() ?? null,
+    cost_bearer: leg.delivery?.costBearer ?? null,
+    quote_id: leg.delivery?.quoteId ?? null,
+  };
+}
+
 export const payoutAttempts = {
   // Refused with LiveAttemptError unless every earlier attempt of the payout is
   // dead. Of two creates racing, the second waits for the first and then finds it.
@@ -730,33 +763,50 @@ export const payoutAttempts = {
     await db
       .insertInto('ujira.payout_legs')
       .values(
-        input.legs.map((leg, index) => ({
-          principal_id: CURRENT_PRINCIPAL,
-          project_id: CURRENT_PROJECT,
-          payout_id: input.payoutId,
-          attempt_id: row.id,
-          leg_index: index,
-          payout_method_id: leg.payoutMethodId,
-          method: leg.method,
-          rail: leg.rail ?? null,
-          destination_address: leg.destinationAddress,
-          destination_tag: leg.destinationTag?.toString() ?? null,
-          amount: leg.amount.toString(),
-          chain: input.total.chain,
-          asset: input.total.asset,
-          scale: input.total.scale,
-          fee_amount: (leg.fee ?? 0n).toString(),
-          receive_amount: leg.delivery === undefined ? null : amountParam(leg.delivery.receive),
-          receive_currency: leg.delivery?.receive.currency ?? null,
-          receive_scale: leg.delivery?.receive.scale ?? null,
-          fx_numerator: leg.delivery?.fxNumerator.toString() ?? null,
-          fx_denominator: leg.delivery?.fxDenominator.toString() ?? null,
-          cost_bearer: leg.delivery?.costBearer ?? null,
-          quote_id: leg.delivery?.quoteId ?? null,
-        })),
+        input.legs.map((leg, index) => legRow(input.payoutId, row.id, input.total, leg, index)),
       )
       .execute();
     return toAttempt(row);
+  },
+
+  // A split that cannot go as planned, while nothing has been requested. The old legs
+  // are cancelled, since a leg is never deleted, and the new ones follow them. False when
+  // the attempt has moved on, which means the chain may know its legs by now.
+  replaceLegs: async (
+    db: Tx,
+    attempt: Pick<PayoutAttempt, 'id' | 'payoutId' | 'total'>,
+    legs: readonly NewPayoutLeg[],
+  ): Promise<boolean> => {
+    if (legs.length === 0) throw new AttemptWithoutLegsError();
+    const held = await db
+      .selectFrom('ujira.payout_attempts')
+      .select('id')
+      .where('id', '=', attempt.id)
+      .where('status', '=', 'created')
+      .forUpdate()
+      .executeTakeFirst();
+    if (held === undefined) return false;
+    const existing = await db
+      .selectFrom('ujira.payout_legs')
+      .select('leg_index')
+      .where('attempt_id', '=', attempt.id)
+      .execute();
+    await db
+      .updateTable('ujira.payout_legs')
+      .set({ status: 'cancelled' })
+      .where('attempt_id', '=', attempt.id)
+      .where('status', '=', 'planned')
+      .execute();
+    const next = existing.reduce((high, row) => Math.max(high, Number(row.leg_index) + 1), 0);
+    await db
+      .insertInto('ujira.payout_legs')
+      .values(
+        legs.map((leg, index) =>
+          legRow(attempt.payoutId, attempt.id, attempt.total, leg, next + index),
+        ),
+      )
+      .execute();
+    return true;
   },
 
   get: async (db: Tx, id: string): Promise<PayoutAttempt | undefined> => {

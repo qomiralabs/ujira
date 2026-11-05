@@ -115,7 +115,7 @@ function toLeg(row: {
     id: row.id,
     payoutId: row.payout_id,
     attemptId: row.attempt_id,
-    // Checked to be 0 to 3, so this is exact.
+    // Checked to be 0 to 7, so this is exact.
     index: Number(row.leg_index),
     payoutMethodId: row.payout_method_id,
     method: row.method,
@@ -149,6 +149,12 @@ function toLeg(row: {
             quoteId: row.quote_id,
           },
   };
+}
+
+// A cancelled leg pays nothing and the chain never hears of it. What it hears of is these,
+// in order, numbered from zero, whatever their rows are numbered.
+export function liveLegs<L extends Pick<PayoutLeg, 'status'>>(legs: readonly L[]): readonly L[] {
+  return legs.filter((leg) => leg.status !== 'cancelled');
 }
 
 export const payoutLegs = {
