@@ -46,6 +46,7 @@ import {
 } from './repositories/identity-evidence.js';
 import {
   apiTokens,
+  apiTokenWarnings,
   members,
   principals,
   projects,
@@ -456,6 +457,54 @@ const cases: Record<string, () => Promise<void>> = {
     );
     expect(token.projectId).toBe(a.first.projectId);
     expect(await ownerOf('ujira.api_tokens', 'id', token.id)).toBe(a.first.principalId);
+  },
+  'apiTokens.createWithinLimit': async () => {
+    // B holds a key of its own, and none of it counts against A's limit.
+    const token = await asA(async (tx) =>
+      apiTokens.createWithinLimit(
+        tx,
+        {
+          prefix: `uj_case_${randomUUID().slice(0, 8)}`,
+          secretSha256: Buffer.alloc(32, 9),
+          scopes: ['payouts:read'],
+          expiresAt: new Date('2100-01-01T00:00:00Z'),
+        },
+        1000,
+      ),
+    );
+    expect(await ownerOf('ujira.api_tokens', 'id', token?.id ?? '')).toBe(a.first.principalId);
+  },
+  'apiTokens.createSuccessor': async () => {
+    const attempt = asA(async (tx) =>
+      apiTokens.createSuccessor(tx, {
+        prefix: `uj_case_${randomUUID().slice(0, 8)}`,
+        secretSha256: Buffer.alloc(32, 9),
+        scopes: ['payouts:read'],
+        expiresAt: new Date('2100-01-01T00:00:00Z'),
+        rotatedFromId: b.tokenId,
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'apiTokens.successorOf': async () => {
+    expect(await acrossA(async (tx) => apiTokens.successorOf(tx, b.tokenId))).toBeUndefined();
+  },
+  'apiTokens.shortenExpiry': async () => {
+    expect(
+      await asA(async (tx) => apiTokens.shortenExpiry(tx, b.tokenId, new Date(0))),
+    ).toBeUndefined();
+  },
+  'apiTokenWarnings.claim': async () => {
+    const attempt = asA(async (tx) =>
+      apiTokenWarnings.claim(tx, { tokenId: b.tokenId, thresholdDays: 30, claimSeconds: 600 }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'apiTokenWarnings.markNotified': async () => {
+    const attempt = asA(async (tx) =>
+      apiTokenWarnings.markNotified(tx, { tokenId: b.tokenId, thresholdDays: 30 }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
   },
   'apiTokens.touchLastUsed': async () => {
     expect(await asA(async (tx) => apiTokens.touchLastUsed(tx, b.tokenId))).toBe(false);

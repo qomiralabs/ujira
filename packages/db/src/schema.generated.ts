@@ -122,11 +122,21 @@ export interface UjiraAgentIdentityLinks {
   updated_at: Generated<Timestamp>;
 }
 
+export interface UjiraApiTokenExpiryWarnings {
+  claimed_at: Generated<Timestamp>;
+  notified_at: Timestamp | null;
+  principal_id: string;
+  project_id: string;
+  threshold_days: Int8;
+  token_id: string;
+}
+
 export interface UjiraApiTokens {
   created_at: Generated<Timestamp>;
   expires_at: Timestamp;
   id: Generated<string>;
   last_used_at: Timestamp | null;
+  name: string | null;
   prefix: string;
   principal_id: string;
   project_id: string;
@@ -573,6 +583,7 @@ export interface Schema {
   'ops.signing_keys': OpsSigningKeys;
   ujira_migrations: UjiraMigrations;
   'ujira.agent_identity_links': UjiraAgentIdentityLinks;
+  'ujira.api_token_expiry_warnings': UjiraApiTokenExpiryWarnings;
   'ujira.api_tokens': UjiraApiTokens;
   'ujira.attestations': UjiraAttestations;
   'ujira.audit_heads': UjiraAuditHeads;

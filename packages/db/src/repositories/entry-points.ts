@@ -43,6 +43,12 @@ export interface ResolvedInstance {
   readonly scale: number;
 }
 
+export interface TokenNearingExpiry {
+  readonly tokenId: string;
+  readonly principalId: string;
+  readonly projectId: string;
+}
+
 export const entryPoints = {
   // The tenant of a deployed contract, or undefined when it is not one of
   // ours. This is how the indexer learns which context to write an event under,
@@ -113,5 +119,23 @@ export const entryPoints = {
       expiresAt: row.expires_at,
       revokedAt: row.revoked_at,
     };
+  },
+
+  // Which tokens have an expiry warning still to send, whatever their tenant. Ids
+  // only: the caller reads each one under its own tenant.
+  apiTokensNearingExpiry: async (
+    db: Tx,
+    after: string | undefined,
+    limit: number,
+  ): Promise<readonly TokenNearingExpiry[]> => {
+    const result = await sql<{ token_id: string; principal_id: string; project_id: string }>`
+      select token_id, principal_id, project_id
+        from ujira.api_tokens_nearing_expiry(${after ?? null}::uuid, ${limit})
+    `.execute(db);
+    return result.rows.map((row) => ({
+      tokenId: row.token_id,
+      principalId: row.principal_id,
+      projectId: row.project_id,
+    }));
   },
 };
