@@ -3,7 +3,13 @@
 -- shown for a pubnet mandate looks wrong, and an exchange would send real money to
 -- it. A funding account records its network and an instance recorded only its
 -- chain, so the two could not be compared. Instances now say which network they
--- are on, and a funding account can fund an instance only on its own.
+-- are on, and a funding account on one network cannot fund an instance on another.
+--
+-- This is the expand half. The new schema goes out before the new code, and the code
+-- already running makes instances with no network and attaches accounts to them, so
+-- an instance with none has to stay allowed here. The repository requires a network
+-- and refuses to fund an instance without one. Refusing both in the table is a
+-- contract that follows, once the code running always names it.
 
 -- Up Migration
 set local lock_timeout = '5s';
@@ -14,14 +20,13 @@ set local role ujira_owner;
 alter table ujira.mandate_instances
   add column network ujira.network_id;
 
--- Not valid, and on purpose never backfilled: the chain does not say which network
--- an existing instance is on, and a guess is the mistake this column prevents. New
--- rows must name it. An old row stays null, which reads as unknown and can be
--- funded by nothing until a person fills it in as the owner, after which this can
--- be validated.
+-- On purpose never backfilled: the chain does not say which network an existing
+-- instance is on, and a guess is the mistake this column prevents. An old row stays
+-- null, which the repository reads as unknown, until a person fills it in as the
+-- owner.
 alter table ujira.mandate_instances
   add constraint mandate_instances_network_on_chain
-    check (network is not null and split_part(network, ':', 1) = chain) not valid;
+    check (network is null or split_part(network, ':', 1) = chain) not valid;
 
 -- A foreign key could say this only with a unique index on mandate_instances, a
 -- live table, and an instance's network never changes once it has one, so this
@@ -31,12 +36,12 @@ create function ujira.check_funding_account_source() returns trigger
   set search_path = pg_catalog
 as $fn$
 begin
-  if not exists (
+  if exists (
     select 1
       from ujira.funding_accounts as a
       join ujira.mandate_instances as i on i.id = new.mandate_instance_id
      where a.id = new.funding_account_id
-       and a.network = i.network
+       and a.network <> i.network
   ) then
     raise exception using
       errcode = '23514',

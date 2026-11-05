@@ -87,31 +87,20 @@ async function secondProject(tenant: ProjectContext): Promise<ProjectContext> {
   return { principalId: tenant.principalId, projectId };
 }
 
-// A row from before the column, which only the check being not valid allows. The
-// check comes off for this one insert and goes back on as the migration left it.
+// A row with no network, as one from before the column has, or one made by the code
+// still running during a deploy.
 async function instanceFromBeforeNetworks(tenant: ProjectContext): Promise<string> {
   const mandate = await as(tenant, async (tx) =>
     mandates.create(tx, { name: `mandate ${randomUUID()}` }),
   );
-  await admin.query(
-    'alter table ujira.mandate_instances drop constraint mandate_instances_network_on_chain',
+  const row = await admin.query<{ id: string }>(
+    `insert into ujira.mandate_instances
+       (principal_id, project_id, mandate_id, chain, contract_address, spec_version, asset, scale)
+     values ($1, $2, $3, 'stellar', $4, '1', 'USDC', 7)
+     returning id`,
+    [tenant.principalId, tenant.projectId, mandate.id, `C${randomUUID()}`],
   );
-  try {
-    const row = await admin.query<{ id: string }>(
-      `insert into ujira.mandate_instances
-         (principal_id, project_id, mandate_id, chain, contract_address, spec_version, asset, scale)
-       values ($1, $2, $3, 'stellar', $4, '1', 'USDC', 7)
-       returning id`,
-      [tenant.principalId, tenant.projectId, mandate.id, `C${randomUUID()}`],
-    );
-    return row.rows[0]?.id ?? '';
-  } finally {
-    await admin.query(
-      `alter table ujira.mandate_instances
-         add constraint mandate_instances_network_on_chain
-         check (network is not null and split_part(network, ':', 1) = chain) not valid`,
-    );
-  }
+  return row.rows[0]?.id ?? '';
 }
 
 beforeAll(async () => {
@@ -546,26 +535,8 @@ describe('attaching an account to a mandate instance', () => {
         fundingAccounts.attach(tx, { accountId: account?.id ?? '', mandateInstanceId: instance }),
       ),
     ).toBeUndefined();
-    const source = await as(tenant, async (tx) =>
-      fundingSources.create(tx, {
-        mandateInstanceId: instance,
-        kind: 'stellar_funding_account',
-        config: { sponsoredReserves: true, sponsorTxHash: randomBytes(32) },
-      }),
-    );
-    const direct = as(tenant, async (tx) =>
-      tx
-        .insertInto('ujira.funding_account_sources')
-        .values({
-          principal_id: tenant.principalId,
-          project_id: tenant.projectId,
-          funding_account_id: account?.id ?? '',
-          funding_source_id: source.id,
-          mandate_instance_id: instance,
-        })
-        .execute(),
-    );
-    expect(await codeOf(direct)).toBe('23514');
+    const none = await as(tenant, async (tx) => fundingSources.list(tx, { limit: 10 }));
+    expect(none.items).toEqual([]);
   });
 
   it('is held to one source per instance by the table itself', async () => {

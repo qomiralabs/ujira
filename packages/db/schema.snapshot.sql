@@ -703,12 +703,12 @@ CREATE FUNCTION ujira.check_funding_account_source() RETURNS trigger
     SET search_path TO 'pg_catalog'
     AS $$
 begin
-  if not exists (
+  if exists (
     select 1
       from ujira.funding_accounts as a
       join ujira.mandate_instances as i on i.id = new.mandate_instance_id
      where a.id = new.funding_account_id
-       and a.network = i.network
+       and a.network <> i.network
   ) then
     raise exception using
       errcode = '23514',
@@ -3337,7 +3337,7 @@ ALTER TABLE ONLY ujira.mandate_instances
 --
 
 ALTER TABLE ujira.mandate_instances
-    ADD CONSTRAINT mandate_instances_network_on_chain CHECK (((network IS NOT NULL) AND (split_part((network)::text, ':'::text, 1) = chain))) NOT VALID;
+    ADD CONSTRAINT mandate_instances_network_on_chain CHECK (((network IS NULL) OR (split_part((network)::text, ':'::text, 1) = chain))) NOT VALID;
 
 
 --
