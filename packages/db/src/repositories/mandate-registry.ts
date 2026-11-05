@@ -250,17 +250,17 @@ export interface IntakeBooking {
  * event moves nothing.
  */
 export function mandateEventStore(db: Database, chainOf: (network: string) => string) {
-  const worker = <T>(work: (tx: Tx) => Promise<T>): Promise<T> => db.unscoped(work, 'worker');
+  const indexer = <T>(work: (tx: Tx) => Promise<T>): Promise<T> => db.unscoped(work, 'indexer');
   return {
     registered: async (network: string, contractId: string) =>
-      (await worker((tx) => mandateRegistry.find(tx, network, contractId))) ?? null,
+      (await indexer((tx) => mandateRegistry.find(tx, network, contractId))) ?? null,
     register: (registration: NewMandateRegistration) =>
-      worker((tx) => mandateRegistry.register(tx, registration)),
+      indexer((tx) => mandateRegistry.register(tx, registration)),
     flag: async (network: string, contractId: string, reason: MandateFlagReason): Promise<void> => {
-      await worker((tx) => mandateRegistry.flag(tx, network, contractId, reason));
+      await indexer((tx) => mandateRegistry.flag(tx, network, contractId, reason));
     },
     tenantOf: async (network: string, contractId: string): Promise<IntakeTenant | null> => {
-      const found = await worker((tx) =>
+      const found = await indexer((tx) =>
         entryPoints.resolveMandateInstance(tx, chainOf(network), contractId),
       );
       if (found === undefined) return null;
@@ -270,7 +270,7 @@ export function mandateEventStore(db: Database, chainOf: (network: string) => st
       };
     },
     book: (booking: IntakeBooking): Promise<boolean> =>
-      db.withTenant('worker', { ...booking.tenant.scope, scope: 'project' }, async (tx) => {
+      db.withTenant('indexer', { ...booking.tenant.scope, scope: 'project' }, async (tx) => {
         const chain = chainOf(booking.network);
         const event = await chainEvents.record(tx, {
           mandateInstanceId: booking.tenant.mandateInstanceId,

@@ -472,7 +472,7 @@ async function indexing<T>(
   context: ProjectContext,
   work: (tx: Kysely<Schema>) => Promise<T>,
 ): Promise<T> {
-  return db.withTenant('worker', { ...context, scope: 'project' }, work);
+  return db.withTenant('indexer', { ...context, scope: 'project' }, work);
 }
 
 async function codeOf(promise: Promise<unknown>): Promise<string | undefined> {
@@ -787,8 +787,9 @@ const cases: Record<string, () => Promise<void>> = {
   'fundingAccounts.forNetwork': async () => {
     const seen = await asA(async (tx) => fundingAccounts.forNetwork(tx, 'stellar:testnet'));
     expect(seen?.id).toBe(a.fundingAccountId);
+    // Accounts are one per project, so a read across projects has no one answer.
     const across = await acrossA(async (tx) => fundingAccounts.forNetwork(tx, 'stellar:testnet'));
-    expect(across?.id).toBe(a.fundingAccountId);
+    expect(across).toBeUndefined();
   },
   'fundingAccounts.record': async () => {
     const saved = await asA(async (tx) =>

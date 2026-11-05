@@ -17,15 +17,17 @@ const URLS: DatabaseEnvironment = {
   UJIRA_DB_WORKER_URL: 'postgresql://worker:secret@pooler.example:5432/postgres',
   UJIRA_DB_READER_URL: 'postgresql://reader:secret@pooler.example:6543/postgres',
   UJIRA_DB_MIGRATION_URL: 'postgresql://migrator:secret@pooler.example:5432/postgres',
+  UJIRA_DB_INDEXER_URL: 'postgresql://indexer:secret@pooler.example:6543/postgres',
 };
 
 describe('loadDatabaseConfig', () => {
-  it('reads the four roles from the environment', () => {
+  it('reads the five roles from the environment', () => {
     const config = loadDatabaseConfig(URLS);
     expect(config.app.url).toBe(URLS.UJIRA_DB_APP_URL);
     expect(config.worker.url).toBe(URLS.UJIRA_DB_WORKER_URL);
     expect(config.reader.url).toBe(URLS.UJIRA_DB_READER_URL);
     expect(config.migration.url).toBe(URLS.UJIRA_DB_MIGRATION_URL);
+    expect(config.indexer.url).toBe(URLS.UJIRA_DB_INDEXER_URL);
   });
 
   it.each([
@@ -33,6 +35,7 @@ describe('loadDatabaseConfig', () => {
     'UJIRA_DB_WORKER_URL',
     'UJIRA_DB_READER_URL',
     'UJIRA_DB_MIGRATION_URL',
+    'UJIRA_DB_INDEXER_URL',
   ] as const)('refuses a missing %s', (key) => {
     const env = Object.fromEntries(
       Object.entries(URLS).filter(([name]) => name !== key),
@@ -107,6 +110,31 @@ describe('loadDatabaseConfig', () => {
     expect(config.worker.poolSize).toBe(POOL_DEFAULTS.worker);
     expect(config.reader.poolSize).toBe(POOL_DEFAULTS.reader);
     expect(config.migration.poolSize).toBe(POOL_DEFAULTS.migration);
+    expect(config.indexer.poolSize).toBe(POOL_DEFAULTS.indexer);
+  });
+
+  it('counts the indexer pool in the connection budget', () => {
+    const config = loadDatabaseConfig({ ...URLS, UJIRA_DB_INDEXER_POOL_SIZE: '3' });
+    expect(config.indexer.poolSize).toBe(3);
+    const others = Object.entries(POOL_DEFAULTS)
+      .filter(([role]) => role !== 'indexer')
+      .reduce((sum, [, size]) => sum + size, 0);
+    const over = CONNECTION_BUDGET.reservedForUs - others + 1;
+    expect(() => loadDatabaseConfig({ ...URLS, UJIRA_DB_INDEXER_POOL_SIZE: String(over) })).toThrow(
+      DatabaseConfigError,
+    );
+    expect(() =>
+      loadDatabaseConfig({ ...URLS, UJIRA_DB_INDEXER_POOL_SIZE: String(over - 1) }),
+    ).not.toThrow();
+  });
+
+  it('lets the indexer use the transaction pooler, since it listens for nothing', () => {
+    expect(() =>
+      loadDatabaseConfig({
+        ...URLS,
+        UJIRA_DB_INDEXER_URL: 'postgresql://indexer:s@pooler.example:6543/postgres',
+      }),
+    ).not.toThrow();
   });
 
   it('keeps the defaults inside the measured connection budget', () => {
@@ -206,6 +234,7 @@ describe('TLS', () => {
         UJIRA_DB_WORKER_URL: url,
         UJIRA_DB_READER_URL: url,
         UJIRA_DB_MIGRATION_URL: url,
+        UJIRA_DB_INDEXER_URL: url,
       });
       expect(config.tls, host).toBe('off');
       expect(config.tlsOptions, host).toBeUndefined();

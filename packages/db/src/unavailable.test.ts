@@ -23,6 +23,7 @@ function environmentFor(url: string): DatabaseEnvironment {
     UJIRA_DB_APP_URL: url,
     UJIRA_DB_READER_URL: url,
     UJIRA_DB_WORKER_URL: url,
+    UJIRA_DB_INDEXER_URL: url,
     UJIRA_DB_MIGRATION_URL: url,
     UJIRA_DB_TLS: 'off',
     UJIRA_DB_APP_POOL_SIZE: '2',
