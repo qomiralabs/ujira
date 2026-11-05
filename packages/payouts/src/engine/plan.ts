@@ -12,6 +12,7 @@ import type {
   ChainAdapterRegistry,
   CountryCode,
   NetworkId,
+  PayoutId,
   PayoutLegInput,
   Quote,
   SignerRef,
