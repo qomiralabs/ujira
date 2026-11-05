@@ -23,7 +23,7 @@ import { useAmountSettings } from './amount-context.js';
 import { AMOUNT_SIZES, AMOUNT_TEXT, SECONDARY_SIZES, type AmountSize } from './amount-styles.js';
 import { localeDirection, type MinorUnits } from './format.js';
 
-const MINUS = '−';
+const MINUS = '\u2212';
 
 /**
  * How the sign shows. `auto` marks only a negative amount. `exceptZero` also
