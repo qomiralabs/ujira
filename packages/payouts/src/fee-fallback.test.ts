@@ -2,10 +2,11 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 /*
- * Contract for the zero fee fallback (fee-fallback.ts), against the fake chain.
+ * Contract for the zero fee fallback (fee-fallback.ts), CHAINOPS-FEE-005, against the
+ * fake chain.
  *
  * - The fee address really cannot receive: UJIRA records the decision and sends nothing,
- *   because no key it holds may cancel. A new attempt with no fee goes out only once the
+ *   because its agent key never cancels. A new attempt with no fee goes out only once the
  *   old one has lapsed, proven at final. The recipient is paid once and the mandate is
  *   charged the total only.
  * - A failing leg, a fee address that can receive and a fee of 0 stay on the leg path.
@@ -166,7 +167,7 @@ async function lapsed(w: World, label: string, payout = `p-${label}`) {
   return { failed, input };
 }
 
-describe('fee-fallback', () => {
+describe('fee-fallback, CHAINOPS-FEE-005', () => {
   it('fee transfer failure lets the attempt lapse and re-requests with fee 0', async () => {
     const w = await setup();
     const { h, m, deps } = w;
@@ -199,7 +200,7 @@ describe('fee-fallback', () => {
     expect(await h.balance({ network: h.adapter.network, value: h.world.net.feeAddress })).toBe(0n);
   });
 
-  it('never tries to cancel, since no key UJIRA holds may', async () => {
+  it('never tries to cancel, since the agent key may not', async () => {
     const w = await setup();
     const prepare = vi.spyOn(w.h.adapter, 'prepareMandateAction');
     const submit = vi.spyOn(w.h.adapter, 'submitSigned');
@@ -461,9 +462,10 @@ describe('fee-fallback', () => {
   });
 });
 
-describe('a lapsed attempt still holds its funds', () => {
-  // Pinned because it limits the fallback: only a cancel gives a reservation back, a
-  // lapse does not, and no key UJIRA holds may cancel.
+describe('a lapsed attempt still holds its funds, MANDATE-PAYOUT-010, MANDATE-PAYOUT-011', () => {
+  // Pinned because it limits the fallback: only a cancel gives a reservation back, and a
+  // lapse does not. Anyone may cancel a lapsed payout, and the operator's sweep does
+  // (CHAINOPS-SUBMIT-004), so the wait for funds lasts until that sweep runs.
   it('so a mandate with nothing spare cannot pay the resend until someone cancels', async () => {
     const w = await setup(TOTAL + FEE);
     const { h, m } = w;
@@ -474,7 +476,7 @@ describe('a lapsed attempt still holds its funds', () => {
     const refused = await refusalOf(drive(h.adapter, request));
     expect(refused).toMatchObject({ code: 'MANDATE_RULE', specName: 'INSUFFICIENT_FUNDS' });
 
-    await act(h, m.ref, { op: 'cancel', payoutId: failed.payoutId }, m.principal);
+    await act(h, m.ref, { op: 'cancel', payoutId: failed.payoutId }, h.wallet('anyone'));
     expect((await drive(h.adapter, request)).at(-1)?.kind).toBe('final');
   });
 });
