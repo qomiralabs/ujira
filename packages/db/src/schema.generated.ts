@@ -234,6 +234,36 @@ export interface UjiraChains {
   code: string;
 }
 
+export interface UjiraComplianceMarks {
+  created_at: Generated<Timestamp>;
+  mandate_instance_id: string;
+  principal_id: string;
+  project_id: string;
+  reason: string;
+  since: Timestamp;
+}
+
+export interface UjiraComplianceNotices {
+  created_at: Generated<Timestamp>;
+  fixes: Generated<Json>;
+  id: Generated<string>;
+  mandate_instance_id: string;
+  noticed_at: Timestamp;
+  principal_id: string;
+  project_id: string;
+  transition: string;
+}
+
+export interface UjiraComplianceParkedJobs {
+  job_id: string;
+  mandate_instance_id: string;
+  parked_at: Generated<Timestamp>;
+  principal_id: string;
+  project_id: string;
+  resumed_at: Timestamp | null;
+  status: Generated<string>;
+}
+
 export interface UjiraCurrencies {
   code: string;
   minor_units: number;
@@ -746,6 +776,9 @@ export interface Schema {
   'ujira.audit_metadata_keys': UjiraAuditMetadataKeys;
   'ujira.chain_events': UjiraChainEvents;
   'ujira.chains': UjiraChains;
+  'ujira.compliance_marks': UjiraComplianceMarks;
+  'ujira.compliance_notices': UjiraComplianceNotices;
+  'ujira.compliance_parked_jobs': UjiraComplianceParkedJobs;
   'ujira.currencies': UjiraCurrencies;
   'ujira.currency_scales': UjiraCurrencyScales;
   'ujira.deposits': UjiraDeposits;
