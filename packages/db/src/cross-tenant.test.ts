@@ -30,6 +30,14 @@ import {
   mandates,
 } from './repositories/mandates.js';
 import {
+  fundingHolds,
+  payoutAttempts,
+  payoutBatches,
+  payoutMinimums,
+  payoutRepositories,
+  payouts,
+} from './repositories/payouts.js';
+import {
   payoutMethods,
   recipientIdentities,
   recipientPii,
@@ -85,6 +93,10 @@ interface Tenant {
   readonly recipientId: string;
   readonly identityId: string;
   readonly methodId: string;
+  readonly payoutId: string;
+  readonly batchId: string;
+  readonly attemptId: string;
+  readonly heldPayoutId: string;
   readonly sessionId: string;
   readonly challengeId: string;
   readonly verificationId: string;
@@ -100,6 +112,7 @@ const REPOSITORIES = {
   ...recipientRepositories,
   ...identityEvidenceRepositories,
   ...auditRepositories,
+  ...payoutRepositories,
   payoutBookings,
 };
 
@@ -339,6 +352,50 @@ async function tenant(name: string): Promise<Tenant> {
       agentLinkId: agentLink.id,
     };
   });
+  const { payoutId, batchId, attemptId, heldPayoutId } = await db
+    .tenant(first)
+    .transaction(async (tx) => {
+      const payoutInput = {
+        recipientId: evidence.recipientId,
+        mandateId,
+        method: 'stellar_wallet' as const,
+        requested: tokenAmount(50_000_000n, 'USDC', 'stellar'),
+      };
+      const { payout } = await payouts.create(tx, {
+        ...payoutInput,
+        idempotencyKey: randomUUID(),
+      });
+      const held = await payouts.create(tx, { ...payoutInput, idempotencyKey: randomUUID() });
+      const { batch } = await payoutBatches.create(tx, {
+        idempotencyKey: randomUUID(),
+        items: [],
+      });
+      const attempt = await payoutAttempts.create(tx, {
+        payoutId: payout.id,
+        mandateInstanceId: instanceId,
+        network: 'stellar:testnet',
+        total: tokenAmount(50_000_000n, 'USDC', 'stellar'),
+        deadline: new Date(Date.now() + 3_600_000),
+      });
+      await fundingHolds.hold(tx, held.payout.id, [
+        {
+          mandateInstanceId: instanceId,
+          network: 'stellar:testnet',
+          needed: tokenAmount(50_000_000n, 'USDC', 'stellar'),
+        },
+      ]);
+      await payoutMinimums.set(tx, {
+        method: 'bank',
+        minimum: { amount: 1000n, currency: 'USD', scale: 2 },
+        memberId: ownerUserId,
+      });
+      return {
+        payoutId: payout.id,
+        batchId: batch.id,
+        attemptId: attempt.id,
+        heldPayoutId: held.payout.id,
+      };
+    });
   return {
     first,
     second: { principalId: created.principalId, projectId: secondId },
@@ -363,7 +420,28 @@ async function tenant(name: string): Promise<Tenant> {
     journalId,
     accountId,
     ...evidence,
+    payoutId,
+    batchId,
+    attemptId,
+    heldPayoutId,
   };
+}
+
+async function statusOf(table: string, id: string): Promise<string | undefined> {
+  const result = await admin.query<{ status: string }>(
+    `select status from ${table} where id = $1`,
+    [id],
+  );
+  return result.rows[0]?.status;
+}
+
+async function settingsOf(projectId: string): Promise<unknown> {
+  const result = await admin.query(
+    `select cashout_cost_bearer, chain_fallback, funding_hold_max_seconds
+       from ujira.projects where id = $1`,
+    [projectId],
+  );
+  return result.rows[0];
 }
 
 // The mirror tables are written by the indexer, under the tenant's context.
@@ -448,6 +526,31 @@ const cases: Record<string, () => Promise<void>> = {
   },
   'projects.rename': async () => {
     expect(await asA(async (tx) => projects.rename(tx, b.first.projectId, 'taken'))).toBe(false);
+  },
+  // These take no id: the project is the context's, so B's cannot be named.
+  'projects.settings': async () => {
+    const before = await settingsOf(b.first.projectId);
+    const settings = await asA(async (tx) => projects.settings(tx));
+    expect(settings).toBeDefined();
+    expect(await settingsOf(b.first.projectId)).toEqual(before);
+  },
+  'projects.setCashoutBearer': async () => {
+    const before = await settingsOf(b.first.projectId);
+    const actor = { kind: 'member', id: a.ownerUserId } as const;
+    await asA(async (tx) => projects.setCashoutBearer(tx, 'principal', actor));
+    expect(await settingsOf(b.first.projectId)).toEqual(before);
+    await asA(async (tx) => projects.setCashoutBearer(tx, 'recipient', actor));
+  },
+  'projects.setRoutingSettings': async () => {
+    const before = await settingsOf(b.first.projectId);
+    await asA(async (tx) =>
+      projects.setRoutingSettings(
+        tx,
+        { chainFallback: 'verified_methods' },
+        { kind: 'member', id: a.ownerUserId },
+      ),
+    );
+    expect(await settingsOf(b.first.projectId)).toEqual(before);
   },
   'members.list': async () => {
     const page = await asA(async (tx) => members.list(tx, { limit: 100 }));
@@ -1154,6 +1257,147 @@ const cases: Record<string, () => Promise<void>> = {
     const verification = await acrossA(async (tx) => audit.verify(tx));
     expect(verification.rows.toString()).toBe(counted.rows[0]?.count);
     expect(verification.firstBreak).toBeNull();
+  },
+  'payouts.create': async () => {
+    const attempt = asA(async (tx) =>
+      payouts.create(tx, {
+        idempotencyKey: randomUUID(),
+        recipientId: b.recipientId,
+        mandateId: a.mandateId,
+        method: 'stellar_wallet',
+        requested: tokenAmount(50_000_000n, 'USDC', 'stellar'),
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'payouts.get': async () => {
+    expect(await acrossA(async (tx) => payouts.get(tx, b.payoutId))).toBeUndefined();
+    expect(await acrossA(async (tx) => payouts.get(tx, a.payoutId))).toBeDefined();
+  },
+  'payouts.list': async () => {
+    const page = await acrossA(async (tx) => payouts.list(tx, { limit: 100 }));
+    const ids = page.items.map((payout) => payout.id);
+    expect(ids).toContain(a.payoutId);
+    expect(ids).not.toContain(b.payoutId);
+  },
+  'payouts.transition': async () => {
+    expect(
+      await asA(async (tx) =>
+        payouts.transition(tx, b.payoutId, { from: 'received', to: 'cancelled' }),
+      ),
+    ).toBeUndefined();
+    expect(await statusOf('ujira.payouts', b.payoutId)).toBe('received');
+  },
+  'payoutBatches.create': async () => {
+    const created = await asA(async (tx) =>
+      payoutBatches.create(tx, { idempotencyKey: randomUUID(), items: [] }),
+    );
+    expect(await ownerOf('ujira.payout_batches', 'id', created.batch.id)).toBe(a.first.principalId);
+  },
+  'payoutBatches.get': async () => {
+    expect(await acrossA(async (tx) => payoutBatches.get(tx, b.batchId))).toBeUndefined();
+    expect(await acrossA(async (tx) => payoutBatches.get(tx, a.batchId))).toBeDefined();
+  },
+  'payoutAttempts.create': async () => {
+    const attempt = asA(async (tx) =>
+      payoutAttempts.create(tx, {
+        payoutId: b.payoutId,
+        mandateInstanceId: b.instanceId,
+        network: 'stellar:testnet',
+        total: tokenAmount(50_000_000n, 'USDC', 'stellar'),
+        deadline: new Date(Date.now() + 3_600_000),
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('UJ014');
+  },
+  'payoutAttempts.get': async () => {
+    expect(await acrossA(async (tx) => payoutAttempts.get(tx, b.attemptId))).toBeUndefined();
+    expect(await acrossA(async (tx) => payoutAttempts.get(tx, a.attemptId))).toBeDefined();
+  },
+  'payoutAttempts.forPayout': async () => {
+    expect(await acrossA(async (tx) => payoutAttempts.forPayout(tx, b.payoutId))).toEqual([]);
+  },
+  'payoutAttempts.transition': async () => {
+    expect(
+      await asA(async (tx) =>
+        payoutAttempts.transition(tx, b.attemptId, { from: 'created', to: 'requested' }),
+      ),
+    ).toBeUndefined();
+    expect(await statusOf('ujira.payout_attempts', b.attemptId)).toBe('created');
+  },
+  'payoutAttempts.markDead': async () => {
+    expect(
+      await asA(async (tx) =>
+        payoutAttempts.markDead(tx, b.attemptId, {
+          from: 'created',
+          proof: { kind: 'tombstone' },
+        }),
+      ),
+    ).toBeUndefined();
+    expect(await statusOf('ujira.payout_attempts', b.attemptId)).toBe('created');
+  },
+  'fundingHolds.hold': async () => {
+    expect(
+      await asA(async (tx) =>
+        fundingHolds.hold(tx, b.payoutId, [
+          {
+            mandateInstanceId: a.instanceId,
+            network: 'stellar:testnet',
+            needed: tokenAmount(50_000_000n, 'USDC', 'stellar'),
+          },
+        ]),
+      ),
+    ).toBe(false);
+  },
+  'fundingHolds.release': async () => {
+    expect(await asA(async (tx) => fundingHolds.release(tx, b.heldPayoutId))).toBe(0);
+    const left = await admin.query(
+      'select 1 from ujira.payout_funding_holds where payout_id = $1',
+      [b.heldPayoutId],
+    );
+    expect(left.rows).toHaveLength(1);
+  },
+  'fundingHolds.oldestOnNetwork': async () => {
+    const holds = await acrossA(async (tx) =>
+      fundingHolds.oldestOnNetwork(tx, 'stellar:testnet', 100),
+    );
+    const ids = holds.map((hold) => hold.payoutId);
+    expect(ids).toContain(a.heldPayoutId);
+    expect(ids).not.toContain(b.heldPayoutId);
+  },
+  'fundingHolds.inconsistentPayoutIds': async () => {
+    await admin.query('begin');
+    try {
+      await admin.query('set local session_replication_role = replica');
+      await admin.query(`update ujira.payouts set status_reason = null where id = $1`, [
+        b.heldPayoutId,
+      ]);
+      await admin.query('commit');
+      expect(await acrossA(async (tx) => fundingHolds.inconsistentPayoutIds(tx))).toEqual([]);
+    } finally {
+      await admin.query('begin');
+      await admin.query('set local session_replication_role = replica');
+      await admin.query(
+        `update ujira.payouts set status_reason = 'awaiting_funding' where id = $1`,
+        [b.heldPayoutId],
+      );
+      await admin.query('commit');
+    }
+  },
+  'payoutMinimums.list': async () => {
+    const before = await asA(async (tx) => payoutMinimums.list(tx));
+    expect(before.map((row) => row.setBy)).not.toContain(b.ownerUserId);
+    expect(before.map((row) => row.setBy)).toContain(a.ownerUserId);
+  },
+  'payoutMinimums.set': async () => {
+    const attempt = asA(async (tx) =>
+      payoutMinimums.set(tx, {
+        method: 'cash_pickup',
+        minimum: { amount: 2000n, currency: 'USD', scale: 2 },
+        memberId: b.ownerUserId,
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
   },
 };
 
