@@ -52,12 +52,16 @@ describe('the stellar entry', { timeout: 30_000 }, () => {
       'StellarMandateAdapter',
       'WALLET_REFUSALS',
       'accountBalance',
+      'buildRecipientActivation',
       'checkSingleKey',
+      'checkStellarDestination',
+      'checkStellarWalletProof',
       'checkWalletChange',
       'checkWalletTrust',
       'createFundingAccountFlow',
       'createMemorySigningRequestStore',
       'createStellarEventIntake',
+      'createStellarLedgerReader',
       'createStellarRpc',
       'extensionPlan',
       'fateOf',
@@ -72,6 +76,7 @@ describe('the stellar entry', { timeout: 30_000 }, () => {
       'scanLedgerEvents',
       'stellarFundingView',
       'stellarTenantTag',
+      'verifyStellarWalletProof',
     ]);
   });
 
