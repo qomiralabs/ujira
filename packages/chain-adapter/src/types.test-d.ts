@@ -175,6 +175,7 @@ expectTypeOf<DestinationParseReason>().toEqualTypeOf<
   | 'TAG_NOT_SUPPORTED'
   | 'TAG_OUT_OF_RANGE'
   | 'WRONG_NETWORK'
+  | 'UNPAYABLE_ADDRESS'
 >();
 expectTypeOf<InvalidInputError['reason']>().toEqualTypeOf<DestinationParseReason | null>();
 expectTypeOf<Parameters<ChainAdapter['verifyReceipt']>[0]>().toEqualTypeOf<ReceiptRef>();

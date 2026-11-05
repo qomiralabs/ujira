@@ -248,7 +248,7 @@ describe('chain adapter errors', () => {
       expect(bad).toBeInstanceOf(InvalidInputError);
       expect((bad as InvalidInputError).issues).toEqual(['errorOptions.reason (invalid)']);
     }
-    expect(DESTINATION_PARSE_REASONS).toHaveLength(7);
+    expect(DESTINATION_PARSE_REASONS).toHaveLength(8);
     expect(Object.isFrozen(DESTINATION_PARSE_REASONS)).toBe(true);
   });
 
