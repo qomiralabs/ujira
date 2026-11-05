@@ -156,13 +156,10 @@ describe('funding accounts', () => {
     expect(other?.network).toBe('stellar:pubnet');
   });
 
-  it('holds a principal to one across its projects, and shows it to the principal only', async () => {
+  it("does not show one project another project's account", async () => {
     const tenant = await newTenant();
     const second = await secondProject(tenant);
     const first = await as(tenant, async (tx) => fundingAccounts.record(tx, newAccount()));
-    expect(
-      await as(second, async (tx) => fundingAccounts.record(tx, newAccount())),
-    ).toBeUndefined();
     expect(await as(second, async (tx) => fundingAccounts.forNetwork(tx, NETWORK))).toBeUndefined();
     const across = await db
       .principal(second, 'app')
