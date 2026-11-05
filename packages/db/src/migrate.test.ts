@@ -273,6 +273,7 @@ describe('migration files', () => {
       name: 'x.sql',
       kind: 'contract',
       transactional: false,
+      login: 'migrator',
       up: '-- Up Migration\nselect 1;',
       upLine: 3,
       down: '-- Down Migration\nselect 2;',

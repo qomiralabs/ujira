@@ -12,12 +12,20 @@
 //   pnpm db:migrate up
 //   pnpm db:migrate down
 //
-// The URL comes from UJIRA_DB_MIGRATION_URL, or DATABASE_URL if that is
-// unset, so a local container needs no extra wiring. Nothing here reads the
-// full DatabaseConfig: a migration runs before the services exist, and the
-// migrator is the one role whose URL is enough on its own.
+// A real database takes two URLs: UJIRA_DB_BOOTSTRAP_URL for the migrations that create
+// a schema or administer roles, and UJIRA_DB_MIGRATION_URL for the rest. Each file says
+// which it needs, and the runner refuses the wrong login. A local container takes one, a
+// superuser's, in DATABASE_URL or UJIRA_DB_MIGRATION_URL. Nothing here reads the full
+// DatabaseConfig: a migration runs before the services exist.
+//
+// ujira_migrator has to be able to log in before the first file it runs. The migrations
+// never set a password, so provisioning does, and a run that stops there resumes.
 
-import { MIGRATIONS_TABLE, runMigrations } from '../packages/db/src/migrate.ts';
+import {
+  MIGRATIONS_TABLE,
+  runMigrations,
+  runMigrationsByFile,
+} from '../packages/db/src/migrate.ts';
 
 function fail(message: string): never {
   process.stderr.write(`db:migrate: ${message}\n`);
@@ -34,19 +42,31 @@ if (countArgument !== undefined && !/^[1-9][0-9]*$/.test(countArgument)) {
   fail('the count must be a whole number of at least 1');
 }
 
-const databaseUrl = process.env['UJIRA_DB_MIGRATION_URL'] ?? process.env['DATABASE_URL'];
-if (databaseUrl === undefined || databaseUrl === '') {
+const migratorUrl = process.env['UJIRA_DB_MIGRATION_URL'] ?? process.env['DATABASE_URL'];
+if (migratorUrl === undefined || migratorUrl === '') {
   fail('set UJIRA_DB_MIGRATION_URL (or DATABASE_URL) to the database to migrate');
 }
+const bootstrapUrl = process.env['UJIRA_DB_BOOTSTRAP_URL'];
 
-const applied = await runMigrations({
-  databaseUrl,
-  direction,
-  ...(countArgument === undefined ? {} : { count: Number(countArgument) }),
-  log: (message) => {
-    process.stdout.write(`${message}\n`);
-  },
-});
+const log = (message: string): void => {
+  process.stdout.write(`${message}\n`);
+};
+const count = countArgument === undefined ? undefined : Number(countArgument);
+const applied =
+  bootstrapUrl === undefined || bootstrapUrl === ''
+    ? await runMigrations({
+        databaseUrl: migratorUrl,
+        direction,
+        log,
+        ...(count === undefined ? {} : { count }),
+      })
+    : await runMigrationsByFile({
+        bootstrapUrl,
+        migratorUrl,
+        direction,
+        log,
+        ...(count === undefined ? {} : { count }),
+      });
 
 process.stdout.write(
   applied.names.length === 0
