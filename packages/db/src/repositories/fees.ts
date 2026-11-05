@@ -57,6 +57,40 @@ export class FeeAddressUnknownError extends Error {
   }
 }
 
+/** An attempt this tenant cannot see, so there is no volume of it to record. */
+export class FeeVolumeAttemptUnknownError extends Error {
+  readonly code = 'FEE_VOLUME_ATTEMPT_UNKNOWN';
+
+  constructor() {
+    super('no attempt with that id');
+    this.name = 'FeeVolumeAttemptUnknownError';
+  }
+}
+
+export class InvalidFeeMonthError extends Error {
+  readonly code = 'INVALID_FEE_MONTH';
+
+  constructor() {
+    super('a fee month starts at the first instant of a UTC month');
+    this.name = 'InvalidFeeMonthError';
+  }
+}
+
+export interface StandardRate {
+  // None when the terms in force are not standard, or nothing was in force yet.
+  readonly rateBps: number | null;
+  // True only for the run that wrote the row.
+  readonly applied: boolean;
+}
+
+function checkedMonthStart(month: Date): Date {
+  const time = month.getTime();
+  if (Number.isNaN(time) || time !== Date.UTC(month.getUTCFullYear(), month.getUTCMonth(), 1)) {
+    throw new InvalidFeeMonthError();
+  }
+  return month;
+}
+
 export interface NewFeeTerms {
   readonly rateBps: number;
   readonly basis: FeeBasis;
@@ -189,6 +223,64 @@ export const fees = {
       contractReference: row.contract_reference,
       createdAt: row.created_at,
     };
+  },
+
+  // One row per attempt, so recording never contends and a rerun counts nothing twice.
+  // The amount and unit come from the attempt. False when it was already recorded.
+  recordExecutedVolume: async (db: Tx, attemptId: string, executedAt: Date): Promise<boolean> => {
+    const attempt = await db
+      .selectFrom('ujira.payout_attempts')
+      .select(['payout_id', 'total_amount', 'chain', 'asset', 'scale'])
+      .where('id', '=', attemptId)
+      .executeTakeFirst();
+    if (attempt === undefined) throw new FeeVolumeAttemptUnknownError();
+    const inserted = await db
+      .insertInto('ujira.fee_volume_entries')
+      .values({
+        principal_id: CURRENT_PRINCIPAL,
+        project_id: CURRENT_PROJECT,
+        attempt_id: attemptId,
+        payout_id: attempt.payout_id,
+        amount: attempt.total_amount,
+        chain: attempt.chain,
+        asset: attempt.asset,
+        scale: attempt.scale,
+        executed_at: executedAt,
+      })
+      .onConflict((conflict) =>
+        conflict.columns(['principal_id', 'project_id', 'attempt_id']).doNothing(),
+      )
+      .executeTakeFirst();
+    return (inserted.numInsertedOrUpdatedRows ?? 0n) > 0n;
+  },
+
+  // Across every project of the principal, and only attempts still executed.
+  executedVolume: async (db: Tx, monthStart: Date): Promise<TokenAmount> => {
+    const result = await sql<{ amount: string; asset: string; scale: number }>`
+      select amount::text as amount, asset, scale
+        from ujira.principal_executed_volume(${checkedMonthStart(monthStart)}::timestamptz)
+    `.execute(db);
+    const [row] = result.rows;
+    if (row === undefined) throw new Error('principal_executed_volume returned nothing');
+    // The tiers hold one token, on the one chain it has.
+    return tokenFromRow({
+      amount: row.amount,
+      asset: row.asset,
+      chain: 'stellar',
+      scale: row.scale,
+    });
+  },
+
+  // Safe to run again and from any number of jobs: the terms table keeps one row per instant.
+  applyStandardRate: async (db: Tx, monthStart: Date): Promise<StandardRate> => {
+    const result = await sql<{ rate_bps: string | null; applied: boolean }>`
+      select rate_bps, applied
+        from ujira.apply_standard_fee_rate(${checkedMonthStart(monthStart)}::timestamptz)
+    `.execute(db);
+    const [row] = result.rows;
+    if (row === undefined) throw new Error('apply_standard_fee_rate returned nothing');
+    // Checked to be 0 to 100, so this is exact.
+    return { rateBps: row.rate_bps === null ? null : Number(row.rate_bps), applied: row.applied };
   },
 
   // The only way terms reach the table, and it writes the audit row with them. Whoever

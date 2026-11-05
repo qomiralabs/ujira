@@ -123,6 +123,9 @@ export {
   type NewFeeReconciliation,
   type NewFeeTerms,
   type NewLegRefund,
+  FeeVolumeAttemptUnknownError,
+  InvalidFeeMonthError,
+  type StandardRate,
 } from './repositories/fees.js';
 export {
   ReceiptDocumentHashError,

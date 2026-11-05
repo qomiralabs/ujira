@@ -58,7 +58,12 @@ import {
   projects,
   tenancyRepositories,
 } from './repositories/tenancy.js';
-import { feeRepositories, fees, refunds } from './repositories/fees.js';
+import {
+  FeeVolumeAttemptUnknownError,
+  feeRepositories,
+  fees,
+  refunds,
+} from './repositories/fees.js';
 import { LocalKeyManager } from './key-manager/local.js';
 import { caseProblems, methodNames } from './testing/cross-tenant.js';
 import { receiptFields } from './testing/payout-fixture.js';
@@ -682,6 +687,29 @@ const cases: Record<string, () => Promise<void>> = {
     // Its own instance first, so the false below means out of sight, not out of reach.
     expect(await set(a.instanceId)).toBe(true);
     expect(await set(b.instanceId)).toBe(false);
+  },
+  'fees.recordExecutedVolume': async () => {
+    await expect(
+      asA(async (tx) => fees.recordExecutedVolume(tx, b.attemptId, new Date())),
+    ).rejects.toBeInstanceOf(FeeVolumeAttemptUnknownError);
+  },
+  'fees.executedVolume': async () => {
+    const month = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
+    const seen = await acrossA(async (tx) => fees.executedVolume(tx, month));
+    expect(seen.amount).toBe(0n);
+  },
+  'fees.applyStandardRate': async () => {
+    const { rows: before } = await admin.query<{ count: string }>(
+      'select count(*) from ujira.fee_terms where project_id = $1',
+      [b.first.projectId],
+    );
+    const next = new Date(Date.UTC(new Date().getUTCFullYear() + 1, 0, 1));
+    await asA(async (tx) => fees.applyStandardRate(tx, next));
+    const { rows: after } = await admin.query<{ count: string }>(
+      'select count(*) from ujira.fee_terms where project_id = $1',
+      [b.first.projectId],
+    );
+    expect(after).toEqual(before);
   },
   'fees.termsAt': async () => {
     const terms = await asA(async (tx) => fees.termsAt(tx, new Date('2026-06-01T00:00:00.000Z')));

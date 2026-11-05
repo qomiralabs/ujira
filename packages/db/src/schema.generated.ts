@@ -91,6 +91,13 @@ export interface OpsSigningKeys {
   updated_at: Generated<Timestamp>;
 }
 
+export interface OpsStandardFeeTiers {
+  asset: string;
+  floor_amount: Numeric;
+  rate_bps: Int8;
+  scale: number;
+}
+
 export interface UjiraApiTokens {
   created_at: Generated<Timestamp>;
   expires_at: Timestamp | null;
@@ -255,6 +262,19 @@ export interface UjiraFeeTerms {
   project_id: string;
   rate_bps: Int8;
   valid_from: Timestamp;
+}
+
+export interface UjiraFeeVolumeEntries {
+  amount: Numeric;
+  asset: string;
+  attempt_id: string;
+  chain: string;
+  created_at: Generated<Timestamp>;
+  executed_at: Timestamp;
+  payout_id: string;
+  principal_id: string;
+  project_id: string;
+  scale: number;
 }
 
 export interface UjiraFundingSources {
@@ -694,6 +714,7 @@ export interface Schema {
   'ops.routing_config_active': OpsRoutingConfigActive;
   'ops.routing_config_versions': OpsRoutingConfigVersions;
   'ops.signing_keys': OpsSigningKeys;
+  'ops.standard_fee_tiers': OpsStandardFeeTiers;
   ujira_migrations: UjiraMigrations;
   'ujira.api_tokens': UjiraApiTokens;
   'ujira.approvals': UjiraApprovals;
@@ -710,6 +731,7 @@ export interface Schema {
   'ujira.fee_reconciliations': UjiraFeeReconciliations;
   'ujira.fee_refunds': UjiraFeeRefunds;
   'ujira.fee_terms': UjiraFeeTerms;
+  'ujira.fee_volume_entries': UjiraFeeVolumeEntries;
   'ujira.funding_sources': UjiraFundingSources;
   'ujira.funding_sweeps': UjiraFundingSweeps;
   'ujira.ledger_accounts': UjiraLedgerAccounts;

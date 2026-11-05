@@ -255,6 +255,96 @@ $$;
 ALTER FUNCTION ops.release_executor(target_network text, account text, holder text, sequence_reached bigint) OWNER TO ujira_ops;
 
 --
+-- Name: apply_standard_fee_rate(timestamp with time zone); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_fee_rates
+--
+
+CREATE FUNCTION ujira.apply_standard_fee_rate(p_month_start timestamp with time zone) RETURNS TABLE(rate_bps bigint, applied boolean)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  month_utc timestamp := p_month_start at time zone 'UTC';
+  in_force record;
+  volume numeric;
+  earned bigint;
+  new_id uuid := gen_random_uuid();
+  written integer;
+begin
+  if p_month_start is null or month_utc <> date_trunc('month', month_utc) then
+    raise exception using
+      errcode = '22023',
+      message = 'a fee month starts at the first instant of a UTC month';
+  end if;
+
+  select t.basis, t.rate_bps into in_force
+    from ujira.fee_terms as t
+   where t.principal_id = ujira.current_principal_id()
+     and t.project_id = ujira.current_project_id()
+     and t.valid_from <= p_month_start
+   order by t.valid_from desc
+   limit 1;
+  if not found or in_force.basis <> 'standard' then
+    return query select null::bigint, false;
+    return;
+  end if;
+
+  select v.amount into strict volume
+    from ujira.principal_executed_volume(
+      (month_utc - interval '1 month') at time zone 'UTC'
+    ) as v;
+  select t.rate_bps into strict earned
+    from ops.standard_fee_tiers as t
+   where t.floor_amount <= volume
+   order by t.floor_amount desc
+   limit 1;
+
+  -- This month's row, if a run already wrote one, is the answer and is not reopened.
+  if exists (
+    select 1
+      from ujira.fee_terms as t
+     where t.principal_id = ujira.current_principal_id()
+       and t.project_id = ujira.current_project_id()
+       and t.valid_from = p_month_start
+  ) then
+    return query select in_force.rate_bps, false;
+    return;
+  end if;
+
+  if earned = in_force.rate_bps then
+    return query select earned, false;
+    return;
+  end if;
+
+  insert into ujira.fee_terms (principal_id, project_id, id, rate_bps, basis, valid_from)
+  values (
+    ujira.current_principal_id(), ujira.current_project_id(), new_id, earned, 'standard',
+    p_month_start
+  )
+  on conflict on constraint fee_terms_per_instant do nothing;
+  get diagnostics written = row_count;
+  if written = 0 then
+    return query select earned, false;
+    return;
+  end if;
+
+  -- audit_chain overwrites the sequence and both hashes.
+  insert into ujira.audit_log
+    (principal_id, project_id, action, actor_kind, actor_id, metadata, seq, prev_hash, row_hash)
+  values (
+    ujira.current_principal_id(), ujira.current_project_id(), 'fee_terms.recorded', 'system', null,
+    jsonb_build_object(
+      'target_type', 'fee_terms', 'target_id', new_id::text, 'new_value', earned::text
+    ),
+    0, decode(repeat('00', 32), 'hex'), decode(repeat('00', 32), 'hex')
+  );
+  return query select earned, true;
+end
+$$;
+
+
+ALTER FUNCTION ujira.apply_standard_fee_rate(p_month_start timestamp with time zone) OWNER TO ujira_fn_fee_rates;
+
+--
 -- Name: apply_tenant_policies(regclass); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -428,6 +518,35 @@ $$;
 
 
 ALTER FUNCTION ujira.authenticate_token(token_prefix text) OWNER TO ujira_fn_tokens;
+
+--
+-- Name: backfill_standard_fee_terms(); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_fee_rates
+--
+
+CREATE FUNCTION ujira.backfill_standard_fee_terms() RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  project record;
+begin
+  for project in
+    select p.principal_id, p.id, p.created_at
+      from ujira.projects as p
+     where not exists (
+       select 1
+         from ujira.fee_terms as t
+        where t.principal_id = p.principal_id
+          and t.project_id = p.id
+     )
+  loop
+    perform ujira.seed_standard_fee_terms(project.principal_id, project.id, project.created_at);
+  end loop;
+end
+$$;
+
+
+ALTER FUNCTION ujira.backfill_standard_fee_terms() OWNER TO ujira_fn_fee_rates;
 
 --
 -- Name: check_new_funding_sweep(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
@@ -717,6 +836,35 @@ $$;
 
 
 ALTER FUNCTION ujira.fee_refunds_within_fee() OWNER TO ujira_owner;
+
+--
+-- Name: fee_volume_entry_check(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.fee_volume_entry_check() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if not exists (
+    select 1
+      from ujira.payout_attempts as a
+     where a.principal_id = new.principal_id
+       and a.project_id = new.project_id
+       and a.id = new.attempt_id
+       and a.status in ('settled', 'final')
+       and a.total_amount = new.amount
+  ) then
+    raise exception using
+      errcode = 'UJ021',
+      message = 'volume counts an executed attempt, at its own total';
+  end if;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.fee_volume_entry_check() OWNER TO ujira_owner;
 
 --
 -- Name: forbid_mutation(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
@@ -1132,6 +1280,34 @@ $$;
 ALTER FUNCTION ujira.payout_attempt_needs_open_payout() OWNER TO ujira_owner;
 
 --
+-- Name: payout_attempt_within_mandate_cap(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.payout_attempt_within_mandate_cap() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if exists (
+    select 1
+      from ujira.mandate_instances as i
+     where i.principal_id = new.principal_id
+       and i.project_id = new.project_id
+       and i.id = new.mandate_instance_id
+       and new.fee_bps_applied > i.max_fee_bps
+  ) then
+    raise exception using
+      errcode = '23514',
+      message = 'the fee rate is above the cap of this mandate';
+  end if;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.payout_attempt_within_mandate_cap() OWNER TO ujira_owner;
+
+--
 -- Name: payout_instance_matches(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1236,6 +1412,46 @@ $$;
 ALTER FUNCTION ujira.payout_leg_stamp() OWNER TO ujira_owner;
 
 --
+-- Name: principal_executed_volume(timestamp with time zone); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_fee_rates
+--
+
+CREATE FUNCTION ujira.principal_executed_volume(p_month_start timestamp with time zone) RETURNS TABLE(amount numeric, asset text, scale integer)
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  month_utc timestamp := p_month_start at time zone 'UTC';
+begin
+  if p_month_start is null or month_utc <> date_trunc('month', month_utc) then
+    raise exception using
+      errcode = '22023',
+      message = 'a fee month starts at the first instant of a UTC month';
+  end if;
+  return query
+    select coalesce(sum(e.amount), 0)::numeric, u.asset, u.scale::integer
+      from (select distinct t.asset, t.scale from ops.standard_fee_tiers as t) as u
+      left join ujira.fee_volume_entries as e
+        on e.principal_id = ujira.current_principal_id()
+       and e.executed_at >= p_month_start
+       and e.executed_at < ((month_utc + interval '1 month') at time zone 'UTC')
+       and e.asset = u.asset
+       and e.scale = u.scale
+       and exists (
+         select 1
+           from ujira.payout_attempts as a
+          where a.principal_id = e.principal_id
+            and a.project_id = e.project_id
+            and a.id = e.attempt_id
+            and a.status in ('settled', 'final')
+       )
+     group by u.asset, u.scale;
+end
+$$;
+
+
+ALTER FUNCTION ujira.principal_executed_volume(p_month_start timestamp with time zone) OWNER TO ujira_fn_fee_rates;
+
+--
 -- Name: project_scope_all(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1261,6 +1477,23 @@ $$;
 
 
 ALTER FUNCTION ujira.project_scope_all() OWNER TO ujira_owner;
+
+--
+-- Name: project_standard_fee_terms(); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_fee_rates
+--
+
+CREATE FUNCTION ujira.project_standard_fee_terms() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  perform ujira.seed_standard_fee_terms(new.principal_id, new.id, new.created_at);
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.project_standard_fee_terms() OWNER TO ujira_fn_fee_rates;
 
 --
 -- Name: receipt_is_whole(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
@@ -1514,6 +1747,23 @@ $$;
 ALTER FUNCTION ujira.resolve_mandate_instance(target_chain text, target_address text) OWNER TO ujira_fn_instances;
 
 --
+-- Name: seed_standard_fee_terms(uuid, uuid, timestamp with time zone); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_fee_rates
+--
+
+CREATE FUNCTION ujira.seed_standard_fee_terms(p_principal uuid, p_project uuid, p_valid_from timestamp with time zone) RETURNS void
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  insert into ujira.fee_terms (principal_id, project_id, rate_bps, basis, valid_from)
+  select p_principal, p_project, t.rate_bps, 'standard', p_valid_from
+    from ops.standard_fee_tiers as t
+   where t.floor_amount = 0;
+$$;
+
+
+ALTER FUNCTION ujira.seed_standard_fee_terms(p_principal uuid, p_project uuid, p_valid_from timestamp with time zone) OWNER TO ujira_fn_fee_rates;
+
+--
 -- Name: touch(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1705,6 +1955,23 @@ ALTER TABLE ops.signing_keys ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
     CACHE 1
 );
 
+
+--
+-- Name: standard_fee_tiers; Type: TABLE; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TABLE ops.standard_fee_tiers (
+    floor_amount ujira.amount NOT NULL,
+    rate_bps bigint NOT NULL,
+    asset text NOT NULL,
+    scale ujira.scale NOT NULL,
+    CONSTRAINT standard_fee_tiers_floor_not_negative CHECK (((floor_amount)::numeric >= (0)::numeric)),
+    CONSTRAINT standard_fee_tiers_one_token CHECK (((asset = 'USDC'::text) AND ((scale)::smallint = 7))),
+    CONSTRAINT standard_fee_tiers_rate_range CHECK (((rate_bps >= 0) AND (rate_bps <= 100)))
+);
+
+
+ALTER TABLE ops.standard_fee_tiers OWNER TO ujira_owner;
 
 --
 -- Name: ujira_migrations; Type: TABLE; Schema: public; Owner: test
@@ -2081,6 +2348,29 @@ ALTER TABLE ONLY ujira.fee_terms FORCE ROW LEVEL SECURITY;
 
 
 ALTER TABLE ujira.fee_terms OWNER TO ujira_owner;
+
+--
+-- Name: fee_volume_entries; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.fee_volume_entries (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    attempt_id uuid NOT NULL,
+    payout_id uuid NOT NULL,
+    amount ujira.amount NOT NULL,
+    chain text NOT NULL,
+    asset text NOT NULL,
+    scale ujira.scale NOT NULL,
+    executed_at timestamp with time zone NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT fee_volume_entries_amount_positive CHECK (((amount)::numeric > (0)::numeric))
+);
+
+ALTER TABLE ONLY ujira.fee_volume_entries FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.fee_volume_entries OWNER TO ujira_owner;
 
 --
 -- Name: funding_sources; Type: TABLE; Schema: ujira; Owner: ujira_owner
@@ -2974,6 +3264,14 @@ ALTER TABLE ONLY ops.signing_keys
 
 
 --
+-- Name: standard_fee_tiers standard_fee_tiers_pkey; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.standard_fee_tiers
+    ADD CONSTRAINT standard_fee_tiers_pkey PRIMARY KEY (floor_amount);
+
+
+--
 -- Name: ujira_migrations ujira_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: test
 --
 
@@ -3211,6 +3509,14 @@ ALTER TABLE ONLY ujira.fee_terms
 
 ALTER TABLE ONLY ujira.fee_terms
     ADD CONSTRAINT fee_terms_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
+-- Name: fee_volume_entries fee_volume_entries_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.fee_volume_entries
+    ADD CONSTRAINT fee_volume_entries_pkey PRIMARY KEY (principal_id, project_id, attempt_id);
 
 
 --
@@ -3829,6 +4135,20 @@ CREATE INDEX fee_refunds_open_by_due ON ujira.fee_refunds USING btree (due_at, i
 
 
 --
+-- Name: fee_volume_entries_by_attempt_unit; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX fee_volume_entries_by_attempt_unit ON ujira.fee_volume_entries USING btree (principal_id, project_id, payout_id, attempt_id, chain, asset, scale);
+
+
+--
+-- Name: fee_volume_entries_by_month; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX fee_volume_entries_by_month ON ujira.fee_volume_entries USING btree (principal_id, executed_at);
+
+
+--
 -- Name: funding_sweeps_by_instance; Type: INDEX; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4221,6 +4541,27 @@ CREATE TRIGGER fee_terms_no_truncate BEFORE TRUNCATE ON ujira.fee_terms FOR EACH
 
 
 --
+-- Name: fee_volume_entries fee_volume_entries_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER fee_volume_entries_append_only BEFORE DELETE OR UPDATE ON ujira.fee_volume_entries FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: fee_volume_entries fee_volume_entries_check; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER fee_volume_entries_check BEFORE INSERT ON ujira.fee_volume_entries FOR EACH ROW EXECUTE FUNCTION ujira.fee_volume_entry_check();
+
+
+--
+-- Name: fee_volume_entries fee_volume_entries_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER fee_volume_entries_no_truncate BEFORE TRUNCATE ON ujira.fee_volume_entries FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
 -- Name: funding_sweeps funding_sweeps_check_new; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4393,6 +4734,13 @@ CREATE TRIGGER mandate_state_snapshots_no_truncate BEFORE TRUNCATE ON ujira.mand
 --
 
 CREATE TRIGGER mandates_touch BEFORE UPDATE ON ujira.mandates FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
+-- Name: payout_attempts payout_attempts_fee_within_mandate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER payout_attempts_fee_within_mandate BEFORE INSERT ON ujira.payout_attempts FOR EACH ROW EXECUTE FUNCTION ujira.payout_attempt_within_mandate_cap();
 
 
 --
@@ -4606,6 +4954,13 @@ CREATE TRIGGER project_payout_minimums_touch BEFORE UPDATE ON ujira.project_payo
 
 
 --
+-- Name: projects projects_standard_fee_terms; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER projects_standard_fee_terms AFTER INSERT ON ujira.projects FOR EACH ROW EXECUTE FUNCTION ujira.project_standard_fee_terms();
+
+
+--
 -- Name: projects projects_touch; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4815,6 +5170,14 @@ ALTER TABLE ONLY ujira.fee_refunds
 
 ALTER TABLE ONLY ujira.fee_terms
     ADD CONSTRAINT fee_terms_principal_id_project_id_fkey FOREIGN KEY (principal_id, project_id) REFERENCES ujira.projects(principal_id, id);
+
+
+--
+-- Name: fee_volume_entries fee_volume_entries_principal_id_project_id_payout_id_attem_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.fee_volume_entries
+    ADD CONSTRAINT fee_volume_entries_principal_id_project_id_payout_id_attem_fkey FOREIGN KEY (principal_id, project_id, payout_id, attempt_id, chain, asset, scale) REFERENCES ujira.payout_attempts(principal_id, project_id, payout_id, id, chain, asset, scale);
 
 
 --
@@ -5230,6 +5593,13 @@ ALTER TABLE ujira.api_tokens ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ujira.approvals ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: payout_attempts attempts_rates_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY attempts_rates_read ON ujira.payout_attempts FOR SELECT TO ujira_fn_fee_rates USING ((principal_id = ujira.current_principal_id()));
+
+
+--
 -- Name: audit_heads audit_chain_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5368,10 +5738,44 @@ CREATE POLICY fee_terms_audit ON ujira.audit_log FOR INSERT TO ujira_fn_fees WIT
 
 
 --
+-- Name: audit_log fee_terms_rates_audit; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY fee_terms_rates_audit ON ujira.audit_log FOR INSERT TO ujira_fn_fee_rates WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: fee_terms fee_terms_rates_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY fee_terms_rates_insert ON ujira.fee_terms FOR INSERT TO ujira_fn_fee_rates WITH CHECK (true);
+
+
+--
+-- Name: fee_terms fee_terms_rates_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY fee_terms_rates_read ON ujira.fee_terms FOR SELECT TO ujira_fn_fee_rates USING (true);
+
+
+--
 -- Name: fee_terms fee_terms_record; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY fee_terms_record ON ujira.fee_terms FOR INSERT TO ujira_fn_fees WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: fee_volume_entries; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.fee_volume_entries ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: fee_volume_entries fee_volume_rates_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY fee_volume_rates_read ON ujira.fee_volume_entries FOR SELECT TO ujira_fn_fee_rates USING ((principal_id = ujira.current_principal_id()));
 
 
 --
@@ -5658,6 +6062,13 @@ CREATE POLICY owner_all ON ujira.fee_terms TO ujira_owner USING (true) WITH CHEC
 
 
 --
+-- Name: fee_volume_entries owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.fee_volume_entries TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: funding_sources owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5900,6 +6311,13 @@ ALTER TABLE ujira.project_payout_minimums ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ujira.projects ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: projects projects_rates_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY projects_rates_read ON ujira.projects FOR SELECT TO ujira_fn_fee_rates USING (true);
+
+
+--
 -- Name: receipt_legs; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6018,6 +6436,13 @@ CREATE POLICY tenant_insert ON ujira.fee_refunds FOR INSERT TO ujira_app WITH CH
 --
 
 CREATE POLICY tenant_insert ON ujira.fee_terms FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: fee_volume_entries tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.fee_volume_entries FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -6273,6 +6698,13 @@ CREATE POLICY tenant_read ON ujira.fee_terms FOR SELECT TO ujira_app, ujira_read
 
 
 --
+-- Name: fee_volume_entries tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.fee_volume_entries FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
 -- Name: funding_sources tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6525,6 +6957,13 @@ CREATE POLICY tenant_update ON ujira.fee_terms FOR UPDATE TO ujira_app USING (((
 
 
 --
+-- Name: fee_volume_entries tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.fee_volume_entries FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: funding_sources tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6712,6 +7151,7 @@ CREATE POLICY tenant_update ON ujira.recipients FOR UPDATE TO ujira_app USING ((
 
 GRANT USAGE ON SCHEMA ops TO ujira_ops;
 GRANT USAGE ON SCHEMA ops TO ujira_app;
+GRANT USAGE ON SCHEMA ops TO ujira_fn_fee_rates;
 
 
 --
@@ -6733,6 +7173,7 @@ GRANT USAGE ON SCHEMA ujira TO ujira_fn_audit;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_erasure;
 GRANT USAGE ON SCHEMA ujira TO ujira_ops;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_fees;
+GRANT USAGE ON SCHEMA ujira TO ujira_fn_fee_rates;
 
 
 --
@@ -6746,6 +7187,7 @@ GRANT ALL ON TYPE ujira.amount TO ujira_retention;
 GRANT ALL ON TYPE ujira.amount TO ujira_auth;
 GRANT ALL ON TYPE ujira.amount TO ujira_indexer;
 GRANT ALL ON TYPE ujira.amount TO ujira_fn_ledger;
+GRANT ALL ON TYPE ujira.amount TO ujira_fn_fee_rates;
 
 
 --
@@ -6780,6 +7222,7 @@ GRANT ALL ON TYPE ujira.scale TO ujira_reader;
 GRANT ALL ON TYPE ujira.scale TO ujira_retention;
 GRANT ALL ON TYPE ujira.scale TO ujira_auth;
 GRANT ALL ON TYPE ujira.scale TO ujira_indexer;
+GRANT ALL ON TYPE ujira.scale TO ujira_fn_fee_rates;
 
 
 --
@@ -6847,6 +7290,14 @@ GRANT ALL ON FUNCTION ops.release_executor(target_network text, account text, ho
 
 
 --
+-- Name: FUNCTION apply_standard_fee_rate(p_month_start timestamp with time zone); Type: ACL; Schema: ujira; Owner: ujira_fn_fee_rates
+--
+
+REVOKE ALL ON FUNCTION ujira.apply_standard_fee_rate(p_month_start timestamp with time zone) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.apply_standard_fee_rate(p_month_start timestamp with time zone) TO ujira_app;
+
+
+--
 -- Name: FUNCTION apply_tenant_policies(target regclass); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6896,6 +7347,13 @@ GRANT ALL ON FUNCTION ujira.authenticate_token(token_prefix text) TO ujira_auth;
 
 
 --
+-- Name: FUNCTION backfill_standard_fee_terms(); Type: ACL; Schema: ujira; Owner: ujira_fn_fee_rates
+--
+
+REVOKE ALL ON FUNCTION ujira.backfill_standard_fee_terms() FROM PUBLIC;
+
+
+--
 -- Name: FUNCTION check_new_funding_sweep(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6935,6 +7393,7 @@ GRANT ALL ON FUNCTION ujira.current_principal_id() TO ujira_retention;
 GRANT ALL ON FUNCTION ujira.current_principal_id() TO ujira_auth;
 GRANT ALL ON FUNCTION ujira.current_principal_id() TO ujira_indexer;
 GRANT ALL ON FUNCTION ujira.current_principal_id() TO ujira_fn_fees;
+GRANT ALL ON FUNCTION ujira.current_principal_id() TO ujira_fn_fee_rates;
 
 
 --
@@ -6948,6 +7407,7 @@ GRANT ALL ON FUNCTION ujira.current_project_id() TO ujira_retention;
 GRANT ALL ON FUNCTION ujira.current_project_id() TO ujira_auth;
 GRANT ALL ON FUNCTION ujira.current_project_id() TO ujira_indexer;
 GRANT ALL ON FUNCTION ujira.current_project_id() TO ujira_fn_fees;
+GRANT ALL ON FUNCTION ujira.current_project_id() TO ujira_fn_fee_rates;
 
 
 --
@@ -6984,6 +7444,13 @@ REVOKE ALL ON FUNCTION ujira.fee_reconciliation_needs_execution() FROM PUBLIC;
 --
 
 REVOKE ALL ON FUNCTION ujira.fee_refunds_within_fee() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION fee_volume_entry_check(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.fee_volume_entry_check() FROM PUBLIC;
 
 
 --
@@ -7078,6 +7545,13 @@ REVOKE ALL ON FUNCTION ujira.payout_attempt_needs_open_payout() FROM PUBLIC;
 
 
 --
+-- Name: FUNCTION payout_attempt_within_mandate_cap(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.payout_attempt_within_mandate_cap() FROM PUBLIC;
+
+
+--
 -- Name: FUNCTION payout_instance_matches(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -7099,6 +7573,14 @@ REVOKE ALL ON FUNCTION ujira.payout_leg_stamp() FROM PUBLIC;
 
 
 --
+-- Name: FUNCTION principal_executed_volume(p_month_start timestamp with time zone); Type: ACL; Schema: ujira; Owner: ujira_fn_fee_rates
+--
+
+REVOKE ALL ON FUNCTION ujira.principal_executed_volume(p_month_start timestamp with time zone) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.principal_executed_volume(p_month_start timestamp with time zone) TO ujira_app;
+
+
+--
 -- Name: FUNCTION project_scope_all(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -7109,6 +7591,14 @@ GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_retention;
 GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_auth;
 GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_indexer;
 GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_fn_fees;
+GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_fn_fee_rates;
+
+
+--
+-- Name: FUNCTION project_standard_fee_terms(); Type: ACL; Schema: ujira; Owner: ujira_fn_fee_rates
+--
+
+REVOKE ALL ON FUNCTION ujira.project_standard_fee_terms() FROM PUBLIC;
 
 
 --
@@ -7154,6 +7644,13 @@ GRANT ALL ON FUNCTION ujira.replay_erasure(target_principal uuid, target_project
 
 REVOKE ALL ON FUNCTION ujira.resolve_mandate_instance(target_chain text, target_address text) FROM PUBLIC;
 GRANT ALL ON FUNCTION ujira.resolve_mandate_instance(target_chain text, target_address text) TO ujira_indexer;
+
+
+--
+-- Name: FUNCTION seed_standard_fee_terms(p_principal uuid, p_project uuid, p_valid_from timestamp with time zone); Type: ACL; Schema: ujira; Owner: ujira_fn_fee_rates
+--
+
+REVOKE ALL ON FUNCTION ujira.seed_standard_fee_terms(p_principal uuid, p_project uuid, p_valid_from timestamp with time zone) FROM PUBLIC;
 
 
 --
@@ -7214,6 +7711,14 @@ GRANT SELECT,INSERT,UPDATE ON TABLE ops.signing_keys TO ujira_ops;
 
 
 --
+-- Name: TABLE standard_fee_tiers; Type: ACL; Schema: ops; Owner: ujira_owner
+--
+
+GRANT SELECT ON TABLE ops.standard_fee_tiers TO ujira_fn_fee_rates;
+GRANT SELECT ON TABLE ops.standard_fee_tiers TO ujira_ops;
+
+
+--
 -- Name: TABLE api_tokens; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -7246,6 +7751,7 @@ GRANT SELECT,INSERT,UPDATE ON TABLE ujira.audit_heads TO ujira_fn_audit;
 GRANT SELECT,INSERT ON TABLE ujira.audit_log TO ujira_app;
 GRANT SELECT ON TABLE ujira.audit_log TO ujira_reader;
 GRANT INSERT ON TABLE ujira.audit_log TO ujira_fn_fees;
+GRANT INSERT ON TABLE ujira.audit_log TO ujira_fn_fee_rates;
 
 
 --
@@ -7387,6 +7893,16 @@ GRANT UPDATE(failure_reason) ON TABLE ujira.fee_refunds TO ujira_app;
 GRANT SELECT ON TABLE ujira.fee_terms TO ujira_app;
 GRANT SELECT ON TABLE ujira.fee_terms TO ujira_reader;
 GRANT INSERT ON TABLE ujira.fee_terms TO ujira_fn_fees;
+GRANT SELECT,INSERT ON TABLE ujira.fee_terms TO ujira_fn_fee_rates;
+
+
+--
+-- Name: TABLE fee_volume_entries; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.fee_volume_entries TO ujira_app;
+GRANT SELECT ON TABLE ujira.fee_volume_entries TO ujira_reader;
+GRANT SELECT ON TABLE ujira.fee_volume_entries TO ujira_fn_fee_rates;
 
 
 --
@@ -7515,6 +8031,7 @@ GRANT SELECT ON TABLE ujira.mandates TO ujira_reader;
 
 GRANT SELECT,INSERT ON TABLE ujira.payout_attempts TO ujira_app;
 GRANT SELECT ON TABLE ujira.payout_attempts TO ujira_reader;
+GRANT SELECT ON TABLE ujira.payout_attempts TO ujira_fn_fee_rates;
 
 
 --
@@ -7668,6 +8185,7 @@ GRANT SELECT ON TABLE ujira.project_payout_minimums TO ujira_reader;
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.projects TO ujira_app;
 GRANT SELECT ON TABLE ujira.projects TO ujira_reader;
 GRANT INSERT ON TABLE ujira.projects TO ujira_fn_principals;
+GRANT SELECT ON TABLE ujira.projects TO ujira_fn_fee_rates;
 
 
 --

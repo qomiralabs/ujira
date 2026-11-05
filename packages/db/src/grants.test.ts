@@ -140,10 +140,14 @@ describe('grants on ujira', () => {
     const auditHash =
       'function ujira.audit_row_hash(bytea,uuid,uuid,bigint,text,text,uuid,jsonb,timestamp with time zone)';
     expect(await executable('ujira_app')).toEqual([
+      'function ujira.apply_standard_fee_rate(timestamp with time zone)',
       auditHash,
       'function ujira.authenticate_token(text)',
       'function ujira.create_principal(text,text,uuid,text)',
-      ...context,
+      'function ujira.current_principal_id()',
+      'function ujira.current_project_id()',
+      'function ujira.principal_executed_volume(timestamp with time zone)',
+      'function ujira.project_scope_all()',
       'function ujira.record_fee_terms(bigint,text,timestamp with time zone,text,text,uuid)',
     ]);
     expect(await executable('ujira_auth')).toEqual([
@@ -174,6 +178,7 @@ describe('roles', () => {
       'ujira_auth',
       'ujira_fn_audit',
       'ujira_fn_erasure',
+      'ujira_fn_fee_rates',
       'ujira_fn_fees',
       'ujira_fn_instances',
       'ujira_fn_ledger',
@@ -192,6 +197,7 @@ describe('roles', () => {
       'ujira_owner',
       'ujira_fn_audit',
       'ujira_fn_erasure',
+      'ujira_fn_fee_rates',
       'ujira_fn_fees',
       'ujira_fn_instances',
       'ujira_fn_ledger',
@@ -214,19 +220,33 @@ describe('roles', () => {
         order by 1`,
     );
     expect(definers.rows).toEqual([
+      {
+        fn: 'ujira.apply_standard_fee_rate(timestamp with time zone)',
+        owner: 'ujira_fn_fee_rates',
+      },
       { fn: 'ujira.attestation_pending(bytea)', owner: 'ujira_signer_read' },
       { fn: 'ujira.audit_chain()', owner: 'ujira_fn_audit' },
       { fn: 'ujira.authenticate_token(text)', owner: 'ujira_fn_tokens' },
+      { fn: 'ujira.backfill_standard_fee_terms()', owner: 'ujira_fn_fee_rates' },
       { fn: 'ujira.create_principal(text,text,uuid,text)', owner: 'ujira_fn_principals' },
       { fn: 'ujira.erased_subjects(uuid,bigint)', owner: 'ujira_fn_erasure' },
       { fn: 'ujira.ledger_balanced()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.ledger_stamp()', owner: 'ujira_fn_ledger' },
+      {
+        fn: 'ujira.principal_executed_volume(timestamp with time zone)',
+        owner: 'ujira_fn_fee_rates',
+      },
+      { fn: 'ujira.project_standard_fee_terms()', owner: 'ujira_fn_fee_rates' },
       {
         fn: 'ujira.record_fee_terms(bigint,text,timestamp with time zone,text,text,uuid)',
         owner: 'ujira_fn_fees',
       },
       { fn: 'ujira.replay_erasure(uuid,uuid,uuid)', owner: 'ujira_fn_erasure' },
       { fn: 'ujira.resolve_mandate_instance(text,text)', owner: 'ujira_fn_instances' },
+      {
+        fn: 'ujira.seed_standard_fee_terms(uuid,uuid,timestamp with time zone)',
+        owner: 'ujira_fn_fee_rates',
+      },
     ]);
     // Each holds only what its one function needs, and never CREATE.
     const rights = await client.query<{ grantee: string; object: string; privilege: string }>(
@@ -255,6 +275,12 @@ describe('roles', () => {
       { grantee: 'ujira_fn_erasure', object: 'recipient_pii', privilege: 'SELECT' },
       { grantee: 'ujira_fn_erasure', object: 'recipients', privilege: 'SELECT' },
       { grantee: 'ujira_fn_erasure', object: 'recipients', privilege: 'UPDATE' },
+      { grantee: 'ujira_fn_fee_rates', object: 'audit_log', privilege: 'INSERT' },
+      { grantee: 'ujira_fn_fee_rates', object: 'fee_terms', privilege: 'INSERT' },
+      { grantee: 'ujira_fn_fee_rates', object: 'fee_terms', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_fee_rates', object: 'fee_volume_entries', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_fee_rates', object: 'payout_attempts', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_fee_rates', object: 'projects', privilege: 'SELECT' },
       { grantee: 'ujira_fn_fees', object: 'audit_log', privilege: 'INSERT' },
       { grantee: 'ujira_fn_fees', object: 'fee_terms', privilege: 'INSERT' },
       { grantee: 'ujira_fn_instances', object: 'mandate_instances', privilege: 'SELECT' },
