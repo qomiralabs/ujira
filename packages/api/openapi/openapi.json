@@ -140,7 +140,12 @@
         "responses": {
           "201": {
             "description": "OK",
-            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/WalletChallenge" } }
             }
@@ -177,7 +182,10 @@
             "description": "RATE_LIMITED: Too many requests",
             "headers": {
               "Request-Id": { "schema": { "type": "string" } },
-              "Retry-After": { "schema": { "type": "string" } }
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
             },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -257,7 +265,12 @@
         "responses": {
           "201": {
             "description": "OK",
-            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/WalletProofAccepted" }
@@ -317,7 +330,10 @@
             "description": "RATE_LIMITED: Too many requests",
             "headers": {
               "Request-Id": { "schema": { "type": "string" } },
-              "Retry-After": { "schema": { "type": "string" } }
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
             },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }

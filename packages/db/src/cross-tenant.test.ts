@@ -457,6 +457,14 @@ const cases: Record<string, () => Promise<void>> = {
     expect(token.projectId).toBe(a.first.projectId);
     expect(await ownerOf('ujira.api_tokens', 'id', token.id)).toBe(a.first.principalId);
   },
+  'apiTokens.touchLastUsed': async () => {
+    expect(await asA(async (tx) => apiTokens.touchLastUsed(tx, b.tokenId))).toBe(false);
+    const bToken = await admin.query<{ last_used_at: Date | null }>(
+      'select last_used_at from ujira.api_tokens where id = $1',
+      [b.tokenId],
+    );
+    expect(bToken.rows[0]?.last_used_at).toBeNull();
+  },
   'apiTokens.revoke': async () => {
     expect(await asA(async (tx) => apiTokens.revoke(tx, b.tokenId))).toBe(false);
     const bToken = await admin.query<{ revoked_at: Date | null }>(
