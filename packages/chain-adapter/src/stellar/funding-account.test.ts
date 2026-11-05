@@ -57,6 +57,7 @@ interface World {
   readonly flags: { readonly faults: readonly ForwarderFault[] }[];
   readonly ledger: ReturnType<typeof createMemorySponsorshipLedger>;
   readonly rows: Map<string, ForwarderRecord>;
+  readonly checks: ForwarderRecord[];
 }
 
 function world(
@@ -81,11 +82,17 @@ function world(
     },
   };
   const rows = new Map<string, ForwarderRecord>();
+  const checks: ForwarderRecord[] = [];
   const accounts: FundingAccountStore = {
     forPrincipal: (scope, network) =>
       Promise.resolve(rows.get(`${scope.principalId}|${network}`) ?? null),
     record: (row) => {
       rows.set(`${row.principalId}|${row.network}`, row);
+      return Promise.resolve();
+    },
+    recordCheck: (row) => {
+      rows.set(`${row.principalId}|${row.network}`, row);
+      checks.push(row);
       return Promise.resolve();
     },
   };
@@ -107,7 +114,7 @@ function world(
     submitTimeoutMs: 5_000,
     newRequestId: () => `funding-${String((id += 1))}`,
   });
-  return { t, ports, flow, signed, flags, ledger, rows };
+  return { t, ports, flow, signed, flags, ledger, rows, checks };
 }
 
 function resultXdr(feeCharged: bigint): string {
@@ -734,6 +741,111 @@ describe('funding-account.test.ts', { timeout: 30_000 }, () => {
     await expect(
       w.flow.confirm({ scope: w.t.scope, requestId: action.requestId }, OPTS),
     ).rejects.toBeInstanceOf(InvalidInputError);
+  });
+
+  describe('after the account is created', () => {
+    const MANDATE_ADDRESS = StrKey.encodeContract(Buffer.alloc(32, 9));
+
+    async function confirmed(): Promise<{ readonly w: World; readonly wallet: Keypair }> {
+      const w = world();
+      const wallet = Keypair.random();
+      const { request } = await submitted(w, wallet);
+      land(w, wallet);
+      await w.flow.confirm({ scope: w.t.scope, requestId: request.requestId }, OPTS);
+      return { w, wallet };
+    }
+
+    const offered = async (w: World) =>
+      (await w.flow.fundingOptions({ scope: w.t.scope, mandate: MANDATE_ADDRESS })).exchangeDeposit;
+
+    it('writes and raises nothing while the account stays as it was', async () => {
+      const { w } = await confirmed();
+      const row = await w.flow.recheck(w.t.scope, OPTS);
+      expect(row?.status).toBe('active');
+      expect(w.checks).toEqual([]);
+      expect(w.flags).toEqual([]);
+    });
+
+    it('an extra signer stops the account being offered and flags it', async () => {
+      const { w, wallet } = await confirmed();
+      expect(await offered(w)).not.toBeNull();
+      land(w, wallet, { signers: [Keypair.random()] });
+      const row = await w.flow.recheck(w.t.scope, OPTS);
+      expect(row).toMatchObject({ status: 'changed', faults: ['extra_signer'] });
+      expect(w.flags.map((flag) => flag.faults)).toEqual([['extra_signer']]);
+      expect(await offered(w)).toBeNull();
+    });
+
+    it('a removed trustline stops the account being offered', async () => {
+      const { w } = await confirmed();
+      for (const key of [...w.t.rpc.entries.keys()]) {
+        if (xdr.LedgerKey.fromXDR(key, 'base64').switch().name === 'trustline') {
+          w.t.rpc.entries.delete(key);
+        }
+      }
+      const row = await w.flow.recheck(w.t.scope, OPTS);
+      expect(row).toMatchObject({ status: 'changed', faults: ['trustline_missing'] });
+      expect(await offered(w)).toBeNull();
+    });
+
+    it('a merged account stops the account being offered', async () => {
+      const { w, wallet } = await confirmed();
+      w.t.rpc.entries.delete(accountKey(wallet.publicKey()));
+      const row = await w.flow.recheck(w.t.scope, OPTS);
+      expect(row).toMatchObject({ status: 'changed', faults: ['account_missing'] });
+      expect(await offered(w)).toBeNull();
+    });
+
+    it('records and raises a change once, however often it is read', async () => {
+      const { w, wallet } = await confirmed();
+      land(w, wallet, { signers: [Keypair.random()] });
+      await w.flow.recheck(w.t.scope, OPTS);
+      await w.flow.recheck(w.t.scope, OPTS);
+      expect(w.checks).toHaveLength(1);
+      expect(w.flags).toHaveLength(1);
+    });
+
+    it('records a further change to what is wrong', async () => {
+      const { w, wallet } = await confirmed();
+      land(w, wallet, { signers: [Keypair.random()] });
+      await w.flow.recheck(w.t.scope, OPTS);
+      w.t.rpc.entries.delete(accountKey(wallet.publicKey()));
+      const row = await w.flow.recheck(w.t.scope, OPTS);
+      expect(row?.faults).toEqual(['account_missing']);
+      expect(w.checks).toHaveLength(2);
+    });
+
+    it('goes back to being offered once a read finds the shape it verified', async () => {
+      const { w, wallet } = await confirmed();
+      land(w, wallet, { signers: [Keypair.random()] });
+      await w.flow.recheck(w.t.scope, OPTS);
+      land(w, wallet);
+      const row = await w.flow.recheck(w.t.scope, OPTS);
+      expect(row).toMatchObject({ status: 'active', faults: [] });
+      expect(w.checks).toHaveLength(2);
+      expect(w.flags).toHaveLength(1);
+      expect(await offered(w)).not.toBeNull();
+    });
+
+    it('does not read an account rejected at creation back into use', async () => {
+      const w = world();
+      const wallet = Keypair.random();
+      const { request } = await submitted(w, wallet);
+      land(w, wallet, { signers: [Keypair.random()] });
+      await w.flow.confirm({ scope: w.t.scope, requestId: request.requestId }, OPTS);
+      land(w, wallet);
+      const calls = w.t.rpc.calls.length;
+      const row = await w.flow.recheck(w.t.scope, OPTS);
+      expect(row?.status).toBe('rejected');
+      expect(w.t.rpc.calls).toHaveLength(calls);
+      expect(w.checks).toEqual([]);
+    });
+
+    it('has nothing to read for a tenant with no account', async () => {
+      const { w } = await confirmed();
+      expect(await w.flow.recheck(stranger(11), OPTS)).toBeNull();
+      expect(await world().flow.recheck(stranger(12), OPTS)).toBeNull();
+    });
   });
 
   describe('what a principal is offered', () => {

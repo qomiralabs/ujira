@@ -77,6 +77,7 @@ function world(): World {
       await store.record(row);
       return row;
     },
+    recheck: ownOf,
     account: ownOf,
     fundingOptions: async ({ scope, mandate }) => {
       const own = await ownOf(scope);

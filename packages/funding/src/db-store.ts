@@ -107,6 +107,15 @@ export function createDbFundingAccountStores(db: Pick<Database, 'tenant' | 'prin
         );
         if (saved?.address !== row.address) throw new FundingAccountConflictError();
       },
+
+      async recordCheck(row) {
+        const context = { principalId: row.principalId, projectId: row.projectId };
+        await db.tenant(context).transaction(async (tx) => {
+          const account = await fundingAccounts.forNetwork(tx, row.network);
+          if (account?.address !== row.address) throw new FundingAccountConflictError();
+          await fundingAccounts.recordCheck(tx, { accountId: account.id, faults: row.faults });
+        });
+      },
     },
 
     sources: {
