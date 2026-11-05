@@ -10,7 +10,7 @@ const HERE = import.meta.dirname;
 const THEME_CSS = join(HERE, '..', '..', 'styles', 'theme.css');
 
 // The primitives, and every other folder of components that draws colour.
-const COMPONENT_DIRS = [HERE, join(HERE, '..', 'money')];
+const COMPONENT_DIRS = [HERE, join(HERE, '..', 'money'), join(HERE, '..', 'payments')];
 
 const sources = COMPONENT_DIRS.flatMap((dir) =>
   readdirSync(dir)

@@ -602,6 +602,9 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: 1.2.16
         version: 1.2.16(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@ujira/api-schema':
+        specifier: workspace:*
+        version: link:../api-schema
       '@ujira/core':
         specifier: workspace:*
         version: link:../core

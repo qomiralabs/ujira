@@ -30,6 +30,11 @@ const RESPONSIVE = new Set([
   // shows here before it shows anywhere else.
   'money-amount--alignment',
   'money-amount--launch-signs',
+  // The meter legend stacks on a phone; the cards go from one column to two;
+  // the badges wrap.
+  'payments-mandatemeter--default',
+  'payments-payoutcard--list',
+  'payments-statusbadge--every-status',
   'primitives-button--variants',
   'primitives-button--with-icon',
   'primitives-field--with-react-hook-form',
