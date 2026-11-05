@@ -47,7 +47,7 @@ async function newTenant(): Promise<Tenant> {
   return tenant;
 }
 
-async function newInstance(tenant: Tenant): Promise<string> {
+async function newInstance(tenant: Tenant, network = 'stellar:testnet'): Promise<string> {
   const mandate = await admin.query<{ id: string }>(
     `insert into ujira.mandates (principal_id, project_id, name)
      values ($1, $2, 'Payroll') returning id`,
@@ -55,9 +55,9 @@ async function newInstance(tenant: Tenant): Promise<string> {
   );
   const instance = await admin.query<{ id: string }>(
     `insert into ujira.mandate_instances
-       (principal_id, project_id, mandate_id, chain, contract_address, spec_version, asset, scale)
-     values ($1, $2, $3, 'stellar', $4, '1', 'USDC', 7) returning id`,
-    [tenant.principal_id, tenant.project_id, mandate.rows[0]?.id, `C${randomUUID()}`],
+       (principal_id, project_id, mandate_id, chain, network, contract_address, spec_version, asset, scale)
+     values ($1, $2, $3, 'stellar', $5, $4, '1', 'USDC', 7) returning id`,
+    [tenant.principal_id, tenant.project_id, mandate.rows[0]?.id, `C${randomUUID()}`, network],
   );
   const id = instance.rows[0]?.id;
   if (id === undefined) throw new Error('no instance');
@@ -133,7 +133,7 @@ describe('reconcile_targets', () => {
 describe('funding_hold_targets', () => {
   // Written the normal way, so these rows are real.
   async function hold(tenant: Tenant, network: string): Promise<void> {
-    const instance = await newInstance(tenant);
+    const instance = await newInstance(tenant, network);
     const recipient = await admin.query<{ id: string }>(
       `insert into ujira.recipients (principal_id, project_id, recipient_ref, country)
        values ($1, $2, $3, 'NG') returning id`,
@@ -226,8 +226,27 @@ describe('funding_hold_targets', () => {
   });
 });
 
+describe('lapsed_cancel_targets', () => {
+  it('returns only the tenant, the instance and its mandate', async () => {
+    const result = await app.query(`select * from ujira.lapsed_cancel_targets(null, 1)`);
+    expect(result.fields.map((field) => field.name)).toEqual([
+      'principal_id',
+      'project_id',
+      'mandate_instance_id',
+      'mandate_id',
+    ]);
+  });
+
+  it.each(['0', '501', 'null'])('a limit of %s is refused', async (limit) => {
+    expect(
+      await codeOf(app.query(`select * from ujira.lapsed_cancel_targets(null, ${limit})`)),
+    ).toBe('22023');
+  });
+});
+
 describe('who owns and runs them', () => {
   const FUNCTIONS = [
+    'ujira.lapsed_cancel_targets(uuid, integer)',
     'ujira.funding_hold_targets(uuid, uuid, text, integer)',
     'ujira.reconcile_targets(uuid, integer)',
     'ujira.due_attempt_deadlines(timestamp with time zone, integer)',
