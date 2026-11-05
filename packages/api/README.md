@@ -17,18 +17,42 @@ curl -s http://127.0.0.1:8080/v1/openapi.json
 
 Settings, all optional:
 
-| Variable                       | Default     | Meaning                                  |
-| ------------------------------ | ----------- | ---------------------------------------- |
-| `UJIRA_API_PORT`               | `8080`      | Port to listen on                        |
-| `UJIRA_API_HOST`               | `127.0.0.1` | Address to bind; loopback by default     |
-| `UJIRA_API_REQUEST_TIMEOUT_MS` | `10000`     | Deadline for every request, 100 to 60000 |
-| `UJIRA_API_BODY_LIMIT_BYTES`   | `1048576`   | Largest JSON body accepted               |
-| `UJIRA_API_ENVIRONMENT`        | `sandbox`   | `sandbox` or `production`                |
-| `UJIRA_API_EMBED_ORIGINS`      | none        | Origins a browser may send a key from    |
+| Variable                         | Default     | Meaning                                   |
+| -------------------------------- | ----------- | ----------------------------------------- |
+| `UJIRA_API_PORT`                 | `8080`      | Port to listen on                         |
+| `UJIRA_API_HOST`                 | `127.0.0.1` | Address to bind; loopback by default      |
+| `UJIRA_API_REQUEST_TIMEOUT_MS`   | `10000`     | Deadline for every request, 100 to 60000  |
+| `UJIRA_API_BODY_LIMIT_BYTES`     | `1048576`   | Largest JSON body accepted                |
+| `UJIRA_API_ENVIRONMENT`          | `sandbox`   | `sandbox` or `production`                 |
+| `UJIRA_API_EMBED_ORIGINS`        | none        | Origins a browser may send a key from     |
+| `UJIRA_API_TRUSTED_PROXY_HEADER` | none        | Forwarded header naming the client        |
+| `UJIRA_API_TRUSTED_PROXY_HOP`    | none        | Entry to believe, counted from the right  |
+| `UJIRA_API_ADDRESS_HMAC_KEY`     | random      | Keys address digests; production needs it |
 
 The database settings are the `UJIRA_DB_*` ones in `packages/db/.env.example`.
 With none of them set, the local server refuses every key, so only the public
 routes answer; `production` refuses to start that way.
+
+## Limits on public routes
+
+A public route has no key to limit by, so it names a group with `addressLimit`,
+and the pipeline limits it by client address before reading its body. A public
+route with no limit has to be on the short list in `client-address.test.ts`.
+
+By default nothing forwarded is believed and the address is the socket's peer, so
+a caller cannot choose their own bucket. Behind a proxy that would put every client
+in the proxy's one bucket, so production logs `no_trusted_proxy` at startup.
+
+To trust a proxy, set both proxy settings; one without the other refuses to start.
+A proxy appends the peer it saw, so hops count from the right, and the right value
+is the number of proxies you run in front of the API. With one proxy writing
+`X-Forwarded-For`, that is `x-forwarded-for` and `1`. Too low a hop limits your own
+proxy, and too high a hop lets a caller choose their bucket.
+
+A missing or malformed entry shares one bucket, and IPv6 is limited per /64. A
+bucket's key is a keyed digest, so no address reaches the table or a log.
+`UJIRA_API_ADDRESS_HMAC_KEY` is 32 bytes as hex, the same on every instance, from
+the secret manager.
 
 ## Adding an endpoint
 

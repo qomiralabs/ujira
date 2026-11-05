@@ -65,7 +65,8 @@ const RATE_LIMIT_HEADERS = {
 };
 
 function operation(route: Route): JsonObject {
-  const limits = route.access.kind === 'tenant' ? RATE_LIMIT_HEADERS : {};
+  const limited = route.access.kind === 'tenant' || route.access.addressLimit !== undefined;
+  const limits = limited ? RATE_LIMIT_HEADERS : {};
   const responses: JsonObject = {
     [String(route.response.status)]: {
       description: 'OK',

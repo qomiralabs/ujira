@@ -25,7 +25,7 @@ import { createApp } from '../app.js';
 import type { Authenticate, Tenant } from '../auth.js';
 import { memoryLogger } from '../log.js';
 import { buildOpenApiDocument } from '../openapi.js';
-import { allowEveryRequest } from '../rate-limit.js';
+import { allowEveryAddress, allowEveryRequest } from '../rate-limit.js';
 import { V1_ROUTES, v1Routes } from './index.js';
 import { toPrincipalReceipt } from './receipts.js';
 import type { PrincipalReceiptRecord, ReceiptExportFilter, ReceiptReads } from './receipts.js';
@@ -198,6 +198,7 @@ function served(with_: ReceiptReads = reads()) {
     }),
     authenticate,
     rateLimit: allowEveryRequest,
+    addressRateLimit: allowEveryAddress,
     logger,
   });
   return {
@@ -420,6 +421,7 @@ test('the served routes answer 503 until the tables are in, and are documented',
     routes: V1_ROUTES,
     authenticate,
     rateLimit: allowEveryRequest,
+    addressRateLimit: allowEveryAddress,
     logger: memoryLogger(),
   });
   const headers = { authorization: 'Bearer a' };

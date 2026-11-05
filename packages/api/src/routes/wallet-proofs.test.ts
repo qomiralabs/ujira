@@ -16,7 +16,7 @@ import { createApp } from '../app.js';
 import type { Authenticate } from '../auth.js';
 import { refuseAllCredentials } from '../auth.js';
 import { memoryLogger } from '../log.js';
-import { allowEveryRequest } from '../rate-limit.js';
+import { allowEveryAddress, allowEveryRequest } from '../rate-limit.js';
 
 import { V1_ROUTES, v1Routes } from './index.js';
 import { SELF_WEBHOOK_NOT_CONFIGURED } from './self-webhook.js';
@@ -57,6 +57,7 @@ function served(w: WalletProofWorld, flow: WalletProofFlow = w.flow) {
     routes: v1Routes({ selfWebhook: SELF_WEBHOOK_NOT_CONFIGURED, walletProof: flow }),
     authenticate: authFor(w),
     rateLimit: allowEveryRequest,
+    addressRateLimit: allowEveryAddress,
     logger,
   });
   const base = `/v1/recipients/${w.recipient.id}/methods/${w.method.id}`;
@@ -261,6 +262,7 @@ describe('the served route table', () => {
       routes: V1_ROUTES,
       authenticate: authFor(w),
       rateLimit: allowEveryRequest,
+      addressRateLimit: allowEveryAddress,
       logger: memoryLogger(),
     });
     const base = `/v1/recipients/${w.recipient.id}/methods/${w.method.id}`;
@@ -286,6 +288,7 @@ describe('the served route table', () => {
       routes: V1_ROUTES,
       authenticate: refuseAllCredentials,
       rateLimit: allowEveryRequest,
+      addressRateLimit: allowEveryAddress,
       logger: memoryLogger(),
     });
     const response = await app.request(
