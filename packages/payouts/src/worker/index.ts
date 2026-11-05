@@ -3,10 +3,13 @@
 
 export { DEAD_LETTER_TRY, afterFailure, retryDelaySeconds, type NextStep } from './backoff.js';
 export {
+  indexerScan,
+  indexerScanCron,
   reconcileSweep,
   submissionSweep,
   ttlSweep,
   unlockStale,
+  type NetworkScan,
   type SubmissionSweeper,
   type TtlSweepDeps,
 } from './crons.js';

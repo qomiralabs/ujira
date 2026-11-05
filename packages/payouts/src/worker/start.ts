@@ -17,11 +17,14 @@ import { run, type Logger, type Task, type TaskList, type WorkerEvents } from 'g
 import type { NetworkId } from '@ujira/chain-adapter';
 
 import {
+  indexerScan,
+  indexerScanCron,
+  type NetworkScan,
   reconcileSweep,
   submissionSweep,
+  type SubmissionSweeper,
   ttlSweep,
   unlockStale,
-  type SubmissionSweeper,
 } from './crons.js';
 import { WorkerConfigError } from './errors.js';
 import {
@@ -46,7 +49,8 @@ export interface WorkerHandlers {
   readonly payoutAdvance?: TenantWork;
   readonly batchAdvance?: TenantWork;
   readonly mandateReconcile?: TenantWork;
-  readonly indexerScan?: (signal: AbortSignal) => Promise<void>;
+  // Mirrors the chain's events, one scan per network. Nothing else flags a mandate.
+  readonly indexerScans?: readonly NetworkScan[];
   // Closes the chain submissions still open, one sweeper per network.
   readonly submissionSweepers?: readonly SubmissionSweeper[];
   // The adapter's keep-alive task, and the networks to run it on.
@@ -112,7 +116,7 @@ export function buildTaskList(options: StartWorkerOptions): {
       : [{ task: MANDATE_RECONCILE, work: handlers.mandateReconcile }]),
     ...(handlers.tenantTasks ?? []),
   ];
-  const { indexerScan, ttlKeepAlive, submissionSweepers } = handlers;
+  const { indexerScans, ttlKeepAlive, submissionSweepers } = handlers;
   if (ttlKeepAlive !== undefined) {
     const { run: keepAlive } = ttlKeepAlive;
     tenant.push({
@@ -146,11 +150,9 @@ export function buildTaskList(options: StartWorkerOptions): {
     // hourly look is plenty, and a missed one costs nothing.
     crontab.push(`0 * * * * ${SYSTEM_TASKS.ttlSweep}`);
   }
-  if (indexerScan !== undefined) {
-    taskList[SYSTEM_TASKS.indexerScan] = async (_payload, helpers) => {
-      await indexerScan(helpers.abortSignal);
-    };
-    crontab.push(`* * * * * ${SYSTEM_TASKS.indexerScan}`);
+  if (indexerScans !== undefined) {
+    taskList[SYSTEM_TASKS.indexerScan] = indexerScan(indexerScans);
+    crontab.push(...indexerScans.map(({ network }) => indexerScanCron(network)));
   }
   return {
     taskList,
@@ -167,7 +169,7 @@ export function unwiredTasks(handlers: WorkerHandlers): readonly string[] {
     [PAYOUT_ADVANCE.name, handlers.payoutAdvance !== undefined],
     [BATCH_ADVANCE.name, handlers.batchAdvance !== undefined],
     [MANDATE_RECONCILE.name, handlers.mandateReconcile !== undefined],
-    [SYSTEM_TASKS.indexerScan, handlers.indexerScan !== undefined],
+    [SYSTEM_TASKS.indexerScan, handlers.indexerScans !== undefined],
     [SYSTEM_TASKS.submissionSweep, handlers.submissionSweepers !== undefined],
     [TTL_KEEP_ALIVE.name, handlers.ttlKeepAlive !== undefined],
   ];
