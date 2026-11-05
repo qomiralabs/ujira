@@ -851,7 +851,10 @@ export class FakeChainAdapter implements ChainAdapter {
       };
       const approvals =
         view !== null && 'expiresAt' in view && view.status === 'PENDING'
-          ? { count: view.approvals.length, required: engine.config().approvalsRequired }
+          ? {
+              count: engine.liveApprovals(req.payoutId),
+              required: engine.config().approvalsRequired,
+            }
           : undefined;
       return {
         ...status,
@@ -945,7 +948,10 @@ export class FakeChainAdapter implements ChainAdapter {
     if (view.status === 'PENDING') {
       return {
         kind: 'awaiting_approval',
-        approvals: { count: view.approvals.length, required: engine.config().approvalsRequired },
+        approvals: {
+          count: engine.liveApprovals(req.payoutId),
+          required: engine.config().approvalsRequired,
+        },
       };
     }
     if (this.#now() >= view.expiresAt) throw this.#rule('PAYOUT_LAPSED');
@@ -1040,7 +1046,7 @@ export class FakeChainAdapter implements ChainAdapter {
         ? {
             kind: 'awaiting_approval',
             approvals: {
-              count: view.approvals.length,
+              count: engine.liveApprovals(req.payoutId),
               required: engine.config().approvalsRequired,
             },
           }
