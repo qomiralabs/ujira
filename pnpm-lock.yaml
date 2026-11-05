@@ -367,6 +367,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@ujira/chain-adapter':
+        specifier: workspace:*
+        version: link:../chain-adapter
       '@ujira/core':
         specifier: workspace:*
         version: link:../core

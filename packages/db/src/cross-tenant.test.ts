@@ -60,6 +60,13 @@ import {
   tenancyRepositories,
 } from './repositories/tenancy.js';
 import { payoutBookings } from './repositories/mandate-registry.js';
+import {
+  chainStoreRepositories,
+  chainSubmissions,
+  legDeliveries,
+  signingRequests,
+  sponsorshipLedger,
+} from './repositories/chain-store.js';
 import { caseProblems, methodNames } from './testing/cross-tenant.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
@@ -69,6 +76,11 @@ const roleUrls = inject('dbRoleUrls');
 
 interface Tenant {
   readonly first: ProjectContext;
+  readonly chainTxHash: string;
+  readonly chainPayoutId: string;
+  readonly deliveryLegKey: string;
+  readonly reservationId: string;
+  readonly signingRequestId: string;
   readonly second: ProjectContext;
   readonly ownerUserId: string;
   readonly tokenId: string;
@@ -105,6 +117,7 @@ interface Tenant {
 }
 
 const REPOSITORIES = {
+  ...chainStoreRepositories,
   ...tenancyRepositories,
   ...mandateRepositories,
   ...fundingAccountRepositories,
@@ -396,8 +409,63 @@ async function tenant(name: string): Promise<Tenant> {
         heldPayoutId: held.payout.id,
       };
     });
+  const chain = await db.tenant(first).transaction(async (tx) => {
+    const chainTxHash = randomBytes(32).toString('hex');
+    const chainPayoutId = `0x${randomBytes(32).toString('hex')}`;
+    await chainSubmissions.record(tx, {
+      network: 'stellar:testnet',
+      txHash: chainTxHash,
+      op: 'execute',
+      mandate: `C${name}`,
+      payoutId: chainPayoutId,
+      attempt: 1,
+      signerAddress: `G${name}`,
+      sequenceOrNonce: 1n,
+      maxTime: null,
+      replacesTxHash: null,
+      submittedAtLedger: null,
+      reservationId: null,
+      correlationId: `corr-${name}`,
+      createdAt: new Date(),
+    });
+    const deliveryLegKey = `0x${randomBytes(33).toString('hex')}`;
+    await legDeliveries.upsert(tx, {
+      legKey: deliveryLegKey,
+      network: 'stellar:testnet',
+      rail: 'stellar.wallet',
+      provider: 'wallet',
+      providerRef: `ref-${name}`,
+      destinationAddress: `G${name}`,
+      destinationTag: null,
+      quoteId: null,
+      state: 'in_transit',
+      rawStatus: null,
+      live: true,
+      expiresAt: null,
+      updatedAt: new Date(),
+    });
+    const reservationId = `reservation-${name}`;
+    await sponsorshipLedger.reserve(tx, {
+      reservationId,
+      network: 'stellar:testnet',
+      intent: 'fund',
+      nativeAsset: 'XLM',
+      scale: 7,
+      maxFee: 1000n,
+    });
+    const signingRequestId = `signing-${name}`;
+    await signingRequests.record(tx, {
+      requestId: signingRequestId,
+      network: 'stellar:testnet',
+      signer: `G${name}`,
+      request: { kind: 'transaction' },
+      validUntil: new Date(Date.now() + 3_600_000),
+    });
+    return { chainTxHash, chainPayoutId, deliveryLegKey, reservationId, signingRequestId };
+  });
   return {
     first,
+    ...chain,
     second: { principalId: created.principalId, projectId: secondId },
     ownerUserId,
     tokenId: token.id,
@@ -492,6 +560,246 @@ const acrossA = async <T>(work: (tx: Kysely<Schema>) => Promise<T>): Promise<T> 
 
 // One case per repository method, each run as tenant A.
 const cases: Record<string, () => Promise<void>> = {
+  'chainSubmissions.record': async () => {
+    const created = await asA(async (tx) =>
+      chainSubmissions.record(tx, {
+        network: 'stellar:testnet',
+        txHash: randomBytes(32).toString('hex'),
+        op: 'request',
+        mandate: 'Calpha',
+        payoutId: `0x${randomBytes(32).toString('hex')}`,
+        attempt: 1,
+        signerAddress: 'Galpha',
+        sequenceOrNonce: 1n,
+        maxTime: null,
+        replacesTxHash: null,
+        submittedAtLedger: null,
+        reservationId: null,
+        correlationId: 'corr',
+        createdAt: new Date(),
+      }),
+    );
+    expect(await ownerOf('ujira.chain_submissions', 'id', created.id)).toBe(a.first.principalId);
+    // The hash is unique across tenants, so B's cannot be taken and stays B's.
+    const taken = asA(async (tx) =>
+      chainSubmissions.record(tx, {
+        network: 'stellar:testnet',
+        txHash: b.chainTxHash,
+        op: 'request',
+        mandate: 'Calpha',
+        payoutId: `0x${randomBytes(32).toString('hex')}`,
+        attempt: 1,
+        signerAddress: 'Galpha',
+        sequenceOrNonce: 1n,
+        maxTime: null,
+        replacesTxHash: null,
+        submittedAtLedger: null,
+        reservationId: null,
+        correlationId: 'corr',
+        createdAt: new Date(),
+      }),
+    );
+    expect(await codeOf(taken)).toBe('23505');
+    expect(await ownerOf('ujira.chain_submissions', 'tx_hash', b.chainTxHash)).toBe(
+      b.first.principalId,
+    );
+  },
+  'chainSubmissions.update': async () => {
+    const patched = await asA(async (tx) =>
+      chainSubmissions.update(tx, 'stellar:testnet', b.chainTxHash, { state: 'broadcast' }),
+    );
+    expect(patched).toBeUndefined();
+    const row = await admin.query<{ state: string }>(
+      'select state from ujira.chain_submissions where tx_hash = $1',
+      [b.chainTxHash],
+    );
+    expect(row.rows[0]?.state).toBe('built');
+    const own = await asA(async (tx) =>
+      chainSubmissions.update(tx, 'stellar:testnet', a.chainTxHash, { specCode: 1 }),
+    );
+    expect(own?.specCode).toBe(1);
+  },
+  'chainSubmissions.find': async () => {
+    expect(
+      await acrossA(async (tx) => chainSubmissions.find(tx, 'stellar:testnet', b.chainTxHash)),
+    ).toBeUndefined();
+    expect(
+      (await acrossA(async (tx) => chainSubmissions.find(tx, 'stellar:testnet', a.chainTxHash)))
+        ?.txHash,
+    ).toBe(a.chainTxHash);
+  },
+  'chainSubmissions.live': async () => {
+    const key = { network: 'stellar:testnet', mandate: 'Cbravo', op: 'execute' };
+    expect(
+      await acrossA(async (tx) => chainSubmissions.live(tx, { ...key, payoutId: b.chainPayoutId })),
+    ).toBeUndefined();
+  },
+  'chainSubmissions.landed': async () => {
+    await admin.query(`update ujira.chain_submissions set state = 'broadcast' where tx_hash = $1`, [
+      b.chainTxHash,
+    ]);
+    await admin.query(`update ujira.chain_submissions set state = 'landed' where tx_hash = $1`, [
+      b.chainTxHash,
+    ]);
+    expect(
+      await acrossA(async (tx) =>
+        chainSubmissions.landed(tx, {
+          network: 'stellar:testnet',
+          mandate: 'Cbravo',
+          payoutId: b.chainPayoutId,
+        }),
+      ),
+    ).toBeUndefined();
+    await admin.query('begin');
+    await admin.query('set local session_replication_role = replica');
+    await admin.query(`update ujira.chain_submissions set state = 'built' where tx_hash = $1`, [
+      b.chainTxHash,
+    ]);
+    await admin.query('commit');
+  },
+  'chainSubmissions.events': async () => {
+    const row = await admin.query<{ id: string }>(
+      'select id from ujira.chain_submissions where tx_hash = $1',
+      [b.chainTxHash],
+    );
+    const events = await acrossA(async (tx) => chainSubmissions.events(tx, row.rows[0]?.id ?? ''));
+    expect(events).toEqual([]);
+  },
+  'legDeliveries.upsert': async () => {
+    const written = await asA(async (tx) =>
+      legDeliveries.upsert(tx, {
+        legKey: b.deliveryLegKey,
+        network: 'stellar:testnet',
+        rail: 'stellar.wallet',
+        provider: 'wallet',
+        providerRef: 'ref-bravo',
+        destinationAddress: 'Galpha',
+        destinationTag: null,
+        quoteId: null,
+        state: 'failed',
+        rawStatus: null,
+        live: true,
+        expiresAt: null,
+        updatedAt: new Date(),
+      }),
+    );
+    expect(written).toBe(false);
+    const row = await admin.query<{ state: string }>(
+      'select state from ujira.leg_deliveries where leg_key = $1',
+      [b.deliveryLegKey],
+    );
+    expect(row.rows[0]?.state).toBe('in_transit');
+  },
+  'legDeliveries.live': async () => {
+    expect(await acrossA(async (tx) => legDeliveries.live(tx, b.deliveryLegKey))).toBeUndefined();
+    expect((await acrossA(async (tx) => legDeliveries.live(tx, a.deliveryLegKey)))?.legKey).toBe(
+      a.deliveryLegKey,
+    );
+  },
+  'sponsorshipLedger.reserve': async () => {
+    // Reservation ids are per tenant, so B's id makes a separate row of A's own.
+    const { created } = await asA(async (tx) =>
+      sponsorshipLedger.reserve(tx, {
+        reservationId: b.reservationId,
+        network: 'stellar:testnet',
+        intent: 'fund',
+        nativeAsset: 'XLM',
+        scale: 7,
+        maxFee: 1n,
+      }),
+    );
+    expect(created).toBe(true);
+    const rows = await admin.query<{ max_fee_native: string }>(
+      'select max_fee_native from ujira.sponsorship_ledger where principal_id = $1 and reservation_id = $2',
+      [b.first.principalId, b.reservationId],
+    );
+    expect(rows.rows[0]?.max_fee_native).toBe('1000');
+  },
+  'sponsorshipLedger.get': async () => {
+    expect(
+      await acrossA(async (tx) => sponsorshipLedger.get(tx, 'reservation-bravo-only')),
+    ).toBeUndefined();
+    await admin.query(
+      `insert into ujira.sponsorship_ledger
+         (principal_id, project_id, reservation_id, network, intent, native_asset, scale, max_fee_native)
+       values ($1, $2, 'reservation-bravo-only', 'stellar:testnet', 'fund', 'XLM', 7, 1)`,
+      [b.first.principalId, b.first.projectId],
+    );
+    expect(
+      await acrossA(async (tx) => sponsorshipLedger.get(tx, 'reservation-bravo-only')),
+    ).toBeUndefined();
+  },
+  'sponsorshipLedger.settle': async () => {
+    const settled = await asA(async (tx) => sponsorshipLedger.settle(tx, 'signing-bravo', 1n));
+    expect(settled).toBeUndefined();
+    await admin.query(
+      `insert into ujira.sponsorship_ledger
+         (principal_id, project_id, reservation_id, network, intent, native_asset, scale, max_fee_native)
+       values ($1, $2, 'settle-bravo-only', 'stellar:testnet', 'fund', 'XLM', 7, 1)`,
+      [b.first.principalId, b.first.projectId],
+    );
+    expect(
+      await asA(async (tx) => sponsorshipLedger.settle(tx, 'settle-bravo-only', 1n)),
+    ).toBeUndefined();
+    const row = await admin.query<{ state: string }>(
+      `select state from ujira.sponsorship_ledger where reservation_id = 'settle-bravo-only'`,
+    );
+    expect(row.rows[0]?.state).toBe('reserved');
+  },
+  'sponsorshipLedger.release': async () => {
+    await admin.query(
+      `insert into ujira.sponsorship_ledger
+         (principal_id, project_id, reservation_id, network, intent, native_asset, scale, max_fee_native)
+       values ($1, $2, 'release-bravo-only', 'stellar:testnet', 'fund', 'XLM', 7, 1)`,
+      [b.first.principalId, b.first.projectId],
+    );
+    expect(
+      await asA(async (tx) => sponsorshipLedger.release(tx, 'release-bravo-only')),
+    ).toBeUndefined();
+    const row = await admin.query<{ state: string }>(
+      `select state from ujira.sponsorship_ledger where reservation_id = 'release-bravo-only'`,
+    );
+    expect(row.rows[0]?.state).toBe('reserved');
+  },
+  'signingRequests.record': async () => {
+    // Per tenant too, so this is A's own row and B's is untouched.
+    await asA(async (tx) =>
+      signingRequests.record(tx, {
+        requestId: b.signingRequestId,
+        network: 'stellar:testnet',
+        signer: 'Galpha',
+        request: { kind: 'transaction' },
+        validUntil: new Date(Date.now() + 3_600_000),
+      }),
+    );
+    const rows = await admin.query<{ signer: string }>(
+      'select signer from ujira.signing_requests where principal_id = $1 and request_id = $2',
+      [b.first.principalId, b.signingRequestId],
+    );
+    expect(rows.rows[0]?.signer).toBe('Gbravo');
+  },
+  'signingRequests.get': async () => {
+    await admin.query(
+      `insert into ujira.signing_requests
+         (principal_id, project_id, request_id, network, signer, request, valid_until)
+       values ($1, $2, 'get-bravo-only', 'stellar:testnet', 'Gbravo', '{}', now())`,
+      [b.first.principalId, b.first.projectId],
+    );
+    expect(await acrossA(async (tx) => signingRequests.get(tx, 'get-bravo-only'))).toBeUndefined();
+  },
+  'signingRequests.consume': async () => {
+    await admin.query(
+      `insert into ujira.signing_requests
+         (principal_id, project_id, request_id, network, signer, request, valid_until)
+       values ($1, $2, 'consume-bravo-only', 'stellar:testnet', 'Gbravo', '{}', now())`,
+      [b.first.principalId, b.first.projectId],
+    );
+    expect(await asA(async (tx) => signingRequests.consume(tx, 'consume-bravo-only'))).toBe(false);
+    const row = await admin.query<{ consumed_at: Date | null }>(
+      `select consumed_at from ujira.signing_requests where request_id = 'consume-bravo-only'`,
+    );
+    expect(row.rows[0]?.consumed_at).toBeNull();
+  },
   'principals.current': async () => {
     const found = await asA(async (tx) => principals.current(tx));
     expect(found?.id).toBe(a.first.principalId);

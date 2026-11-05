@@ -244,3 +244,20 @@ export {
 export { TENANT_SETTINGS, type TenantContext, type TenantScope } from './tenant.js';
 export { DatabaseConfigError, SessionStateError, TenantContextError } from './errors.js';
 export { DatabaseUnavailableError } from './unavailable.js';
+export { DatabaseAdapterStore } from './repositories/adapter-store.js';
+export {
+  chainRetention,
+  chainSubmissions,
+  chainSubmissionSweep,
+  legDeliveries,
+  signingRequests,
+  sponsorshipLedger,
+  type ChainSubmission,
+  type ChainSubmissionPatch,
+  type LegDelivery,
+  type NewChainSubmission,
+  type NewSigningRequest,
+  type NewSponsorship,
+  type Sponsorship,
+  type StoredSigningRequest,
+} from './repositories/chain-store.js';

@@ -40,7 +40,62 @@ export interface RateLimitTaken {
   readonly tokens: number;
 }
 
+export interface FencedExecutorLease extends ExecutorLease {
+  readonly keyId: string;
+  // New on every lease. Only the current one can give the account back.
+  readonly leaseId: string;
+}
+
 export const executors = {
+  // A free active account on the network, or undefined when there is none. Concurrent
+  // callers never get the same one.
+  leaseFenced: async (
+    db: Tx,
+    input: { readonly network: string; readonly leaseSeconds: number },
+  ): Promise<FencedExecutorLease | undefined> => {
+    const result = await sql<{
+      account_ref: string;
+      key_id: string;
+      next_sequence: string;
+      lease_id: string;
+      lease_expires_at: Date;
+    }>`
+      select account_ref, key_id, next_sequence, lease_id, lease_expires_at
+        from ops.lease_executor_fenced(${input.network}, ${input.leaseSeconds})
+    `.execute(db);
+    const row = result.rows[0];
+    if (row === undefined) return undefined;
+    return {
+      accountRef: row.account_ref,
+      keyId: row.key_id,
+      nextSequence: BigInt(row.next_sequence),
+      leaseId: row.lease_id,
+      leaseExpiresAt: row.lease_expires_at,
+    };
+  },
+
+  // True when this lease was still current. A stale lease, or a sequence that would move
+  // backwards, changes nothing.
+  releaseFenced: async (
+    db: Tx,
+    input: {
+      readonly network: string;
+      readonly accountRef: string;
+      readonly leaseId: string;
+      readonly sequenceReached: bigint;
+    },
+  ): Promise<boolean> => {
+    const result = await sql<{ released: boolean }>`
+      select ops.release_executor_fenced(
+        ${input.network},
+        ${input.accountRef},
+        ${input.leaseId}::uuid,
+        ${input.sequenceReached}::bigint
+      ) as released
+    `.execute(db);
+    return result.rows[0]?.released === true;
+  },
+
   // A free account on the network for this holder, or undefined when every
   // account is held. Concurrent callers never get the same one.
   lease: async (
