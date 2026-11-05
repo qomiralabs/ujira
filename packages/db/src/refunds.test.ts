@@ -232,7 +232,7 @@ describe('leg refunds', () => {
 });
 
 describe('planning a fee refund', () => {
-  it('owes the share of the fee charged on what came back, rounded down', async () => {
+  it('CHAINOPS-FEE-004: returns the fee on the refunded part, rounded up, to the principal', async () => {
     const { legRefund: refund } = await recordRefund({ amount: FIRST_LEG });
     const { created, feeRefund } = await plan(refund.id);
     expect(created).toBe(true);
@@ -248,10 +248,16 @@ describe('planning a fee refund', () => {
 
     const small = await recordRefund({ payoutLegId: secondLegId, amount: 333_333n });
     // 333_333 * 25_000 / 50_000_000 is 166.6665.
-    expect((await plan(small.legRefund.id)).feeRefund.amount).toEqual(usdc(166n));
+    expect((await plan(small.legRefund.id)).feeRefund.amount).toEqual(usdc(167n));
   });
 
-  it('is due seven days after the leg refund', async () => {
+  it('CHAINOPS-FEE-004: a one minor unit refund on a non-zero fee returns at least 1', async () => {
+    const { legRefund: refund } = await recordRefund({ amount: 1n });
+    const { feeRefund } = await plan(refund.id);
+    expect(feeRefund).toMatchObject({ amount: usdc(1n), status: 'owed' });
+  });
+
+  it('CHAINOPS-FEE-004: is due seven days after the leg refund', async () => {
     const { legRefund: refund } = await recordRefund();
     const { feeRefund } = await plan(refund.id);
     expect(feeRefund.dueAt.getTime() - refund.createdAt.getTime()).toBe(SEVEN_DAYS_MS);
@@ -279,24 +285,56 @@ describe('planning a fee refund', () => {
     expect(await codeOf(attempt)).toBe('23514');
   });
 
-  it('never owes more than the fee, however the refunds split', async () => {
-    const amounts = [1n, 7n, 999_999n, FIRST_LEG - 1_000_007n];
-    let owed = 0n;
-    for (const amount of amounts) {
-      const { legRefund: refund } = await recordRefund({ amount });
-      owed += (await plan(refund.id)).feeRefund.amount.amount;
-    }
-    const last = await recordRefund({ payoutLegId: secondLegId, amount: SECOND_LEG });
-    owed += (await plan(last.legRefund.id)).feeRefund.amount.amount;
-    expect(owed).toBeLessThanOrEqual(FEE);
+  // Each share alone rounds up, 15_001 and 10_001, which would return 25_002 of a fee of
+  // 25_001 without the cap.
+  it('CHAINOPS-FEE-004: two partial refunds that together refund the total return exactly the fee', async () => {
+    const made = await makeAttempt(25_001n);
+    const first = await recordRefund({ payoutLegId: made.firstLegId, amount: FIRST_LEG });
+    const second = await recordRefund({ payoutLegId: made.secondLegId, amount: SECOND_LEG });
+    expect((await plan(first.legRefund.id)).feeRefund.amount).toEqual(usdc(15_001n));
+    expect((await plan(second.legRefund.id)).feeRefund.amount).toEqual(usdc(10_000n));
   });
 
-  it.each([
-    ['the attempt had no fee', 0n, FIRST_LEG],
-    ['its share rounds down to nothing', FEE, 1n],
-  ])('owes nothing when %s', async (_name, fee, amount) => {
+  it('CHAINOPS-FEE-004: returns exactly the fee however a whole refund splits', async () => {
+    const amounts = [1n, 7n, 999_999n, FIRST_LEG - 1_000_007n];
+    let returned = 0n;
+    for (const amount of amounts) {
+      const { legRefund: refund } = await recordRefund({ amount });
+      returned += (await plan(refund.id)).feeRefund.amount.amount;
+    }
+    const last = await recordRefund({ payoutLegId: secondLegId, amount: SECOND_LEG });
+    returned += (await plan(last.legRefund.id)).feeRefund.amount.amount;
+    expect(returned).toBe(FEE);
+  });
+
+  it('CHAINOPS-FEE-004: racing refunds share the same cap', async () => {
+    const fee = 3n;
     const made = await makeAttempt(fee);
-    const { legRefund: refund } = await recordRefund({ payoutLegId: made.firstLegId, amount });
+    const recorded = [];
+    for (let index = 0; index < 8; index += 1) {
+      recorded.push(await recordRefund({ payoutLegId: made.firstLegId, amount: 1n }));
+    }
+    const results = await Promise.all(recorded.map(async (item) => plan(item.legRefund.id)));
+    const owed = results.filter((result) => result.feeRefund.status === 'owed');
+    expect(owed).toHaveLength(3);
+    expect(results.reduce((sum, result) => sum + result.feeRefund.amount.amount, 0n)).toBe(fee);
+    expect(results.filter((result) => result.feeRefund.status === 'not_owed')).toHaveLength(5);
+  });
+
+  it('a retry finds its first share, even after the fee has been used up', async () => {
+    const made = await makeAttempt(1n);
+    const first = await recordRefund({ payoutLegId: made.firstLegId, amount: 1n });
+    const second = await recordRefund({ payoutLegId: made.firstLegId, amount: 1n });
+    expect((await plan(first.legRefund.id)).feeRefund.amount).toEqual(usdc(1n));
+    expect((await plan(second.legRefund.id)).feeRefund.amount).toEqual(usdc(0n));
+    const again = await plan(first.legRefund.id);
+    expect(again.created).toBe(false);
+    expect(again.feeRefund.amount).toEqual(usdc(1n));
+  });
+
+  it('owes nothing when the attempt had no fee', async () => {
+    const made = await makeAttempt(0n);
+    const { legRefund: refund } = await recordRefund({ payoutLegId: made.firstLegId });
     const { feeRefund } = await plan(refund.id);
     expect(feeRefund).toMatchObject({ amount: usdc(0n), status: 'not_owed' });
   });
@@ -332,14 +370,23 @@ describe('the bound on fee refunds', () => {
     expect(await codeOf(insertFeeRefund(second.legRefund.id, 1n))).toBe('UJ009');
   });
 
-  it('does not count a refund that turned out not to be owed', async () => {
-    const first = await recordRefund({ amount: FIRST_LEG });
-    const second = await recordRefund({ payoutLegId: secondLegId, amount: SECOND_LEG });
-    const { feeRefund } = await plan(first.legRefund.id);
-    await db
-      .tenant(fixture.tenant)
-      .transaction(async (tx) => refunds.transitionFeeRefund(tx, feeRefund.id, 'owed', 'not_owed'));
-    expect(await codeOf(insertFeeRefund(second.legRefund.id, FEE))).toBeUndefined();
+  // A debt cannot be forgiven by moving its status, so not_owed means nothing to send.
+  it.each([
+    ['owes nothing while still owed', 0n, 'owed'],
+    ['says not owed while owing', 1n, 'not_owed'],
+  ])('refuses a row that %s', async (_name, amount, status) => {
+    const { legRefund: refund } = await recordRefund();
+    const attempt = admin.query(
+      `insert into ujira.fee_refunds
+         (principal_id, project_id, leg_refund_id, payout_id, attempt_id, chain, asset, scale, amount,
+          from_address, to_address, status, idempotency_key, due_at)
+       select r.principal_id, r.project_id, r.id, r.payout_id, r.attempt_id, r.chain, r.asset, r.scale,
+              $2::numeric, 'GFEE', 'GPRINCIPAL', $3,
+              sha256(convert_to('ujira/fee-refund/v1' || r.id::text, 'UTF8')), now()
+         from ujira.leg_refunds as r where r.id = $1`,
+      [refund.id, amount.toString(), status],
+    );
+    expect(await codeOf(attempt)).toBe('23514');
   });
 
   it('cannot be deleted, by anyone', async () => {

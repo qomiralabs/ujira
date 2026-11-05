@@ -704,8 +704,7 @@ begin
     from ujira.fee_refunds as r
    where r.principal_id = new.principal_id
      and r.project_id = new.project_id
-     and r.attempt_id = new.attempt_id
-     and r.status <> 'not_owed';
+     and r.attempt_id = new.attempt_id;
   if refunded > fee then
     raise exception using
       errcode = 'UJ009',
@@ -2048,7 +2047,7 @@ CREATE TABLE ujira.fee_refunds (
     CONSTRAINT fee_refunds_from_length CHECK (((char_length(from_address) >= 1) AND (char_length(from_address) <= 128))),
     CONSTRAINT fee_refunds_has_a_source CHECK (((status = 'not_owed'::text) OR (from_address IS NOT NULL))),
     CONSTRAINT fee_refunds_key_is_derived CHECK (((idempotency_key)::bytea = sha256(convert_to(('ujira/fee-refund/v1'::text || (leg_refund_id)::text), 'UTF8'::name)))),
-    CONSTRAINT fee_refunds_owes_something CHECK (((status = 'not_owed'::text) OR ((amount)::numeric > (0)::numeric))),
+    CONSTRAINT fee_refunds_not_owed_is_nothing CHECK (((status = 'not_owed'::text) = ((amount)::numeric = (0)::numeric))),
     CONSTRAINT fee_refunds_status CHECK ((status = ANY (ARRAY['owed'::text, 'awaiting_signatures'::text, 'submitted'::text, 'settled'::text, 'failed'::text, 'not_owed'::text]))),
     CONSTRAINT fee_refunds_submitted_has_hash CHECK (((status <> ALL (ARRAY['submitted'::text, 'settled'::text])) OR (tx_hash IS NOT NULL))),
     CONSTRAINT fee_refunds_to_length CHECK (((char_length(to_address) >= 1) AND (char_length(to_address) <= 128)))
@@ -4203,7 +4202,7 @@ CREATE TRIGGER fee_refunds_transition BEFORE UPDATE OF status ON ujira.fee_refun
 -- Name: fee_refunds fee_refunds_within_fee; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
 --
 
-CREATE CONSTRAINT TRIGGER fee_refunds_within_fee AFTER INSERT OR UPDATE OF amount, status ON ujira.fee_refunds DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ujira.fee_refunds_within_fee();
+CREATE CONSTRAINT TRIGGER fee_refunds_within_fee AFTER INSERT OR UPDATE OF amount ON ujira.fee_refunds DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ujira.fee_refunds_within_fee();
 
 
 --

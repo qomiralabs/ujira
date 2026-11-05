@@ -35,7 +35,6 @@ const roleUrls = inject('dbRoleUrls');
 
 const ALLOWED: readonly (readonly [FeeRefundStatusValue, FeeRefundStatusValue])[] = [
   ['owed', 'awaiting_signatures'],
-  ['owed', 'not_owed'],
   ['awaiting_signatures', 'submitted'],
   ['awaiting_signatures', 'failed'],
   ['submitted', 'settled'],
@@ -128,10 +127,13 @@ describe('fee refund transitions', () => {
       for (const [from, to] of PAIRS) {
         await admin.query('savepoint pair');
         await admin.query('set local session_replication_role = replica');
-        await admin.query('update ujira.fee_refunds set status = $1 where id = $2', [
-          from,
-          feeRefundId,
-        ]);
+        // A row that is not owed sends nothing, which its check insists on.
+        await admin.query(
+          `update ujira.fee_refunds
+              set status = $1, amount = case when $1 = 'not_owed' then 0 else amount end
+            where id = $2`,
+          [from, feeRefundId],
+        );
         await admin.query('set local session_replication_role = origin');
         const moved = admin.query('update ujira.fee_refunds set status = $1 where id = $2', [
           to,

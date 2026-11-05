@@ -28,7 +28,6 @@ set local role ujira_owner;
 
 insert into ujira.status_transitions (machine, from_status, to_status) values
   ('fee_refund', 'owed', 'awaiting_signatures'),
-  ('fee_refund', 'owed', 'not_owed'),
   ('fee_refund', 'awaiting_signatures', 'submitted'),
   ('fee_refund', 'awaiting_signatures', 'failed'),
   ('fee_refund', 'submitted', 'settled'),
@@ -152,7 +151,7 @@ create table ujira.fee_refunds (
   scale ujira.scale not null,
   amount ujira.amount not null
     constraint fee_refunds_amount_not_negative check (amount >= 0),
-  -- Null only when nothing is owed, where no money moves.
+  -- Null only when nothing is owed, where no money moves. Otherwise the fee address.
   from_address text
     constraint fee_refunds_from_length check (char_length(from_address) between 1 and 128),
   to_address text not null
@@ -172,7 +171,9 @@ create table ujira.fee_refunds (
   constraint fee_refunds_key_is_derived check (
     idempotency_key = sha256(convert_to('ujira/fee-refund/v1' || leg_refund_id::text, 'UTF8'))
   ),
-  constraint fee_refunds_owes_something check (status = 'not_owed' or amount > 0),
+  -- Nothing leads to not_owed: a row starts that way or never. So a fee owed cannot be
+  -- forgiven by moving its status, and not_owed only ever means nothing to send.
+  constraint fee_refunds_not_owed_is_nothing check ((status = 'not_owed') = (amount = 0)),
   constraint fee_refunds_has_a_source check (status = 'not_owed' or from_address is not null),
   constraint fee_refunds_submitted_has_hash
     check (status not in ('submitted', 'settled') or tx_hash is not null),
@@ -257,7 +258,8 @@ begin
 end
 $fn$;
 
--- As above. A refund found not to be owed moves no money, so it does not count.
+-- As above. planFeeRefund takes this same lock before it works out a share, so racing
+-- plans get a smaller share rather than being refused here.
 create function ujira.fee_refunds_within_fee() returns trigger
   language plpgsql
   set search_path = pg_catalog
@@ -276,8 +278,7 @@ begin
     from ujira.fee_refunds as r
    where r.principal_id = new.principal_id
      and r.project_id = new.project_id
-     and r.attempt_id = new.attempt_id
-     and r.status <> 'not_owed';
+     and r.attempt_id = new.attempt_id;
   if refunded > fee then
     raise exception using
       errcode = 'UJ009',
@@ -355,7 +356,7 @@ create trigger fee_refunds_no_delete before delete on ujira.fee_refunds
   for each row execute function ujira.forbid_mutation();
 create trigger fee_refunds_no_truncate before truncate on ujira.fee_refunds
   for each statement execute function ujira.forbid_mutation();
-create constraint trigger fee_refunds_within_fee after insert or update of amount, status
+create constraint trigger fee_refunds_within_fee after insert or update of amount
   on ujira.fee_refunds
   deferrable initially deferred
   for each row execute function ujira.fee_refunds_within_fee();

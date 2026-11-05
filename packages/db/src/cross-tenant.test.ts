@@ -738,7 +738,7 @@ const cases: Record<string, () => Promise<void>> = {
   },
   'refunds.transitionFeeRefund': async () => {
     const moved = await asA(async (tx) =>
-      refunds.transitionFeeRefund(tx, b.feeRefundId, 'owed', 'not_owed'),
+      refunds.transitionFeeRefund(tx, b.feeRefundId, 'owed', 'awaiting_signatures'),
     );
     expect(moved).toBeUndefined();
     expect(await statusOf('ujira.fee_refunds', b.feeRefundId)).toBe('owed');

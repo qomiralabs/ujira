@@ -110,6 +110,7 @@ export {
 export {
   FEE_REFUND_STATUS_VALUES,
   FeeAddressUnknownError,
+  feeRefundShare,
   fees,
   FeeTermsExistError,
   refunds,

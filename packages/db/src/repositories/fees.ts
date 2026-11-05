@@ -424,6 +424,21 @@ function toFeeRefund(row: {
   };
 }
 
+// ceil(fee * refunded / total), so rounding is in the principal's favour, and never more
+// than what is left of the fee. Each share rounds up, so without that cap the shares of a
+// whole refund could add up to more than the fee. With it they add up to exactly the fee.
+export function feeRefundShare(input: {
+  readonly fee: bigint;
+  readonly refunded: bigint;
+  readonly total: bigint;
+  readonly alreadyReturned: bigint;
+}): bigint {
+  const share = (input.fee * input.refunded + input.total - 1n) / input.total;
+  const left = input.fee - input.alreadyReturned;
+  if (left <= 0n) return 0n;
+  return share < left ? share : left;
+}
+
 function feeRefundKey(legRefundId: string): Buffer {
   return createHash('sha256').update(`ujira/fee-refund/v1${legRefundId}`, 'utf8').digest();
 }
@@ -479,13 +494,15 @@ export const refunds = {
     return { created: false, legRefund: found };
   },
 
-  // Works out the part of the attempt's fee charged on what came back: the fee scaled by
-  // refund over total, rounded down. Rounding down means the shares of any split of the
-  // total can never add up to more than the fee. A share of nothing is recorded as not
-  // owed, so a leg refund always shows that the question was answered.
+  // The fee on a refunded part was not earned, so it goes back: the share below, from
+  // the fee address to the principal's own address, within 7 days of the leg refund. A
+  // resend is a new payout with its own fee, and has nothing to do with this.
   //
   // One row per leg refund however many calls race; the second and later get the first
-  // back with created false. Undefined when the leg refund is not visible here.
+  // back with created false. Refunds of one attempt plan in turn, under the same lock
+  // fee_refunds_within_fee takes, so each sees what the others returned. A row with
+  // nothing left to send is recorded as not owed, so a leg refund always shows that the
+  // question was answered. Undefined when the leg refund is not visible here.
   planFeeRefund: async (
     db: Tx,
     legRefundId: string,
@@ -510,8 +527,26 @@ export const refunds = {
       .where('r.id', '=', legRefundId)
       .executeTakeFirst();
     if (source === undefined) return undefined;
-    const amount =
-      (BigInt(source.amount) * BigInt(source.fee_amount)) / BigInt(source.total_amount);
+    await sql`
+      select pg_advisory_xact_lock(hashtextextended(${`ujira/fee-refund/${source.attempt_id}`}::text, 0))
+    `.execute(db);
+    const planned = await db
+      .selectFrom('ujira.fee_refunds')
+      .select(feeRefundColumns)
+      .where('leg_refund_id', '=', legRefundId)
+      .executeTakeFirst();
+    if (planned !== undefined) return { created: false, feeRefund: toFeeRefund(planned) };
+    const returned = await db
+      .selectFrom('ujira.fee_refunds')
+      .select(sql<string | null>`sum(amount)`.as('amount'))
+      .where('attempt_id', '=', source.attempt_id)
+      .executeTakeFirstOrThrow();
+    const amount = feeRefundShare({
+      fee: BigInt(source.fee_amount),
+      refunded: BigInt(source.amount),
+      total: BigInt(source.total_amount),
+      alreadyReturned: BigInt(returned.amount ?? '0'),
+    });
     if (amount > 0n && source.fee_address === null) throw new FeeAddressUnknownError();
     const inserted = await db
       .insertInto('ujira.fee_refunds')
@@ -531,16 +566,9 @@ export const refunds = {
         idempotency_key: feeRefundKey(legRefundId),
         due_at: new Date(source.created_at.getTime() + FEE_REFUND_DUE_MS),
       })
-      .onConflict((conflict) => conflict.constraint('fee_refunds_one_per_leg_refund').doNothing())
       .returning(feeRefundColumns)
-      .executeTakeFirst();
-    if (inserted !== undefined) return { created: true, feeRefund: toFeeRefund(inserted) };
-    const existing = await db
-      .selectFrom('ujira.fee_refunds')
-      .select(feeRefundColumns)
-      .where('leg_refund_id', '=', legRefundId)
       .executeTakeFirstOrThrow();
-    return { created: false, feeRefund: toFeeRefund(existing) };
+    return { created: true, feeRefund: toFeeRefund(inserted) };
   },
 
   feeRefund: async (db: Tx, id: string): Promise<FeeRefund | undefined> => {
