@@ -49,10 +49,8 @@ interface World {
 function world(): World {
   const store = new MemoryFundingAccounts();
   const calls: string[] = [];
-  const ownOf = async (scope: TenantScope): Promise<FundingAccountRecord | null> => {
-    const known = await store.forPrincipal(scope, NETWORK);
-    return known?.projectId === scope.projectId ? known : null;
-  };
+  const ownOf = (scope: TenantScope): Promise<FundingAccountRecord | null> =>
+    store.forProject(scope, NETWORK);
   const flow: FundingAccountFlow = {
     prepare: (req) => {
       calls.push(`prepare ${req.publicKey} ${String(req.businessVerified)}`);
@@ -63,13 +61,15 @@ function world(): World {
       return Promise.resolve({ network: NETWORK, txHash: SPONSOR_TX, finality: 'none' });
     },
     confirm: async (req) => {
-      const known = await store.forPrincipal(req.scope, NETWORK);
+      const known = await store.forProject(req.scope, NETWORK);
       if (known !== null) return known;
       const row: FundingAccountRecord = {
         principalId: req.scope.principalId,
         projectId: req.scope.projectId,
         network: NETWORK,
-        address: 'GFORWARDER',
+        // One request stands for a second wallet. Every other uses the same address, which
+        // is what lets a test show that one address cannot be held twice.
+        address: req.requestId === 'second-wallet' ? 'GFORWARDER2' : 'GFORWARDER',
         sponsor: 'GSPONSOR',
         sponsorTxHash: SPONSOR_TX,
         status: 'active',
@@ -227,7 +227,30 @@ describe('funding-account.test.ts', () => {
     ).rejects.toBeInstanceOf(FundingAccountStateError);
   });
 
-  it("makes no source in one project from another project's account", async () => {
+  it('gives a second project its own account and its own source', async () => {
+    const w = world();
+    const scope = tenant();
+    const elsewhere = otherProject(scope);
+    const theirs = randomUUID();
+    const ours = randomUUID();
+    w.store.addInstance(scope, ours);
+    w.store.addInstance(elsewhere, theirs);
+    const other = await w.service.confirm(
+      { scope: elsewhere, network: NETWORK, requestId: 'r1', mandateInstanceId: theirs },
+      OPTS,
+    );
+    const done = await w.service.confirm(
+      { scope, network: NETWORK, requestId: 'second-wallet', mandateInstanceId: ours },
+      OPTS,
+    );
+    expect(other.account.projectId).toBe(elsewhere.projectId);
+    expect(done.account.projectId).toBe(scope.projectId);
+    expect(done.fundingSourceId).not.toBeNull();
+    expect(done.fundingSourceId).not.toBe(other.fundingSourceId);
+    expect(w.store.sources()).toHaveLength(2);
+  });
+
+  it('makes no source for a project that has no account, whatever its sibling has', async () => {
     const w = world();
     const scope = tenant();
     const elsewhere = otherProject(scope);
@@ -239,12 +262,6 @@ describe('funding-account.test.ts', () => {
       { scope: elsewhere, network: NETWORK, requestId: 'r1', mandateInstanceId: theirs },
       OPTS,
     );
-    const done = await w.service.confirm(
-      { scope, network: NETWORK, requestId: 'r2', mandateInstanceId: ours },
-      OPTS,
-    );
-    expect(done.account.projectId).toBe(elsewhere.projectId);
-    expect(done.fundingSourceId).toBeNull();
     await expect(
       w.service.attach({ scope, network: NETWORK, mandateInstanceId: ours }),
     ).rejects.toBeInstanceOf(FundingAccountStateError);

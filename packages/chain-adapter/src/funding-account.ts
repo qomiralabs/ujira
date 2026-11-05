@@ -49,13 +49,12 @@ export interface PrepareFundingAccount {
 }
 
 /**
- * One funding account per principal and network, whichever project asked.
- * `forPrincipal` therefore reads across the principal's projects, and the record
- * says which one holds it. `record` keeps the first row written for a principal
- * and network, and throws if that row is not this one.
+ * One funding account per project and network, so a principal with two projects
+ * has two. `record` keeps the first row written for a project and network, and
+ * throws if that row is not this one, or if another project holds the address.
  */
 export interface FundingAccountStore {
-  forPrincipal(scope: TenantScope, network: NetworkId): Promise<FundingAccountRecord | null>;
+  forProject(scope: TenantScope, network: NetworkId): Promise<FundingAccountRecord | null>;
   record(row: FundingAccountRecord): Promise<void>;
   /** Keeps what a later read found beside what was found at creation. */
   recordCheck(row: FundingAccountRecord): Promise<void>;

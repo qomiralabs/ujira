@@ -99,11 +99,14 @@ export class FundingAccountInUse extends Error {
 }
 
 export const fundingAccounts = {
+  // The account of the project in session. A session across a principal's projects has
+  // no one answer to give, so it finds nothing rather than whichever came back first.
   forNetwork: async (db: Tx, network: string): Promise<FundingAccount | undefined> => {
     const row = await db
       .selectFrom('ujira.funding_accounts')
       .select(columns)
       .where('network', '=', network)
+      .where('project_id', '=', CURRENT_PROJECT)
       .executeTakeFirst();
     if (row === undefined) return undefined;
     const account = toAccount(row);
@@ -130,7 +133,7 @@ export const fundingAccounts = {
       .execute();
   },
 
-  // Undefined when the principal already has an account on this network, or the
+  // Undefined when the project already has an account on this network, or the
   // address is already held. The row that won may not be this session's to see,
   // so it is not returned, and the caller decides what the conflict means.
   record: async (db: Tx, input: NewFundingAccount): Promise<FundingAccount | undefined> => {
@@ -161,7 +164,7 @@ export const fundingAccounts = {
   // The app cannot delete a funding source, so a second confirmation racing the
   // first must not get as far as creating one. The lock makes it wait and then
   // find the first's. The key on the instance holds even if something forgets to
-  // take it.
+  // take it, and the index on the account holds for the same reason.
   attach: async (
     db: Tx,
     input: { readonly accountId: string; readonly mandateInstanceId: string },

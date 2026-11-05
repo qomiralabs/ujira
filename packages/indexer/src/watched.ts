@@ -63,7 +63,8 @@ export function dbWatchedAddresses(
     const [only, ...others] = account.instances;
     if (only === undefined) return refuse(address, 'no_mandate');
     // Which of several a deposit is for cannot be told from the transfer. Picking one
-    // could sweep a principal's money into the wrong mandate.
+    // could sweep a principal's money into the wrong mandate. The key on the account
+    // should make this impossible, and this decides where money goes, so it stays.
     if (others.length > 0) return refuse(address, 'several_mandates');
     if (!isTokenAsset(only.asset)) return refuse(address, 'unknown_asset');
     return {

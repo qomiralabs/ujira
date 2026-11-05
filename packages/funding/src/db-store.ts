@@ -79,18 +79,17 @@ function toRecord(
   };
 }
 
-export function createDbFundingAccountStores(db: Pick<Database, 'tenant' | 'principal'>): {
+export function createDbFundingAccountStores(db: Pick<Database, 'tenant'>): {
   readonly accounts: FundingAccountStore;
   readonly sources: FundingSourceStore;
 } {
   return {
     accounts: {
-      // Read across the principal's projects, since reserves are budgeted per
-      // principal. Through the app's connection rather than the reader's, because
-      // a reader that lags could miss the row a retried confirmation just wrote.
-      async forPrincipal(scope, network) {
+      // Through the app's connection rather than the reader's, because a reader
+      // that lags could miss the row a retried confirmation just wrote.
+      async forProject(scope, network) {
         const row = await db
-          .principal(scope, 'app')
+          .tenant(scope)
           .transaction(async (tx) => fundingAccounts.forNetwork(tx, network));
         return row === undefined ? null : toRecord(scope.principalId, network, row);
       },

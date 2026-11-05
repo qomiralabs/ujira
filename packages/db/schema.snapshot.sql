@@ -2850,14 +2850,6 @@ ALTER TABLE ONLY ujira.funding_accounts
 
 
 --
--- Name: funding_accounts funding_accounts_one_per_principal; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
---
-
-ALTER TABLE ONLY ujira.funding_accounts
-    ADD CONSTRAINT funding_accounts_one_per_principal UNIQUE (principal_id, network);
-
-
---
 -- Name: funding_accounts funding_accounts_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3319,6 +3311,20 @@ CREATE INDEX funding_account_checks_latest ON ujira.funding_account_checks USING
 --
 
 CREATE INDEX funding_account_sources_by_account ON ujira.funding_account_sources USING btree (principal_id, project_id, funding_account_id);
+
+
+--
+-- Name: funding_account_sources_one_per_account; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE UNIQUE INDEX funding_account_sources_one_per_account ON ujira.funding_account_sources USING btree (funding_account_id);
+
+
+--
+-- Name: funding_accounts_one_per_project; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE UNIQUE INDEX funding_accounts_one_per_project ON ujira.funding_accounts USING btree (principal_id, project_id, network);
 
 
 --

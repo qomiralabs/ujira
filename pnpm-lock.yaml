@@ -460,6 +460,10 @@ importers:
       '@ujira/db':
         specifier: workspace:*
         version: link:../db
+    devDependencies:
+      '@ujira/funding':
+        specifier: workspace:*
+        version: link:../funding
 
   packages/mandates:
     dependencies:

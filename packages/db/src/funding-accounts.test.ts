@@ -1,9 +1,9 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-// One forwarding account per principal and network, no address held twice, and
-// one funding source per mandate instance however often a confirmation is retried.
-// Those keys are what the sponsorship and the sweeps rely on.
+// One forwarding account per project and network, no address held twice, one mandate
+// instance per account, and one funding source per mandate instance however often a
+// confirmation is retried. Those keys are what the sponsorship and the sweeps rely on.
 
 import { randomBytes, randomUUID } from 'node:crypto';
 
@@ -143,7 +143,7 @@ describe('funding accounts', () => {
     ).toBeUndefined();
   });
 
-  it('keeps the first account for a principal and network', async () => {
+  it('keeps the first account for a project and network', async () => {
     const tenant = await newTenant();
     const first = await as(tenant, async (tx) => fundingAccounts.record(tx, newAccount()));
     const again = await as(tenant, async (tx) => fundingAccounts.record(tx, newAccount()));
@@ -159,13 +159,34 @@ describe('funding accounts', () => {
   it("does not show one project another project's account", async () => {
     const tenant = await newTenant();
     const second = await secondProject(tenant);
-    const first = await as(tenant, async (tx) => fundingAccounts.record(tx, newAccount()));
+    await as(tenant, async (tx) => fundingAccounts.record(tx, newAccount()));
     expect(await as(second, async (tx) => fundingAccounts.forNetwork(tx, NETWORK))).toBeUndefined();
+  });
+
+  it('gives each project of a principal its own account', async () => {
+    const tenant = await newTenant();
+    const second = await secondProject(tenant);
+    const first = await as(tenant, async (tx) => fundingAccounts.record(tx, newAccount()));
+    const other = await as(second, async (tx) => fundingAccounts.record(tx, newAccount()));
+    expect(other?.projectId).toBe(second.projectId);
+    expect(other?.id).not.toBe(first?.id);
+    const read = async (project: ProjectContext) =>
+      as(project, async (tx) => fundingAccounts.forNetwork(tx, NETWORK));
+    expect((await read(tenant))?.id).toBe(first?.id);
+    expect((await read(second))?.id).toBe(other?.id);
+  });
+
+  // Across projects there may now be several, and whichever came back first would be
+  // somebody else's account. A read that spans them has no one answer to give.
+  it("does not answer a principal-wide read with one project's account", async () => {
+    const tenant = await newTenant();
+    const second = await secondProject(tenant);
+    await as(tenant, async (tx) => fundingAccounts.record(tx, newAccount()));
+    await as(second, async (tx) => fundingAccounts.record(tx, newAccount()));
     const across = await db
       .principal(second, 'app')
       .transaction(async (tx) => fundingAccounts.forNetwork(tx, NETWORK));
-    expect(across?.id).toBe(first?.id);
-    expect(across?.projectId).toBe(tenant.projectId);
+    expect(across).toBeUndefined();
   });
 
   it('never lets two tenants hold one address, without showing whose it is', async () => {
@@ -330,6 +351,32 @@ describe('reading a funding account again', () => {
 });
 
 describe('attaching an account to a mandate instance', () => {
+  // The check in attach goes through the app. This holds for anything that does not, since
+  // a second link would leave deposits to the account with no one mandate to go to.
+  it('refuses a second link to an account, whoever writes it', async () => {
+    const tenant = await newTenant();
+    const account = await as(tenant, async (tx) => fundingAccounts.record(tx, newAccount()));
+    const accountId = account?.id ?? '';
+    await as(tenant, async (tx) =>
+      fundingAccounts.attach(tx, { accountId, mandateInstanceId: await newInstance(tenant) }),
+    );
+    const second = await newInstance(tenant);
+    const source = await as(tenant, async (tx) =>
+      fundingSources.create(tx, {
+        mandateInstanceId: second,
+        kind: 'stellar_funding_account',
+        config: { sponsoredReserves: true, sponsorTxHash: randomBytes(32) },
+      }),
+    );
+    const insert = admin.query(
+      `insert into ujira.funding_account_sources
+         (principal_id, project_id, funding_account_id, funding_source_id, mandate_instance_id)
+       values ($1, $2, $3, $4, $5)`,
+      [tenant.principalId, tenant.projectId, accountId, source.id, second],
+    );
+    expect(await codeOf(insert)).toBe('23505');
+  });
+
   it('makes a stellar_funding_account source carrying the sponsoring transaction', async () => {
     const tenant = await newTenant();
     const input = newAccount();

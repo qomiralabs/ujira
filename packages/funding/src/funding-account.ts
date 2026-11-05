@@ -88,7 +88,7 @@ export interface ConfirmFundingAccount {
 
 export interface ConfirmedFundingAccount {
   readonly account: FundingAccountRecord;
-  /** Null when the account is not one to fund from: rejected, or held by another project. */
+  /** Null when the account is not one to fund from, because it was rejected. */
   readonly fundingSourceId: string | null;
 }
 
@@ -130,7 +130,7 @@ export interface FundingAccountService {
   submit(req: SubmitFundingAccount, opts: CallOptions): Promise<SubmissionRef>;
   /** Waits for the account, verifies it on chain and makes the instance's funding source. */
   confirm(req: ConfirmFundingAccount, opts: CallOptions): Promise<ConfirmedFundingAccount>;
-  /** Points another mandate instance at the account the project already has. */
+  /** Points a mandate instance at the account the project already has, if nothing else uses it. */
   attach(req: AttachFundingAccount): Promise<string>;
   /** The addresses to show for funding a mandate. */
   options(req: FundingAccountOptionsRequest): Promise<FundingAccountOptions>;
@@ -185,10 +185,8 @@ export function createFundingAccountService(
         opts,
       );
       // A rejected account is on the record and flagged, but nothing is ever to
-      // be funded from it. Another project's stays with that project.
-      if (account.status !== 'active' || account.projectId !== req.scope.projectId) {
-        return { account, fundingSourceId: null };
-      }
+      // be funded from it.
+      if (account.status !== 'active') return { account, fundingSourceId: null };
       return { account, fundingSourceId: await sourceOf(req) };
     },
 
