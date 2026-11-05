@@ -108,7 +108,7 @@ export { pinnedKeys, verifyPinnedAddresses } from './key-ref.js';
 export type { PinnedKey } from './key-ref.js';
 export { NETWORK_IDS, chainOf, isNetworkId } from './networks.js';
 export type { NetworkId, StellarNetworkId } from './networks.js';
-export { RAIL_IDS, isRailId } from './rails.js';
+export { BATCH_LIMITS, railKindOf, type RailKind, RAIL_IDS, isRailId } from './rails.js';
 export { RECEIPT_HASH_FORMATS, formatReceiptRef, parseReceiptRef } from './receipt-ref.js';
 export type { ReceiptRefParts } from './receipt-ref.js';
 export { createChainAdapterRegistry } from './registry.js';
@@ -139,6 +139,13 @@ export type {
   BatchSimulation,
   BatchSimulationPort,
 } from './bisect.js';
+export { parseTtlConfig, TTL_KEEP_ALIVE_TASK, ttlKeepAliveTask } from './stellar/ttl-job.js';
+export type {
+  KeepAliveTargets,
+  TtlConfig,
+  TtlKeepAlivePayload,
+  TtlPorts,
+} from './stellar/ttl-job.js';
 export { tenantRefOf, tenantTagOf } from './tenant-ref.js';
 export { createXlmRateReader, deviationBps } from './stellar/xlm-rate.js';
 export type {
