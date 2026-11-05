@@ -22,6 +22,8 @@ export interface SignerLogFields {
   readonly keyRequestId?: string;
   readonly errorCode?: string;
   readonly durationMs?: number;
+  /** What a startup check refused: variable names and codes, never a value. */
+  readonly issues?: readonly string[];
 }
 
 export type SignerLogLevel = 'info' | 'warn' | 'error';
@@ -50,6 +52,7 @@ export const SIGNER_LOG_FIELDS: readonly (keyof SignerLogFields)[] = Object.free
   'keyRequestId',
   'errorCode',
   'durationMs',
+  'issues',
 ]);
 
 const EVENT = /^[a-z][a-z0-9_]{0,63}$/;
