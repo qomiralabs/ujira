@@ -45,19 +45,38 @@ function paymentTx(source: Keypair) {
 describe('the stellar entry', { timeout: 30_000 }, () => {
   it('exports the adapter, the stores and the policy, and nothing that needs the SDK types', () => {
     expect(Object.keys(entry).sort()).toEqual([
+      'CONTRACT_ADDRESS_LABEL',
       'INSTANCE_TTL_EXTEND_LEDGERS',
       'RECORD_TTL_MARGIN_SECONDS',
+      'REVIEWED_WALLET_CODE',
       'StellarMandateAdapter',
+      'WALLET_REFUSALS',
       'accountBalance',
+      'buildRecipientActivation',
+      'checkSingleKey',
+      'checkStellarDestination',
+      'checkStellarWalletProof',
+      'checkWalletChange',
+      'checkWalletTrust',
+      'createFundingAccountFlow',
       'createMemorySigningRequestStore',
       'createStellarEventIntake',
+      'createStellarLedgerReader',
       'createStellarRpc',
       'extensionPlan',
       'fateOf',
+      'fewestSignatures',
+      'guardWalletChange',
+      'guardWalletForMandate',
+      'horizonDexSource',
       'ledgerEventOf',
       'mandateAddressOf',
+      'parseForwarderRequest',
+      'reflectorOracleSource',
       'scanLedgerEvents',
+      'stellarFundingView',
       'stellarTenantTag',
+      'verifyStellarWalletProof',
     ]);
   });
 

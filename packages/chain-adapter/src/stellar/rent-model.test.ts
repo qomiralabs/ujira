@@ -187,11 +187,12 @@ describe('the rent policy', () => {
     ).toBe(0n);
   });
 
-  it('prices a restore as the minimum TTL, the TTL write and the entry write', () => {
-    // 1024 * 1000 * 120960 / (1024 * 1215) = 99,555.6, rounded up; then the
-    // TTL write, and the entry written again: 1250 and 1024 bytes at 437 per 1 KB.
+  it('prices a restore as the minimum TTL, the TTL write, and the entry read and written', () => {
+    // 1024 * 1000 * 120960 / (1024 * 1215) = 99,555.6, rounded up; then the TTL
+    // write; the entry read, 781 and 1024 bytes at 223 per 1 KB; and written
+    // again, 1250 and 1024 bytes at 437 per 1 KB.
     const fee = restoreFee({ settings: testnet, currentLedger: LEDGER, entrySizeBytes: 1_024n });
-    expect(fee.amount).toBe(99_556n + TTL_WRITE + 1_250n + 437n);
+    expect(fee.amount).toBe(99_556n + TTL_WRITE + 781n + 223n + 1_250n + 437n);
   });
 
   it('extends the instance and balance entry to the policy, and nothing already there', () => {
@@ -213,6 +214,17 @@ describe('the rent policy', () => {
       entries: [{ sizeBytes: 2_000n, liveUntilLedger: LEDGER + 1_000_000n }],
     });
     expect(none.amount).toBe(0n);
+  });
+
+  it('prices contract code at a third of the rate of contract data', () => {
+    const entries = (code: boolean) => [
+      { sizeBytes: 3_000_000n, liveUntilLedger: LEDGER + 100n, code },
+    ];
+    const input = { settings: testnet, policy: POLICY, currentLedger: LEDGER };
+    const asCode = instanceExtensionRent({ ...input, entries: entries(true) }).amount - TTL_WRITE;
+    const asData = instanceExtensionRent({ ...input, entries: entries(false) }).amount - TTL_WRITE;
+    expect(asCode).toBe(rentForSizeAndLedgers(testnet, 1_000_000n, 535_579n, true));
+    expect(asData).toBe(rentForSizeAndLedgers(testnet, 3_000_000n, 535_579n, true));
   });
 
   it('uses the spec values for the record margin and the ledger time', () => {

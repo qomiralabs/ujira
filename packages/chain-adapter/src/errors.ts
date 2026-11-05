@@ -31,6 +31,7 @@ export const CHAIN_ADAPTER_ERROR_CODES = Object.freeze([
   'QUOTE_EXPIRED',
   'QUOTE_UNAVAILABLE',
   'LIQUIDITY_UNAVAILABLE',
+  'RATE_UNAVAILABLE',
   'RAIL_UNAVAILABLE',
   'RAIL_REJECTED',
   'RAIL_TIMEOUT',
@@ -157,6 +158,7 @@ const DEFAULTS: Readonly<Record<ChainAdapterErrorCode, Defaults>> = {
   QUOTE_EXPIRED: { retryable: true, landed: 'no', message: 'Quote expired' },
   QUOTE_UNAVAILABLE: { retryable: false, landed: 'no', message: 'Quote unavailable' },
   LIQUIDITY_UNAVAILABLE: { retryable: false, landed: 'no', message: 'Liquidity unavailable' },
+  RATE_UNAVAILABLE: { retryable: true, landed: 'no', message: 'No fresh native asset rate' },
   RAIL_UNAVAILABLE: { retryable: true, landed: 'no', message: 'Delivery rail unavailable' },
   RAIL_REJECTED: { retryable: false, landed: 'no', message: 'Delivery rail rejected the transfer' },
   RAIL_TIMEOUT: { retryable: true, landed: 'no', message: 'Delivery rail timed out' },
@@ -258,9 +260,11 @@ const ADAPTER_ERROR_NAMES = [
   'ActivationBudgetExhaustedError',
   'ExecutorUnfundedError',
   'DestinationInvalidError',
+  'UnsupportedMemoDestinationError',
   'QuoteExpiredError',
   'QuoteUnavailableError',
   'LiquidityUnavailableError',
+  'RateUnavailableError',
   'RailUnavailableError',
   'RailRejectedError',
   'RailTimeoutError',
@@ -653,6 +657,32 @@ export class DestinationInvalidError extends ChainAdapterError {
   }
 }
 
+/**
+ * Shown to a recipient whose destination needs a text or hash memo. Plain
+ * fixed text, so a widget or an API can show it as it is.
+ */
+export const UNSUPPORTED_MEMO_DESTINATION_MESSAGE =
+  'This destination needs a text or hash memo, which a payout from a mandate cannot carry. Choose another payout method, or an address that needs no memo or only a numeric one.';
+
+/**
+ * A destination that needs a text or hash memo. A contract cannot attach a
+ * transaction memo and a muxed tag holds only a 64 bit number, so it could
+ * never be paid; it is refused when the destination is captured, not found
+ * at payout time. It is invalid input with reason MEMO_NOT_ID, so callers
+ * that branch on the code or the reason need no new case.
+ */
+export class UnsupportedMemoDestinationError extends InvalidInputError {
+  override readonly name: string = 'UnsupportedMemoDestinationError';
+
+  constructor(options: { readonly network: NetworkId | null; readonly path: string }) {
+    super({
+      network: options.network,
+      reason: 'MEMO_NOT_ID',
+      issues: [`${options.path} (memo_not_id)`],
+    });
+  }
+}
+
 export class QuoteExpiredError extends ChainAdapterError {
   override readonly name = 'QuoteExpiredError';
   constructor(options?: ChainAdapterErrorOptions) {
@@ -671,6 +701,14 @@ export class LiquidityUnavailableError extends ChainAdapterError {
   override readonly name = 'LiquidityUnavailableError';
   constructor(options?: ChainAdapterErrorOptions) {
     super('LIQUIDITY_UNAVAILABLE', options);
+  }
+}
+
+/** No source gave a fresh price for the native asset. A rate is never guessed. */
+export class RateUnavailableError extends ChainAdapterError {
+  override readonly name = 'RateUnavailableError';
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('RATE_UNAVAILABLE', options);
   }
 }
 

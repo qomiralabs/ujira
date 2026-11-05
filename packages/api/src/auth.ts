@@ -30,6 +30,8 @@ export interface Tenant {
 }
 
 export interface AuthenticatedTenant extends Tenant {
+  /** Which key this is, for its own rate limit. Never sent to a client. */
+  readonly tokenId: string;
   readonly scopes: readonly ApiScope[];
 }
 
@@ -57,8 +59,8 @@ export interface CallOptions {
 export type Authenticate = (credentials: Credentials, call: CallOptions) => Promise<AuthResult>;
 
 /**
- * Refuses every credential. The default until token authentication lands,
- * so a tenant route can never run as nobody.
+ * Refuses every credential. What a local run with no database uses, so a tenant
+ * route can never run as nobody.
  */
 export const refuseAllCredentials: Authenticate = () =>
   Promise.resolve({ ok: false, code: 'TOKEN_INVALID' });
@@ -70,5 +72,6 @@ const TenantId = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 export const AuthenticatedTenantSchema = z.strictObject({
   principalId: TenantId,
   projectId: TenantId,
+  tokenId: TenantId,
   scopes: z.array(z.enum(API_SCOPES)).min(1).max(API_SCOPES.length),
 });

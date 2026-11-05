@@ -28,6 +28,7 @@ import type {
   UnixSeconds,
 } from '../types.js';
 import type { RpcTransaction, StellarRpc } from './rpc.js';
+import { resourceFailureOf } from './soroban-rules.js';
 import { submitEnvelope } from './submit.js';
 import { accountState, attach, txHash, waitForTransaction } from './tx.js';
 import type { WaitOptions } from './tx.js';
@@ -69,6 +70,13 @@ export interface SendRecord {
   readonly payoutId?: PayoutId | null;
   readonly attempt?: number | null;
   readonly correlationId: string;
+}
+
+// A send the network refused for resources. Only sendFresh sees it: it either
+// retries or turns it into a rejection, so it never reaches a caller, and
+// nothing can read it as a mandate decision.
+class ResourceFailureSignal extends Error {
+  override readonly name = 'ResourceFailureSignal';
 }
 
 export class ExecutorSession {
@@ -166,6 +174,7 @@ export class ExecutorSession {
         state: 'failed',
         errorCode: 'SUBMISSION_REJECTED',
       });
+      if (resourceFailureOf(landed.resultXdr) !== null) throw new ResourceFailureSignal();
       throw new SubmissionRejectedError({ network, landed: 'yes' });
     }
     await ports.store.updateSubmission(record.scope, network, hash, {
@@ -174,6 +183,30 @@ export class ExecutorSession {
     });
     return { hash, landed };
   }
+}
+
+/**
+ * Sends a transaction built by `build`, which simulates afresh on every call,
+ * so no footprint is reused. A resource failure is re-simulated and resubmitted
+ * at most the configured number of times, then fails as SUBMISSION_REJECTED
+ * with nothing landed, never as a mandate rule.
+ */
+export async function sendFresh(
+  ctx: Pick<ExecutorContext, 'network' | 'ports'>,
+  session: ExecutorSession,
+  build: () => Promise<Transaction>,
+  record: SendRecord,
+  opts: CallOptions,
+): Promise<{ readonly hash: string; readonly landed: RpcTransaction | null }> {
+  const retries = ctx.ports.config()[ctx.network]?.soroban.resimulateRetries ?? 0;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await session.send(await build(), record, opts, true);
+    } catch (error) {
+      if (!(error instanceof ResourceFailureSignal)) throw error;
+    }
+  }
+  throw new SubmissionRejectedError({ network: ctx.network, landed: 'no' });
 }
 
 /**
