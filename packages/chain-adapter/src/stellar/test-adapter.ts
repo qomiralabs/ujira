@@ -10,6 +10,7 @@ import { parseNetworksConfig } from '../config.js';
 import type { NetworksConfig } from '../config.js';
 import type {
   AdapterPorts,
+  Destination,
   MandateRef,
   MandateRegistration,
   TenantScope,
@@ -113,6 +114,8 @@ export interface TestSetup {
   readonly requests: SigningRequestStore;
   readonly ports: AdapterPorts;
   readonly registry: TestRegistry;
+  /** The destination of each recipient method a test sets up. */
+  readonly methods: Map<string, Destination>;
   readonly scope: TenantScope;
   readonly mandate: MandateRef;
   readonly principal: Keypair;
@@ -195,12 +198,14 @@ export function setup(
     config: () => config,
   };
   const requests = createMemorySigningRequestStore();
+  const methods = new Map<string, Destination>();
   let id = 0;
   const adapter = new StellarMandateAdapter({
     network: NETWORK,
     rpc,
     ports,
     requests,
+    methods: { destination: (_scope, id) => Promise.resolve(methods.get(id) ?? null) },
     wait: { attempts: 3, intervalMs: 0, sleep: () => Promise.resolve() },
     ...(options.submitTimeoutMs === undefined ? {} : { submitTimeoutMs: options.submitTimeoutMs }),
     ...(options.nodeEnv === undefined ? {} : { nodeEnv: options.nodeEnv }),
@@ -214,6 +219,7 @@ export function setup(
     requests,
     ports,
     registry,
+    methods,
     scope,
     mandate: {
       network: NETWORK,

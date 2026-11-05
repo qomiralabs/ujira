@@ -22,6 +22,7 @@ import type {
   AdapterPorts,
   CallOptions,
   ExecutorLease,
+  PayoutId,
   SubmissionOp,
   TenantScope,
   UnixSeconds,
@@ -66,6 +67,8 @@ export interface SendRecord {
   readonly scope: TenantScope;
   readonly op: SubmissionOp;
   readonly mandate: string | null;
+  readonly payoutId?: PayoutId | null;
+  readonly attempt?: number | null;
   readonly correlationId: string;
 }
 
@@ -146,8 +149,8 @@ export class ExecutorSession {
       txHash: hash,
       op: record.op,
       mandate: record.mandate,
-      payoutId: null,
-      attempt: null,
+      payoutId: record.payoutId ?? null,
+      attempt: record.attempt ?? null,
       signerAddress: this.address,
       sequenceOrNonce: BigInt(tx.sequence),
       maxTime,
