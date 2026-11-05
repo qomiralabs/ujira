@@ -34,6 +34,31 @@ A login with no connection gets one when the first code that runs as it arrives,
 - The indexer may use the transaction pooler because it listens for nothing. If it ever needs LISTEN, it joins the session only roles.
 
 **Evidence.** `packages/db/src/indexer-connection.test.ts` connects through the new pool and finds `ujira_indexer`, and the worker pool is not that login. `config.test.ts` counts the pool in the budget, and `env-template.test.ts` checks `.env.example` documents both new variables.
+## A migration run that waits for the lock tries again, rather than blocking
+
+**Problem.** Several instances migrating at boot pass `lockMode: 'wait'`, and both the migration tool and the per-file runner waited by blocking in `pg_advisory_lock`. A concurrent index build waits for every transaction open while it runs, and a statement blocked on that lock is one. So the run holding the lock waited for the run waiting for it.
+
+- With the tool's lock, Postgres saw the cycle and killed one with `40P01`.
+- With the per-file runner, the lock is held on the bootstrap login's connection and the build runs on the migrator's. Postgres saw no cycle, and both waited forever.
+
+This blocked running more than one instance.
+
+**Options.**
+
+1. Try for the lock, and sleep between tries with nothing open. Nothing the build waits for is left running, and a single run behaves as before.
+2. Take the lock with a timeout and retry. Each wait is still a statement the build waits on, so this only shortens the deadlock.
+3. Forbid concurrent index builds when more than one instance migrates. This gives up the only way to add an index to a live table without blocking writes.
+4. Migrate from one deploy step, never at boot. Right for some deployments, and still a rule nothing enforces.
+
+Chose 1, in both places. A run told to fail still fails at once, with the same message. A run told to wait tries every 250 ms, for as long as it takes, as the blocking wait did.
+
+**Trade offs and risks.**
+
+- A waiting run starts up to 250 ms after the lock frees, and a crowd of instances each try four times a second while they wait.
+- No order among waiters, which the blocking wait had only by chance.
+- A try that finds the lock taken opens and closes a connection each time. The tool takes its lock before it touches anything, so a try leaves nothing behind.
+
+**Evidence.** `packages/db/src/migrate-wait.test.ts` runs real migrators at once against one Postgres, with a concurrent index build in the folder, through both entry points. Before this change the tool's path deadlocked and the per-file path hung.
 
 ## Two logins run the migrations
 

@@ -19,6 +19,7 @@ import { describe, expect, it } from 'vitest';
 import * as index from './index.js';
 import {
   FundingAccountConflictError,
+  FundingAccountInUseError,
   FundingAccountStateError,
   FundingInputError,
 } from './errors.js';
@@ -266,18 +267,20 @@ describe('funding-account.test.ts', () => {
     expect(w.store.sources()).toHaveLength(1);
   });
 
-  it('points a second mandate instance at the account the project has', async () => {
+  // A transfer to the account cannot say which mandate it is for. A second one would
+  // stop deposits being attributed for both, with nothing telling the principal.
+  it('refuses a second mandate instance on one account, with its own error', async () => {
     const w = world();
     const scope = tenant();
+    const one = w.instance(scope);
     const two = w.instance(scope);
-    const done = await w.service.confirm(
-      { scope, requestId: 'r1', mandateInstanceId: w.instance(scope) },
-      OPTS,
+    const done = await w.service.confirm({ scope, requestId: 'r1', mandateInstanceId: one }, OPTS);
+    await expect(w.service.attach({ scope, mandateInstanceId: two })).rejects.toBeInstanceOf(
+      FundingAccountInUseError,
     );
-    const source = await w.service.attach({ scope, mandateInstanceId: two });
-    expect(source).not.toBe(done.fundingSourceId);
-    expect(w.store.sources()).toHaveLength(2);
-    expect(await w.service.attach({ scope, mandateInstanceId: two })).toBe(source);
+    expect(w.store.sources()).toEqual([done.fundingSourceId]);
+    // The first still answers its retry with the same source.
+    expect(await w.service.attach({ scope, mandateInstanceId: one })).toBe(done.fundingSourceId);
   });
 
   it('makes no new source from an account that has changed since it was verified', async () => {
@@ -539,5 +542,7 @@ describe('funding-account.test.ts', () => {
     expect(index.FUNDING_ERROR_CODES).toContain('FUNDING_ACCOUNT_CONFLICT');
     expect(new FundingAccountConflictError().code).toBe('FUNDING_ACCOUNT_CONFLICT');
     expect(new FundingAccountStateError().code).toBe('FUNDING_ACCOUNT_STATE');
+    expect(new FundingAccountInUseError().code).toBe('FUNDING_ACCOUNT_IN_USE');
+    expect(index.FundingAccountInUseError).toBe(FundingAccountInUseError);
   });
 });

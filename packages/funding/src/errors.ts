@@ -6,6 +6,7 @@
 
 export const FUNDING_ERROR_CODES = Object.freeze([
   'FUNDING_ACCOUNT_CONFLICT',
+  'FUNDING_ACCOUNT_IN_USE',
   'FUNDING_ACCOUNT_STATE',
   'FUNDING_INVALID_INPUT',
   'SWEEP_STATE',
@@ -55,6 +56,19 @@ export class FundingAccountConflictError extends FundingError {
 
   constructor() {
     super('FUNDING_ACCOUNT_CONFLICT', 'The funding account conflicts with one already recorded');
+  }
+}
+
+/**
+ * The account already funds another mandate. A transfer to it cannot say which one it
+ * is for, so a second would stop deposits being attributed for both. The principal
+ * has to be told, because nothing else would show them why.
+ */
+export class FundingAccountInUseError extends FundingError {
+  override readonly name = 'FundingAccountInUseError';
+
+  constructor() {
+    super('FUNDING_ACCOUNT_IN_USE', 'The funding account already funds another mandate');
   }
 }
 
