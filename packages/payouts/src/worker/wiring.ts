@@ -9,18 +9,22 @@
 // not merged. productionParts says which, by issue, and the process refuses to start
 // rather than run with something standing in for one.
 
+import type { ComplianceDeps } from '@ujira/mandates';
 import { RECEIPT_ISSUE_TASK, receiptIssueTask, type ReceiptIssuePorts } from '@ujira/receipts';
 import type { Task } from 'graphile-worker';
 
 import { engineHandlers } from '../engine/index.js';
 import type { EngineDeps } from '../engine/plan.js';
+import { complianceRecheck } from './compliance-recheck.js';
 import type { NetworkScan, SubmissionSweeper } from './crons.js';
 import { WorkerConfigError } from './errors.js';
 import type { WorkerHandlers } from './start.js';
+import { COMPLIANCE_RECHECK } from './tasks.js';
 
 export interface WorkerParts {
   readonly engine: EngineDeps;
   readonly receipts: ReceiptIssuePorts;
+  readonly compliance: ComplianceDeps;
   readonly indexerScans: readonly NetworkScan[];
   readonly submissionSweepers: readonly SubmissionSweeper[];
   readonly ttlKeepAlive: NonNullable<WorkerHandlers['ttlKeepAlive']>;
@@ -35,6 +39,10 @@ export function workerHandlers(parts: WorkerParts): WorkerHandlers {
   };
   return {
     ...engine,
+    tenantTasks: [
+      ...engine.tenantTasks,
+      { task: COMPLIANCE_RECHECK, work: complianceRecheck(parts.compliance) },
+    ],
     plugins: { ...engine.plugins, [RECEIPT_ISSUE_TASK]: receipt },
     indexerScans: parts.indexerScans,
     submissionSweepers: parts.submissionSweepers,

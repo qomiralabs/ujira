@@ -106,3 +106,30 @@ Chose 3. The balance belongs to one instance, so that row and no wider one is wh
 - The bootstrap login holds a separate lock across the whole run, so a second run cannot slip between two files.
 
 **Evidence.** `packages/db/src/migrate-as-migrator.test.ts` migrates from an empty database through both logins on every pull request.
+
+## Principal key rechecks take turns in the queue
+
+**Problem.** A recheck of the principal key rule reads everything a principal holds, then marks or clears each instance. Run inline from the indexer, two rechecks for one principal could overlap, and one that read the holdings before a budget increase could finish last and clear the mark the newer one set. That restores service to a mandate that breaks the rule and resumes its parked jobs.
+
+**Options.**
+
+1. A database lock per principal around the recheck. It serializes the two, but nothing retries a failed chain read, and nothing hears of one that keeps failing.
+2. A version on each mark, so an older reading cannot overwrite a newer one. It needs a version the chain does not give us for the whole of a principal's holdings, and still no retries.
+3. A queue task, `compliance:recheck`, on one queue per principal, with one job key per principal in replace mode.
+
+**Decision.** Option 3.
+
+- The queue and key are principal scoped, so every project of one principal shares them and the rechecks run one at a time.
+- The job carries no reading. It reads the holdings when it runs, so a recheck still waiting stands for every event after it, and replace mode folds those events into it.
+- An event that arrives while a recheck runs gets a job of its own, because the queue gives a running job's key to the new job. It runs after, on a fresh reading.
+- The principal comes from the job's tenant, never from its payload.
+- A failed or timed out port call is retryable on the handler curve and changes nothing. At the last try the job writes a dead letter and alerts, because the mandate's state may then be stale.
+- `scheduleRecheck` is called in the transaction that books a mandate event, so the job exists only if the event does.
+
+**Trade offs and risks.**
+
+- A burst of events costs at most one running and one waiting recheck per principal.
+- An event folded into a job that is waiting on a retry takes that job's remaining tries and delay, rather than starting fresh.
+- The indexer does not call `scheduleRecheck` yet. That lands with the store under the indexer scan.
+
+**Evidence.** `packages/payouts/src/worker/compliance-recheck.test.ts`: `rechecks for one principal never overlap, while another principal runs`, `an older reading cannot undo a newer one`, `an event during a running recheck still gets a recheck of its own`, and `a recheck that keeps failing reaches the dead letter path and alerts`. All three ordering tests fail with the queue name taken away.

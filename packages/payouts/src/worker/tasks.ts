@@ -94,6 +94,20 @@ export const TTL_KEEP_ALIVE: TenantTask = {
     }),
 };
 
+// A recheck reads everything a principal holds and then marks or clears each of its
+// instances, so two of them overlapping could let an older reading land last and undo
+// a newer one. One queue per principal runs them one at a time. One key per principal
+// folds every event that arrives while a recheck waits into it, which loses nothing,
+// because the holdings are read when it runs. An event that arrives while one runs
+// gets a job of its own, because the queue gives a running job's key to the new one.
+export const COMPLIANCE_RECHECK: TenantTask = {
+  name: 'compliance:recheck',
+  ids: [],
+  jobKey: () => 'compliance_recheck',
+  queueName: () => 'compliance_recheck',
+  scope: 'principal',
+};
+
 export const TENANT_TASKS: readonly TenantTask[] = [
   PAYOUT_ADVANCE,
   BATCH_ADVANCE,
@@ -101,6 +115,7 @@ export const TENANT_TASKS: readonly TenantTask[] = [
   CANCEL_LAPSED,
   MANDATE_RECONCILE,
   TTL_KEEP_ALIVE,
+  COMPLIANCE_RECHECK,
 ];
 
 export type { NetworkId };

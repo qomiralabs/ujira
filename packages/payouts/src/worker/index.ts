@@ -61,6 +61,7 @@ export {
 } from './start.js';
 export {
   BATCH_ADVANCE,
+  COMPLIANCE_RECHECK,
   MANDATE_RECONCILE,
   PAYOUT_ADVANCE,
   SYSTEM_TASKS,
@@ -73,6 +74,12 @@ export {
   type TaskIds,
   type TenantTask,
 } from './tasks.js';
+export {
+  COMPLIANCE_READ_FAILED,
+  COMPLIANCE_TIMEOUT,
+  complianceRecheck,
+  scheduleRecheck,
+} from './compliance-recheck.js';
 export {
   MISSING_STORES,
   productionParts,

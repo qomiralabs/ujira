@@ -39,6 +39,7 @@ import { DEFAULT_CONCURRENCY, HEARTBEAT_EVERY_MS, workerPreset } from './setting
 import {
   BATCH_ADVANCE,
   CANCEL_LAPSED,
+  COMPLIANCE_RECHECK,
   MANDATE_RECONCILE,
   PAYOUT_ADVANCE,
   RELEASE_HELD,
@@ -175,7 +176,7 @@ export function unwiredTasks(handlers: WorkerHandlers): readonly string[] {
     [SYSTEM_TASKS.indexerScan, handlers.indexerScans !== undefined],
     [SYSTEM_TASKS.submissionSweep, handlers.submissionSweepers !== undefined],
     [TTL_KEEP_ALIVE.name, handlers.ttlKeepAlive !== undefined],
-    ...[RELEASE_HELD, CANCEL_LAPSED].map((task): readonly [string, boolean] => [
+    ...[RELEASE_HELD, CANCEL_LAPSED, COMPLIANCE_RECHECK].map((task): readonly [string, boolean] => [
       task.name,
       handlers.tenantTasks?.some((wired) => wired.task.name === task.name) === true,
     ]),

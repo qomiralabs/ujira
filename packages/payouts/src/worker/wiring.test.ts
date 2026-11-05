@@ -6,6 +6,11 @@
 
 import type { TenantScope } from '@ujira/chain-adapter';
 import { adminQuery } from '@ujira/db/testing';
+import {
+  createMemoryComplianceStore,
+  createMemoryPrincipalInstances,
+  createMemoryPrincipalKeyReader,
+} from '@ujira/mandates';
 import type { ReceiptIssueStore, StoredReceipt } from '@ujira/receipts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -78,6 +83,11 @@ async function parts() {
       clock: { nowSeconds: () => world.h.world.net.now() },
       chainTimeoutMs: 5_000,
     },
+    compliance: {
+      instances: createMemoryPrincipalInstances(),
+      signing: createMemoryPrincipalKeyReader(),
+      compliance: createMemoryComplianceStore(),
+    },
     indexerScans: [
       {
         network: 'stellar:testnet',
@@ -118,6 +128,7 @@ describe('the worker with every handler', () => {
     expect(Object.keys(taskList).sort()).toEqual(
       [
         'batch:advance',
+        'compliance:recheck',
         'indexer:scan',
         'jobs:unlock_stale',
         'payout:advance',

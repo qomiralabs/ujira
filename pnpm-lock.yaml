@@ -512,6 +512,9 @@ importers:
       '@ujira/db':
         specifier: workspace:*
         version: link:../db
+      '@ujira/mandates':
+        specifier: workspace:*
+        version: link:../mandates
       '@ujira/receipts':
         specifier: workspace:*
         version: link:../receipts
@@ -525,9 +528,6 @@ importers:
         specifier: 4.6.7
         version: 4.6.7
     devDependencies:
-      '@ujira/mandates':
-        specifier: workspace:*
-        version: link:../mandates
       fast-check:
         specifier: 4.10.2
         version: 4.10.2
