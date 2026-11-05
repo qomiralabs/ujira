@@ -55,6 +55,8 @@ export const DECLARATION_LINES: Readonly<Record<MigrationKind, string>> = {
 // own SQL loader runs every file inside one. A migration that needs to run
 // outside says so on its second line, and then holds a single statement.
 export const NO_TRANSACTION_LINE = '-- no-transaction';
+// Owns every object in the schema. The roles migration creates it.
+export const MIGRATION_OWNER_ROLE = 'ujira_owner';
 export const UP_MARKER = '-- Up Migration';
 export const DOWN_MARKER = '-- Down Migration';
 
@@ -113,10 +115,21 @@ export function parseMigration(name: string, source: string): MigrationSource {
 
 function actionFor(sql: string, transactional: boolean): (pgm: MigrationBuilder) => void {
   return (pgm) => {
-    // The tool then commits the run's transaction, sends this statement on
-    // its own and opens a new transaction for the migrations after it.
-    if (!transactional) pgm.noTransaction();
+    if (transactional) {
+      pgm.sql(sql);
+      return;
+    }
+    // The tool then commits the run's transaction, sends each of these on its
+    // own and opens a new transaction for the migrations after it. The migrator
+    // logs in without the owner's rights and a transactional migration takes them
+    // with `set local role`, but a concurrent index build cannot be in a block
+    // that could set a role for it. So the role is set for the session instead,
+    // and reset before the tool records the migration, which it does as the login.
+    // If the statement fails the run stops and the connection goes with it.
+    pgm.noTransaction();
+    pgm.sql(`set role ${MIGRATION_OWNER_ROLE}`);
     pgm.sql(sql);
+    pgm.sql('reset role');
   };
 }
 
