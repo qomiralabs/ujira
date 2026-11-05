@@ -69,8 +69,13 @@ import type { ExecutorContext } from './executor.js';
 import { feeChargedOf, reconcileSubmission } from './lifecycle.js';
 import type { Invocation } from './calls.js';
 import { parseStellarDestination } from './parse-destination.js';
-import { batchResultsOf, payoutRequestScVal, payoutViewOf } from './payout-views.js';
-import type { PayoutView } from './payout-views.js';
+import {
+  batchResultsOf,
+  liveApprovalCount,
+  payoutRequestScVal,
+  payoutViewOf,
+} from './payout-views.js';
+import type { PayoutApproval, PayoutView } from './payout-views.js';
 import { callFailure } from './sim-errors.js';
 import type { StellarRpc } from './rpc.js';
 import { address, bytes32, sym, vec } from './scval.js';
@@ -125,6 +130,11 @@ export interface PayContext {
     mandate: MandateRef,
     opts: CallOptions,
   ) => Promise<MandateInstance>;
+  /** Each approver's current epoch on a mandate that has been verified. */
+  readonly approverEpochs: (
+    contract: string,
+    opts: CallOptions,
+  ) => Promise<ReadonlyMap<string, number>>;
   /** Builds what an agent's own wallet signs, as for any other mandate call. */
   readonly prepare: (
     call: {
@@ -237,7 +247,10 @@ export class StellarPayouts {
         if (view.status === 'pending') {
           return {
             kind: 'awaiting_approval',
-            approvals: { count: view.approvals, required: config.approvalsRequired },
+            approvals: {
+              count: await this.#liveApprovals(instance, view.approvals, opts),
+              required: config.approvalsRequired,
+            },
           };
         }
         if ((await this.#now(opts)) >= view.expiresAt) throw rule(network, 'PAYOUT_LAPSED');
@@ -541,7 +554,10 @@ export class StellarPayouts {
         const { config } = await this.#mandateConfig(instance, opts);
         return {
           kind: 'awaiting_approval',
-          approvals: { count: view.approvals, required: config.approvalsRequired },
+          approvals: {
+            count: await this.#liveApprovals(instance, view.approvals, opts),
+            required: config.approvalsRequired,
+          },
         };
       }
       const dead = await this.#deadlineProof(item.deadline, opts);
@@ -797,7 +813,14 @@ export class StellarPayouts {
       onChain: view.status,
       finality: 'final',
       lapsed: latest.closeTime >= view.expiresAt,
-      ...(pending ? { approvals: { count: view.approvals, required } } : {}),
+      ...(pending
+        ? {
+            approvals: {
+              count: await this.#liveApprovals(instance, view.approvals, opts),
+              required,
+            },
+          }
+        : {}),
     };
   }
 
@@ -1035,6 +1058,16 @@ export class StellarPayouts {
     return payoutViewOf(
       returned(await simulate(rpc, network, readTx(network, inv), contract, opts)),
     );
+  }
+
+  /** With no approvals there is nothing to check, so nothing is read. */
+  async #liveApprovals(
+    instance: MandateInstance,
+    approvals: readonly PayoutApproval[],
+    opts: CallOptions,
+  ): Promise<number> {
+    if (approvals.length === 0) return 0;
+    return liveApprovalCount(approvals, await this.#c.approverEpochs(instance.address, opts));
   }
 
   async #mandateConfig(instance: MandateInstance, opts: CallOptions) {

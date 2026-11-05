@@ -265,6 +265,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       maxBisectRounds: options.maxBisectRounds ?? DEFAULT_MAX_BISECT_ROUNDS,
       config: () => this.#config(),
       verify: (scope, mandate, opts) => this.#trust.verify(scope, mandate, opts),
+      approverEpochs: (contract, opts) => this.#trust.approverEpochs(contract, opts),
       prepare: (call, opts) => this.#prepareCall(call, opts),
       submit: (req, opts) => this.submitSigned(req, opts),
     });
