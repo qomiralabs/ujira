@@ -78,9 +78,17 @@ export interface RpcEvent {
 }
 
 /** Start at a ledger, or carry on from a cursor. The RPC refuses both at once. */
-export type RpcEventRequest =
+export type RpcEventRequest = (
   | { readonly startLedger: number; readonly limit: number }
-  | { readonly cursor: string; readonly limit: number };
+  | { readonly cursor: string; readonly limit: number }
+) & {
+  /** Narrows what the node returns. It is the node's word, so a caller checks again. */
+  readonly filter?: {
+    readonly contractIds?: readonly string[];
+    /** Base64 ScVals by position; '*' matches anything there. */
+    readonly topics?: readonly (readonly string[])[];
+  };
+};
 
 export interface RpcEventPage {
   readonly events: readonly RpcEvent[];
@@ -221,7 +229,7 @@ export function createStellarRpc(options: JsonRpcOptions): StellarRpc {
       const cursor = 'cursor' in request ? { cursor: request.cursor } : {};
       const params = {
         ...start,
-        filters: [{ type: 'contract' }],
+        filters: [{ type: 'contract', ...request.filter }],
         pagination: { limit: request.limit, ...cursor },
       };
       const result = await call('getEvents', params, opts, 'no');

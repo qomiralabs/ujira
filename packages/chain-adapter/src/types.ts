@@ -387,6 +387,14 @@ export interface AdapterStore {
     txHash: string,
     patch: SubmissionPatch,
   ): Promise<void>;
+  /** The landed submission that executed this payout on its own, if one is stored. */
+  landedSubmission(key: {
+    readonly scope: TenantScope;
+    readonly network: NetworkId;
+    /** Chain encoded, as in SubmissionRecord. */
+    readonly mandate: string;
+    readonly payoutId: PayoutId;
+  }): Promise<SubmissionRecord | null>;
   /** One tenant's record by hash, in any state. Another tenant's row reads as null. */
   findSubmission(
     scope: TenantScope,
@@ -1083,6 +1091,20 @@ export type DeadProof =
       readonly kind: 'deadline_passed';
       readonly network: NetworkId;
       readonly finalTime: UnixSeconds;
+      readonly at: { readonly ledgerOrBlock: bigint; readonly finality: 'final' };
+    }
+  /** Requested, but past its own expiry at a final ledger, so it can never execute. */
+  | {
+      readonly kind: 'payout_lapsed';
+      readonly network: NetworkId;
+      readonly expiresAt: UnixSeconds;
+      readonly finalTime: UnixSeconds;
+      readonly at: { readonly ledgerOrBlock: bigint; readonly finality: 'final' };
+    }
+  /** Its agent was removed after the request, so the mandate refuses to execute it. */
+  | {
+      readonly kind: 'agent_removed';
+      readonly network: NetworkId;
       readonly at: { readonly ledgerOrBlock: bigint; readonly finality: 'final' };
     };
 

@@ -868,7 +868,9 @@ export class FakeChainAdapter implements ChainAdapter {
       this.#reach(opts);
       this.#fresh();
       const engine = this.#mandate(req.scope, req.mandate);
-      return Promise.resolve(this.#deadProof(engine, req.payoutId, req.deadline));
+      return Promise.resolve(
+        this.#deadProof(engine, req.payoutId, req.deadline) ?? this.#openDeadProof(engine, req),
+      );
     });
   }
 
@@ -1086,6 +1088,36 @@ export class FakeChainAdapter implements ChainAdapter {
       status: view.status === 'REJECTED' ? 'rejected' : 'cancelled',
       at,
     };
+  }
+
+  /** An open payout that can still never execute: past its expiry, or its agent removed. */
+  #openDeadProof(engine: MandateEngine, req: ProveDeadRequest): DeadProof | null {
+    const view = engine.payout(req.payoutId);
+    if (view === null || !('expiresAt' in view)) return null;
+    const at = { ledgerOrBlock: this.#net.finalHead, finality: 'final' as const };
+    const finalTime = this.#net.finalTime;
+    if (finalTime >= view.expiresAt) {
+      return {
+        kind: 'payout_lapsed',
+        network: this.network,
+        expiresAt: view.expiresAt as UnixSeconds,
+        finalTime: finalTime as UnixSeconds,
+        at,
+      };
+    }
+    const [executor] = this.#net.executors;
+    if (executor === undefined || view.status !== 'APPROVED') return null;
+    try {
+      this.#net.simulate(() => {
+        engine.execute({ caller: executor.address }, req.payoutId);
+      });
+      return null;
+    } catch (error) {
+      const failure = this.#mapFailure(error);
+      return failure instanceof MandateRuleError && failure.specName === 'AGENT_REMOVED'
+        ? { kind: 'agent_removed', network: this.network, at }
+        : null;
+    }
   }
 
   #payRun(

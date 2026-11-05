@@ -129,6 +129,10 @@ export function invoked(tx: Transaction): {
 }
 
 const CALLER_FUNCTIONS = new Set([
+  'request_payout',
+  'request_payouts',
+  'execute',
+  'execute_batch',
   'pause',
   'approve',
   'reject',
