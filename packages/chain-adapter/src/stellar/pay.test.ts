@@ -227,6 +227,26 @@ describe('the pay step', { timeout: 30_000 }, () => {
       await refusedBefore(bare, 'DESTINATION_INVALID');
     });
 
+    // Already refused by the destination read. Pinned, because a transfer here burns.
+    it('a leg to the asset issuer gives DESTINATION_INVALID, under a tag as well', async () => {
+      const issuer = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
+      const w = payWorld();
+      w.methods.set(METHOD, { address: { network: NETWORK, value: issuer }, tag: null });
+      await refusedBefore(w, 'DESTINATION_INVALID');
+      const tagged = payWorld();
+      tagged.methods.set(METHOD, { address: { network: NETWORK, value: issuer }, tag: 7n });
+      await refusedBefore(tagged, 'DESTINATION_INVALID');
+      const muxed = payWorld();
+      muxed.methods.set(METHOD, {
+        address: {
+          network: NETWORK,
+          value: encodeMuxedAddress(decodeAccountAddress(issuer), 7n),
+        },
+        tag: null,
+      });
+      await refusedBefore(muxed, 'DESTINATION_INVALID');
+    });
+
     it('maintain-only trustline', async () => {
       const w = payWorld();
       trustline(w, w.recipient, { flags: 2 });
