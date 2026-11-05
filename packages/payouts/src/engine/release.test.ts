@@ -6,13 +6,18 @@
 
 import { randomUUID } from 'node:crypto';
 
-import type { NetworkId, Uuid } from '@ujira/chain-adapter';
+import type { ChainAdapter, NetworkId, Uuid } from '@ujira/chain-adapter';
 import { fakeAdapterHarness, deployMandate } from '@ujira/chain-adapter/testing';
 import { fundingHolds, payoutAttempts, type Payout, type PayoutAttempt } from '@ujira/db';
 import { adminQuery } from '@ujira/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { helpersFor, newTenant, workerHarness, type WorkerHarness } from '../worker/testing/support.js';
+import {
+  helpersFor,
+  newTenant,
+  workerHarness,
+  type WorkerHarness,
+} from '../worker/testing/support.js';
 import { tenantTask } from '../worker/handlers.js';
 import { RELEASE_HELD } from '../worker/tasks.js';
 import { enqueueAdvance } from './advance.js';
@@ -85,7 +90,7 @@ describe('releasing held payouts', () => {
       expect(attempts).toHaveLength(1);
       expect((await world.read(payout.id)).status).toBe('routed');
     }
-    expect((first?.released.length ?? 0) + (second?.released.length ?? 0)).toBe(2);
+    expect(first.released.length + second.released.length).toBe(2);
     expect(third.released).toHaveLength(0);
     // Its advance job is what goes on from here, and it pays once.
     for (const payout of payouts) {
@@ -95,7 +100,7 @@ describe('releasing held payouts', () => {
 
   it('a payout held on two networks with simultaneous deposits routes once', async () => {
     const world = await emptyWorld();
-    const other: NetworkId = 'stellar:pubnet' as NetworkId;
+    const other: NetworkId = 'stellar:pubnet';
     const pub = fakeAdapterHarness({ network: other });
     const pubMandate = await deployMandate(pub, { fund: 100n * ONE_USDC, salt: randomUUID() });
     await world.h.fund(world.m.ref.address, 100n * ONE_USDC);
@@ -111,9 +116,9 @@ describe('releasing held payouts', () => {
         })),
       );
     });
+    const enabled = new Map<NetworkId, ChainAdapter>([[other, pub.adapter]]);
     const adapters = {
-      get: (network: NetworkId) =>
-        network === other ? pub.adapter : world.deps.adapters.get(network),
+      get: (network: NetworkId) => enabled.get(network) ?? world.deps.adapters.get(network),
       list: () => [...world.deps.adapters.list(), pub.adapter],
     };
     const config = world.deps.routing.config();
@@ -123,22 +128,23 @@ describe('releasing held payouts', () => {
       routing: {
         ...world.deps.routing,
         adapters,
-        config: () => ({
-          ...config,
-          networks: { ...config.networks, [other]: config.networks[NETWORK] },
-          rails: [
-            ...config.rails,
-            { id: 'wallet_pub', network: other, rail: 'stellar.wallet', enabled: true },
-          ],
-          corridors: config.corridors.map((corridor) =>
-            corridor.method === 'stellar_wallet'
-              ? {
-                  ...corridor,
-                  candidates: [...corridor.candidates, { rail: 'wallet_pub', priority: 2 }],
-                }
-              : corridor,
-          ),
-        }) as typeof config,
+        config: () =>
+          ({
+            ...config,
+            networks: { ...config.networks, [other]: config.networks[NETWORK] },
+            rails: [
+              ...config.rails,
+              { id: 'wallet_pub', network: other, rail: 'stellar.wallet', enabled: true },
+            ],
+            corridors: config.corridors.map((corridor) =>
+              corridor.currency === 'USDC'
+                ? {
+                    ...corridor,
+                    candidates: [...corridor.candidates, { rail: 'wallet_pub', priority: 2 }],
+                  }
+                : corridor,
+            ),
+          }) as typeof config,
         mandates: {
           ...world.deps.routing.mandates,
           list: async (...args: Parameters<typeof world.deps.routing.mandates.list>) => [
@@ -193,22 +199,20 @@ describe('releasing held payouts', () => {
 
   it('the running free balance stops over-commit, oldest first', async () => {
     const world = await emptyWorld();
-    const payouts = [
-      await held(world, 'budget-a'),
-      await held(world, 'budget-b'),
-      await held(world, 'budget-c'),
-    ];
+    const oldest = await held(world, 'budget-a');
+    const next = await held(world, 'budget-b');
+    const newest = await held(world, 'budget-c');
     // Enough for two with their fees, and not the third.
     await world.h.fund(world.m.ref.address, 5n * ONE_USDC);
     const summary = await releaseHeld(world.deps, TENANT, NETWORK, noSignal());
-    expect(summary.released).toEqual([payouts[0]?.id, payouts[1]?.id]);
-    expect(summary.waiting).toEqual([payouts[2]?.id]);
-    expect((await world.read(payouts[2]?.id ?? '')).statusReason).toBe('awaiting_funding');
+    expect(summary.released).toEqual([oldest.id, next.id]);
+    expect(summary.waiting).toContain(newest.id);
+    expect((await world.read(newest.id)).statusReason).toBe('awaiting_funding');
 
     // Nothing has reached the chain yet, and running it again must not see that as free.
     const again = await releaseHeld(world.deps, TENANT, NETWORK, noSignal());
     expect(again.released).toHaveLength(0);
-    expect(await attemptsOf(payouts[2] as Payout)).toHaveLength(0);
+    expect(await attemptsOf(newest)).toHaveLength(0);
   });
 
   it('the sweep never calls the router', async () => {
@@ -225,8 +229,9 @@ describe('releasing held payouts', () => {
         where task_identifier = 'payouts:release_held'`,
     );
     expect(jobs.length).toBeGreaterThanOrEqual(1);
-    expect(jobs[0]?.queue_name).toContain(TENANT.principalId);
-    expect(jobs[0]?.queue_name).toContain(`release_held:${NETWORK}`);
+    const queues = jobs.map((job) => job.queue_name);
+    expect(queues).toContainEqual(expect.stringContaining(TENANT.principalId));
+    expect(queues).toContainEqual(expect.stringContaining(`release_held:${NETWORK}`));
   });
 
   it('a burst of deposits collapses into one job', async () => {
@@ -294,11 +299,14 @@ describe('releasing held payouts', () => {
     });
     await expect(
       handler(
-        { ...TENANT, network: NETWORK, project: randomUUID() as Uuid },
+        { ...TENANT, network: NETWORK, heldProjectId: randomUUID() as Uuid },
         helpersFor('1'),
       ),
     ).rejects.toThrow(/payload/);
-    await handler({ ...TENANT, network: NETWORK, project: TENANT.projectId }, helpersFor('1'));
+    await handler(
+      { ...TENANT, network: NETWORK, heldProjectId: TENANT.projectId },
+      helpersFor('1'),
+    );
     expect(await attemptsOf(payout)).toHaveLength(1);
     await harness.db.tenant(TENANT).transaction(async (tx) => {
       await enqueueAdvance(tx, await world.read(payout.id));

@@ -60,8 +60,8 @@ export const BATCH_ADVANCE: TenantTask = {
 // project is in the key because a principal scoped key is shared across its projects.
 export const RELEASE_HELD: TenantTask = {
   name: 'payouts:release_held',
-  ids: ['network', 'project'],
-  jobKey: (ids) => `release_held:${need(ids, 'project')}:${need(ids, 'network')}`,
+  ids: ['network', 'heldProjectId'],
+  jobKey: (ids) => `release_held:${need(ids, 'heldProjectId')}:${need(ids, 'network')}`,
   queueName: (ids) => `release_held:${need(ids, 'network')}`,
   scope: 'principal',
 };

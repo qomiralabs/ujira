@@ -50,7 +50,7 @@ import { advanceWork } from '../advance.js';
 import type { EngineDeps } from '../plan.js';
 import { databaseDestinations, databaseMandates } from '../routing.js';
 
-export const NETWORK: NetworkId = 'stellar:testnet' as NetworkId;
+export const NETWORK: NetworkId = 'stellar:testnet';
 export const TENANT: ProjectContext = {
   principalId: FAKE_SCOPES.scope.principalId,
   projectId: FAKE_SCOPES.scope.projectId,
@@ -192,9 +192,15 @@ export interface EngineWorld {
   addMethod(method: PayoutMinimumMethod, recipient?: 0 | 1): Promise<string>;
   payout(key: string, requested: Money | TokenAmount, extra?: Partial<NewPayout>): Promise<Payout>;
   // One job, as a pool would run it.
-  run(payout: Payout, options?: { readonly deps?: EngineDeps; readonly jobId?: string }): Promise<void>;
+  run(
+    payout: Payout,
+    options?: { readonly deps?: EngineDeps; readonly jobId?: string },
+  ): Promise<void>;
   // Runs jobs, moving the chain on, until the payout rests or the runs run out.
-  drive(payout: Payout, options?: { readonly deps?: EngineDeps; readonly runs?: number }): Promise<Payout>;
+  drive(
+    payout: Payout,
+    options?: { readonly deps?: EngineDeps; readonly runs?: number },
+  ): Promise<Payout>;
   read(payoutId: string): Promise<Payout>;
   executed(onChainId: string): number;
   balanceOfRecipient(): Promise<bigint>;
@@ -261,7 +267,9 @@ async function deployAttested(
   const recipients_ = [0, 1].map((index) => {
     const wallet = h.wallet(`recipient-${String(index)}`);
     return {
-      recipientRef: `0x${createHash('sha256').update(`recipient-${String(index)}`).digest('hex')}` as Bytes32,
+      recipientRef: `0x${createHash('sha256')
+        .update(`recipient-${String(index)}`)
+        .digest('hex')}` as Bytes32,
       methodId: h.recipientMethod({ address: wallet, tag: null }),
       address: wallet,
     };
@@ -328,6 +336,13 @@ export function killing(
   return { deps: { ...deps, db, adapters }, boundaries: () => seen };
 }
 
+const RAIL_OF_METHOD: Readonly<Record<PayoutMinimumMethod, 'wallet' | 'anchor'>> = {
+  stellar_wallet: 'wallet',
+  bank: 'anchor',
+  mobile_money: 'anchor',
+  cash_pickup: 'anchor',
+};
+
 const nothingAttested: EngineDeps['attestationsFor'] = () =>
   Promise.resolve({ attestations: [], earliestValidUntil: null });
 
@@ -343,7 +358,7 @@ function spying(
         const seen = property === 'quote' ? calls.quotes : calls.pays;
         return (...args: readonly unknown[]): unknown => {
           seen.push(args[0]);
-          return (value as (...a: readonly unknown[]) => unknown).apply(target, args);
+          return (value as (...a: readonly unknown[]) => unknown).apply(target, [...args]);
         };
       }
       return (value as (...a: readonly unknown[]) => unknown).bind(target);
@@ -432,10 +447,12 @@ export async function engineWorld(
   const quotes: unknown[] = [];
   const pays: unknown[] = [];
   const wrapped = spying(h.adapter, { quotes, pays });
+  const enabled = new Map([[NETWORK, wrapped]]);
   const adapters: ChainAdapterRegistry = {
     get: (network) => {
-      if (network !== NETWORK) throw new RangeError('network is not enabled');
-      return wrapped;
+      const adapter = enabled.get(network);
+      if (adapter === undefined) throw new RangeError('network is not enabled');
+      return adapter;
     },
     list: () => [wrapped],
   };
@@ -484,7 +501,7 @@ export async function engineWorld(
           payoutMethods.create(tx, {
             recipientId: holder,
             method,
-            rail: method === 'stellar_wallet' ? 'wallet' : 'anchor',
+            rail: RAIL_OF_METHOD[method],
             chain: 'stellar',
             destinationAddress: destination.address.value,
             destinationTag: null,
@@ -519,7 +536,7 @@ export async function engineWorld(
     drive: async (payout, run = {}) => {
       for (let i = 0; i < (run.runs ?? 15); i += 1) {
         await world.run(payout, run);
-        await h.advance(6);
+        await h.advance(6n);
         const now = await world.read(payout.id);
         if (RESTING.has(now.status)) return now;
       }
@@ -535,8 +552,9 @@ export async function engineWorld(
     executed: (onChainId) =>
       net.txs
         .flatMap((tx) => tx.events)
-        .filter((event) => event.name === 'payout_executed' && event.fields['payout_id'] === onChainId)
-        .length,
+        .filter(
+          (event) => event.name === 'payout_executed' && event.fields['payout_id'] === onChainId,
+        ).length,
     balanceOfRecipient: async () => h.balance(first.address),
   };
   return world;
@@ -550,4 +568,3 @@ const RESTING: ReadonlySet<string> = new Set([
   'blocked',
   'needs_attention',
 ]);
-

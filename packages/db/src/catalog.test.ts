@@ -273,6 +273,7 @@ describe('security definer functions', () => {
     expect(DEFINER_ALLOWLIST).toEqual(
       expect.arrayContaining([
         'ujira_jobs.enqueue(text,jsonb,text,text,timestamp with time zone,integer,text,text)',
+        'ujira.funding_hold_targets(uuid,uuid,text,integer)',
         'ujira.reconcile_targets(uuid,integer)',
         'ujira.due_attempt_deadlines(timestamp with time zone,integer)',
         'ujira.overdue_fee_refunds(integer)',

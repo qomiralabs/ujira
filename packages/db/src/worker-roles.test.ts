@@ -251,7 +251,12 @@ describe('ujira_scheduler', () => {
               aclexplode(attr.attacl) a
         where a.grantee = 'ujira_scheduler'::regrole`,
     );
-    const allowed = new Set(['mandate_instances', 'payout_attempts', 'fee_refunds']);
+    const allowed = new Set([
+      'mandate_instances',
+      'payout_attempts',
+      'fee_refunds',
+      'payout_funding_holds',
+    ]);
     expect(readable.rows.filter((row) => !allowed.has(row.relation))).toEqual([]);
   });
 

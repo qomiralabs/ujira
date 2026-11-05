@@ -19,7 +19,7 @@ import {
   type WorkerHarness,
 } from './testing/support.js';
 
-const IDS = { payoutId: 'p1', mandateInstanceId: 'm1' };
+const IDS = { payoutId: 'p1', mandateId: 'm1' };
 
 let harness: WorkerHarness;
 let tenant: ProjectContext;

@@ -14,7 +14,7 @@ const PAYLOAD = {
   principalId: '0199a1f6-1e3f-7c21-9b8a-2d4e6f8a0b12',
   projectId: '0199a1f6-4c7d-7a55-8e21-5b9c7d3e1f04',
   payoutId: 'p1',
-  mandateInstanceId: 'm1',
+  mandateId: 'm1',
 };
 
 describe('the backoff curve', () => {

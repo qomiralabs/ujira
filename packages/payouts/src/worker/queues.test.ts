@@ -73,16 +73,16 @@ describe('per mandate queues', () => {
     const tenant = await newTenant(harness.db);
     await harness.db.tenant(tenant).transaction(async (tx) => {
       for (const payoutId of ['p1', 'p2', 'p3']) {
-        await enqueueTask(tx, PAYOUT_ADVANCE, { payoutId, mandateInstanceId: 'one' });
+        await enqueueTask(tx, PAYOUT_ADVANCE, { payoutId, mandateId: 'one' });
       }
       for (const payoutId of ['p4', 'p5', 'p6']) {
-        await enqueueTask(tx, PAYOUT_ADVANCE, { payoutId, mandateInstanceId: 'two' });
+        await enqueueTask(tx, PAYOUT_ADVANCE, { payoutId, mandateId: 'two' });
       }
     });
     // Longer than the 2 s poll: these jobs were queued before the pool started, so
     // no notification wakes it, and a worker that lost the first claim sleeps until
     // its next poll. Shorter jobs would all finish on one worker before it woke.
-    const { spans, work } = recording((job) => job.ids['mandateInstanceId'] ?? '', 2_500);
+    const { spans, work } = recording((job) => job.ids['mandateId'] ?? '', 2_500);
     await runUntilDrained({ payoutAdvance: work });
 
     const of = (group: string): Span[] => spans.filter((span) => span.group === group);

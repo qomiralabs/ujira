@@ -12,13 +12,7 @@ import {
   type PayoutId,
   type UnixSeconds,
 } from '@ujira/chain-adapter';
-import {
-  act,
-  ed25519PublicKey,
-  ed25519Sign,
-  sha256,
-  type SuiteMandate,
-} from '@ujira/chain-adapter/testing';
+import { act, ed25519PublicKey, ed25519Sign, sha256 } from '@ujira/chain-adapter/testing';
 import {
   payoutAttempts,
   payoutEngine,
@@ -82,12 +76,15 @@ function refusing(registry: ChainAdapterRegistry, error: Error): ChainAdapterReg
         return typeof value === 'function' ? (value as () => unknown).bind(on) : value;
       },
     });
-  return { get: (network) => refuse(registry.get(network)), list: () => registry.list().map(refuse) };
+  return {
+    get: (network) => refuse(registry.get(network)),
+    list: () => registry.list().map(refuse),
+  };
 }
 
 async function pastDeadline(world: EngineWorld, attempt: PayoutAttempt | undefined): Promise<void> {
   const remaining = (attempt?.deadline.getTime() ?? 0) - (world.deps.now?.() ?? 0);
-  await world.h.advance(Math.max(0, Math.ceil(remaining / 1_000)) + 60);
+  await world.h.advance(BigInt(Math.max(0, Math.ceil(remaining / 1_000)) + 60));
 }
 
 async function untilPaid(world: EngineWorld, payout: Payout, deps?: EngineDeps): Promise<Payout> {
@@ -166,7 +163,7 @@ describe('payout advance', () => {
             if (!(error instanceof Killed)) throw error;
             killed = true;
           }
-          await world.h.advance(6);
+          await world.h.advance(6n);
         }
         const attempts = await attemptsOf(payout);
         expect(attempts, `killed at ${String(point)}`).toHaveLength(1);
@@ -199,7 +196,7 @@ describe('payout advance', () => {
         await until(
           'the payout to be paid',
           async () => {
-            await world.h.advance(6);
+            await world.h.advance(6n);
             return (await world.read(payout.id)).status === 'paid';
           },
           55_000,
@@ -226,7 +223,7 @@ describe('payout advance', () => {
             expect(result.reason).toBeInstanceOf(Error);
           }
         }
-        await world.h.advance(6);
+        await world.h.advance(6n);
         if ((await world.read(payout.id)).status === 'paid') break;
       }
       const attempts = await attemptsOf(payout);
@@ -293,7 +290,9 @@ describe('payout advance', () => {
     expect(ended.status).toBe('failed');
     expect(await attemptsOf(payout)).toHaveLength(ENGINE_TIMING.maxAttempts);
     expect(
-      await harness.db.tenant(TENANT).transaction(async (tx) => payoutEngine.refusalCode(tx, payout.id)),
+      await harness.db
+        .tenant(TENANT)
+        .transaction(async (tx) => payoutEngine.refusalCode(tx, payout.id)),
     ).toBe('ATTEMPTS_EXHAUSTED');
     expect(world.alerts).toContainEqual(
       expect.objectContaining({ kind: 'payout_failed', reason: 'ATTEMPTS_EXHAUSTED' }),
@@ -305,17 +304,17 @@ describe('payout advance', () => {
     const payout = await world.payout('no-funds', usdc(2n * ONE_USDC));
     const short = {
       ...world.deps,
-      adapters: refusing(world.deps.adapters, new MandateRuleError(
-        MANDATE_ERRORS.INSUFFICIENT_FUNDS,
-        'INSUFFICIENT_FUNDS',
-      )),
+      adapters: refusing(
+        world.deps.adapters,
+        new MandateRuleError(MANDATE_ERRORS.INSUFFICIENT_FUNDS, 'INSUFFICIENT_FUNDS'),
+      ),
     };
     await world.run(payout);
     await world.run(payout, { deps: short });
     expect((await world.read(payout.id)).status).not.toBe('failed');
     const rows = await adminQuery<{ payload: Record<string, string>; run_at: Date }>(
       harness.database.url,
-      `select payload, run_at from graphile_worker.jobs where key like $1`,
+      `select payload, run_at from graphile_worker._private_jobs where key like $1`,
       [`%payout:${payout.id}`],
     );
     expect(rows[0]?.payload['try']).toBeUndefined();
@@ -331,7 +330,9 @@ describe('payout advance', () => {
     const ended = await world.drive(payout, { runs: 3 });
     expect(ended.status).toBe('failed');
     expect(
-      await harness.db.tenant(TENANT).transaction(async (tx) => payoutEngine.refusalCode(tx, payout.id)),
+      await harness.db
+        .tenant(TENANT)
+        .transaction(async (tx) => payoutEngine.refusalCode(tx, payout.id)),
     ).toBe('FEE_EXCEEDS_CAP');
     expect(world.alerts).toContainEqual(
       expect.objectContaining({ kind: 'payout_failed', payoutId: payout.id }),
@@ -344,12 +345,12 @@ describe('payout advance', () => {
     await world.run(payout);
     const refused = {
       ...world.deps,
-      adapters: refusing(world.deps.adapters, new MandateRuleError(
-        MANDATE_ERRORS.TRANSFER_FAILED,
-        'TRANSFER_FAILED',
-      )),
+      adapters: refusing(
+        world.deps.adapters,
+        new MandateRuleError(MANDATE_ERRORS.TRANSFER_FAILED, 'TRANSFER_FAILED'),
+      ),
     };
-    await world.h.advance(6);
+    await world.h.advance(6n);
     await world.run(payout, { deps: refused });
     // Not ended: the chain holds a request with funds committed to it. It goes round the
     // bounded retries, which end in a dead letter and a person.
@@ -357,7 +358,7 @@ describe('payout advance', () => {
     expect(world.alerts.filter((alert) => alert.kind === 'payout_failed')).toHaveLength(0);
     const rows = await adminQuery<{ payload: Record<string, string> }>(
       harness.database.url,
-      `select payload from graphile_worker.jobs where key like $1`,
+      `select payload from graphile_worker._private_jobs where key like $1`,
       [`%payout:${payout.id}`],
     );
     expect(rows[0]?.payload['try']).toBe('2');
@@ -373,7 +374,7 @@ describe('payout advance', () => {
     expect(await attemptsOf(payout)).toHaveLength(0);
     const rows = await adminQuery<{ payload: { try: string } }>(
       harness.database.url,
-      `select payload from graphile_worker.jobs where key like $1`,
+      `select payload from graphile_worker._private_jobs where key like $1`,
       [`%payout:${payout.id}`],
     );
     expect(rows[0]?.payload.try).toBe('2');
@@ -397,21 +398,43 @@ describe('payout advance', () => {
       approver,
       'approver',
     );
-    await world.h.advance(6);
+    await world.h.advance(6n);
     expect((await untilPaid(world, payout)).status).toBe('paid');
+  });
+
+  it("an agent's own wallet is asked to sign, and the payout waits for it", async () => {
+    const world = await engineWorld(harness);
+    const wallet = {
+      ...world.deps,
+      signerFor: () => ({
+        kind: 'external' as const,
+        network: NETWORK,
+        role: 'agent' as const,
+        address: world.h.managedAgent.address,
+      }),
+    };
+    const payout = await world.payout('own-wallet', usdc(2n * ONE_USDC));
+    await world.run(payout, { deps: wallet });
+    expect((await world.read(payout.id)).status).toBe('routed');
+    const [attempt] = await attemptsOf(payout);
+    expect(attempt?.status).toBe('created');
+    const rows = await adminQuery<{ run_at: Date }>(
+      harness.database.url,
+      `select run_at from graphile_worker._private_jobs where key like $1`,
+      [`%payout:${payout.id}`],
+    );
+    expect(rows[0]?.run_at.getTime()).toBeGreaterThan(Date.now());
   });
 
   it('a lapsed attested payout gets a new attempt with new attestations', async () => {
     const seed = sha256(new TextEncoder().encode('attester-for-this-test'));
     const asked: number[] = [];
     let lifetime = 600n;
-    let mandate: SuiteMandate | undefined;
     const attested = await engineWorld(harness, {
       attester: ed25519PublicKey(seed),
       attestationsFor: async (req) => {
         asked.push(req.attemptNumber);
-        const m = mandate;
-        if (m === undefined) throw new Error('no mandate yet');
+        const m = attested.m;
         const state = await attested.h.adapter.readMandate(
           { scope: req.scope, mandate: m.ref },
           { signal: new AbortController().signal, correlationId: 'test' },
@@ -439,7 +462,6 @@ describe('payout advance', () => {
         };
       },
     });
-    mandate = attested.m;
     const before = await attested.balanceOfRecipient();
     const payout = await attested.payout('lapse', usdc(2n * ONE_USDC));
     // On chain and approved, and then its attestation runs out before the execute.
@@ -448,7 +470,7 @@ describe('payout advance', () => {
     expect(first?.status).toBe('requested');
     expect(attested.pays).toHaveLength(1);
     lifetime = 3_000n;
-    await attested.h.advance(700);
+    await attested.h.advance(700n);
     const paid = await attested.drive(payout, { runs: 20 });
     expect(paid.status).toBe('paid');
     const attempts = await attemptsOf(payout);

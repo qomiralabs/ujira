@@ -48,12 +48,20 @@ import {
   type RoutePlan,
 } from './plan.js';
 
+// What one read may ask for. The next run takes up any more, oldest first.
+const HOLDS_PER_READ = 100;
+
 const contextOf = (scope: TenantScope): ProjectContext => ({
   principalId: scope.principalId,
   projectId: scope.projectId,
 });
 
-function instanceRef(deps: EngineDeps, network: NetworkId, id: string, address: string): MandateInstance {
+function instanceRef(
+  deps: EngineDeps,
+  network: NetworkId,
+  id: string,
+  address: string,
+): MandateInstance {
   const adapter = deps.adapters.get(network);
   return {
     mandateInstanceId: id,
@@ -101,19 +109,19 @@ export function holdStore(
     oldestHeld: async (target, limit) => {
       const held = await deps.db
         .tenant(context)
-        .transaction(async (tx) => fundingHolds.oldestOnNetwork(tx, target.network, limit));
-      return held.map(
-        (hold): HeldPayout => ({
-          scope: scopeOf(context),
-          payoutId: hold.payoutId as Uuid,
-          network: hold.network as NetworkId,
-          mandateInstanceId: hold.mandateInstanceId,
-          needed: hold.needed,
-          heldAt: hold.heldAt,
-        }),
-      );
+        .transaction(async (tx) =>
+          fundingHolds.oldestOnNetwork(tx, target.network, Math.min(limit, HOLDS_PER_READ)),
+        );
+      return held.map((hold): HeldPayout => ({
+        scope: scopeOf(context),
+        payoutId: hold.payoutId as Uuid,
+        network: hold.network as NetworkId,
+        mandateInstanceId: hold.mandateInstanceId,
+        needed: hold.needed,
+        heldAt: hold.heldAt,
+      }));
     },
-    release: async (scope, payoutId, route) => {
+    release: async (_scope, payoutId, route) => {
       const known = plans.get(payoutId);
       if (known === undefined) return false;
       const { payout, plan } = known;
@@ -125,7 +133,7 @@ export function holdStore(
         .tenant(context)
         .transaction(async (tx) => payoutEngine.idempotencyKey(tx, payoutId));
       if (key === undefined) return false;
-      const attempt = await attemptPlan(deps, context, payout, plan, route, key, signal);
+      const attempt = await attemptPlan(deps, context, plan, route, key, signal);
       try {
         await deps.db.tenant(context).transaction(async (tx) => {
           await recordAttempt(tx, context, payout, attempt, plan.request.total, key);
@@ -199,7 +207,7 @@ export function releaseWork(deps: EngineDeps): TenantWork {
     const network = job.ids['network'] as NetworkId | undefined;
     // The key names the project, because the queue is the principal's. It has to be the
     // one the job runs as.
-    if (network === undefined || job.ids['project'] !== job.context.projectId) {
+    if (network === undefined || job.ids['heldProjectId'] !== job.context.projectId) {
       throw new JobPayloadError(RELEASE_HELD.name);
     }
     await releaseHeld(deps, job.context, network, job.signal);
@@ -213,7 +221,7 @@ export async function enqueueRelease(
   context: ProjectContext,
   network: string,
 ): Promise<void> {
-  await enqueueTask(tx, RELEASE_HELD, { network, project: context.projectId });
+  await enqueueTask(tx, RELEASE_HELD, { network, heldProjectId: context.projectId });
 }
 
 // For a deposit that was missed. Reads who has holds through the one narrow function,

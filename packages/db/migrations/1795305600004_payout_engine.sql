@@ -55,7 +55,7 @@ alter table ujira.payout_legs
       receive_amount, receive_currency, receive_scale, fx_numerator, fx_denominator, cost_bearer,
       quote_id
     ) in (0, 7)
-  );
+  ) not valid;
 
 select ujira.apply_scheduler_read(
   'ujira.payout_funding_holds',

@@ -4,7 +4,7 @@
 // The cross-tenant cron functions, called as the app login with no tenant
 // context, which is how the fan-out calls them.
 
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
@@ -130,8 +130,105 @@ describe('reconcile_targets', () => {
   });
 });
 
+describe('funding_hold_targets', () => {
+  // Written the normal way, so these rows are real.
+  async function hold(tenant: Tenant, network: string): Promise<void> {
+    const instance = await newInstance(tenant);
+    const recipient = await admin.query<{ id: string }>(
+      `insert into ujira.recipients (principal_id, project_id, recipient_ref, country)
+       values ($1, $2, $3, 'NG') returning id`,
+      [tenant.principal_id, tenant.project_id, randomBytes(32)],
+    );
+    const mandate = await admin.query<{ mandate_id: string }>(
+      'select mandate_id from ujira.mandate_instances where id = $1',
+      [instance],
+    );
+    const payout = await admin.query<{ id: string }>(
+      `insert into ujira.payouts
+         (principal_id, project_id, idempotency_key, request_hash, recipient_id, mandate_id, method,
+          cashout_cost_bearer, requested_amount, requested_asset, requested_chain,
+          requested_token_scale, status_reason)
+       values ($1, $2, $3, $4, $5, $6, 'stellar_wallet', 'recipient', 100, 'USDC', 'stellar', 7,
+               'awaiting_funding')
+       returning id`,
+      [
+        tenant.principal_id,
+        tenant.project_id,
+        randomUUID(),
+        randomBytes(32),
+        recipient.rows[0]?.id,
+        mandate.rows[0]?.mandate_id,
+      ],
+    );
+    await admin.query(
+      `insert into ujira.payout_funding_holds
+         (principal_id, project_id, payout_id, network, chain, mandate_instance_id,
+          needed_amount, asset, scale)
+       values ($1, $2, $3, $4, 'stellar', $5, 100, 'USDC', 7)`,
+      [tenant.principal_id, tenant.project_id, payout.rows[0]?.id, network, instance],
+    );
+  }
+
+  interface HoldTarget extends Tenant {
+    readonly network: string;
+  }
+
+  it('keyset pages, one row per project and network however many holds', async () => {
+    const tenants = [await newTenant(), await newTenant()];
+    for (const tenant of tenants) {
+      await hold(tenant, 'stellar:testnet');
+      await hold(tenant, 'stellar:testnet');
+      await hold(tenant, 'stellar:pubnet');
+    }
+    const seen: HoldTarget[] = [];
+    let last: HoldTarget | undefined;
+    for (let page = 0; page < 10; page += 1) {
+      const rows: readonly HoldTarget[] = (
+        await app.query<HoldTarget>(`select * from ujira.funding_hold_targets($1, $2, $3, 3)`, [
+          last?.principal_id ?? null,
+          last?.project_id ?? null,
+          last?.network ?? null,
+        ])
+      ).rows;
+      if (rows.length === 0) break;
+      expect(rows.length).toBeLessThanOrEqual(3);
+      seen.push(...rows);
+      last = rows.at(-1);
+    }
+    const mine = seen.filter((row) =>
+      tenants.some((tenant) => tenant.project_id === row.project_id),
+    );
+    expect(mine).toHaveLength(4);
+    expect(new Set(seen.map((row) => JSON.stringify(row))).size).toBe(seen.length);
+  });
+
+  it('returns only the tenant and the network', async () => {
+    const result = await app.query(`select * from ujira.funding_hold_targets(null, null, null, 1)`);
+    expect(result.fields.map((field) => field.name)).toEqual([
+      'principal_id',
+      'project_id',
+      'network',
+    ]);
+  });
+
+  it.each(['0', '501', 'null'])('a limit of %s is refused', async (limit) => {
+    expect(
+      await codeOf(
+        app.query(`select * from ujira.funding_hold_targets(null, null, null, ${limit})`),
+      ),
+    ).toBe('22023');
+  });
+
+  it('the app still cannot scan the table itself', async () => {
+    expect(await codeOf(app.query('select payout_id from ujira.payout_funding_holds'))).toBe(
+      'UJ001',
+    );
+  });
+});
+
 describe('who owns and runs them', () => {
   const FUNCTIONS = [
+    'ujira.funding_hold_targets(uuid, uuid, text, integer)',
     'ujira.reconcile_targets(uuid, integer)',
     'ujira.due_attempt_deadlines(timestamp with time zone, integer)',
     'ujira.overdue_fee_refunds(integer)',

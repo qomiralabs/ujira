@@ -44,7 +44,13 @@ import {
   type ProjectContext,
   type TenantTx,
 } from '@ujira/db';
-import type { PreviousAttempt, RouteDeps, RouteLeg, RouteRequest, RoutedOutcome } from '@ujira/router';
+import type {
+  PreviousAttempt,
+  RouteDeps,
+  RouteLeg,
+  RouteRequest,
+  RoutedOutcome,
+} from '@ujira/router';
 
 import { AMOUNT_BELOW_MINIMUM, RetryableJobError, TerminalRefusal } from '../worker/errors.js';
 import type { Alert } from '../worker/handlers.js';
@@ -301,12 +307,10 @@ export async function legsMeetMinimums(
   context: ProjectContext,
   route: RoutedOutcome,
 ): Promise<boolean> {
-  const minimums = await deps.db
-    .tenant(context)
-    .transaction(async (tx) => payoutMinimums.list(tx));
+  const minimums = await deps.db.tenant(context).transaction(async (tx) => payoutMinimums.list(tx));
   const adapter = deps.adapters.get(route.network);
   for (const leg of route.legs) {
-    const method = leg.method as PayoutMinimumMethod;
+    const method = leg.method;
     const capable = adapter.capabilities().rails.find((rail) => rail.rail === leg.rail);
     const minimum: PayoutMinimumContext = {
       ...(capable?.minLeg === undefined
@@ -400,7 +404,6 @@ function legInputsOf(
 export async function attemptPlan(
   deps: EngineDeps,
   context: ProjectContext,
-  payout: Payout,
   plan: RoutePlan,
   route: RoutedOutcome,
   key: string,
@@ -417,9 +420,11 @@ export async function attemptPlan(
   });
   const ttlEnd = nowOf(deps) + ATTEMPT_TTL_SECONDS * 1_000;
   const attestEnd = earliestValidUntil === null ? ttlEnd : Number(earliestValidUntil) * 1_000;
-  const methods = await deps.db.tenant(context).transaction(async (tx) =>
-    Promise.all(route.legs.map(async (leg) => payoutMethods.get(tx, leg.recipientMethodId))),
-  );
+  const methods = await deps.db
+    .tenant(context)
+    .transaction(async (tx) =>
+      Promise.all(route.legs.map(async (leg) => payoutMethods.get(tx, leg.recipientMethodId))),
+    );
   const legs: NewPayoutLeg[] = [];
   for (const [index, leg] of route.legs.entries()) {
     const method = methods[index];
@@ -428,7 +433,7 @@ export async function attemptPlan(
     const anchorFee = quote?.fees.find((fee) => fee.kind === 'anchor')?.amount;
     legs.push({
       payoutMethodId: method.id,
-      method: leg.method as PayoutMinimumMethod,
+      method: leg.method,
       rail: leg.rail,
       destinationAddress: method.destinationAddress,
       destinationTag: method.destinationTag,
@@ -502,4 +507,3 @@ export function collapsed(plan: RoutePlan, total: TokenAmount): RouteRequest {
   if (main === undefined) throw new Error('a route plan has at least one leg');
   return { ...plan.request, legs: [{ ...main, amount: total }] };
 }
-

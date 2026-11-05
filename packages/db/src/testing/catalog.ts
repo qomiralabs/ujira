@@ -286,6 +286,7 @@ export async function infrastructureProblems(
 export const DEFINER_ALLOWLIST: readonly string[] = [
   'ops.active_routing_config()',
   'ops.active_signing_keys(text[])',
+  'ops.email_quota_take(text,text,integer,integer)',
   'ops.identity_provider_event_seen(text,text,text)',
   'ops.lease_executor(text,text,integer)',
   'ops.record_identity_provider_event(text,text,text,bytea)',
@@ -299,6 +300,7 @@ export const DEFINER_ALLOWLIST: readonly string[] = [
   'ujira.resolve_mandate_instance(text,text)',
   'ujira.due_attempt_deadlines(timestamp with time zone,integer)',
   'ujira.overdue_fee_refunds(integer)',
+  'ujira.funding_hold_targets(uuid,uuid,text,integer)',
   'ujira.reconcile_targets(uuid,integer)',
   'ujira_jobs.enqueue(text,jsonb,text,text,timestamp with time zone,integer,text,text)',
 ];

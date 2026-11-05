@@ -66,7 +66,7 @@ async function runUnder(world: EngineWorld, payout: Payout, fault: Fault): Promi
     if (fault.kind === 'chain_down') faults?.chainDown(false);
     if (fault.kind === 'signer_down') faults?.signerDown(false);
   }
-  await world.h.advance(6);
+  await world.h.advance(6n);
 }
 
 function isAdapterShaped(error: unknown): boolean {
@@ -83,9 +83,9 @@ describe('crashes and retries', () => {
         for (const fault of faults) await runUnder(world, payout, fault);
 
         const attemptsOf = async (): Promise<readonly PayoutAttempt[]> =>
-          harness.db.tenant(TENANT).transaction(async (tx) =>
-            payoutAttempts.forPayout(tx, payout.id),
-          );
+          harness.db
+            .tenant(TENANT)
+            .transaction(async (tx) => payoutAttempts.forPayout(tx, payout.id));
         const paidWhileFaulted = (await world.balanceOfRecipient()) - before;
         expect([0n, ONE_USDC]).toContain(paidWhileFaulted);
 

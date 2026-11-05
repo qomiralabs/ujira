@@ -40,6 +40,7 @@ export {
 } from './repositories/tenancy.js';
 export {
   AmountBelowMinimumError,
+  checkMinimum,
   MinimumNotComparableError,
   PAYOUT_MINIMUM_METHODS,
   requiredMinimum,

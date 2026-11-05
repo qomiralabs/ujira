@@ -19,7 +19,7 @@ const TENANT = {
   principalId: '0199a1f6-1e3f-7c21-9b8a-2d4e6f8a0b12',
   projectId: '0199a1f6-4c7d-7a55-8e21-5b9c7d3e1f04',
 };
-const VALID = { ...TENANT, payoutId: 'p1', mandateInstanceId: 'm1' };
+const VALID = { ...TENANT, payoutId: 'p1', mandateId: 'm1' };
 
 let harness: WorkerHarness;
 
@@ -39,6 +39,7 @@ describe('the task registry', () => {
     expect(Object.keys(registry)).toEqual([
       'payout:advance',
       'batch:advance',
+      'payouts:release_held',
       'mandate:reconcile',
       'ttl:keep_alive',
     ]);
@@ -49,17 +50,12 @@ describe('the task registry', () => {
     await harness.db
       .tenant(tenant)
       .transaction(async (tx) =>
-        enqueueTask(
-          tx,
-          PAYOUT_ADVANCE,
-          { payoutId: 'p1', mandateInstanceId: 'm1' },
-          { tryNumber: 2 },
-        ),
+        enqueueTask(tx, PAYOUT_ADVANCE, { payoutId: 'p1', mandateId: 'm1' }, { tryNumber: 2 }),
       );
     const [job] = await jobsIn(harness.database.url);
     expect(job?.payload).toEqual({
       payoutId: 'p1',
-      mandateInstanceId: 'm1',
+      mandateId: 'm1',
       try: '2',
       principalId: tenant.principalId,
       projectId: tenant.projectId,
@@ -85,7 +81,7 @@ describe('parseTaskPayload', () => {
   it('reads the tenant, the ids and the try', () => {
     expect(parseTaskPayload(PAYOUT_ADVANCE, { ...VALID, try: '3' })).toEqual({
       context: TENANT,
-      ids: { payoutId: 'p1', mandateInstanceId: 'm1' },
+      ids: { payoutId: 'p1', mandateId: 'm1' },
       tryNumber: 3,
     });
   });
@@ -97,7 +93,7 @@ describe('parseTaskPayload', () => {
   it.each([
     ['a field nobody declared', { ...VALID, recipientEmail: 'a@example.com' }],
     ['a missing id', { ...TENANT, payoutId: 'p1' }],
-    ['a missing tenant', { payoutId: 'p1', mandateInstanceId: 'm1' }],
+    ['a missing tenant', { payoutId: 'p1', mandateId: 'm1' }],
     ['a tenant that is not a uuid', { ...VALID, principalId: 'acme' }],
     ['an id that is not a string', { ...VALID, payoutId: 1 }],
     ['an empty id', { ...VALID, payoutId: '' }],

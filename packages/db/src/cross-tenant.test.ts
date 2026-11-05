@@ -21,6 +21,7 @@ import { fundingAccountRepositories, fundingAccounts } from './repositories/fund
 import { managedSigners } from './repositories/signers.js';
 import { ledger, ledgerRepositories } from './repositories/ledger.js';
 import { approvals, legRepositories, payoutLegs } from './repositories/payout-legs.js';
+import { payoutEngine, payoutEngineRepositories } from './repositories/payout-engine.js';
 import {
   chainEvents,
   deposits,
@@ -108,6 +109,7 @@ const REPOSITORIES = {
   ...mandateRepositories,
   ...fundingAccountRepositories,
   ...ledgerRepositories,
+  ...payoutEngineRepositories,
   ...recipientRepositories,
   ...identityEvidenceRepositories,
   ...auditRepositories,
@@ -1174,6 +1176,35 @@ const cases: Record<string, () => Promise<void>> = {
       }),
     );
     expect(await codeOf(attempt)).toBe('23503');
+  },
+  'payoutMethods.forRecipient': async () => {
+    expect(await asA(async (tx) => payoutMethods.forRecipient(tx, b.recipientId, 10))).toEqual([]);
+  },
+  'payoutEngine.idempotencyKey': async () => {
+    expect(await asA(async (tx) => payoutEngine.idempotencyKey(tx, b.payoutId))).toBeUndefined();
+  },
+  'payoutEngine.setTotal': async () => {
+    const total = tokenAmount(1n, 'USDC', 'stellar');
+    expect(await asA(async (tx) => payoutEngine.setTotal(tx, b.payoutId, total))).toBe(false);
+  },
+  'payoutEngine.end': async () => {
+    const move = { from: 'received', to: 'failed', code: 'NOPE' } as const;
+    expect(await asA(async (tx) => payoutEngine.end(tx, b.payoutId, move))).toBe(false);
+  },
+  'payoutEngine.markUnavailable': async () => {
+    expect(await asA(async (tx) => payoutEngine.markUnavailable(tx, b.payoutId))).toBe(false);
+  },
+  'payoutEngine.refusalCode': async () => {
+    expect(await asA(async (tx) => payoutEngine.refusalCode(tx, b.payoutId))).toBeUndefined();
+  },
+  'payoutEngine.instance': async () => {
+    expect(await asA(async (tx) => payoutEngine.instance(tx, b.instanceId))).toBeUndefined();
+  },
+  'payoutEngine.instancesOfMandate': async () => {
+    expect(await asA(async (tx) => payoutEngine.instancesOfMandate(tx, b.mandateId))).toEqual([]);
+  },
+  'payoutEngine.unrequestedOn': async () => {
+    expect(await asA(async (tx) => payoutEngine.unrequestedOn(tx, b.instanceId))).toBe(0n);
   },
   'payoutMethods.disable': async () => {
     expect(await asA(async (tx) => payoutMethods.disable(tx, b.methodId))).toBe(false);

@@ -47,7 +47,11 @@ import {
   type PayoutStatusValue,
   type TenantTx,
 } from '@ujira/db';
-import { RECEIPT_ISSUE_MAX_ATTEMPTS, RECEIPT_ISSUE_TASK, receiptIssueJobKey } from '@ujira/receipts';
+import {
+  RECEIPT_ISSUE_MAX_ATTEMPTS,
+  RECEIPT_ISSUE_TASK,
+  receiptIssueJobKey,
+} from '@ujira/receipts';
 import { selectRoute, type RouteOutcome, type RoutedOutcome } from '@ujira/router';
 
 import { RetryableJobError } from '../worker/errors.js';
@@ -247,7 +251,7 @@ async function record(
     .tenant(job.context)
     .transaction(async (tx) => payoutEngine.idempotencyKey(tx, payout.id));
   if (key === undefined) throw new Error('a payout with no idempotency key');
-  const attempt = await attemptPlan(deps, job.context, payout, plan, route, key, job.signal);
+  const attempt = await attemptPlan(deps, job.context, plan, route, key, job.signal);
   try {
     await deps.db.tenant(job.context).transaction(async (tx) => {
       await recordAttempt(tx, job.context, payout, attempt, plan.request.total, key);
@@ -341,8 +345,7 @@ async function prepare(
       rail: leg.rail as RailId,
       recipientMethodId: leg.payoutMethodId as Uuid,
       amount: leg.amount,
-      deliveryCurrency: (leg.delivery?.receive.currency ??
-        leg.amount.asset) as PayoutLegInput['deliveryCurrency'],
+      deliveryCurrency: leg.delivery?.receive.currency ?? leg.amount.asset,
       ...(leg.delivery === null
         ? {}
         : { quoteId: leg.delivery.quoteId as NonNullable<PayoutLegInput['quoteId']> }),
@@ -396,7 +399,7 @@ async function persistDead(
   await commit(job, deps, async (tx) => {
     const dead = await payoutAttempts.markDead(tx, attempt.id, {
       from: attempt.status as Exclude<AttemptStatusValue, 'dead' | 'final'>,
-      proof: proof as unknown as Readonly<Record<string, unknown>>,
+      proof: proof,
     });
     if (dead === undefined) throw new LostRace();
     for (const leg of snapshot.legs) {
@@ -440,7 +443,9 @@ async function persistFinal(
   const payoutId = snapshot.payout.id;
   // These start from what this transaction has just written.
   const legs = await payoutLegs.forAttempt(tx, attempt.id);
-  const states = legs.map((leg) => delivered.get(legKeyOf(request.payoutId, leg.index)) ?? 'delivering');
+  const states = legs.map(
+    (leg) => delivered.get(legKeyOf(request.payoutId, leg.index)) ?? 'delivering',
+  );
   for (const [index, leg] of legs.entries()) {
     const state = states[index];
     if (state !== undefined) await walkLeg(tx, leg, state, undefined);
@@ -571,7 +576,13 @@ async function afterRefusal(
     options,
   );
   if (error.landed === 'no' && onChain.onChain === 'absent') {
-    await endPayout(job, deps, snapshot.payout.status as PayoutStatusValue, 'failed', name ?? error.code);
+    await endPayout(
+      job,
+      deps,
+      snapshot.payout.status as PayoutStatusValue,
+      'failed',
+      name ?? error.code,
+    );
     return;
   }
   throw new RetryableJobError(name ?? error.code, { cause: error });

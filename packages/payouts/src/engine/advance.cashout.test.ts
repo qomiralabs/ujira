@@ -11,7 +11,14 @@ import { adminQuery } from '@ujira/db/testing';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { workerHarness, type WorkerHarness } from '../worker/testing/support.js';
-import { engineWorld, ONE_USDC, seedTenant, TENANT, usdc, type EngineWorld } from './testing/world.js';
+import {
+  engineWorld,
+  ONE_USDC,
+  seedTenant,
+  TENANT,
+  usdc,
+  type EngineWorld,
+} from './testing/world.js';
 
 let harness: WorkerHarness;
 
@@ -27,10 +34,11 @@ afterAll(async () => {
 });
 
 async function setBearer(bearer: 'recipient' | 'principal'): Promise<void> {
-  await adminQuery(harness.database.url, 'update ujira.projects set cashout_cost_bearer = $1 where id = $2', [
-    bearer,
-    TENANT.projectId,
-  ]);
+  await adminQuery(
+    harness.database.url,
+    'update ujira.projects set cashout_cost_bearer = $1 where id = $2',
+    [bearer, TENANT.projectId],
+  );
 }
 
 afterEach(async () => {
@@ -153,6 +161,41 @@ describe('cash-out', () => {
     });
     expect(leg?.delivery?.receive).toMatchObject({ amount: 119_000n, currency: 'NGN', scale: 2 });
     expect(leg?.delivery?.quoteId.length).toBeGreaterThan(0);
+  });
+
+  it('a delivery that fails after the chain settled goes to a person, and pays no more', async () => {
+    const world = await engineWorld(harness, {
+      anchor: true,
+      anchorSteps: [{ afterSeconds: 0, state: 'failed', rawStatus: 'error' }],
+    });
+    await world.addMethod('bank');
+    const payout = await world.payout('delivery-failed', usdc(6n * ONE_USDC), { method: 'bank' });
+    const ended = await world.drive(payout);
+    expect(ended.status).toBe('needs_attention');
+    const [leg] = await legsOf(payout);
+    expect(leg?.status).toBe('failed');
+    expect(world.alerts).toContainEqual(
+      expect.objectContaining({ kind: 'payout_needs_attention', payoutId: payout.id }),
+    );
+    const calls = world.pays.length;
+    await world.run(payout);
+    expect(world.pays).toHaveLength(calls);
+  });
+
+  it('a delivery still in transit keeps the job looking, and is paid when it arrives', async () => {
+    const world = await engineWorld(harness, {
+      anchor: true,
+      anchorSteps: [
+        { afterSeconds: 0, state: 'in_transit', rawStatus: 'pending' },
+        { afterSeconds: 120, state: 'delivered', rawStatus: 'completed' },
+      ],
+    });
+    await world.addMethod('bank');
+    const payout = await world.payout('delivery-slow', usdc(6n * ONE_USDC), { method: 'bank' });
+    const moving = await world.drive(payout, { runs: 4 });
+    expect(moving.status).toBe('delivering');
+    await world.h.advance(180n);
+    expect((await world.drive(payout)).status).toBe('paid');
   });
 
   it('a leg straight to a wallet has no delivery to record', async () => {
