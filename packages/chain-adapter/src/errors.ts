@@ -11,6 +11,7 @@ export const CHAIN_ADAPTER_ERROR_CODES = Object.freeze([
   'UNSUPPORTED',
   'TENANT_MISMATCH',
   'MANDATE_UNTRUSTED',
+  'MANDATE_PENDING',
   'MANDATE_RULE',
   'CHAIN_UNAVAILABLE',
   'RPC_TIMEOUT',
@@ -110,6 +111,11 @@ const DEFAULTS: Readonly<Record<ChainAdapterErrorCode, Defaults>> = {
   INVALID_INPUT: { retryable: false, landed: 'no', message: 'Invalid input' },
   UNSUPPORTED: { retryable: false, landed: 'no', message: 'Not supported on this network' },
   TENANT_MISMATCH: { retryable: false, landed: 'no', message: 'Mandate belongs to another tenant' },
+  MANDATE_PENDING: {
+    retryable: true,
+    landed: 'no',
+    message: 'Mandate is not registered yet',
+  },
   MANDATE_UNTRUSTED: {
     retryable: false,
     landed: 'no',
@@ -243,6 +249,7 @@ const ADAPTER_ERROR_NAMES = [
   'UnsupportedError',
   'TenantMismatchError',
   'MandateUntrustedError',
+  'MandatePendingError',
   'MandateRuleError',
   'ChainUnavailableError',
   'RpcTimeoutError',
@@ -524,6 +531,18 @@ export class MandateUntrustedError extends ChainAdapterError {
   override readonly name = 'MandateUntrustedError';
   constructor(options?: ChainAdapterErrorOptions) {
     super('MANDATE_UNTRUSTED', options);
+  }
+}
+
+/**
+ * A mandate this tenant created whose creation the indexer has not read yet. It is
+ * refused like any unregistered contract, but as something to wait for, not as a
+ * look-alike: it becomes readable once its mandate_created is registered.
+ */
+export class MandatePendingError extends ChainAdapterError {
+  override readonly name = 'MandatePendingError';
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('MANDATE_PENDING', options, { waitFor: 'chain' });
   }
 }
 

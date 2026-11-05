@@ -13,6 +13,7 @@
 // there is no second way in for a bug or an attacker to reach.
 
 import type { NetworkId } from './networks.js';
+import { isPublicTestAttesterKey } from './test-attester-keys.js';
 import type { Bytes32, MandateRegistration, TenantScope } from './types.js';
 
 export type EventJson =
@@ -68,12 +69,18 @@ export interface EventBooking {
   readonly payoutId: Bytes32 | null;
 }
 
+/** Why a mandate was flagged, which is what operations is told. */
+export type MandateFlagReason = 'tenant_tag_mismatch' | 'public_test_attester';
+
 export interface EventIntakeStore {
   registered(network: NetworkId, contractId: string): Promise<MandateRegistration | null>;
   /** Unique on network and contract. True when this call added it. */
   register(registration: NewRegistration): Promise<boolean>;
-  /** A flag is never lifted. */
-  flag(network: NetworkId, contractId: string): Promise<void>;
+  /**
+   * A flag is never lifted. It raises an alert for its reason in the same transaction,
+   * once per reason however often the event is read again.
+   */
+  flag(network: NetworkId, contractId: string, reason: MandateFlagReason): Promise<void>;
   /** The tenant that claims this contract, or null when none has. */
   tenantOf(network: NetworkId, contractId: string): Promise<MandateTenant | null>;
   /**
@@ -114,6 +121,11 @@ export interface EventIntakeOptions {
   readonly trustedFactories: () => readonly string[];
   /** The tag a mandate at this address carries for this tenant. */
   readonly tenantTagFor: (scope: TenantScope, contractId: string) => Bytes32;
+  /**
+   * The process environment. Only the exact value `test` lets the public test attester
+   * keys through, so a deployment that never set it still flags them.
+   */
+  readonly nodeEnv?: string;
 }
 
 export interface EventIntake {
@@ -133,12 +145,35 @@ const PAYOUT_MOVES: ReadonlySet<string> = new Set([
 
 const PAYOUT_KEYED: ReadonlySet<string> = new Set([...PAYOUT_MOVES, 'payout_request_rejected']);
 
+/** The events that set a mandate's attester. mandate_created does not carry it. */
+const ATTESTER_EVENTS: ReadonlySet<string> = new Set([
+  'mandate_initialized',
+  'attestation_policy_set',
+]);
+
+const HEX_BYTES = /^0x(?:[0-9a-f]{2})*$/;
+
+// Anyone can rebuild the private keys of these two, so a mandate on one pays out on
+// anybody's attestation, and the contract only checks a key's length. Refusing them when
+// UJIRA prepares an action misses a principal who calls the factory or
+// set_attestation_policy directly, and a mandate already deployed. Every one of those
+// passes through here.
+function setsTestAttester(name: string, fields: Readonly<Record<string, EventJson>>): boolean {
+  if (!ATTESTER_EVENTS.has(name)) return false;
+  const attester = fields['attester'];
+  return (
+    typeof attester === 'string' &&
+    HEX_BYTES.test(attester) &&
+    isPublicTestAttesterKey(Buffer.from(attester.slice(2), 'hex'))
+  );
+}
+
 function ignored(reason: IgnoredReason): IntakeOutcome {
   return { action: 'ignored', reason };
 }
 
 export function createEventIntake(options: EventIntakeOptions): EventIntake {
-  const { network, store, trustedFactories, tenantTagFor } = options;
+  const { network, store, trustedFactories, tenantTagFor, nodeEnv } = options;
 
   // A tag is proof only once it is recomputed here for the tenant that claims
   // the contract. A difference flags the mandate, and nothing of it is booked.
@@ -149,7 +184,7 @@ export function createEventIntake(options: EventIntakeOptions): EventIntake {
     const tenant = await store.tenantOf(network, contractId);
     if (tenant === null) return 'unattributed';
     if (tenantTagFor(tenant.scope, contractId) === tag) return tenant;
-    await store.flag(network, contractId);
+    await store.flag(network, contractId, 'tenant_tag_mismatch');
     return 'flagged';
   }
 
@@ -179,6 +214,12 @@ export function createEventIntake(options: EventIntakeOptions): EventIntake {
     if (registration.flagged) return ignored('flagged');
     if (!trustedFactories().includes(registration.factory)) return ignored('factory_off_list');
     if (key === null || fields === null) return ignored('malformed');
+    // Ahead of the tenant lookup: a mandate made directly through the factory may have no
+    // instance row, and would be dropped below as unattributed with its key never seen.
+    if (nodeEnv !== 'test' && setsTestAttester(name, fields)) {
+      await store.flag(network, contractId, 'public_test_attester');
+      return { action: 'flagged', contractId };
+    }
     const tenant = await tenantOf(contractId, registration.tenantTag);
     if (tenant === 'unattributed') return ignored('unattributed');
     if (tenant === 'flagged') return { action: 'flagged', contractId };

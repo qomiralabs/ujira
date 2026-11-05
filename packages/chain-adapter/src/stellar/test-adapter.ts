@@ -38,6 +38,7 @@ export function networksConfig(overrides: {
   readonly channel: string;
   readonly maxFeePerTxStroops?: string;
   readonly usdc?: string;
+  readonly pendingMandateMaxAgeSeconds?: number;
 }): NetworksConfig {
   return parseNetworksConfig({
     [NETWORK]: {
@@ -77,6 +78,9 @@ export function networksConfig(overrides: {
       },
       sep10: [],
       signingWindowSeconds: 600,
+      ...(overrides.pendingMandateMaxAgeSeconds === undefined
+        ? {}
+        : { pendingMandateMaxAgeSeconds: overrides.pendingMandateMaxAgeSeconds }),
     },
   });
 }
@@ -136,6 +140,7 @@ export function setup(
     /** What the factory's event said, where a test needs it to differ. */
     readonly registration?: Partial<MandateRegistration>;
     readonly nodeEnv?: string;
+    readonly pendingMandateMaxAgeSeconds?: number;
   } = {},
 ): TestSetup {
   const fixture = loadReadFixture();
@@ -155,6 +160,9 @@ export function setup(
       ? {}
       : { maxFeePerTxStroops: options.maxFeePerTxStroops }),
     ...(options.usdc === undefined ? {} : { usdc: options.usdc }),
+    ...(options.pendingMandateMaxAgeSeconds === undefined
+      ? {}
+      : { pendingMandateMaxAgeSeconds: options.pendingMandateMaxAgeSeconds }),
   });
   const store = memoryStore(
     NETWORK,
