@@ -268,3 +268,14 @@ export type { IdentityStoreOptions } from './identity-store.js';
 export type { AttestationLeg } from './repositories/payout-legs.js';
 export type { MandateInstanceStatus } from './repositories/mandates.js';
 export type { NewIdentityRecord } from './repositories/recipients.js';
+
+export { createComplianceStore, type ComplianceStoreOptions } from './compliance-store.js';
+export {
+  compliance,
+  type ComplianceMarkRow,
+  type ComplianceNoticeRow,
+  type ComplianceReason,
+  type ComplianceTransition,
+  type NewComplianceNotice,
+  type ParkedJob,
+} from './repositories/compliance.js';

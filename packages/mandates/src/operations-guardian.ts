@@ -6,15 +6,25 @@
 // it from a mandate, UJIRA never puts it back: not on reconciliation, not on
 // a migration, and not on a new chain instance of the same mandate. The
 // principal stays the only one who decides whether it is there.
+//
+// The guardian's address can be rotated. Every address it ever had counts as the
+// operations guardian, so a mandate still holding an old one has not lost it, and
+// removing an old one is as much the principal's choice as removing the current.
+// New mandates only ever get the current address.
 
-import { operationsGuardianOf } from '@ujira/chain-adapter';
+import { operationsGuardianOf, operationsGuardiansOf } from '@ujira/chain-adapter';
 import type { ChainAddress, NetworkId, NetworksConfig, RoleName } from '@ujira/chain-adapter';
 
 import { callPort, keyText } from './ports.js';
 import type { LogicalMandateKey, PortCallOptions } from './ports.js';
 
-/** What the API response and the mandate view say about the guardian. */
-export type OperationsGuardianStatus = 'present' | 'absent';
+/**
+ * What the API response and the mandate view say about the guardian. `outdated`
+ * means the mandate holds an address the guardian had before a rotation. UJIRA
+ * cannot change a mandate's roles, so moving to the current address is the
+ * principal's to do: add it, then remove the old one.
+ */
+export type OperationsGuardianStatus = 'present' | 'outdated' | 'absent';
 
 /**
  * Logical mandates whose principal left the operations guardian out, at
@@ -59,6 +69,18 @@ export function configuredGuardian(
   return operationsGuardianOf(deps.networks(), network);
 }
 
+/** Every address the guardian has had on a network, the current one first. */
+export function knownGuardians(
+  deps: GuardianPolicyDeps,
+  network: NetworkId,
+): readonly ChainAddress[] {
+  return operationsGuardiansOf(deps.networks(), network);
+}
+
+function isKnown(known: readonly ChainAddress[], address: ChainAddress): boolean {
+  return known.some((guardian) => sameAddress(guardian, address));
+}
+
 export function hasOptedOut(key: LogicalMandateKey, deps: GuardianPolicyDeps): Promise<boolean> {
   return callPort((opts) => deps.optOuts.hasOptedOut(key, opts), deps.timeoutMs);
 }
@@ -78,12 +100,18 @@ export interface RoleRemoved {
   readonly network: NetworkId;
   readonly role: RoleName;
   readonly account: ChainAddress;
+  /**
+   * The instance's guardians after the removal, when the indexer read them. A
+   * removal that leaves another of the guardian's addresses in place is the
+   * principal moving to the current address, not taking the guardian away.
+   */
+  readonly guardiansAfter?: readonly ChainAddress[];
 }
 
 /**
- * Called by the indexer for every role removal. Removing the operations
- * guardian is recorded against the logical mandate, so no later step adds
- * it again. Any other removal is not this rule's business.
+ * Called by the indexer for every role removal. Removing any address the
+ * operations guardian has had is recorded against the logical mandate, so no
+ * later step adds it again. Any other removal is not this rule's business.
  */
 export async function onRoleRemoved(
   key: LogicalMandateKey,
@@ -91,27 +119,30 @@ export async function onRoleRemoved(
   deps: GuardianPolicyDeps,
 ): Promise<'recorded' | 'ignored'> {
   if (event.role !== 'guardian') return 'ignored';
-  const guardian = configuredGuardian(deps, event.network);
-  if (guardian === null || !sameAddress(guardian, event.account)) return 'ignored';
+  const known = knownGuardians(deps, event.network);
+  if (!isKnown(known, event.account)) return 'ignored';
+  if (event.guardiansAfter?.some((guardian) => isKnown(known, guardian)) === true) {
+    return 'ignored';
+  }
   await recordOptOut(key, deps);
   return 'recorded';
 }
 
 /**
  * Reconciliation's view of the guardian. It reads what the chain holds and
- * never proposes adding anything: a guardian missing on chain means the
- * principal left it out, even if the event that said so was missed, so the
- * absence is recorded and the answer is 'absent'.
+ * never proposes adding anything. Only when no address the guardian ever had
+ * is on chain did the principal leave it out, even if the event that said so
+ * was missed, so only then is the absence recorded and the answer 'absent'.
  */
 export async function reconcileOperationsGuardian(
   key: LogicalMandateKey,
   onChain: OnChainGuardians,
   deps: GuardianPolicyDeps,
 ): Promise<OperationsGuardianStatus> {
-  const guardian = configuredGuardian(deps, onChain.network);
-  if (guardian !== null && onChain.guardians.some((g) => sameAddress(g, guardian))) {
-    return 'present';
-  }
-  if (guardian !== null) await recordOptOut(key, deps);
+  const current = configuredGuardian(deps, onChain.network);
+  if (current !== null && isKnown(onChain.guardians, current)) return 'present';
+  const known = knownGuardians(deps, onChain.network);
+  if (onChain.guardians.some((guardian) => isKnown(known, guardian))) return 'outdated';
+  if (current !== null) await recordOptOut(key, deps);
   return 'absent';
 }
