@@ -250,7 +250,7 @@ function sectionProblems(
 // the tool's table rather than for anything it holds.
 function loginProblems(file: string, migration: MigrationSource): Problem[] {
   const administers = needsBootstrap(`${migration.up}\n${migration.down}`);
-  if (administers && migration.login !== 'bootstrap') {
+  if (administers && migration.bootstrap !== true) {
     return [
       {
         file,
@@ -259,7 +259,7 @@ function loginProblems(file: string, migration: MigrationSource): Problem[] {
       },
     ];
   }
-  if (!administers && migration.login === 'bootstrap' && !MERGED_BOOTSTRAP_MIGRATIONS.has(file)) {
+  if (!administers && migration.bootstrap === true && !MERGED_BOOTSTRAP_MIGRATIONS.has(file)) {
     return [
       {
         file,

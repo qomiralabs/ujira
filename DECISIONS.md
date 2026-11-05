@@ -17,7 +17,7 @@ Smaller design decisions, each with what it was choosing between. Newest first.
 - A new file that needs the bootstrap login has `-- bootstrap` on its second line. Files merged before the marker existed are named in `MERGED_BOOTSTRAP_MIGRATIONS`, because editing them was ruled out.
 - `check-migrations` refuses a file whose statements and marker disagree.
 - The runner refuses to run a file under the wrong login, and checks with the server that each login is what it claims: the bootstrap login can create roles, and the migrator cannot.
-- A run that names no login is for a superuser on a disposable database only, which is what the tests and local containers are.
+- A run that names no login leaves a superuser free, which is what the tests and local containers are. Any other login is taken for the migrator, so naming nothing can never get a marked file run.
 - The migrator still takes `ujira_owner` for a `-- no-transaction` migration, on the session, and resets it before the run is recorded. A login that already holds the owner's rights does not switch.
 
 **Trade offs and risks.**

@@ -107,7 +107,9 @@ export interface MigrationSource {
   readonly name: string;
   readonly kind: MigrationKind;
   readonly transactional: boolean;
-  readonly login: MigrationLogin;
+  // Left out on a plain file rather than false, because this runner ships ahead of the
+  // code it deploys, and that code's tests compare parsed files whole.
+  readonly bootstrap?: true;
   // Each section starts at its marker line, so a line number in it is the
   // line number in the file minus the section's offset.
   readonly up: string;
@@ -150,15 +152,18 @@ export function parseMigration(name: string, source: string): MigrationSource {
     name,
     kind,
     transactional: lines[1] !== NO_TRANSACTION_LINE,
-    login:
-      lines[1] === BOOTSTRAP_LINE || MERGED_BOOTSTRAP_MIGRATIONS.has(name)
-        ? 'bootstrap'
-        : 'migrator',
+    ...(lines[1] === BOOTSTRAP_LINE || MERGED_BOOTSTRAP_MIGRATIONS.has(name)
+      ? { bootstrap: true as const }
+      : {}),
     up: lines.slice(up, down).join('\n').trimEnd(),
     upLine: up + 1,
     down: lines.slice(down).join('\n').trimEnd(),
     downLine: down + 1,
   };
+}
+
+export function migrationLogin(migration: MigrationSource): MigrationLogin {
+  return migration.bootstrap === true ? 'bootstrap' : 'migrator';
 }
 
 // Only a login that does not already hold the owner's rights takes the role. An admin
@@ -181,9 +186,9 @@ function actionFor(
   login: MigrationLogin | undefined,
 ): (pgm: MigrationBuilder) => void {
   return (pgm) => {
-    if (login !== undefined && migration.login !== login) {
+    if (login !== undefined && migrationLogin(migration) !== login) {
       throw new MigrationLoginError(
-        `${migration.name} needs the ${migration.login} login, and this run is the ${login}`,
+        `${migration.name} needs the ${migrationLogin(migration)} login, and this run is the ${login}`,
       );
     }
     if (transactional) {
@@ -249,22 +254,24 @@ async function rightsOf(url: string): Promise<LoginRights> {
 }
 
 // A run says which login it is, and the server says whether that is true, so a URL pasted
-// into the wrong variable stops here. With no login named, this is a superuser on a
-// disposable database, such as a test or a local container, which can do both jobs.
-async function checkLogin(url: string, login: MigrationLogin | undefined): Promise<void> {
+// into the wrong variable stops here. Naming nothing leaves a superuser free, as a test or
+// a local container on a disposable database is. Anyone else is taken for the migrator,
+// the least a login can be, so naming nothing can never get a marked file run.
+async function settleLogin(
+  url: string,
+  named: MigrationLogin | undefined,
+): Promise<MigrationLogin | undefined> {
   const rights = await rightsOf(url);
+  if (named === undefined && rights.superuser) return undefined;
   const administers = rights.superuser || rights.createRole;
-  if (login === undefined && !rights.superuser) {
-    throw new MigrationLoginError(
-      'a run that names no login is for a superuser on a disposable database; name the login',
-    );
-  }
+  const login = named ?? 'migrator';
   if (login === 'bootstrap' && !administers) {
     throw new MigrationLoginError('the bootstrap login cannot create roles');
   }
   if (login === 'migrator' && administers) {
     throw new MigrationLoginError('the migrator login holds more rights than its job needs');
   }
+  return login;
 }
 
 export type MigrationDirection = 'up' | 'down';
@@ -283,8 +290,8 @@ export interface MigrateOptions {
   // command meant to step back one migration wants.
   readonly count?: number;
   readonly lockMode?: LockMode;
-  // Which login this URL is. A file that needs the other one is refused. Left out, only a
-  // superuser may run, as a test or a local container does.
+  // Which login this URL is. A file that needs the other one is refused. Left out, a
+  // superuser may run anything, and any other login is taken for the migrator.
   readonly login?: MigrationLogin;
   readonly log?: (message: string) => void;
   // Another folder of migrations, for tests that need a fixture. Everything
@@ -304,15 +311,13 @@ export async function runMigrations(options: MigrateOptions): Promise<MigrationR
   // `down` with no count would undo every migration, which is never what a
   // command meant to step back one wants. `up` with no count runs them all.
   const count = options.count ?? (options.direction === 'down' ? 1 : undefined);
-  await checkLogin(options.databaseUrl, options.login);
+  const login = await settleLogin(options.databaseUrl, options.login);
   const runnerOptions: RunnerOption = {
     databaseUrl: options.databaseUrl,
     dir: options.dir ?? MIGRATIONS_DIR,
     migrationsTable: MIGRATIONS_TABLE,
     direction: options.direction,
-    migrationLoaderStrategies: [
-      { extensions: ['.sql'], loader: sqlMigrationsLoader(options.login) },
-    ],
+    migrationLoaderStrategies: [{ extensions: ['.sql'], loader: sqlMigrationsLoader(login) }],
     // Every transactional migration runs inside one transaction, so a
     // failure leaves the schema as it was. A `-- no-transaction` migration
     // breaks it: what ran before it is committed first.
@@ -392,7 +397,7 @@ async function letMigratorRecord(client: pg.Client): Promise<void> {
  */
 export async function runMigrationsByFile(options: TwoLoginMigrateOptions): Promise<MigrationRun> {
   const dir = options.dir ?? MIGRATIONS_DIR;
-  await checkLogin(options.bootstrapUrl, 'bootstrap');
+  await settleLogin(options.bootstrapUrl, 'bootstrap');
   const shared = {
     direction: options.direction,
     dir,
@@ -423,7 +428,7 @@ export async function runMigrationsByFile(options: TwoLoginMigrateOptions): Prom
 
     const names: string[] = [];
     for (const file of chosen) {
-      const { login } = parseMigration(file, await readFile(join(dir, file), 'utf8'));
+      const login = migrationLogin(parseMigration(file, await readFile(join(dir, file), 'utf8')));
       const url = login === 'bootstrap' ? options.bootstrapUrl : options.migratorUrl;
       const run = await runMigrations({ ...shared, databaseUrl: url, count: 1, login });
       // The tool picks the next file itself, so a disagreement here means the two

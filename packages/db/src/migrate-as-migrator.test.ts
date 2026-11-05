@@ -18,6 +18,7 @@ import {
   MERGED_BOOTSTRAP_MIGRATIONS,
   MIGRATIONS_DIR,
   MIGRATIONS_TABLE,
+  migrationLogin,
   MigrationLoginError,
   needsBootstrap,
   parseMigration,
@@ -59,7 +60,7 @@ describe('migrating with two logins', () => {
       .map((name) => parseMigration(name, readFileSync(join(MIGRATIONS_DIR, name), 'utf8')))
       .filter((source) => !source.transactional);
     expect(concurrent.length).toBeGreaterThan(0);
-    for (const source of concurrent) expect(source.login, source.name).toBe('migrator');
+    for (const source of concurrent) expect(migrationLogin(source), source.name).toBe('migrator');
   }, 300_000);
 
   it('finds nothing to do the second time', async () => {
@@ -249,21 +250,49 @@ describe('a file and the login running it', () => {
     }
   }, 60_000);
 
-  it('refuses the migrator naming itself the bootstrap login, or naming nothing', async () => {
+  it('refuses the migrator naming itself the bootstrap login', async () => {
     const fresh = await emptied('migrator');
     const url = roleUrl(roleUrls, 'ujira_migrator', fresh.name);
     try {
       await expect(
         runMigrations({ databaseUrl: url, direction: 'up', login: 'bootstrap' }),
       ).rejects.toBeInstanceOf(MigrationLoginError);
-      await expect(runMigrations({ databaseUrl: url, direction: 'up' })).rejects.toBeInstanceOf(
-        MigrationLoginError,
-      );
       await expect(
         runMigrationsByFile({ bootstrapUrl: url, migratorUrl: url, direction: 'up' }),
       ).rejects.toBeInstanceOf(MigrationLoginError);
     } finally {
       await fresh.drop();
+    }
+  }, 60_000);
+
+  it('takes a login that names nothing for the migrator, unless it is a superuser', async () => {
+    const fresh = await emptied('unnamed');
+    const dir = mkdtempSync(join(tmpdir(), 'migration-unnamed-'));
+    const plain = '-- expand\n\n-- Up Migration\nselect 1;\n\n-- Down Migration\nselect 1;\n';
+    writeFileSync(join(dir, '1000000000000_first.sql'), plain);
+    writeFileSync(join(dir, '1000000000001_plain.sql'), plain);
+    writeFileSync(
+      join(dir, '1000000000002_needs_bootstrap.sql'),
+      plain.replace('-- expand\n', '-- expand\n-- bootstrap\n'),
+    );
+    const admin = new pg.Client({ connectionString: fresh.url });
+    await admin.connect();
+    try {
+      await runMigrations({ databaseUrl: fresh.url, direction: 'up', count: 1, dir });
+      await admin.query(`grant all on public.${MIGRATIONS_TABLE} to ujira_migrator`);
+      await admin.query('grant all on all sequences in schema public to ujira_migrator');
+      const url = roleUrl(roleUrls, 'ujira_migrator', fresh.name);
+      const first = await runMigrations({ databaseUrl: url, direction: 'up', count: 1, dir });
+      expect(first.names).toEqual(['1000000000001_plain']);
+      await expect(
+        runMigrations({ databaseUrl: url, direction: 'up', dir }),
+      ).rejects.toBeInstanceOf(MigrationLoginError);
+      const rest = await runMigrations({ databaseUrl: fresh.url, direction: 'up', dir });
+      expect(rest.names).toEqual(['1000000000002_needs_bootstrap']);
+    } finally {
+      await admin.end();
+      await fresh.drop();
+      rmSync(dir, { recursive: true, force: true });
     }
   }, 60_000);
 
@@ -333,7 +362,7 @@ describe('which files need the bootstrap login', () => {
   it('the listed ones do, and the rest of the folder does not, marker or not', () => {
     for (const name of realFiles()) {
       const source = parseMigration(name, readFileSync(join(MIGRATIONS_DIR, name), 'utf8'));
-      if (source.login === 'migrator') {
+      if (migrationLogin(source) === 'migrator') {
         expect(needsBootstrap(`${source.up}\n${source.down}`), name).toBe(false);
       } else if (name !== '1761004800000_init.sql') {
         expect(needsBootstrap(`${source.up}\n${source.down}`), name).toBe(true);
@@ -356,13 +385,10 @@ describe('which files need the bootstrap login', () => {
 
   it('takes the marker on the second line, and the first file without one', () => {
     const body = '-- Up Migration\nselect 1;\n\n-- Down Migration\nselect 1;\n';
-    expect(parseMigration('1_a.sql', `-- expand\n-- bootstrap\n\n${body}`).login).toBe('bootstrap');
-    expect(parseMigration('1_a.sql', `-- expand\n\n${body}`).login).toBe('migrator');
-    expect(parseMigration('1_a.sql', `-- expand\n-- no-transaction\n\n${body}`).login).toBe(
-      'migrator',
-    );
-    expect(parseMigration('1761004800000_init.sql', `-- expand\n\n${body}`).login).toBe(
-      'bootstrap',
-    );
+    const loginOf = (name: string, source: string) => migrationLogin(parseMigration(name, source));
+    expect(loginOf('1_a.sql', `-- expand\n-- bootstrap\n\n${body}`)).toBe('bootstrap');
+    expect(loginOf('1_a.sql', `-- expand\n\n${body}`)).toBe('migrator');
+    expect(loginOf('1_a.sql', `-- expand\n-- no-transaction\n\n${body}`)).toBe('migrator');
+    expect(loginOf('1761004800000_init.sql', `-- expand\n\n${body}`)).toBe('bootstrap');
   });
 });
