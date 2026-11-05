@@ -286,9 +286,13 @@ export async function infrastructureProblems(
 export const DEFINER_ALLOWLIST: readonly string[] = [
   'ops.active_routing_config()',
   'ops.active_signing_keys(text[])',
+  'ops.chain_cursor(text)',
+  'ops.advance_chain_cursor(text,text)',
   'ops.email_quota_take(text,text,integer,integer)',
   'ops.flag_mandate(text,text)',
+  'ops.flag_mandate(text,text,text)',
   'ops.identity_provider_event_seen(text,text,text)',
+  'ops.mandate_alerts_after(bigint,integer)',
   'ops.register_mandate(text,text,text,bytea,bytea,bigint,bigint)',
   'ops.registered_mandate(text,text)',
   'ops.take_rate_limit_tokens(text[],integer[],integer[])',
