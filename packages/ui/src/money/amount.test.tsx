@@ -23,14 +23,16 @@ function amounts(): string[] {
 describe('formatMoney', () => {
   it('builds Money from minor units and hands it to the core formatter', () => {
     expect(formatMoney(2_000_000n, 'NGN', 'en')).toBe('₦20,000.00');
-    expect(formatMoney('150000', 'KES', 'en')).toBe('KSh 1,500.00');
+    expect(formatMoney('150000', 'KES', 'en')).toBe('KSh\u00a01,500.00');
     expect(formatMoney('-9600', 'USD', 'en')).toBe(
       coreFormatMoney(money('-9600', 'USD'), { locale: 'en' }),
     );
   });
 
   it('passes the dollar code display through', () => {
-    expect(formatMoney(9600n, 'USD', 'en', { currencyCode: 'whenAmbiguous' })).toBe('$96.00 USD');
+    expect(formatMoney(9600n, 'USD', 'en', { currencyCode: 'whenAmbiguous' })).toBe(
+      '$96.00\u00a0USD',
+    );
     expect(formatMoney(9600n, 'USD', 'en', { currencyCode: 'never' })).toBe('$96.00');
   });
 
@@ -68,7 +70,7 @@ describe('Amount', () => {
         <Amount minor="150000" currency="KES" />
       </>,
     );
-    expect(amounts()).toEqual(['KSh 1,500.00', 'KSh 1,500.00']);
+    expect(amounts()).toEqual(['KSh\u00a01,500.00', 'KSh\u00a01,500.00']);
   });
 
   it('principal view with USD and COP corridors shows the ISO code on every dollar amount', () => {
@@ -81,7 +83,7 @@ describe('Amount', () => {
     );
     // Every dollar amount carries its code, and a currency with a sign of its
     // own is left as it is.
-    expect(amounts()).toEqual(['$96.00 USD', '$1,500.00 COP', '₦20,000.00']);
+    expect(amounts()).toEqual(['$96.00\u00a0USD', '$1,500.00\u00a0COP', '₦20,000.00']);
   });
 
   it('a principal view with one dollar currency keeps the plain sign', () => {
@@ -128,12 +130,12 @@ describe('Amount', () => {
     // The negative is the positive with the sign added in front of the
     // digits and nothing else moved: the digits, the symbol and the isolated
     // code stay in the same order.
-    expect(negative.textContent.replace('‎−', '')).toBe(positive.textContent);
+    expect(negative.textContent.replace('\u200e\u2212', '')).toBe(positive.textContent);
   });
 
   it('marks a left to right locale as left to right, so a right to left page cannot reorder it', () => {
     render(<Amount minor="-9600" currency="USD" />);
-    expect(screen.getByText('−$96.00').getAttribute('dir')).toBe('ltr');
+    expect(screen.getByText('\u2212$96.00').getAttribute('dir')).toBe('ltr');
   });
 
   it('shows a secondary amount second, smaller and announced as an equivalent', () => {
@@ -144,11 +146,11 @@ describe('Amount', () => {
         secondary={tokenAmount('125000000', 'USDC', 'stellar')}
       />,
     );
-    expect(amounts()).toEqual(['₦20,000.00', '12.50 USDC']);
+    expect(amounts()).toEqual(['₦20,000.00', '12.50\u00a0USDC']);
     const secondary = document.querySelector('[data-slot="amount-secondary"]');
     expect(secondary?.className).toContain('text-text-secondary');
     // The word that ties the two together is for screen readers only.
-    expect(secondary?.textContent).toBe('equal to 12.50 USDC');
+    expect(secondary?.textContent).toBe('equal to 12.50\u00a0USDC');
     expect(secondary?.querySelector('.sr-only')?.textContent).toBe('equal to');
   });
 
@@ -176,7 +178,7 @@ describe('Amount', () => {
         <Amount minor="9600" currency="USD" signDisplay="never" />
       </>,
     );
-    expect(amounts()).toEqual(['+$96.00', '−$96.00', '$0.00', '$96.00', '$96.00']);
+    expect(amounts()).toEqual(['+$96.00', '\u2212$96.00', '$0.00', '$96.00', '$96.00']);
   });
 
   it('puts a plus sign where the locale puts its minus sign', () => {
@@ -186,7 +188,7 @@ describe('Amount', () => {
       </AmountProvider>,
     );
     const negative = coreFormatMoney(money('-9600', 'NGN'), { locale: 'ar' });
-    expect(amounts()).toEqual([negative.replace('−', '+')]);
+    expect(amounts()).toEqual([negative.replace('\u2212', '+')]);
   });
 
   it.each([
@@ -233,7 +235,7 @@ describe('TokenAmount', () => {
       formatTokenAmount(value, { locale: 'en' }),
       formatTokenAmount(tokenAmount('12345678900', 'USDC', 'stellar'), { locale: 'fr-FR' }),
     ]);
-    expect(amounts()[0]).toBe('1.23 USDC');
+    expect(amounts()[0]).toBe('1.23\u00a0USDC');
   });
 
   it('is set like every other amount', () => {

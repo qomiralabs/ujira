@@ -33,7 +33,7 @@ const CURRENCY_NAMES: Readonly<Record<FiatCurrencyCode, string>> = {
 };
 
 const TABLE = 'w-full max-w-md border-collapse text-body-s';
-const HEAD = 'border-b border-rule py-2 text-start font-medium text-text-secondary';
+const HEAD = 'border-b border-rule py-2 font-medium text-text-secondary';
 const CELL = 'border-b border-rule py-2';
 
 export const Default: Story = {};
@@ -47,7 +47,7 @@ export const EveryCurrency: Story = {
       </caption>
       <thead>
         <tr>
-          <th scope="col" className={HEAD}>
+          <th scope="col" className={`${HEAD} text-start`}>
             Currency
           </th>
           <th scope="col" className={`${HEAD} text-end`}>
@@ -67,7 +67,7 @@ export const EveryCurrency: Story = {
         <tr>
           <td className={CELL}>USDC</td>
           <td className={`${CELL} text-end`}>
-            <TokenAmount value={tokenAmount('12345600', 'USDC', 'stellar')} size="data" />
+            <TokenAmount value={tokenAmount('12345600000', 'USDC', 'stellar')} size="data" />
           </td>
         </tr>
       </tbody>
@@ -99,7 +99,7 @@ export const Alignment: Story = {
       </caption>
       <thead>
         <tr>
-          <th scope="col" className={HEAD}>
+          <th scope="col" className={`${HEAD} text-start`}>
             Recipient
           </th>
           <th scope="col" className={`${HEAD} text-end`}>
@@ -219,9 +219,9 @@ export const AmbiguousDollar: Story = {
 export const Hero: Story = {
   render: () => (
     <div className="flex flex-col items-start gap-1">
-      <span className="text-body-s text-text-secondary">Amara Okafor receives</span>
+      <span className="text-body-s text-text-secondary">Wanjiru Kamau receives</span>
       <Amount
-        minor="1250000000"
+        minor="1250000"
         currency="KES"
         size="hero"
         secondary={tokenAmount('966000000', 'USDC', 'stellar')}
