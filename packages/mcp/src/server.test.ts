@@ -35,7 +35,7 @@ describe('the server', () => {
     const tool = {
       name: 'a_tool',
       description: 'A tool',
-      route: 'listPayouts' as const,
+      route: 'getPayout' as const,
       scope: 'payouts:read',
     };
     const client = await connected((transport) =>
