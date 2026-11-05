@@ -34,6 +34,7 @@ A login with no connection gets one when the first code that runs as it arrives,
 - The indexer may use the transaction pooler because it listens for nothing. If it ever needs LISTEN, it joins the session only roles.
 
 **Evidence.** `packages/db/src/indexer-connection.test.ts` connects through the new pool and finds `ujira_indexer`, and the worker pool is not that login. `config.test.ts` counts the pool in the budget, and `env-template.test.ts` checks `.env.example` documents both new variables.
+
 ## A migration run that waits for the lock tries again, rather than blocking
 
 **Problem.** Several instances migrating at boot pass `lockMode: 'wait'`, and both the migration tool and the per-file runner waited by blocking in `pg_advisory_lock`. A concurrent index build waits for every transaction open while it runs, and a statement blocked on that lock is one. So the run holding the lock waited for the run waiting for it.
