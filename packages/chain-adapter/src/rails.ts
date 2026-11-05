@@ -15,6 +15,18 @@ export const RAIL_IDS = Object.freeze([
 
 const KNOWN: ReadonlySet<unknown> = new Set<unknown>(RAIL_IDS);
 
+/** What a recipient's stored method says it is, whatever the chain calls the rail. */
+export type RailKind = 'wallet' | 'anchor';
+
+const RAIL_KINDS: Readonly<Record<RailId, RailKind>> = Object.freeze({
+  'stellar.wallet': 'wallet',
+  'stellar.sep31': 'anchor',
+});
+
+export function railKindOf(rail: RailId): RailKind {
+  return RAIL_KINDS[rail];
+}
+
 export function isRailId(value: unknown): value is RailId {
   return KNOWN.has(value);
 }

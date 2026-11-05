@@ -9,10 +9,6 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./testing": {
-      "types": "./dist/testing/index.d.ts",
-      "default": "./dist/testing/index.js"
-    },
     "./key-manager": {
       "types": "./dist/key-manager/index.d.ts",
       "default": "./dist/key-manager/index.js"
@@ -20,6 +16,10 @@
     "./key-manager/contract": {
       "types": "./dist/key-manager/contract.d.ts",
       "default": "./dist/key-manager/contract.js"
+    },
+    "./testing": {
+      "types": "./src/testing/index.ts",
+      "default": "./src/testing/index.ts"
     }
   },
   "files": [
@@ -37,6 +37,9 @@
   "devDependencies": {
     "@testcontainers/postgresql": "12.2.0",
     "@types/pg": "8.23.1",
+    "graphile-worker": "0.18.0",
+    "@ujira/api-schema": "workspace:*",
+    "fast-check": "4.10.2",
     "kysely-codegen": "0.20.0",
     "node-pg-migrate": "9.0.0"
   },
