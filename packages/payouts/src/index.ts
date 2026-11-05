@@ -40,3 +40,12 @@ export type {
   RefreshFeeEstimatesPorts,
   SubmissionFee,
 } from './fee-estimates.js';
+export {
+  FEE_BASES,
+  FeeTermsMissingError,
+  FeeTermsNotInForceError,
+  applyFee,
+  feeForPayout,
+  withFee,
+} from './fee-builder.js';
+export type { AppliedFee, FeeBasis, FeeTerms, FeeTermsSource } from './fee-builder.js';
