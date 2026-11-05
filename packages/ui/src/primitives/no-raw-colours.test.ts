@@ -9,9 +9,16 @@ import { typeScale } from '../tokens/index.js';
 const HERE = import.meta.dirname;
 const THEME_CSS = join(HERE, '..', '..', 'styles', 'theme.css');
 
-const sources = readdirSync(HERE)
-  .filter((file) => /\.tsx?$/.test(file) && !file.includes('.test.'))
-  .map((file) => ({ file, text: readFileSync(join(HERE, file), 'utf8') }));
+// The primitives, and every other folder of components that draws colour.
+const COMPONENT_DIRS = [HERE, join(HERE, '..', 'money')];
+
+const sources = COMPONENT_DIRS.flatMap((dir) =>
+  readdirSync(dir)
+    .filter(
+      (file) => /\.tsx?$/.test(file) && !file.includes('.test.') && !file.includes('.test-d.'),
+    )
+    .map((file) => ({ file, text: readFileSync(join(dir, file), 'utf8') })),
+);
 
 const RAW_COLOUR = [/#[0-9a-f]{3,8}\b/gi, /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/gi];
 

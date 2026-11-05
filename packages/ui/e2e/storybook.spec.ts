@@ -25,6 +25,11 @@ const OPEN_SELECT = '[data-slot="select-content"][data-state="open"]';
 // it, so the extra images would show a closed control instead of the thing
 // the story exists for.
 const RESPONSIVE = new Set([
+  // The rendered amount in the four currencies whose sign comes from the
+  // second mono face, and a column of amounts: a font or alignment change
+  // shows here before it shows anywhere else.
+  'money-amount--alignment',
+  'money-amount--launch-signs',
   'primitives-button--variants',
   'primitives-button--with-icon',
   'primitives-field--with-react-hook-form',

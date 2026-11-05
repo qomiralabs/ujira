@@ -19,6 +19,7 @@ The UJIRA design system, shared by the dashboard and the website. It holds the d
 | `src/icons/brand-icons.generated.ts` | Generated. The nine icon names and their shapes, read from the sprite                                                              |
 | `src/icons/brand-icon.tsx`           | `<BrandIcon name="payout" />`                                                                                                      |
 | `src/primitives/`                    | The form primitives, shadcn/ui on Radix restyled to the brand                                                                      |
+| `src/money/`                         | `Amount`, `TokenAmount`, `AmountProvider` and `formatMoney`, on the core money model                                               |
 | `src/lib/cn.ts`                      | `cn()`, the class merge that knows the brand type steps, radii and shadows                                                         |
 | `stories/`                           | One story file per primitive, every variant and state                                                                              |
 | `.storybook/`                        | The catalogue: light and dark, the three widths, the axe addon                                                                     |
@@ -72,6 +73,53 @@ Rules the primitives hold to:
   in a dense row with no label beside them to click.
 - Colours come from the generated theme only. A test fails on a hex, `rgb()` or `hsl()` literal, on
   a colour utility that is not in the theme, and on a custom property that is not a UJIRA or Radix one.
+
+## Money
+
+Every amount on screen goes through the core money model in `@ujira/core`. Nothing here formats,
+rounds or converts on its own, and no amount is ever a JavaScript `number`.
+
+```tsx
+import { Amount, AmountProvider, TokenAmount, formatMoney } from '@ujira/ui';
+
+<Amount minor="2000000" currency="NGN" />                  // ₦20,000.00
+<Amount value={payout.amount} size="data" />                // a core Money
+<Amount minor="2000000" currency="NGN" secondary={usdc} />  // USDC under it, smaller
+<TokenAmount value={usdc} />                                // 12.50 USDC
+formatMoney(2_000_000n, 'NGN', 'en');                       // the same text, as a string
+```
+
+- `Amount` takes a core `Money`, or integer minor units (a `bigint` or its decimal string, as the
+  API sends it) with a currency. A number does not compile, and `ujira/no-number-amount` refuses
+  one that gets through a cast, in every package and app.
+- The text is exactly what the core `formatMoney` returns: the brand symbol, two decimals, the true
+  minus sign and no-break spaces. A property test holds the rendered text to it.
+- Every amount is set in the mono stack with tabular figures and never wraps. The naira, cedi, peso
+  and rupee signs come from the second mono face at the same width, so a column of amounts lines up.
+  Right align the cell in a table; `size` picks the step (`data`, `large`, `hero`), and `hero`
+  steps down on a phone rather than push the page sideways.
+- Each amount is its own bidirectional run with the locale's direction, so in Arabic or Hebrew a
+  negative amount is the positive one with a sign, and nothing else moves.
+- `signDisplay` is `auto` (a minus when negative), `exceptZero` (a plus too, for a change) or
+  `never` (for a column whose heading says the direction).
+- `secondary` is the USD or USDC equivalent, shown under the amount in a smaller size. Screen
+  readers hear it as "equal to"; `secondaryLabel` changes the words.
+
+`AmountProvider` sets the locale for everything inside it. Principal views also pass the currencies
+of the principal's corridors once, at the top:
+
+```tsx
+<AmountProvider locale="en" corridorCurrencies={['USD', 'COP', 'NGN']}>
+```
+
+When two of those print as `$`, every dollar amount carries its ISO code (`$96.00 USD`,
+`$1,500.00 COP`), decided by the core `dollarSignAmbiguous`. It is the corridors and not the rows on
+screen, so filtering a table never changes how its amounts read. Recipient surfaces never set the
+corridors and keep the plain sign.
+
+When a corridor in a new currency is added, check its sign against JetBrains Mono. The second mono
+face carries exactly the four signs the brand face lacks today; a sign neither face draws falls to
+a system font at another width, and the column drifts again until the sign is added to the subset.
 
 ## Catalogue
 
