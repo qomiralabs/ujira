@@ -2,6 +2,25 @@
 
 Smaller design decisions, each with what it was choosing between. Newest first.
 
+## A revoked or expired mandate drops its compliance mark with no notice
+
+**Problem.** A mandate revoked or expired while marked noncompliant is no longer listed among the principal's live instances, so no recheck ever looks at it again. Its mark never cleared, and its parked jobs stayed `blocked_by_policy` for good, behind a policy nobody could fix any more.
+
+**Options.**
+
+1. Clear the mark through `applyMark`, as a recheck would. It is one path, but it sends the principal a "compliant" notice for a mandate that did not become compliant, and it resumes jobs onto a mandate that cannot pay them.
+2. Keep the mark as history, and mark the instance as retired. The record stays in one place, but every reader of marks has to learn to skip retired ones, and a forgotten reader would treat a dead mandate as still blocked.
+3. Drop the mark with no notice, and close the parked jobs with the reason. The history stays in the notices, which are append only and still hold the "noncompliant" one.
+
+We chose option 3.
+
+- A closed job keeps its row, as `closed` with `mandate_revoked` or `mandate_expired`, so the payouts it belongs to can be reported with that reason.
+- The close out takes the same lock as marking and parking. A job being parked as the revocation arrives is either parked first and closed by it, or finds no mark and is not parked, and its submission then meets the chain's own refusal.
+- The principal is checked again without the retired mandate, because its budget no longer counts toward the line. Another mandate that only failed because of the total then clears in the normal way, with its notice and its resumed jobs.
+- The retired instance is left out of that check even if the list of live instances has not caught up, so it can never be marked again.
+
+**Evidence.** `packages/mandates/src/compliance.test.ts` (`a retired mandate`) and `packages/db/src/compliance-store.test.ts` (`closing out a retired mandate`), the second against real Postgres with parks racing the revocation.
+
 ## Two logins run the migrations
 
 **Problem.** The migrator login is `noinherit` and holds no server wide rights, on purpose. It could not run the migrations from zero: creating a schema and administering roles need more than it will ever hold, and a concurrent index build could not take the owner's rights at all. Measured on an empty database, connected as `ujira_migrator`: `permission denied for schema public` for the migrations table, `permission denied for database` for `create schema`, and `permission denied to alter role` in seven migrations. CI missed all of it because it migrated as a superuser.
