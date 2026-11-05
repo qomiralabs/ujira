@@ -73,6 +73,14 @@ export interface OpsIdentityProviderEvents {
   received_at: Generated<Timestamp>;
 }
 
+export interface OpsMandateAlerts {
+  contract_id: string;
+  id: Generated<Int8>;
+  network: string;
+  raised_at: Generated<Timestamp>;
+  reason: string;
+}
+
 export interface OpsMandateRegistry {
   contract_id: string;
   created_at: Generated<Timestamp>;
@@ -740,6 +748,7 @@ export interface Schema {
   'ops.executor_accounts': OpsExecutorAccounts;
   'ops.fee_estimates': OpsFeeEstimates;
   'ops.identity_provider_events': OpsIdentityProviderEvents;
+  'ops.mandate_alerts': OpsMandateAlerts;
   'ops.mandate_registry': OpsMandateRegistry;
   'ops.rate_limit_buckets': OpsRateLimitBuckets;
   'ops.routing_config_active': OpsRoutingConfigActive;

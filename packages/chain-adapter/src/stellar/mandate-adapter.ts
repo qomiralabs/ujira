@@ -238,6 +238,8 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       options.rpc,
       () => [...this.#config().trustedFactories['1']],
       options.ports.registry,
+      options.ports.clock,
+      () => this.#config().pendingMandateMaxAgeSeconds,
     );
     this.#executor = {
       network: options.network,
