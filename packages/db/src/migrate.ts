@@ -113,6 +113,19 @@ export function parseMigration(name: string, source: string): MigrationSource {
   };
 }
 
+// Only a login that does not already hold the owner's rights takes the role. An admin
+// who does keeps its own identity, so an object it owns is still its own to index, and a
+// fixture folder that runs before the role exists still works. Set outside a transaction,
+// the role outlasts this block. A login that is not a member is refused here, loudly.
+const TAKE_OWNER_ROLE = `do $take_role$
+begin
+  if exists (select from pg_catalog.pg_roles where rolname = '${MIGRATION_OWNER_ROLE}')
+     and not pg_catalog.pg_has_role(current_user, '${MIGRATION_OWNER_ROLE}', 'USAGE') then
+    set role ${MIGRATION_OWNER_ROLE};
+  end if;
+end
+$take_role$`;
+
 function actionFor(sql: string, transactional: boolean): (pgm: MigrationBuilder) => void {
   return (pgm) => {
     if (transactional) {
@@ -123,11 +136,11 @@ function actionFor(sql: string, transactional: boolean): (pgm: MigrationBuilder)
     // own and opens a new transaction for the migrations after it. The migrator
     // logs in without the owner's rights and a transactional migration takes them
     // with `set local role`, but a concurrent index build cannot be in a block
-    // that could set a role for it. So the role is set for the session instead,
+    // that could set a role for it. So the role is taken for the session instead,
     // and reset before the tool records the migration, which it does as the login.
     // If the statement fails the run stops and the connection goes with it.
     pgm.noTransaction();
-    pgm.sql(`set role ${MIGRATION_OWNER_ROLE}`);
+    pgm.sql(TAKE_OWNER_ROLE);
     pgm.sql(sql);
     pgm.sql('reset role');
   };
