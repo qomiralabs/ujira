@@ -135,10 +135,10 @@ describe('the intake store', () => {
     expect(repo.register).toHaveBeenCalledWith(added);
   });
 
-  it('passes a flag through', async () => {
+  it('passes a flag through with its reason', async () => {
     const store = dbIntakeStore(database().db);
-    await store.flag(NETWORK, 'CMANDATE');
-    expect(repo.flag).toHaveBeenCalledWith(NETWORK, 'CMANDATE');
+    await store.flag(NETWORK, 'CMANDATE', 'public_test_attester');
+    expect(repo.flag).toHaveBeenCalledWith(NETWORK, 'CMANDATE', 'public_test_attester');
   });
 
   it('finds the tenant that claims a contract, and null when none has', async () => {

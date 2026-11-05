@@ -160,6 +160,7 @@ export function createStellarEventIntake(options: {
   readonly network: NetworkId;
   readonly store: EventIntakeStore;
   readonly trustedFactories: () => readonly string[];
+  readonly nodeEnv?: string;
 }): EventIntake {
   return createEventIntake({ ...options, tenantTagFor: stellarTenantTag });
 }

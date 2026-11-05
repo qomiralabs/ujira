@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { createEventIntake } from './intake.js';
 import type { EventBooking, LedgerEvent } from './intake.js';
 import type { NetworkId } from './networks.js';
+import { PUBLIC_TEST_ATTESTER_KEYS } from './test-attester-keys.js';
 import { MemoryEventIntakeStore } from './testing/event-intake-store.js';
 import type { Bytes32, TenantScope, Uuid } from './types.js';
 
@@ -60,7 +61,7 @@ function created(mandate: string, over: Partial<LedgerEvent> = {}): LedgerEvent 
   });
 }
 
-function world(trusted: readonly string[] = [FACTORY]) {
+function world(trusted: readonly string[] = [FACTORY], nodeEnv?: string) {
   const store = new MemoryEventIntakeStore();
   let factories = trusted;
   const intake = createEventIntake({
@@ -68,6 +69,7 @@ function world(trusted: readonly string[] = [FACTORY]) {
     store,
     trustedFactories: () => factories,
     tenantTagFor: tagFor,
+    ...(nodeEnv === undefined ? {} : { nodeEnv }),
   });
   return {
     store,
@@ -84,6 +86,119 @@ async function registered() {
   await w.intake.ingest(created(MANDATE));
   return w;
 }
+
+describe('a mandate on a public test attester key', () => {
+  const OTHER_KEY = `0x${'07'.repeat(32)}`;
+  const initialized = (attester: string | null) =>
+    event({
+      name: 'mandate_initialized',
+      key: TAG,
+      fields: { principal: 'GPRINCIPAL', attester },
+    });
+  const policySet = (attester: string) =>
+    event({
+      name: 'attestation_policy_set',
+      key: TAG,
+      fields: { attester, policy_epoch: '2' },
+    });
+  const flagged = { action: 'flagged', contractId: MANDATE };
+  const alert = { contractId: MANDATE, reason: 'public_test_attester' };
+
+  it.each(PUBLIC_TEST_ATTESTER_KEYS)(
+    'a mandate initialized with a public test attester key is flagged: %s',
+    async (key) => {
+      const w = await registered();
+      expect(await w.intake.ingest(initialized(`0x${key}`))).toEqual(flagged);
+      expect((await w.store.registered(NETWORK, MANDATE))?.flagged).toBe(true);
+      expect(w.store.alerts).toEqual([alert]);
+      expect(w.store.events).toEqual([]);
+    },
+  );
+
+  it.each(PUBLIC_TEST_ATTESTER_KEYS)(
+    'an attestation policy set to a public test attester key flags the mandate: %s',
+    async (key) => {
+      const w = await registered();
+      expect(await w.intake.ingest(initialized(OTHER_KEY))).toEqual({
+        action: 'booked',
+        created: true,
+      });
+      expect(await w.intake.ingest(policySet(`0x${key}`))).toEqual(flagged);
+      expect((await w.store.registered(NETWORK, MANDATE))?.flagged).toBe(true);
+      expect(w.store.alerts).toEqual([alert]);
+    },
+  );
+
+  it('a flagged test key mandate with no instance row is still flagged', async () => {
+    const w = world();
+    await w.intake.ingest(created(MANDATE));
+    const [key = ''] = PUBLIC_TEST_ATTESTER_KEYS;
+    expect(await w.intake.ingest(initialized(`0x${key}`))).toEqual(flagged);
+    expect((await w.store.registered(NETWORK, MANDATE))?.flagged).toBe(true);
+    expect(w.store.alerts).toEqual([alert]);
+  });
+
+  it('its later events are ignored as flagged, with one alert however often it is read', async () => {
+    const w = await registered();
+    const [key = ''] = PUBLIC_TEST_ATTESTER_KEYS;
+    const first = initialized(`0x${key}`);
+    await w.intake.ingest(first);
+    expect(await w.intake.ingest(first)).toEqual({ action: 'ignored', reason: 'flagged' });
+    expect(await w.intake.ingest(event())).toEqual({ action: 'ignored', reason: 'flagged' });
+    expect(w.store.alerts).toEqual([alert]);
+    expect(w.store.events).toEqual([]);
+  });
+
+  it.each([
+    ['another key', OTHER_KEY],
+    ['no key, as an allowlist mandate has', null],
+    ['an empty key', '0x'],
+    ['text that is not hex', 'not hex'],
+  ])('passes %s through unflagged', async (_label, attester) => {
+    const w = await registered();
+    expect(await w.intake.ingest(initialized(attester))).toEqual({
+      action: 'booked',
+      created: true,
+    });
+    expect((await w.store.registered(NETWORK, MANDATE))?.flagged).toBe(false);
+    expect(w.store.alerts).toEqual([]);
+  });
+
+  it('does not look for the key in any other event', async () => {
+    const w = await registered();
+    const [key = ''] = PUBLIC_TEST_ATTESTER_KEYS;
+    const other = event({ fields: { total: '100', attester: `0x${key}` } });
+    expect(await w.intake.ingest(other)).toMatchObject({ action: 'booked' });
+    expect(w.store.alerts).toEqual([]);
+  });
+
+  it.each([['production'], ['staging'], ['development'], ['']])(
+    'is flagged when the environment is %j, since only the exact value test allows it',
+    async (nodeEnv) => {
+      const w = world([FACTORY], nodeEnv);
+      w.store.claim(NETWORK, MANDATE, TENANT);
+      await w.intake.ingest(created(MANDATE));
+      const [key = ''] = PUBLIC_TEST_ATTESTER_KEYS;
+      expect(await w.intake.ingest(initialized(`0x${key}`))).toEqual(flagged);
+    },
+  );
+
+  it('passes through in a test environment, where the fixtures use these keys', async () => {
+    const w = world([FACTORY], 'test');
+    w.store.claim(NETWORK, MANDATE, TENANT);
+    await w.intake.ingest(created(MANDATE));
+    const [key = ''] = PUBLIC_TEST_ATTESTER_KEYS;
+    expect(await w.intake.ingest(initialized(`0x${key}`))).toMatchObject({ action: 'booked' });
+    expect(w.store.alerts).toEqual([]);
+  });
+
+  it('a tag that differs raises its own reason', async () => {
+    const w = world();
+    w.store.claim(NETWORK, MANDATE, TENANT);
+    await w.intake.ingest(created(MANDATE, { key: WRONG_TAG }));
+    expect(w.store.alerts).toEqual([{ contractId: MANDATE, reason: 'tenant_tag_mismatch' }]);
+  });
+});
 
 describe('registration', () => {
   it('a mandate_created from a trusted factory registers the mandate it names', async () => {
@@ -344,7 +459,7 @@ describe('a tag mismatch', () => {
     const w = world();
     w.store.claim(NETWORK, MANDATE, TENANT);
     await w.intake.ingest(created(MANDATE, { key: WRONG_TAG }));
-    await w.store.flag(NETWORK, 'CNOTHING');
+    await w.store.flag(NETWORK, 'CNOTHING', 'tenant_tag_mismatch');
     await w.intake.ingest(created(MANDATE));
     expect(await w.intake.ingest(event())).toEqual({ action: 'ignored', reason: 'flagged' });
   });

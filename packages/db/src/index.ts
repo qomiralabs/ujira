@@ -64,6 +64,8 @@ export {
   payoutBookings,
   type IntakeBooking,
   type IntakeTenant,
+  type MandateAlert,
+  type MandateFlagReason,
   type MandateRegistryRow,
   type NewMandateRegistration,
   type PayoutBooking,

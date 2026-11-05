@@ -192,6 +192,20 @@ ALTER FUNCTION ops.email_quota_take(p_provider_account text, p_kind text, p_cap 
 --
 
 CREATE FUNCTION ops.flag_mandate(target_network text, contract text) RETURNS boolean
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select ops.flag_mandate(target_network, contract, 'tenant_tag_mismatch')
+$$;
+
+
+ALTER FUNCTION ops.flag_mandate(target_network text, contract text) OWNER TO ujira_ops;
+
+--
+-- Name: flag_mandate(text, text, text); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.flag_mandate(target_network text, contract text, flag_reason text) RETURNS boolean
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'pg_catalog'
     AS $$
@@ -203,12 +217,18 @@ begin
    where r.network = target_network
      and r.contract_id = contract;
   get diagnostics flagged = row_count;
-  return flagged > 0;
+  if flagged = 0 then
+    return false;
+  end if;
+  insert into ops.mandate_alerts (network, contract_id, reason)
+  values (target_network, contract, flag_reason)
+  on conflict on constraint mandate_alerts_once do nothing;
+  return true;
 end
 $$;
 
 
-ALTER FUNCTION ops.flag_mandate(target_network text, contract text) OWNER TO ujira_ops;
+ALTER FUNCTION ops.flag_mandate(target_network text, contract text, flag_reason text) OWNER TO ujira_ops;
 
 --
 -- Name: identity_provider_event_seen(text, text, text); Type: FUNCTION; Schema: ops; Owner: ujira_ops
@@ -294,6 +314,24 @@ $$;
 
 
 ALTER FUNCTION ops.lease_executor(target_network text, holder text, lease_seconds integer) OWNER TO ujira_ops;
+
+--
+-- Name: mandate_alerts_after(bigint, integer); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.mandate_alerts_after(after_id bigint, max_rows integer) RETURNS TABLE(id bigint, network text, contract_id text, reason text, raised_at timestamp with time zone)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select a.id, a.network, a.contract_id, a.reason, a.raised_at
+    from ops.mandate_alerts as a
+   where a.id > after_id
+   order by a.id
+   limit max_rows
+$$;
+
+
+ALTER FUNCTION ops.mandate_alerts_after(after_id bigint, max_rows integer) OWNER TO ujira_ops;
 
 --
 -- Name: record_identity_provider_event(text, text, text, bytea); Type: FUNCTION; Schema: ops; Owner: ujira_ops
@@ -1198,6 +1236,36 @@ CREATE TABLE ops.identity_provider_events (
 
 
 ALTER TABLE ops.identity_provider_events OWNER TO ujira_owner;
+
+--
+-- Name: mandate_alerts; Type: TABLE; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TABLE ops.mandate_alerts (
+    id bigint NOT NULL,
+    network text NOT NULL,
+    contract_id text NOT NULL,
+    reason text NOT NULL,
+    raised_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT mandate_alerts_reason CHECK ((reason = ANY (ARRAY['tenant_tag_mismatch'::text, 'public_test_attester'::text])))
+);
+
+
+ALTER TABLE ops.mandate_alerts OWNER TO ujira_owner;
+
+--
+-- Name: mandate_alerts_id_seq; Type: SEQUENCE; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ops.mandate_alerts ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME ops.mandate_alerts_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
 
 --
 -- Name: mandate_registry; Type: TABLE; Schema: ops; Owner: ujira_owner
@@ -2331,6 +2399,22 @@ ALTER TABLE ONLY ops.fee_estimates
 
 ALTER TABLE ONLY ops.identity_provider_events
     ADD CONSTRAINT identity_provider_events_pkey PRIMARY KEY (provider, provider_account, event_key);
+
+
+--
+-- Name: mandate_alerts mandate_alerts_once; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.mandate_alerts
+    ADD CONSTRAINT mandate_alerts_once UNIQUE (network, contract_id, reason);
+
+
+--
+-- Name: mandate_alerts mandate_alerts_pkey; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.mandate_alerts
+    ADD CONSTRAINT mandate_alerts_pkey PRIMARY KEY (id);
 
 
 --
@@ -3534,6 +3618,14 @@ CREATE TRIGGER recipient_pii_touch BEFORE UPDATE ON ujira.recipient_pii FOR EACH
 --
 
 CREATE TRIGGER recipients_touch BEFORE UPDATE ON ujira.recipients FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
+-- Name: mandate_alerts mandate_alerts_network_contract_id_fkey; Type: FK CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.mandate_alerts
+    ADD CONSTRAINT mandate_alerts_network_contract_id_fkey FOREIGN KEY (network, contract_id) REFERENCES ops.mandate_registry(network, contract_id);
 
 
 --
@@ -5317,6 +5409,14 @@ GRANT ALL ON FUNCTION ops.flag_mandate(target_network text, contract text) TO uj
 
 
 --
+-- Name: FUNCTION flag_mandate(target_network text, contract text, flag_reason text); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.flag_mandate(target_network text, contract text, flag_reason text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.flag_mandate(target_network text, contract text, flag_reason text) TO ujira_indexer;
+
+
+--
 -- Name: FUNCTION identity_provider_event_seen(p_provider text, p_provider_account text, p_event_key text); Type: ACL; Schema: ops; Owner: ujira_ops
 --
 
@@ -5337,6 +5437,14 @@ REVOKE ALL ON FUNCTION ops.keep_signing_key() FROM PUBLIC;
 
 REVOKE ALL ON FUNCTION ops.lease_executor(target_network text, holder text, lease_seconds integer) FROM PUBLIC;
 GRANT ALL ON FUNCTION ops.lease_executor(target_network text, holder text, lease_seconds integer) TO ujira_app;
+
+
+--
+-- Name: FUNCTION mandate_alerts_after(after_id bigint, max_rows integer); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.mandate_alerts_after(after_id bigint, max_rows integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.mandate_alerts_after(after_id bigint, max_rows integer) TO ujira_indexer;
 
 
 --
@@ -5605,6 +5713,13 @@ GRANT SELECT,INSERT,UPDATE ON TABLE ops.fee_estimates TO ujira_ops;
 --
 
 GRANT SELECT,INSERT ON TABLE ops.identity_provider_events TO ujira_ops;
+
+
+--
+-- Name: TABLE mandate_alerts; Type: ACL; Schema: ops; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ops.mandate_alerts TO ujira_ops;
 
 
 --

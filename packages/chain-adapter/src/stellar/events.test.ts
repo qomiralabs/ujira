@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { encodeMuxedAddress } from '../codecs/strkey.js';
 import { decodeAccountAddress } from '../codecs/strkey.js';
 import { ChainUnavailableError } from '../errors.js';
+import { PUBLIC_TEST_ATTESTER_KEYS } from '../test-attester-keys.js';
 import { MemoryEventIntakeStore } from '../testing/event-intake-store.js';
 import {
   createStellarEventIntake,
@@ -38,6 +39,54 @@ function raw(over: Partial<RpcEvent> = {}): RpcEvent {
     ...over,
   };
 }
+
+describe('a public test attester key as the ledger encodes it', () => {
+  const TAG = `0x${'ef'.repeat(32)}` as Bytes32;
+  const topic = (name: string) => [sym(name).toXdr('base64'), bytes32('k', TAG).toXdr('base64')];
+
+  async function registeredIntake() {
+    const store = new MemoryEventIntakeStore();
+    const intake = createStellarEventIntake({
+      network: NETWORK,
+      store,
+      trustedFactories: () => [FIXTURE_FACTORY],
+    });
+    await intake.ingest(
+      ledgerEventOf(
+        NETWORK,
+        raw({
+          contractId: FIXTURE_FACTORY,
+          topic: topic('mandate_created'),
+          value: struct({ mandate: address('mandate', CONTRACT) }).toXdr('base64'),
+        }),
+      ),
+    );
+    return { store, intake };
+  }
+
+  it.each(PUBLIC_TEST_ATTESTER_KEYS)('flags %s on mandate_initialized', async (key) => {
+    const { store, intake } = await registeredIntake();
+    const initialized = raw({
+      topic: topic('mandate_initialized'),
+      value: struct({ attester: bytes('attester', Buffer.from(key, 'hex')) }).toXdr('base64'),
+    });
+    expect(await intake.ingest(ledgerEventOf(NETWORK, initialized))).toEqual({
+      action: 'flagged',
+      contractId: CONTRACT,
+    });
+    expect(store.alerts).toEqual([{ contractId: CONTRACT, reason: 'public_test_attester' }]);
+  });
+
+  it('leaves a mandate with no attester alone', async () => {
+    const { store, intake } = await registeredIntake();
+    const initialized = raw({
+      topic: topic('mandate_initialized'),
+      value: struct({ attester: xdr.ScVal.scvVoid() }).toXdr('base64'),
+    });
+    await intake.ingest(ledgerEventOf(NETWORK, initialized));
+    expect(store.alerts).toEqual([]);
+  });
+});
 
 describe('reading an event off the ledger', () => {
   it('takes the source and the position from the ledger', () => {

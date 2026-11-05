@@ -159,6 +159,7 @@ export type {
   EventIntake,
   EventIntakeOptions,
   EventIntakeStore,
+  MandateFlagReason,
   EventJson,
   IgnoredReason,
   IntakeOutcome,

@@ -67,7 +67,9 @@ function world(pages: readonly EventPage[]) {
     page: (cursor) => {
       asked.push(cursor);
       const found = pages[asked.length - 1];
-      return found === undefined ? Promise.reject(new Error('no such page')) : Promise.resolve(found);
+      return found === undefined
+        ? Promise.reject(new Error('no such page'))
+        : Promise.resolve(found);
     },
   };
   const scan = createEventScan({

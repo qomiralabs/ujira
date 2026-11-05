@@ -55,7 +55,7 @@ export function dbIntakeStore(db: Database): EventIntakeStore {
     },
     register: (registration) =>
       store.register({ ...registration, tenantTag: registration.tenantTag as string as Hex }),
-    flag: (network, contractId) => store.flag(network, contractId),
+    flag: (network, contractId, reason) => store.flag(network, contractId, reason),
     async tenantOf(network, contractId) {
       const tenant = await store.tenantOf(network, contractId);
       if (tenant === null) return null;

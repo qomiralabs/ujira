@@ -6,9 +6,20 @@
 // It is also the registry the adapter reads, which is the path in production:
 // what intake registers is what the adapter then accepts. Test code only.
 
-import type { EventBooking, EventIntakeStore, MandateTenant, NewRegistration } from '../intake.js';
+import type {
+  EventBooking,
+  EventIntakeStore,
+  MandateFlagReason,
+  MandateTenant,
+  NewRegistration,
+} from '../intake.js';
 import type { NetworkId } from '../networks.js';
 import type { MandateRegistration, MandateRegistry, TenantScope } from '../types.js';
+
+export interface MandateAlert {
+  readonly contractId: string;
+  readonly reason: MandateFlagReason;
+}
 
 function key(...parts: readonly (string | bigint)[]): string {
   return parts.map(String).join('|');
@@ -19,6 +30,7 @@ export class MemoryEventIntakeStore implements EventIntakeStore, MandateRegistry
   readonly #tenants = new Map<string, MandateTenant>();
   readonly #events = new Map<string, EventBooking>();
   readonly #payouts = new Map<string, EventBooking[]>();
+  readonly #alerts = new Map<string, MandateAlert>();
 
   /** A tenant claims a contract, as its mandate instance row does. */
   claim(network: NetworkId, contractId: string, tenant: MandateTenant): void {
@@ -33,6 +45,11 @@ export class MemoryEventIntakeStore implements EventIntakeStore, MandateRegistry
   /** The events of each payout, by network, contract and payout ID. */
   get payouts(): ReadonlyMap<string, readonly EventBooking[]> {
     return this.#payouts;
+  }
+
+  /** One per mandate and reason, however many times it was flagged for it. */
+  get alerts(): readonly MandateAlert[] {
+    return [...this.#alerts.values()];
   }
 
   get registrations(): readonly MandateRegistration[] {
@@ -65,10 +82,13 @@ export class MemoryEventIntakeStore implements EventIntakeStore, MandateRegistry
     return Promise.resolve(true);
   }
 
-  flag(network: NetworkId, contractId: string): Promise<void> {
+  flag(network: NetworkId, contractId: string, reason: MandateFlagReason): Promise<void> {
     const at = key(network, contractId);
     const found = this.#registrations.get(at);
-    if (found !== undefined) this.#registrations.set(at, { ...found, flagged: true });
+    if (found !== undefined) {
+      this.#registrations.set(at, { ...found, flagged: true });
+      this.#alerts.set(key(at, reason), { contractId, reason });
+    }
     return Promise.resolve();
   }
 
