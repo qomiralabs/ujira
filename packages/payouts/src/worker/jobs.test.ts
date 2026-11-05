@@ -43,6 +43,7 @@ describe('the task registry', () => {
       'payouts:cancel_lapsed',
       'mandate:reconcile',
       'ttl:keep_alive',
+      'compliance:recheck',
     ]);
     expect(jobPayloadProblems(registry)).toEqual([]);
 
