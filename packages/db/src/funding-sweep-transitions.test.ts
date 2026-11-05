@@ -103,6 +103,7 @@ beforeAll(async () => {
   const setup = await asTenant(async (tx) => {
     const mandate = await mandates.create(tx, { name: 'sweeps' });
     const instance = await mandateInstances.create(tx, {
+      network: 'stellar:testnet',
       mandateId: mandate.id,
       chain: 'stellar',
       contractAddress: `C${randomUUID()}`,

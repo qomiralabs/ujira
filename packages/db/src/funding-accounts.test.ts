@@ -64,10 +64,11 @@ async function as<T>(tenant: ProjectContext, work: (tx: Kysely<Schema>) => Promi
   return db.tenant(tenant).transaction(work);
 }
 
-async function newInstance(tenant: ProjectContext): Promise<string> {
+async function newInstance(tenant: ProjectContext, network = NETWORK): Promise<string> {
   return as(tenant, async (tx) => {
     const mandate = await mandates.create(tx, { name: `mandate ${randomUUID()}` });
     const instance = await mandateInstances.create(tx, {
+      network,
       mandateId: mandate.id,
       chain: 'stellar',
       contractAddress: `C${randomUUID()}`,
@@ -84,6 +85,22 @@ async function secondProject(tenant: ProjectContext): Promise<ProjectContext> {
     .tenant(tenant)
     .transaction(async (tx) => projects.create(tx, { name: 'second' }));
   return { principalId: tenant.principalId, projectId };
+}
+
+// A row with no network, as one from before the column has, or one made by the code
+// still running during a deploy.
+async function instanceFromBeforeNetworks(tenant: ProjectContext): Promise<string> {
+  const mandate = await as(tenant, async (tx) =>
+    mandates.create(tx, { name: `mandate ${randomUUID()}` }),
+  );
+  const row = await admin.query<{ id: string }>(
+    `insert into ujira.mandate_instances
+       (principal_id, project_id, mandate_id, chain, contract_address, spec_version, asset, scale)
+     values ($1, $2, $3, 'stellar', $4, '1', 'USDC', 7)
+     returning id`,
+    [tenant.principalId, tenant.projectId, mandate.id, `C${randomUUID()}`],
+  );
+  return row.rows[0]?.id ?? '';
 }
 
 beforeAll(async () => {
@@ -419,6 +436,107 @@ describe('attaching an account to a mandate instance', () => {
         fundingAccounts.attach(tx, { accountId: pubnet?.id ?? '', mandateInstanceId: instance }),
       ),
     ).toBeUndefined();
+  });
+
+  it('refuses a testnet account on a pubnet instance, whoever writes it', async () => {
+    const tenant = await newTenant();
+    const account = await as(tenant, async (tx) => fundingAccounts.record(tx, newAccount()));
+    const instance = await newInstance(tenant, 'stellar:pubnet');
+    const accountId = account?.id ?? '';
+    expect(
+      await as(tenant, async (tx) =>
+        fundingAccounts.attach(tx, { accountId, mandateInstanceId: instance }),
+      ),
+    ).toBeUndefined();
+    // Nothing is left behind, since the app could not remove it.
+    const none = await as(tenant, async (tx) => fundingSources.list(tx, { limit: 10 }));
+    expect(none.items).toEqual([]);
+    const source = await as(tenant, async (tx) =>
+      fundingSources.create(tx, {
+        mandateInstanceId: instance,
+        kind: 'stellar_funding_account',
+        config: { sponsoredReserves: true, sponsorTxHash: randomBytes(32) },
+      }),
+    );
+    const direct = as(tenant, async (tx) =>
+      tx
+        .insertInto('ujira.funding_account_sources')
+        .values({
+          principal_id: tenant.principalId,
+          project_id: tenant.projectId,
+          funding_account_id: accountId,
+          funding_source_id: source.id,
+          mandate_instance_id: instance,
+        })
+        .execute(),
+    );
+    expect(await codeOf(direct)).toBe('23514');
+  });
+
+  it('refuses a pubnet account on a testnet instance', async () => {
+    const tenant = await newTenant();
+    const account = await as(tenant, async (tx) =>
+      fundingAccounts.record(tx, newAccount({ network: 'stellar:pubnet' })),
+    );
+    const instance = await newInstance(tenant);
+    expect(
+      await as(tenant, async (tx) =>
+        fundingAccounts.attach(tx, { accountId: account?.id ?? '', mandateInstanceId: instance }),
+      ),
+    ).toBeUndefined();
+  });
+
+  it('attaches on the same network, on pubnet as well', async () => {
+    const tenant = await newTenant();
+    const account = await as(tenant, async (tx) =>
+      fundingAccounts.record(tx, newAccount({ network: 'stellar:pubnet' })),
+    );
+    const instance = await newInstance(tenant, 'stellar:pubnet');
+    const source = await as(tenant, async (tx) =>
+      fundingAccounts.attach(tx, { accountId: account?.id ?? '', mandateInstanceId: instance }),
+    );
+    expect(source?.mandateInstanceId).toBe(instance);
+  });
+
+  it('refuses a link to a source on another instance, whoever writes it', async () => {
+    const tenant = await newTenant();
+    const account = await as(tenant, async (tx) => fundingAccounts.record(tx, newAccount()));
+    const [mine, other] = await Promise.all([newInstance(tenant), newInstance(tenant)]);
+    const elsewhere = await as(tenant, async (tx) =>
+      fundingSources.create(tx, {
+        mandateInstanceId: other,
+        kind: 'stellar_funding_account',
+        config: { sponsoredReserves: true, sponsorTxHash: randomBytes(32) },
+      }),
+    );
+    const direct = as(tenant, async (tx) =>
+      tx
+        .insertInto('ujira.funding_account_sources')
+        .values({
+          principal_id: tenant.principalId,
+          project_id: tenant.projectId,
+          funding_account_id: account?.id ?? '',
+          funding_source_id: elsewhere.id,
+          mandate_instance_id: mine,
+        })
+        .execute(),
+    );
+    expect(await codeOf(direct)).toBe('23514');
+  });
+
+  it('funds nothing from an instance whose network is not known', async () => {
+    const tenant = await newTenant();
+    const account = await as(tenant, async (tx) => fundingAccounts.record(tx, newAccount()));
+    const instance = await instanceFromBeforeNetworks(tenant);
+    const read = await as(tenant, async (tx) => mandateInstances.get(tx, instance));
+    expect(read?.network).toBeNull();
+    expect(
+      await as(tenant, async (tx) =>
+        fundingAccounts.attach(tx, { accountId: account?.id ?? '', mandateInstanceId: instance }),
+      ),
+    ).toBeUndefined();
+    const none = await as(tenant, async (tx) => fundingSources.list(tx, { limit: 10 }));
+    expect(none.items).toEqual([]);
   });
 
   it('is held to one source per instance by the table itself', async () => {

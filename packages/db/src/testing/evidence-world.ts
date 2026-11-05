@@ -44,6 +44,7 @@ export async function evidenceWorld(db: Database): Promise<EvidenceWorld> {
     });
     const mandate = await mandates.create(tx, { name: 'Attested' });
     const instance = await mandateInstances.create(tx, {
+      network: 'stellar:testnet',
       mandateId: mandate.id,
       chain: 'stellar',
       contractAddress: `C${randomUUID()}`,

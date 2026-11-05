@@ -158,6 +158,39 @@ describe('db-store.test.ts', () => {
     });
   });
 
+  describe('sources.instance', () => {
+    const instance = randomUUID();
+
+    it('reads the network and address under the tenant', async () => {
+      const { db, opened } = database();
+      repo.getInstance.mockResolvedValue({
+        network: 'stellar:pubnet',
+        contractAddress: 'CMANDATE',
+      });
+      expect(await createDbFundingAccountStores(db).sources.instance(scope, instance)).toEqual({
+        network: 'stellar:pubnet',
+        contractAddress: 'CMANDATE',
+      });
+      expect(opened).toEqual([{ session: 'tenant', context: scope }]);
+      expect(repo.getInstance).toHaveBeenCalledWith('tx', instance);
+    });
+
+    it('answers null for an instance this tenant cannot see', async () => {
+      const { db } = database();
+      repo.getInstance.mockResolvedValue(undefined);
+      expect(await createDbFundingAccountStores(db).sources.instance(scope, instance)).toBeNull();
+    });
+
+    it.each([null, 'stellar:futurenet'])('reads %s as a network not known', async (network) => {
+      const { db } = database();
+      repo.getInstance.mockResolvedValue({ network, contractAddress: 'CMANDATE' });
+      expect(await createDbFundingAccountStores(db).sources.instance(scope, instance)).toEqual({
+        network: null,
+        contractAddress: 'CMANDATE',
+      });
+    });
+  });
+
   describe('accounts.recordCheck', () => {
     const later: FundingAccountRecord = { ...record, status: 'changed', faults: ['extra_signer'] };
 
@@ -194,13 +227,13 @@ describe('db-store.test.ts', () => {
     const instance = randomUUID();
     const input = { network: NETWORK, mandateInstanceId: instance };
 
-    it('attaches the project account to the instance, under the tenant', async () => {
+    it('attaches the account on that network to the instance, under the tenant', async () => {
       const { db, opened } = database();
       repo.forNetwork.mockResolvedValue(row);
-      repo.getInstance.mockResolvedValue({ id: instance, chain: 'stellar' });
       repo.attach.mockResolvedValue({ id: 'source-1' });
       expect(await createDbFundingAccountStores(db).sources.attach(scope, input)).toBe('source-1');
       expect(opened).toEqual([{ session: 'tenant', context: scope }]);
+      expect(repo.forNetwork).toHaveBeenCalledWith('tx', NETWORK);
       expect(repo.attach).toHaveBeenCalledWith('tx', {
         accountId: row.id,
         mandateInstanceId: instance,
@@ -210,23 +243,6 @@ describe('db-store.test.ts', () => {
     it('answers null with no account in this project', async () => {
       const { db } = database();
       repo.forNetwork.mockResolvedValue(undefined);
-      repo.getInstance.mockResolvedValue({ id: instance, chain: 'stellar' });
-      expect(await createDbFundingAccountStores(db).sources.attach(scope, input)).toBeNull();
-      expect(repo.attach).not.toHaveBeenCalled();
-    });
-
-    it('answers null for an instance this tenant cannot see', async () => {
-      const { db } = database();
-      repo.forNetwork.mockResolvedValue(row);
-      repo.getInstance.mockResolvedValue(undefined);
-      expect(await createDbFundingAccountStores(db).sources.attach(scope, input)).toBeNull();
-      expect(repo.attach).not.toHaveBeenCalled();
-    });
-
-    it('answers null for an instance on another chain', async () => {
-      const { db } = database();
-      repo.forNetwork.mockResolvedValue(row);
-      repo.getInstance.mockResolvedValue({ id: instance, chain: 'elsewhere' });
       expect(await createDbFundingAccountStores(db).sources.attach(scope, input)).toBeNull();
       expect(repo.attach).not.toHaveBeenCalled();
     });
@@ -234,7 +250,6 @@ describe('db-store.test.ts', () => {
     it('answers null when the repository refuses', async () => {
       const { db } = database();
       repo.forNetwork.mockResolvedValue(row);
-      repo.getInstance.mockResolvedValue({ id: instance, chain: 'stellar' });
       repo.attach.mockResolvedValue(undefined);
       expect(await createDbFundingAccountStores(db).sources.attach(scope, input)).toBeNull();
     });
