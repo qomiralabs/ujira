@@ -93,7 +93,7 @@ export interface ConfirmedFundingAccount {
 
 /** What a funding account needs to know of the mandate instance it funds. */
 export interface FundingInstance {
-  /** Null for an instance from before networks were recorded, which nothing may fund. */
+  /** Null for a network this build does not know, which nothing may fund. */
   readonly network: NetworkId | null;
   readonly contractAddress: string;
 }
