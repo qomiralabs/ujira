@@ -52,6 +52,12 @@ export interface OpsExecutorAccounts {
   next_sequence: Generated<Int8>;
 }
 
+export interface OpsFeeAddressAlarms {
+  network: string;
+  raised_at: Generated<Timestamp>;
+  reason: string;
+}
+
 export interface OpsFeeEstimates {
   computed_at: Generated<Timestamp>;
   leg_count: Int8;
@@ -280,6 +286,13 @@ export interface UjiraEmbedSessions {
   recipient_id: string;
   token_hash: Buffer;
   token_prefix: string;
+}
+
+export interface UjiraFeeResendDecisions {
+  attempt_id: string;
+  decided_at: Generated<Timestamp>;
+  principal_id: string;
+  project_id: string;
 }
 
 export interface UjiraFundingAccountChecks {
@@ -668,6 +681,19 @@ export interface UjiraStatusTransitions {
   to_status: string;
 }
 
+export interface UjiraUnpaidFeeItems {
+  amount: Numeric;
+  asset: string;
+  attempt_id: string;
+  chain: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  payout_id: string;
+  principal_id: string;
+  project_id: string;
+  scale: number;
+}
+
 export interface UjiraWalletProofChallenges {
   address: string;
   consumed_at: Timestamp | null;
@@ -692,6 +718,7 @@ export interface Schema {
   'ops.chain_cursors': OpsChainCursors;
   'ops.email_quota_usage': OpsEmailQuotaUsage;
   'ops.executor_accounts': OpsExecutorAccounts;
+  'ops.fee_address_alarms': OpsFeeAddressAlarms;
   'ops.fee_estimates': OpsFeeEstimates;
   'ops.identity_provider_events': OpsIdentityProviderEvents;
   'ops.mandate_alerts': OpsMandateAlerts;
@@ -714,6 +741,7 @@ export interface Schema {
   'ujira.deposits': UjiraDeposits;
   'ujira.destination_verifications': UjiraDestinationVerifications;
   'ujira.embed_sessions': UjiraEmbedSessions;
+  'ujira.fee_resend_decisions': UjiraFeeResendDecisions;
   'ujira.funding_account_checks': UjiraFundingAccountChecks;
   'ujira.funding_account_sources': UjiraFundingAccountSources;
   'ujira.funding_accounts': UjiraFundingAccounts;
@@ -743,5 +771,6 @@ export interface Schema {
   'ujira.recipients': UjiraRecipients;
   'ujira.settlement_tokens': UjiraSettlementTokens;
   'ujira.status_transitions': UjiraStatusTransitions;
+  'ujira.unpaid_fee_items': UjiraUnpaidFeeItems;
   'ujira.wallet_proof_challenges': UjiraWalletProofChallenges;
 }

@@ -152,6 +152,26 @@ $$;
 ALTER FUNCTION ops.chain_cursor(target_network text) OWNER TO ujira_ops;
 
 --
+-- Name: clear_fee_address_alarm(text); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.clear_fee_address_alarm(target_network text) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  cleared integer;
+begin
+  delete from ops.fee_address_alarms as a where a.network = target_network;
+  get diagnostics cleared = row_count;
+  return cleared > 0;
+end
+$$;
+
+
+ALTER FUNCTION ops.clear_fee_address_alarm(target_network text) OWNER TO ujira_ops;
+
+--
 -- Name: email_quota_take(text, text, integer, integer); Type: FUNCTION; Schema: ops; Owner: ujira_ops
 --
 
@@ -342,6 +362,28 @@ $$;
 
 
 ALTER FUNCTION ops.mandate_alerts_after(after_id bigint, max_rows integer) OWNER TO ujira_ops;
+
+--
+-- Name: raise_fee_address_alarm(text, text); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.raise_fee_address_alarm(target_network text, alarm_reason text) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  raised integer;
+begin
+  insert into ops.fee_address_alarms (network, reason)
+  values (target_network, alarm_reason)
+  on conflict (network) do nothing;
+  get diagnostics raised = row_count;
+  return raised > 0;
+end
+$$;
+
+
+ALTER FUNCTION ops.raise_fee_address_alarm(target_network text, alarm_reason text) OWNER TO ujira_ops;
 
 --
 -- Name: record_identity_provider_event(text, text, text, bytea); Type: FUNCTION; Schema: ops; Owner: ujira_ops
@@ -1386,6 +1428,20 @@ CREATE TABLE ops.executor_accounts (
 ALTER TABLE ops.executor_accounts OWNER TO ujira_owner;
 
 --
+-- Name: fee_address_alarms; Type: TABLE; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TABLE ops.fee_address_alarms (
+    network text NOT NULL,
+    reason text NOT NULL,
+    raised_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT fee_address_alarms_reason CHECK ((reason = ANY (ARRAY['ACCOUNT_NOT_FOUND'::text, 'DESTINATION_IS_ISSUER'::text, 'NO_TRUSTLINE'::text, 'TRUSTLINE_NOT_AUTHORIZED'::text, 'TRUSTLINE_LIMIT'::text])))
+);
+
+
+ALTER TABLE ops.fee_address_alarms OWNER TO ujira_owner;
+
+--
 -- Name: fee_estimates; Type: TABLE; Schema: ops; Owner: ujira_owner
 --
 
@@ -1937,6 +1993,22 @@ ALTER TABLE ONLY ujira.embed_sessions FORCE ROW LEVEL SECURITY;
 
 
 ALTER TABLE ujira.embed_sessions OWNER TO ujira_owner;
+
+--
+-- Name: fee_resend_decisions; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.fee_resend_decisions (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    attempt_id uuid NOT NULL,
+    decided_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+ALTER TABLE ONLY ujira.fee_resend_decisions FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.fee_resend_decisions OWNER TO ujira_owner;
 
 --
 -- Name: funding_account_checks; Type: TABLE; Schema: ujira; Owner: ujira_owner
@@ -2693,6 +2765,29 @@ CREATE TABLE ujira.status_transitions (
 ALTER TABLE ujira.status_transitions OWNER TO ujira_owner;
 
 --
+-- Name: unpaid_fee_items; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.unpaid_fee_items (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    payout_id uuid NOT NULL,
+    attempt_id uuid NOT NULL,
+    chain text NOT NULL,
+    asset text NOT NULL,
+    scale ujira.scale NOT NULL,
+    amount ujira.amount NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT unpaid_fee_items_amount_positive CHECK (((amount)::numeric > (0)::numeric))
+);
+
+ALTER TABLE ONLY ujira.unpaid_fee_items FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.unpaid_fee_items OWNER TO ujira_owner;
+
+--
 -- Name: wallet_proof_challenges; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2755,6 +2850,14 @@ ALTER TABLE ONLY ops.email_quota_usage
 
 ALTER TABLE ONLY ops.executor_accounts
     ADD CONSTRAINT executor_accounts_pkey PRIMARY KEY (network, account_ref);
+
+
+--
+-- Name: fee_address_alarms fee_address_alarms_pkey; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.fee_address_alarms
+    ADD CONSTRAINT fee_address_alarms_pkey PRIMARY KEY (network);
 
 
 --
@@ -3051,6 +3154,14 @@ ALTER TABLE ONLY ujira.embed_sessions
 
 ALTER TABLE ONLY ujira.embed_sessions
     ADD CONSTRAINT embed_sessions_token_key UNIQUE (token_hash);
+
+
+--
+-- Name: fee_resend_decisions fee_resend_decisions_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.fee_resend_decisions
+    ADD CONSTRAINT fee_resend_decisions_pkey PRIMARY KEY (principal_id, project_id, attempt_id);
 
 
 --
@@ -3606,6 +3717,22 @@ ALTER TABLE ONLY ujira.status_transitions
 
 
 --
+-- Name: unpaid_fee_items unpaid_fee_items_per_payout; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.unpaid_fee_items
+    ADD CONSTRAINT unpaid_fee_items_per_payout UNIQUE (principal_id, project_id, payout_id);
+
+
+--
+-- Name: unpaid_fee_items unpaid_fee_items_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.unpaid_fee_items
+    ADD CONSTRAINT unpaid_fee_items_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: wallet_proof_challenges wallet_proof_challenges_nonce_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3784,6 +3911,13 @@ CREATE UNIQUE INDEX recipient_identities_verified_nullifier ON ujira.recipient_i
 
 
 --
+-- Name: unpaid_fee_items_by_attempt; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX unpaid_fee_items_by_attempt ON ujira.unpaid_fee_items USING btree (principal_id, project_id, attempt_id);
+
+
+--
 -- Name: chain_cursors chain_cursors_touch; Type: TRIGGER; Schema: ops; Owner: ujira_owner
 --
 
@@ -3942,6 +4076,20 @@ CREATE TRIGGER destination_verifications_append_only BEFORE DELETE OR UPDATE ON 
 --
 
 CREATE TRIGGER destination_verifications_no_truncate BEFORE TRUNCATE ON ujira.destination_verifications FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: fee_resend_decisions fee_resend_decisions_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER fee_resend_decisions_append_only BEFORE DELETE OR UPDATE ON ujira.fee_resend_decisions FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: fee_resend_decisions fee_resend_decisions_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER fee_resend_decisions_no_truncate BEFORE TRUNCATE ON ujira.fee_resend_decisions FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
 
 
 --
@@ -4267,6 +4415,20 @@ CREATE TRIGGER recipients_touch BEFORE UPDATE ON ujira.recipients FOR EACH ROW E
 
 
 --
+-- Name: unpaid_fee_items unpaid_fee_items_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER unpaid_fee_items_append_only BEFORE DELETE OR UPDATE ON ujira.unpaid_fee_items FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: unpaid_fee_items unpaid_fee_items_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER unpaid_fee_items_no_truncate BEFORE TRUNCATE ON ujira.unpaid_fee_items FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
 -- Name: mandate_alerts mandate_alerts_network_contract_id_fkey; Type: FK CONSTRAINT; Schema: ops; Owner: ujira_owner
 --
 
@@ -4448,6 +4610,14 @@ ALTER TABLE ONLY ujira.embed_sessions
 
 ALTER TABLE ONLY ujira.embed_sessions
     ADD CONSTRAINT embed_sessions_principal_id_project_id_recipient_id_fkey FOREIGN KEY (principal_id, project_id, recipient_id) REFERENCES ujira.recipients(principal_id, project_id, id);
+
+
+--
+-- Name: fee_resend_decisions fee_resend_decisions_principal_id_project_id_attempt_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.fee_resend_decisions
+    ADD CONSTRAINT fee_resend_decisions_principal_id_project_id_attempt_id_fkey FOREIGN KEY (principal_id, project_id, attempt_id) REFERENCES ujira.payout_attempts(principal_id, project_id, id);
 
 
 --
@@ -4843,6 +5013,22 @@ ALTER TABLE ONLY ujira.settlement_tokens
 
 
 --
+-- Name: unpaid_fee_items unpaid_fee_items_principal_id_project_id_attempt_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.unpaid_fee_items
+    ADD CONSTRAINT unpaid_fee_items_principal_id_project_id_attempt_id_fkey FOREIGN KEY (principal_id, project_id, attempt_id) REFERENCES ujira.payout_attempts(principal_id, project_id, id);
+
+
+--
+-- Name: unpaid_fee_items unpaid_fee_items_principal_id_project_id_payout_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.unpaid_fee_items
+    ADD CONSTRAINT unpaid_fee_items_principal_id_project_id_payout_id_fkey FOREIGN KEY (principal_id, project_id, payout_id) REFERENCES ujira.payouts(principal_id, project_id, id);
+
+
+--
 -- Name: wallet_proof_challenges wallet_proof_challenges_principal_id_project_id_method_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4938,6 +5124,12 @@ ALTER TABLE ujira.destination_verifications ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE ujira.embed_sessions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: fee_resend_decisions; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.fee_resend_decisions ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: funding_account_checks; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
@@ -5235,6 +5427,13 @@ CREATE POLICY owner_all ON ujira.embed_sessions TO ujira_owner USING (true) WITH
 
 
 --
+-- Name: fee_resend_decisions owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.fee_resend_decisions TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: funding_account_checks owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5417,6 +5616,13 @@ CREATE POLICY owner_all ON ujira.recipients TO ujira_owner USING (true) WITH CHE
 
 
 --
+-- Name: unpaid_fee_items owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.unpaid_fee_items TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: wallet_proof_challenges owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5590,6 +5796,13 @@ CREATE POLICY tenant_insert ON ujira.destination_verifications FOR INSERT TO uji
 --
 
 CREATE POLICY tenant_insert ON ujira.embed_sessions FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: fee_resend_decisions tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.fee_resend_decisions FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -5768,6 +5981,13 @@ CREATE POLICY tenant_insert ON ujira.recipients FOR INSERT TO ujira_app WITH CHE
 
 
 --
+-- Name: unpaid_fee_items tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.unpaid_fee_items FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: wallet_proof_challenges tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5835,6 +6055,13 @@ CREATE POLICY tenant_read ON ujira.destination_verifications FOR SELECT TO ujira
 --
 
 CREATE POLICY tenant_read ON ujira.embed_sessions FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: fee_resend_decisions tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.fee_resend_decisions FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
 
 
 --
@@ -6020,6 +6247,13 @@ CREATE POLICY tenant_read ON ujira.recipients FOR SELECT TO ujira_app, ujira_rea
 
 
 --
+-- Name: unpaid_fee_items tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.unpaid_fee_items FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
 -- Name: wallet_proof_challenges tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6080,6 +6314,13 @@ CREATE POLICY tenant_update ON ujira.destination_verifications FOR UPDATE TO uji
 --
 
 CREATE POLICY tenant_update ON ujira.embed_sessions FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: fee_resend_decisions tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.fee_resend_decisions FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -6265,11 +6506,24 @@ CREATE POLICY tenant_update ON ujira.recipients FOR UPDATE TO ujira_app USING ((
 
 
 --
+-- Name: unpaid_fee_items tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.unpaid_fee_items FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: wallet_proof_challenges tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY tenant_update ON ujira.wallet_proof_challenges FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
+
+--
+-- Name: unpaid_fee_items; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.unpaid_fee_items ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: wallet_proof_challenges; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
@@ -6393,6 +6647,14 @@ GRANT ALL ON FUNCTION ops.chain_cursor(target_network text) TO ujira_indexer;
 
 
 --
+-- Name: FUNCTION clear_fee_address_alarm(target_network text); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.clear_fee_address_alarm(target_network text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.clear_fee_address_alarm(target_network text) TO ujira_indexer;
+
+
+--
 -- Name: FUNCTION email_quota_take(p_provider_account text, p_kind text, p_cap integer, p_code_reserve integer); Type: ACL; Schema: ops; Owner: ujira_ops
 --
 
@@ -6445,6 +6707,14 @@ GRANT ALL ON FUNCTION ops.lease_executor(target_network text, holder text, lease
 
 REVOKE ALL ON FUNCTION ops.mandate_alerts_after(after_id bigint, max_rows integer) FROM PUBLIC;
 GRANT ALL ON FUNCTION ops.mandate_alerts_after(after_id bigint, max_rows integer) TO ujira_indexer;
+
+
+--
+-- Name: FUNCTION raise_fee_address_alarm(target_network text, alarm_reason text); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.raise_fee_address_alarm(target_network text, alarm_reason text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.raise_fee_address_alarm(target_network text, alarm_reason text) TO ujira_indexer;
 
 
 --
@@ -6738,6 +7008,13 @@ GRANT SELECT,INSERT,UPDATE ON TABLE ops.executor_accounts TO ujira_ops;
 
 
 --
+-- Name: TABLE fee_address_alarms; Type: ACL; Schema: ops; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,DELETE ON TABLE ops.fee_address_alarms TO ujira_ops;
+
+
+--
 -- Name: TABLE fee_estimates; Type: ACL; Schema: ops; Owner: ujira_owner
 --
 
@@ -6942,6 +7219,14 @@ GRANT SELECT ON TABLE ujira.destination_verifications TO ujira_reader;
 --
 
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.embed_sessions TO ujira_app;
+
+
+--
+-- Name: TABLE fee_resend_decisions; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.fee_resend_decisions TO ujira_app;
+GRANT SELECT ON TABLE ujira.fee_resend_decisions TO ujira_reader;
 
 
 --
@@ -7258,6 +7543,14 @@ GRANT SELECT ON TABLE ujira.status_transitions TO ujira_reader;
 GRANT SELECT ON TABLE ujira.status_transitions TO ujira_retention;
 GRANT SELECT ON TABLE ujira.status_transitions TO ujira_auth;
 GRANT SELECT ON TABLE ujira.status_transitions TO ujira_indexer;
+
+
+--
+-- Name: TABLE unpaid_fee_items; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.unpaid_fee_items TO ujira_app;
+GRANT SELECT ON TABLE ujira.unpaid_fee_items TO ujira_reader;
 
 
 --

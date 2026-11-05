@@ -21,7 +21,8 @@
   },
   "dependencies": {
     "@ujira/chain-adapter": "workspace:*",
-    "@ujira/core": "workspace:*"
+    "@ujira/core": "workspace:*",
+    "@ujira/db": "workspace:*"
   },
   "devDependencies": {
     "fast-check": "4.10.2",

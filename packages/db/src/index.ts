@@ -244,3 +244,14 @@ export {
 export { TENANT_SETTINGS, type TenantContext, type TenantScope } from './tenant.js';
 export { DatabaseConfigError, SessionStateError, TenantContextError } from './errors.js';
 export { DatabaseUnavailableError } from './unavailable.js';
+export {
+  FeeAttemptLandedError,
+  FeeAttemptUnknownError,
+  FeeResendNotDecidedError,
+  feeAddressAlarms,
+  feeFallback,
+  type FeeAddressAlarmReason,
+  type FeeResend,
+  type NewFeeResend,
+  type UnpaidFeeItem,
+} from './repositories/fee-fallback.js';
