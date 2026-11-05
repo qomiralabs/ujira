@@ -122,11 +122,14 @@ export {
   emailQuota,
   executors,
   identityProviderEvents,
+  rateLimits,
   type EmailKind,
   type EmailQuotaRequest,
   routingConfig,
   type IdentityProviderEvent,
   type ExecutorLease,
+  type RateLimitBucket,
+  type RateLimitTaken,
   type RoutingConfig,
 } from './repositories/ops.js';
 export {
