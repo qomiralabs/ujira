@@ -12,6 +12,9 @@ import type { ChainAddress, Destination, SigningRequest, TenantScope, Uuid } fro
 
 import { checkAddress } from './address.js';
 import type { AdapterHarness, ChainFaults } from './conformance.js';
+import { sep53Hash } from '../stellar/sep53.js';
+
+import { ed25519Sign } from './bytes.js';
 import { FakeChainAdapter, signFakeRequest } from './fake-adapter.js';
 import { FakeNetwork } from './fake-network.js';
 import type { FakeNetworkOptions } from './fake-network.js';
@@ -133,6 +136,11 @@ export function fakeAdapterHarness(options: FakeWorldOptions = {}): AdapterHarne
       address: { network, value: agent.address },
     },
     wallet,
+    signMessage: (who: ChainAddress, text: string) => {
+      const seed = seeds.get(who.value);
+      if (seed === undefined) return Promise.reject(new Error('not a harness wallet'));
+      return Promise.resolve(Buffer.from(ed25519Sign(seed, sep53Hash(text))).toString('base64'));
+    },
     sign: (request: SigningRequest, who: ChainAddress) => {
       const seed = seeds.get(who.value);
       if (seed === undefined) return Promise.reject(new Error('not a harness wallet'));

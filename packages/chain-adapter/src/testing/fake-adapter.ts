@@ -14,7 +14,7 @@
 // the adapter built, and nothing outside this file learns the format.
 
 import { money, moneyAt, tokenAmount } from '@ujira/core';
-import type { Chain, TokenAmount } from '@ujira/core';
+import type { Chain, TokenAmount, TokenAsset } from '@ujira/core';
 import { z } from 'zod';
 
 import { isAccountAddress, isContractAddress } from '../codecs/strkey.js';
@@ -45,6 +45,19 @@ import type { NetworkId } from '../networks.js';
 import { formatReceiptRef, parseReceiptRef } from '../receipt-ref.js';
 import type { AttestationFields, SignerProvider, SignerRef } from '../signer.js';
 import { stellarAttestationMessage } from '../stellar/attestation-message.js';
+import type { StellarAsset } from '../stellar/account-rules.js';
+import { checkStellarDestination } from '../stellar/check-destination.js';
+import { buildRecipientActivation } from '../stellar/recipient-activation.js';
+import { checkStellarWalletProof } from '../stellar/wallet-proof.js';
+import { parsePublicConfig, walletProofChallenge } from '../wallet-proof.js';
+import type {
+  PublicConfig,
+  VerifyWalletProofRequest,
+  WalletProofChallenge,
+  WalletProofChallengeRequest,
+  WalletProofPurpose,
+  WalletProofResult,
+} from '../wallet-proof.js';
 import { parseStellarDestination } from '../stellar/parse-destination.js';
 import { CHAIN_ADAPTER_INTERFACE_VERSION } from '../types.js';
 import type {
@@ -56,6 +69,9 @@ import type {
   Bytes32,
   CallOptions,
   ChainAdapter,
+  CheckDestinationRequest,
+  DestinationCheck,
+  RecipientActivationRequest,
   ChainAddress,
   ChainHealth,
   ChainReceipt,
@@ -146,7 +162,11 @@ export interface FakeChainAdapterPorts {
   readonly signer: SignerProvider;
   readonly sponsorship: SponsorshipPolicy;
   readonly alerts: AdapterAlerts;
+  /** Where the wallet proof host comes from. Defaults to the sandbox host. */
+  readonly publicConfig?: PublicConfig;
 }
+
+const FAKE_PUBLIC_CONFIG = parsePublicConfig({ widgetHost: 'app.sandbox.ujira.co' });
 
 const ROLE_CODES: Readonly<Record<RoleName, number>> = Object.freeze({
   agent: ROLE.AGENT,
@@ -261,6 +281,7 @@ export class FakeChainAdapter implements ChainAdapter {
   readonly #signer: SignerProvider;
   readonly #sponsorship: SponsorshipPolicy;
   readonly #alerts: AdapterAlerts;
+  readonly #publicConfig: PublicConfig;
   /** Submissions this process sent, so a replayed signed payload finds its own. */
   readonly #sent = new Map<string, Pending>();
   readonly #maxBisectRounds: number;
@@ -278,6 +299,7 @@ export class FakeChainAdapter implements ChainAdapter {
     this.#signer = ports.signer;
     this.#sponsorship = ports.sponsorship;
     this.#alerts = ports.alerts;
+    this.#publicConfig = ports.publicConfig ?? FAKE_PUBLIC_CONFIG;
   }
 
   // -------------------------------------------------------------------------
@@ -312,6 +334,10 @@ export class FakeChainAdapter implements ChainAdapter {
       supportsDestinationTag: true,
       typicalSettlementSeconds: 5,
       typicalFinalSeconds: 5,
+      walletProof: true,
+      partnerAuth: false,
+      agentRegistry: false,
+      reserveSponsorship: true,
     };
   }
 
@@ -365,6 +391,102 @@ export class FakeChainAdapter implements ChainAdapter {
       throw invalid('mandate.network (mismatch)', this.network);
     }
     return stellarAttestationMessage(fields);
+  }
+
+  // -------------------------------------------------------------------------
+  // Wallet proofs and destinations. The real rules over a fake ledger, so a
+  // proof or a destination the fake accepts is one a real network would.
+
+  walletProofChallenge<P extends WalletProofPurpose>(
+    req: WalletProofChallengeRequest & { readonly purpose: P },
+  ): WalletProofChallenge<P> {
+    if (req.network !== this.network) throw invalid('walletProof.network (mismatch)', this.network);
+    return walletProofChallenge(req, this.#publicConfig, { nowSeconds: () => this.#now() });
+  }
+
+  verifyWalletProof(req: VerifyWalletProofRequest, opts: CallOptions): Promise<WalletProofResult> {
+    return this.#traced('verifyWalletProof', () => {
+      this.#reach(opts);
+      return checkStellarWalletProof(this.network, req, this.#net.ledgerReader, this.#now(), opts);
+    });
+  }
+
+  checkDestination(req: CheckDestinationRequest, opts: CallOptions): Promise<DestinationCheck> {
+    return this.#traced('checkDestination', () => {
+      this.#reach(opts);
+      return checkStellarDestination(
+        this.network,
+        {
+          destination: this.#destinationAddress(req.destination),
+          asset: this.#assetOf(req.asset),
+          ...(req.amount === undefined ? {} : { amount: this.#units(req.amount, 'amount') }),
+          ...(req.proofSigner === undefined ? {} : { proofSigner: req.proofSigner }),
+        },
+        this.#net.ledgerReader,
+        opts,
+      );
+    });
+  }
+
+  prepareRecipientActivation(
+    req: RecipientActivationRequest,
+    opts: CallOptions,
+  ): Promise<SigningRequest> {
+    return this.#traced('prepareRecipientActivation', () => {
+      this.#reach(opts);
+      const sponsor = this.#net.feeSponsor.address;
+      const sponsorSequence = this.#net.nextSequence(sponsor);
+      const request = buildRecipientActivation(
+        this.network,
+        {
+          requestId: this.#net.nextId('req'),
+          sponsor,
+          sponsorSequence,
+          recipient: this.#destinationAddress(req.destination),
+          asset: this.#assetOf(req.asset),
+          createAccount: req.createAccount,
+          baseFeeStroops: FAKE_TX_FEE,
+          maxFeePerTxStroops: this.#config().feeSponsor.maxFeePerTxStroops,
+          nowSeconds: this.#now(),
+        },
+        this.capabilities(),
+      );
+      const recipient = request.signer;
+      this.#net.requests.set(request.requestId, {
+        request,
+        scope: req.scope,
+        signer: { kind: 'external', network: this.network, role: 'principal', address: recipient },
+        op: 'trustline',
+        mandate: null,
+        payoutId: null,
+        attempt: null,
+        sequenceOrNonce: sponsorSequence,
+        validUntil: request.validUntil,
+        reservationId: req.reservationIds[0] ?? null,
+        run: () => {
+          this.#net.activateRecipient(recipient.value);
+          return undefined;
+        },
+        submittedAs: null,
+        txHash: null,
+      });
+      return Promise.resolve(request);
+    });
+  }
+
+  #destinationAddress(destination: Destination): string {
+    if (destination.address.network !== this.network) {
+      throw invalid('destination (wrong_network)', this.network);
+    }
+    return destination.address.value;
+  }
+
+  #assetOf(asset: TokenAsset): StellarAsset {
+    const assets: Readonly<Record<string, { readonly issuer: string } | undefined>> =
+      this.#config().assets;
+    const found = assets[asset];
+    if (found === undefined) throw invalid('asset (unknown)', this.network);
+    return { code: asset, issuer: found.issuer };
   }
 
   // -------------------------------------------------------------------------
