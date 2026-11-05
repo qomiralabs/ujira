@@ -28,9 +28,10 @@ import {
   SignedPayloadMismatchError,
   isChainAdapterError,
 } from '../errors.js';
+import type { FundingAccountOptions, FundingAccountRecord } from '../funding-account.js';
 import { NETWORK_IDS } from '../networks.js';
 import type { StellarNetworkId } from '../networks.js';
-import type { ChainAddress, TenantScope } from '../types.js';
+import type { TenantScope } from '../types.js';
 
 /** Shown beside the mandate address, which an exchange cannot send to. */
 export const CONTRACT_ADDRESS_LABEL = 'Stellar contract address, fund from your wallet';
@@ -336,16 +337,7 @@ export function forwarderFaults(
 }
 
 /** One forwarding account as stored. Tenant on the row. */
-export interface ForwarderRecord {
-  readonly principalId: string;
-  readonly projectId: string;
-  readonly network: StellarNetworkId;
-  readonly address: string;
-  readonly sponsor: string;
-  readonly sponsorTxHash: string;
-  readonly status: 'active' | 'rejected';
-  readonly faults: readonly ForwarderFault[];
-}
+export type ForwarderRecord = FundingAccountRecord;
 
 export interface ForwarderPorts {
   /** Reads the LedgerEntry XDR of the account and its trustline; null where there is none. */
@@ -460,12 +452,7 @@ const viewSchema = z.strictObject({
   forwarder: accountSchema.nullable(),
 });
 
-export interface StellarFundingView {
-  /** What to give an exchange or on-ramp. Null until a forwarding account exists. */
-  readonly exchangeDeposit: ChainAddress | null;
-  /** The mandate itself, only ever for funding from a wallet. */
-  readonly walletFunding: { readonly address: ChainAddress; readonly label: string };
-}
+export type StellarFundingView = FundingAccountOptions;
 
 /**
  * The addresses to show a principal. An exchange cannot send to a contract,

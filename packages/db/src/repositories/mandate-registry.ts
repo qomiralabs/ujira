@@ -137,7 +137,7 @@ function toBooking(row: {
 
 export const payoutBookings = {
   // The event of a payout: its first makes the booking, each later one moves it.
-  // A contract other than the instance's is refused by the foreign key (23503).
+  // A contract other than the instance's is refused by its trigger (23503).
   apply: async (db: Tx, input: PayoutBookingEvent): Promise<PayoutBooking> => {
     const row = await db
       .insertInto('ujira.payout_bookings')

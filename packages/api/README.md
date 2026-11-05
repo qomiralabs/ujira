@@ -23,9 +23,12 @@ Settings, all optional:
 | `UJIRA_API_HOST`               | `127.0.0.1` | Address to bind; loopback by default     |
 | `UJIRA_API_REQUEST_TIMEOUT_MS` | `10000`     | Deadline for every request, 100 to 60000 |
 | `UJIRA_API_BODY_LIMIT_BYTES`   | `1048576`   | Largest JSON body accepted               |
+| `UJIRA_API_ENVIRONMENT`        | `sandbox`   | `sandbox` or `production`                |
+| `UJIRA_API_EMBED_ORIGINS`      | none        | Origins a browser may send a key from    |
 
-Until token authentication lands, the local server refuses every key, so only
-the public routes answer.
+The database settings are the `UJIRA_DB_*` ones in `packages/db/.env.example`.
+With none of them set, the local server refuses every key, so only the public
+routes answer; `production` refuses to start that way.
 
 ## Adding an endpoint
 
@@ -83,11 +86,19 @@ answers 503 `WEBHOOK_UNAVAILABLE` until Self has its secrets and durable stores.
 `recipients:write`. The served table uses `WALLET_PROOF_NOT_CONFIGURED` until
 the flow has its tables and the adapter has its wallet proof methods.
 
+`GET /v1/receipts/{id}` and `GET /v1/payouts/{id}/receipt` serve the principal's
+copy of a receipt, `GET /v1/receipt-exports` a filtered set as CSV and
+`GET /v1/receipts/{id}/pdf` one as a PDF, all for a key with `receipts:read`.
+`GET /v1/receipt-verifications/{receiptNumber}?code=` needs no key: the code
+printed on a receipt finds it, and the answer is the recipient view and the
+result of checking it, with nothing that belongs to a tenant. Until the receipts
+tables are in, `v1Routes` has no `ReceiptReads` and all of these answer 503.
+
 ### What the pipeline does for every route
 
 In order: a request id (the `Request-Id` header, and `call.correlationId` for
 adapter calls); a deadline (`signal`, which aborts after the request timeout);
-for tenant routes, the credential and then the route's scope; path, query and
+for tenant routes, the credential, the rate limits and then the route's scope; path, query and
 body validation; the handler; the response, parsed by its schema; for tenant
 routes, a check that no `principalId` or `projectId` in the body belongs to
 someone else; and one access log line.
@@ -103,6 +114,56 @@ Rules that follow from it:
   units as a string, with its currency and scale.
 - Pass `signal` to anything that waits, and `call` to every chain adapter
   call.
+
+## API keys
+
+A key reads `ujk_<env>_<id>_<secret><checksum>`, all base32 lower case: `env` is
+`live` or `test`, `id` is 16 characters (80 random bits), `secret` is 52 characters
+(256 random bits) and `checksum` is 7 characters of CRC32 over the rest. The
+prefix `ujk_<env>_<id>` names the key and is stored; of the secret only its SHA-256
+is stored. Nothing here writes a key, a prefix or a hash to a log.
+
+A key goes in `Authorization: Bearer`, and nowhere else. What is checked, in order:
+
+| Check                                 | Refused with                     | Costs a query |
+| ------------------------------------- | -------------------------------- | ------------- |
+| `Origin`, if sent, is an embed        | `403 ORIGIN_NOT_ALLOWED`         | no            |
+| The header, format and checksum       | `401 TOKEN_MALFORMED`            | no            |
+| The key's environment                 | `401 TOKEN_ENVIRONMENT_MISMATCH` | no            |
+| Known, secret, not expired or revoked | `401 TOKEN_INVALID`, all alike   | yes           |
+| The rate limits                       | `429 RATE_LIMITED`               | yes           |
+| The route's scope                     | `403 INSUFFICIENT_SCOPE`         | no            |
+
+`test` keys work only in the sandbox and `live` keys only in production. `/v1`
+sends no CORS headers to anyone.
+
+A good lookup is cached for at most 30 seconds, so a revoked key stops working
+within that time on every instance. `last_used_at` is written at most once per
+five minutes.
+
+The closed list of scopes is `API_SCOPES` in `src/auth.ts`, and the database holds
+the same list in a check constraint. Every route declares its scope, and a server
+will not start with a route that has none; `src/scopes.test.ts` runs that check
+over the whole route table.
+
+### Rate limits
+
+Token buckets in the unlogged table `ops.rate_limit_buckets`, shared by every
+instance, one call per request. Every tenant route takes from the key's bucket and
+the principal's:
+
+| Bucket                     | Rate       | Burst |
+| -------------------------- | ---------- | ----- |
+| Per key                    | 20 per sec | 40    |
+| Per principal              | 50 per sec | 100   |
+| Payout creation, principal | 10 per sec | 10    |
+
+A request takes from every bucket it names or from none, so a key past its own
+limit does not use up its principal's bucket. A route opts into the payout limit
+with `rateLimit: 'payout_creation'`. Tenant responses carry `RateLimit-Limit`,
+`RateLimit-Remaining` and `RateLimit-Reset`, for whichever bucket is tightest; a
+429 adds `Retry-After`. If the buckets cannot be reached the answer is 503, never
+an unlimited request.
 
 ## Errors
 

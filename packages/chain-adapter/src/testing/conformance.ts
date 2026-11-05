@@ -71,6 +71,8 @@ export interface AdapterHarness {
   readonly managedAgent: { readonly ref: SignerRef; readonly address: ChainAddress };
   /** A wallet per name, made on first use. */
   wallet(name: string): ChainAddress;
+  /** Signs a text as the wallet would, in the network's message signing scheme. */
+  signMessage(wallet: ChainAddress, text: string): Promise<string>;
   /** Signs a request as the wallet would. */
   sign(request: SigningRequest, wallet: ChainAddress): Promise<string>;
   /** Credits the settlement asset in raw units, as a deposit from outside. */
@@ -377,6 +379,135 @@ export function describeChainAdapter(
           ),
         );
         expect(bad.toJSON()).toMatchObject({ code: 'INVALID_INPUT', reason: 'MEMO_NOT_ID' });
+      });
+    });
+
+    describe('wallet proofs and destinations', () => {
+      const requestFor = (h: AdapterHarness, wallet: ChainAddress) =>
+        h.adapter.walletProofChallenge({
+          network: h.adapter.network,
+          address: wallet.value,
+          purpose: 'payout_destination',
+          recipientRef: `0x${'ab'.repeat(32)}`,
+          tag: null,
+          requestId: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+        });
+
+      it('says what it can do', async () => {
+        const caps = (await factory()).adapter.capabilities();
+        expect(caps.walletProof).toBe(true);
+        for (const flag of [caps.partnerAuth, caps.agentRegistry, caps.reserveSponsorship]) {
+          expect(typeof flag).toBe('boolean');
+        }
+      });
+
+      it('issues a challenge bound to the address, the network and a fresh nonce', async () => {
+        const h = await factory();
+        const wallet = h.wallet('prover');
+        const first = requestFor(h, wallet);
+        expect(first.text).toContain(wallet.value);
+        expect(first.text).toContain(`Chain ID: ${h.adapter.network}`);
+        expect(requestFor(h, wallet).nonce).not.toBe(first.nonce);
+        const forged = await refusalOf(
+          Promise.resolve().then(() =>
+            h.adapter.walletProofChallenge({
+              network: h.adapter.network,
+              address: wallet.value,
+              purpose: 'payout_destination',
+              recipientRef: `0x${'ab'.repeat(32)}`,
+              tag: null,
+              requestId: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+              host: 'evil.example',
+            } as Parameters<typeof h.adapter.walletProofChallenge<'payout_destination'>>[0]),
+          ),
+        );
+        expect(forged.code).toBe('INVALID_INPUT');
+      });
+
+      it('verifies a proof and refuses a changed text, another key and an expired challenge', async () => {
+        const h = await factory();
+        const wallet = h.wallet('prover');
+        const challenge = requestFor(h, wallet);
+        const signature = await h.signMessage(wallet, challenge.text);
+        const verify = (signedText: string, signed: string) =>
+          h.adapter.verifyWalletProof({ challenge, signedText, signature: signed }, OPTS);
+        expect(await verify(challenge.text, signature)).toMatchObject({
+          status: 'valid',
+          signer: wallet.value,
+        });
+        const changed = `${challenge.text} `;
+        expect(await verify(changed, await h.signMessage(wallet, changed))).toEqual({
+          status: 'invalid',
+          reason: 'MESSAGE_MISMATCH',
+        });
+        const other = await h.signMessage(h.wallet('someone else'), challenge.text);
+        expect(await verify(challenge.text, other)).toEqual({
+          status: 'invalid',
+          reason: 'BAD_SIGNATURE',
+        });
+        await h.advance(3600n);
+        expect(await verify(challenge.text, signature)).toEqual({
+          status: 'invalid',
+          reason: 'EXPIRED',
+        });
+      });
+
+      it('checks a destination and whether a proof signer is current', async () => {
+        const h = await factory();
+        const wallet = h.wallet('recipient');
+        expect(
+          await h.adapter.checkDestination(
+            { destination: { address: wallet, tag: null }, asset: 'USDC' },
+            OPTS,
+          ),
+        ).toEqual({ receivable: true, proofSigner: 'not_applicable' });
+        const check = (proofSigner: string) =>
+          h.adapter.checkDestination(
+            { destination: { address: wallet, tag: null }, asset: 'USDC', proofSigner },
+            OPTS,
+          );
+        expect((await check(wallet.value)).proofSigner).toBe('current');
+        expect((await check(h.wallet('stranger').value)).proofSigner).toBe('not_current');
+        const bad = await refusalOf(
+          h.adapter.checkDestination(
+            {
+              destination: { address: { network: h.adapter.network, value: 'nope' }, tag: null },
+              asset: 'USDC',
+            },
+            OPTS,
+          ),
+        );
+        expect(bad.code).toBe('INVALID_INPUT');
+      });
+
+      it('prepares a recipient activation for the recipient to sign, or says it cannot', async () => {
+        const h = await factory();
+        const wallet = h.wallet('new recipient');
+        const req = {
+          scope: h.scope,
+          destination: { address: wallet, tag: null },
+          asset: 'USDC',
+          createAccount: false,
+          reservationIds: [],
+        } as const;
+        if (!h.adapter.capabilities().reserveSponsorship) {
+          const refused = await refusalOf(h.adapter.prepareRecipientActivation(req, OPTS));
+          expect(refused.code).toBe('UNSUPPORTED');
+          return;
+        }
+        const request = await h.adapter.prepareRecipientActivation(req, OPTS);
+        expect(request).toMatchObject({ signer: wallet, summary: { feePaidBy: 'ujira' } });
+        const signed = await h.sign(request, wallet);
+        const submitted = await h.adapter.submitSigned(
+          {
+            scope: h.scope,
+            requestId: request.requestId,
+            signed,
+            correlationId: OPTS.correlationId,
+          },
+          OPTS,
+        );
+        expect(submitted.network).toBe(h.adapter.network);
       });
     });
 

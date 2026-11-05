@@ -15,6 +15,19 @@ export {
   percentile95,
   refreshFeeEstimates,
 } from './fee-estimates.js';
+export {
+  BREAK_EVEN_METHODS,
+  breakEvenMinimum,
+  costInUsdcMinor,
+  networkShortfall,
+  shortfallAccounting,
+} from './shortfall.js';
+export type {
+  NetworkShortfall,
+  ShortfallAccountingPorts,
+  ShortfallPayout,
+  ShortfallPorts,
+} from './shortfall.js';
 export type {
   ComputedEstimates,
   EstimateNetworkFee,
@@ -27,3 +40,12 @@ export type {
   RefreshFeeEstimatesPorts,
   SubmissionFee,
 } from './fee-estimates.js';
+export {
+  FEE_BASES,
+  FeeTermsMissingError,
+  FeeTermsNotInForceError,
+  applyFee,
+  feeForPayout,
+  withFee,
+} from './fee-builder.js';
+export type { AppliedFee, FeeBasis, FeeTerms, FeeTermsSource } from './fee-builder.js';
