@@ -140,7 +140,12 @@
         "responses": {
           "201": {
             "description": "OK",
-            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/WalletChallenge" } }
             }
@@ -177,7 +182,10 @@
             "description": "RATE_LIMITED: Too many requests",
             "headers": {
               "Request-Id": { "schema": { "type": "string" } },
-              "Retry-After": { "schema": { "type": "string" } }
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
             },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -257,7 +265,12 @@
         "responses": {
           "201": {
             "description": "OK",
-            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/WalletProofAccepted" }
@@ -317,8 +330,459 @@
             "description": "RATE_LIMITED: Too many requests",
             "headers": {
               "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
               "Retry-After": { "schema": { "type": "string" } }
             },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/receipts/{id}": {
+      "get": {
+        "operationId": "getReceipt",
+        "summary": "One receipt, in the principal view or, by receipt link, the recipient view",
+        "security": [{ "bearer": [] }],
+        "x-ujira-scope": "receipts:read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ReceiptView" } }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "401": {
+            "description": "TOKEN_MALFORMED: The API key is missing or malformed. TOKEN_INVALID: The API key is not valid. TOKEN_ENVIRONMENT_MISMATCH: The API key is for another environment. EMBED_TOKEN_INVALID: The embed session is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "403": {
+            "description": "INSUFFICIENT_SCOPE: The API key lacks the scope this route needs. ORIGIN_NOT_ALLOWED: The request origin is not allowed. EMBED_SCOPE_VIOLATION: The embed session cannot reach this route",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND: Not found",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/payouts/{id}/receipt": {
+      "get": {
+        "operationId": "getPayoutReceipt",
+        "summary": "The latest revision of a payout's receipt, in the principal view",
+        "security": [{ "bearer": [] }],
+        "x-ujira-scope": "receipts:read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalReceipt" } }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "401": {
+            "description": "TOKEN_MALFORMED: The API key is missing or malformed. TOKEN_INVALID: The API key is not valid. TOKEN_ENVIRONMENT_MISMATCH: The API key is for another environment. EMBED_TOKEN_INVALID: The embed session is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "403": {
+            "description": "INSUFFICIENT_SCOPE: The API key lacks the scope this route needs. ORIGIN_NOT_ALLOWED: The request origin is not allowed. EMBED_SCOPE_VIOLATION: The embed session cannot reach this route",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND: Not found",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/receipt-exports": {
+      "get": {
+        "operationId": "exportReceipts",
+        "summary": "A filtered set of receipts as CSV, with the canonical document in each row",
+        "security": [{ "bearer": [] }],
+        "x-ujira-scope": "receipts:read",
+        "parameters": [
+          {
+            "name": "payoutId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "text/csv; charset=utf-8": { "schema": { "type": "string", "format": "binary" } }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "401": {
+            "description": "TOKEN_MALFORMED: The API key is missing or malformed. TOKEN_INVALID: The API key is not valid. TOKEN_ENVIRONMENT_MISMATCH: The API key is for another environment. EMBED_TOKEN_INVALID: The embed session is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "403": {
+            "description": "INSUFFICIENT_SCOPE: The API key lacks the scope this route needs. ORIGIN_NOT_ALLOWED: The request origin is not allowed. EMBED_SCOPE_VIOLATION: The embed session cannot reach this route",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/receipts/{id}/pdf": {
+      "get": {
+        "operationId": "getReceiptPdf",
+        "summary": "One receipt as a PDF",
+        "security": [{ "bearer": [] }],
+        "x-ujira-scope": "receipts:read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": { "application/pdf": { "schema": { "type": "string", "format": "binary" } } }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "401": {
+            "description": "TOKEN_MALFORMED: The API key is missing or malformed. TOKEN_INVALID: The API key is not valid. TOKEN_ENVIRONMENT_MISMATCH: The API key is for another environment. EMBED_TOKEN_INVALID: The embed session is not valid",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "403": {
+            "description": "INSUFFICIENT_SCOPE: The API key lacks the scope this route needs. ORIGIN_NOT_ALLOWED: The request origin is not allowed. EMBED_SCOPE_VIOLATION: The embed session cannot reach this route",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND: Not found",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "500": {
+            "description": "INTERNAL: Something went wrong on our side",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "503": {
+            "description": "DB_UNAVAILABLE: The service is temporarily unavailable. CHAIN_UNAVAILABLE: The network is temporarily unavailable. REQUEST_TIMEOUT: The request took too long. WEBHOOK_UNAVAILABLE: This webhook cannot be received right now",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/receipt-verifications/{receiptNumber}": {
+      "get": {
+        "operationId": "verifyReceipt",
+        "summary": "Check a receipt by its number and verification code",
+        "security": [],
+        "parameters": [
+          {
+            "name": "receiptNumber",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^R-[0-9A-Z]{12}$" }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[A-Z2-7]{20}$" }
+          },
+          {
+            "name": "locale",
+            "in": "query",
+            "required": false,
+            "schema": { "default": "en-US", "type": "string", "maxLength": 35 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PublicReceiptVerification" }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_FILTER: The filter is not valid. INVALID_CURSOR: The cursor is not valid for this list. LIMIT_OUT_OF_RANGE: The limit must be from 1 to 200. INVALID_AMOUNT: The amount is not an integer count of minor units. INVALID_REQUEST: The request is not valid. WEBHOOK_SIGNATURE_INVALID: The webhook signature is not valid. WEBHOOK_PAYLOAD_INVALID: The webhook body is not valid. WEBHOOK_REJECTED: The webhook is for another environment or flow",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND: Not found",
+            "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
             }
@@ -387,6 +851,90 @@
   },
   "components": {
     "schemas": {
+      "Money": {
+        "type": "object",
+        "properties": {
+          "amount": { "type": "string", "maxLength": 39, "pattern": "^(0|[1-9][0-9]*)$" },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "USD",
+              "NGN",
+              "KES",
+              "GHS",
+              "ZAR",
+              "PHP",
+              "INR",
+              "BRL",
+              "COP",
+              "MXN",
+              "EUR",
+              "GBP"
+            ]
+          },
+          "scale": { "type": "integer", "minimum": 0, "maximum": 18 }
+        },
+        "required": ["amount", "currency", "scale"],
+        "additionalProperties": false
+      },
+      "TokenAmount": {
+        "type": "object",
+        "properties": {
+          "amount": { "type": "string", "maxLength": 39, "pattern": "^(0|[1-9][0-9]*)$" },
+          "asset": { "type": "string", "enum": ["USDC"] },
+          "network": { "type": "string", "enum": ["stellar:pubnet", "stellar:testnet"] },
+          "scale": { "type": "integer", "minimum": 0, "maximum": 18 }
+        },
+        "required": ["amount", "asset", "network", "scale"],
+        "additionalProperties": false
+      },
+      "Rate": {
+        "type": "object",
+        "properties": {
+          "rate": { "type": "string", "maxLength": 74, "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$" },
+          "base": {
+            "anyOf": [
+              { "type": "string", "enum": ["USDC"] },
+              {
+                "type": "string",
+                "enum": [
+                  "USD",
+                  "NGN",
+                  "KES",
+                  "GHS",
+                  "ZAR",
+                  "PHP",
+                  "INR",
+                  "BRL",
+                  "COP",
+                  "MXN",
+                  "EUR",
+                  "GBP"
+                ]
+              }
+            ]
+          },
+          "quote": {
+            "type": "string",
+            "enum": [
+              "USD",
+              "NGN",
+              "KES",
+              "GHS",
+              "ZAR",
+              "PHP",
+              "INR",
+              "BRL",
+              "COP",
+              "MXN",
+              "EUR",
+              "GBP"
+            ]
+          }
+        },
+        "required": ["rate", "base", "quote"],
+        "additionalProperties": false
+      },
       "Problem": {
         "type": "object",
         "properties": {
@@ -460,6 +1008,411 @@
         "required": ["type", "title", "status", "code", "requestId"],
         "additionalProperties": false
       },
+      "PrincipalReceipt": {
+        "type": "object",
+        "properties": {
+          "view": { "type": "string", "const": "principal" },
+          "principalId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "receiptNumber": { "type": "string", "pattern": "^R-[0-9A-Z]{12}$" },
+          "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+          "issuedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "verifyUrl": { "type": "string", "format": "uri" },
+          "payerDisplayName": {
+            "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 200 }, { "type": "null" }]
+          },
+          "status": { "type": "string", "const": "paid" },
+          "deliveredAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "documentSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "supersedesReceiptId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "receiptRef": {
+            "type": "string",
+            "maxLength": 200,
+            "pattern": "^ujira:tx:v1:[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}:(0x)?[0-9a-f]{64}:[0-9]{1,10}$"
+          },
+          "payoutId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "taskId": {
+            "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 255 }, { "type": "null" }]
+          },
+          "mandateId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "recipient": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "displayName": { "type": "string", "minLength": 1, "maxLength": 200 },
+              "country": {
+                "anyOf": [{ "type": "string", "pattern": "^[A-Z]{2}$" }, { "type": "null" }]
+              }
+            },
+            "required": ["id", "displayName", "country"],
+            "additionalProperties": false
+          },
+          "recipientRef": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "attempt": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "requested": { "$ref": "#/components/schemas/Money" },
+          "settlement": { "$ref": "#/components/schemas/TokenAmount" },
+          "take": { "$ref": "#/components/schemas/TokenAmount" },
+          "takeBps": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "takeRefunded": { "$ref": "#/components/schemas/TokenAmount" },
+          "charged": { "$ref": "#/components/schemas/TokenAmount" },
+          "legs": {
+            "minItems": 1,
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": { "type": "integer", "minimum": 0, "maximum": 3 },
+                "method": {
+                  "type": "string",
+                  "enum": ["stellar_wallet", "bank", "mobile_money", "cash_pickup"]
+                },
+                "rail": { "type": "string", "enum": ["stellar.wallet", "stellar.sep31"] },
+                "network": { "type": "string", "enum": ["stellar:pubnet", "stellar:testnet"] },
+                "amount": { "$ref": "#/components/schemas/TokenAmount" },
+                "received": {
+                  "anyOf": [{ "$ref": "#/components/schemas/Money" }, { "type": "null" }]
+                },
+                "maskedDestination": { "type": "string", "minLength": 1, "maxLength": 32 },
+                "anchorName": {
+                  "anyOf": [
+                    { "type": "string", "minLength": 1, "maxLength": 200 },
+                    { "type": "null" }
+                  ]
+                },
+                "cashOut": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "bearer": { "type": "string", "enum": ["recipient", "principal"] },
+                        "anchorFee": { "$ref": "#/components/schemas/TokenAmount" },
+                        "rate": { "$ref": "#/components/schemas/Rate" }
+                      },
+                      "required": ["bearer", "anchorFee", "rate"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "txHash": { "type": "string", "pattern": "^(0x)?[0-9a-f]{64}$" },
+                "anchorTransactionId": {
+                  "anyOf": [
+                    { "type": "string", "minLength": 1, "maxLength": 255 },
+                    { "type": "null" }
+                  ]
+                },
+                "deliveredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                }
+              },
+              "required": [
+                "index",
+                "method",
+                "rail",
+                "network",
+                "amount",
+                "received",
+                "maskedDestination",
+                "anchorName",
+                "cashOut",
+                "txHash",
+                "anchorTransactionId",
+                "deliveredAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "allowedBy": {
+            "type": "string",
+            "enum": [
+              "allowlist_auto",
+              "allowlist_approved",
+              "attestation_auto",
+              "attestation_approved",
+              "allowlist_and_attestation_auto",
+              "allowlist_and_attestation_approved"
+            ]
+          },
+          "approvals": {
+            "type": "object",
+            "properties": {
+              "given": { "type": "integer", "minimum": 0, "maximum": 10 },
+              "required": { "type": "integer", "minimum": 0, "maximum": 10 }
+            },
+            "required": ["given", "required"],
+            "additionalProperties": false
+          },
+          "timeline": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "object",
+                "properties": {
+                  "step": { "type": "string", "const": "requested" },
+                  "at": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      { "type": "null" }
+                    ]
+                  }
+                },
+                "required": ["step", "at"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "step": { "type": "string", "const": "approved" },
+                  "at": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      { "type": "null" }
+                    ]
+                  }
+                },
+                "required": ["step", "at"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "step": { "type": "string", "const": "quoted" },
+                  "at": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      { "type": "null" }
+                    ]
+                  }
+                },
+                "required": ["step", "at"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "step": { "type": "string", "const": "settled" },
+                  "at": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      { "type": "null" }
+                    ]
+                  }
+                },
+                "required": ["step", "at"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "step": { "type": "string", "const": "delivered" },
+                  "at": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      { "type": "null" }
+                    ]
+                  }
+                },
+                "required": ["step", "at"],
+                "additionalProperties": false
+              }
+            ],
+            "items": false,
+            "minItems": 5,
+            "maxItems": 5
+          }
+        },
+        "required": [
+          "view",
+          "principalId",
+          "projectId",
+          "receiptNumber",
+          "revision",
+          "issuedAt",
+          "verifyUrl",
+          "payerDisplayName",
+          "status",
+          "deliveredAt",
+          "documentSha256",
+          "id",
+          "supersedesReceiptId",
+          "receiptRef",
+          "payoutId",
+          "taskId",
+          "mandateId",
+          "recipient",
+          "recipientRef",
+          "attempt",
+          "requested",
+          "settlement",
+          "take",
+          "takeBps",
+          "takeRefunded",
+          "charged",
+          "legs",
+          "allowedBy",
+          "approvals",
+          "timeline"
+        ],
+        "additionalProperties": false
+      },
+      "RecipientReceipt": {
+        "type": "object",
+        "properties": {
+          "view": { "type": "string", "const": "recipient" },
+          "receiptNumber": { "type": "string", "pattern": "^R-[0-9A-Z]{12}$" },
+          "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+          "issuedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "verifyUrl": { "type": "string", "format": "uri" },
+          "payerDisplayName": {
+            "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 200 }, { "type": "null" }]
+          },
+          "status": { "type": "string", "const": "paid" },
+          "deliveredAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "documentSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "supersedes": {
+            "anyOf": [{ "type": "string", "pattern": "^R-[0-9A-Z]{12}$" }, { "type": "null" }]
+          },
+          "legs": {
+            "minItems": 1,
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "method": { "type": "string", "const": "stellar_wallet" },
+                    "received": { "$ref": "#/components/schemas/TokenAmount" },
+                    "maskedDestination": { "type": "string", "minLength": 1, "maxLength": 32 },
+                    "txHash": { "type": "string", "pattern": "^(0x)?[0-9a-f]{64}$" },
+                    "explorerUrl": { "type": "string", "format": "uri" }
+                  },
+                  "required": ["method", "received", "maskedDestination", "txHash", "explorerUrl"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "method": { "type": "string", "enum": ["bank", "mobile_money", "cash_pickup"] },
+                    "received": { "$ref": "#/components/schemas/Money" },
+                    "maskedDestination": { "type": "string", "minLength": 1, "maxLength": 32 },
+                    "anchorName": { "type": "string", "minLength": 1, "maxLength": 200 },
+                    "costs": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "anchorFee": { "$ref": "#/components/schemas/Money" },
+                            "rate": { "$ref": "#/components/schemas/Rate" }
+                          },
+                          "required": ["anchorFee", "rate"],
+                          "additionalProperties": false
+                        },
+                        { "type": "null" }
+                      ]
+                    }
+                  },
+                  "required": ["method", "received", "maskedDestination", "anchorName", "costs"],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "view",
+          "receiptNumber",
+          "revision",
+          "issuedAt",
+          "verifyUrl",
+          "payerDisplayName",
+          "status",
+          "deliveredAt",
+          "documentSha256",
+          "supersedes",
+          "legs"
+        ],
+        "additionalProperties": false
+      },
+      "ReceiptView": {
+        "oneOf": [
+          { "$ref": "#/components/schemas/PrincipalReceipt" },
+          { "$ref": "#/components/schemas/RecipientReceipt" }
+        ]
+      },
       "Health": {
         "type": "object",
         "properties": { "status": { "type": "string", "const": "ok" } },
@@ -505,6 +1458,105 @@
           "signerKey": { "type": "string", "minLength": 1 }
         },
         "required": ["verificationId", "level", "signerKey"],
+        "additionalProperties": false
+      },
+      "PublicReceiptVerification": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["verified", "failed", "unavailable"] },
+          "reason": {
+            "anyOf": [
+              { "type": "string", "enum": ["not_confirmed", "document_changed"] },
+              { "type": "null" }
+            ]
+          },
+          "receipt": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "view": { "type": "string", "const": "recipient" },
+                  "receiptNumber": { "type": "string", "pattern": "^R-[0-9A-Z]{12}$" },
+                  "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+                  "supersedes": {
+                    "anyOf": [
+                      { "type": "string", "pattern": "^R-[0-9A-Z]{12}$" },
+                      { "type": "null" }
+                    ]
+                  },
+                  "issuedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  "total": { "type": "string", "minLength": 1, "maxLength": 64 },
+                  "summary": { "type": "string", "minLength": 1, "maxLength": 500 },
+                  "legs": {
+                    "minItems": 1,
+                    "maxItems": 4,
+                    "type": "array",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "method": { "type": "string", "const": "stellar_wallet" },
+                            "label": { "type": "string", "minLength": 1, "maxLength": 100 },
+                            "received": { "type": "string", "minLength": 1, "maxLength": 64 },
+                            "destination": { "type": "string", "minLength": 1, "maxLength": 32 },
+                            "network": { "type": "string", "minLength": 1, "maxLength": 200 },
+                            "transactionHash": {
+                              "type": "string",
+                              "pattern": "^(0x)?[0-9a-f]{64}$"
+                            },
+                            "transactionUrl": { "type": "string", "format": "uri" }
+                          },
+                          "required": [
+                            "method",
+                            "label",
+                            "received",
+                            "destination",
+                            "network",
+                            "transactionHash",
+                            "transactionUrl"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "method": {
+                              "type": "string",
+                              "enum": ["bank", "mobile_money", "cash_pickup"]
+                            },
+                            "label": { "type": "string", "minLength": 1, "maxLength": 100 },
+                            "received": { "type": "string", "minLength": 1, "maxLength": 64 },
+                            "destination": { "type": "string", "minLength": 1, "maxLength": 32 }
+                          },
+                          "required": ["method", "label", "received", "destination"],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "view",
+                  "receiptNumber",
+                  "revision",
+                  "supersedes",
+                  "issuedAt",
+                  "total",
+                  "summary",
+                  "legs"
+                ],
+                "additionalProperties": false
+              },
+              { "type": "null" }
+            ]
+          }
+        },
+        "required": ["status", "reason", "receipt"],
         "additionalProperties": false
       },
       "OpenApiDocument": {

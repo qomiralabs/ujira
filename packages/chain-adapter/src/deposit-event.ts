@@ -28,7 +28,7 @@ export interface SweepDepositEvent {
 
 /** The sweep for a deposit, or null when it is not one to sweep. */
 export function sweepDepositOf(network: NetworkId, deposit: Deposit): SweepDepositEvent | null {
-  const { forwarding, operationId } = deposit;
+  const { forwarding, operationId, eventIndex } = deposit;
   if (
     forwarding === undefined ||
     operationId === undefined ||
@@ -40,7 +40,9 @@ export function sweepDepositOf(network: NetworkId, deposit: Deposit): SweepDepos
   return {
     scope: deposit.scope,
     network,
-    depositOperationId: operationId,
+    // With the event's index, because one operation can pay a forwarding account
+    // twice, and each transfer is swept on its own.
+    depositOperationId: `${operationId}-${String(eventIndex)}`,
     fundingSourceId: forwarding.fundingSourceId,
     mandateInstanceId: forwarding.mandateInstanceId,
     route: {

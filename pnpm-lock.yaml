@@ -293,12 +293,18 @@ importers:
       '@ujira/chain-adapter':
         specifier: workspace:*
         version: link:../chain-adapter
+      '@ujira/core':
+        specifier: workspace:*
+        version: link:../core
       '@ujira/db':
         specifier: workspace:*
         version: link:../db
       '@ujira/identity':
         specifier: workspace:*
         version: link:../identity
+      '@ujira/receipts':
+        specifier: workspace:*
+        version: link:../receipts
       hono:
         specifier: 4.13.13
         version: 4.13.13
@@ -464,6 +470,9 @@ importers:
       '@ujira/chain-adapter':
         specifier: workspace:*
         version: link:../chain-adapter
+      '@ujira/core':
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       fast-check:
         specifier: 4.10.2

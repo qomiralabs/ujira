@@ -215,8 +215,10 @@ export interface ObservedTransfer {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-// Operation ids are decimal integers on the chains UJIRA settles on.
-const OPERATION_ID = /^[0-9]{1,32}$/;
+// The chain's id for the operation and the event's index in it, both decimal. One
+// operation can pay a forwarding account twice, so the operation alone would read the
+// second transfer as a repeat of the first and leave that money unswept.
+const OPERATION_ID = /^[0-9]{1,32}-[0-9]{1,10}$/;
 const MAX_TIMEOUT_MS = 120_000;
 const MAX_ISSUES = 10;
 

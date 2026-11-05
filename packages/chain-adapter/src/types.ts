@@ -16,6 +16,13 @@ import type { ChainAdapterErrorCode, ChainAdapterErrorJson } from './errors.js';
 import type { NetworkId } from './networks.js';
 import type { NetworksConfig } from './config.js';
 import type { AttestationFields, SignerProvider, SignerRef } from './signer.js';
+import type {
+  VerifyWalletProofRequest,
+  WalletProofChallenge,
+  WalletProofChallengeRequest,
+  WalletProofPurpose,
+  WalletProofResult,
+} from './wallet-proof.js';
 
 export const CHAIN_ADAPTER_INTERFACE_VERSION = 1 as const;
 
@@ -105,6 +112,27 @@ export interface ChainAdapter {
    * InvalidInputError for fields the mandate could never accept.
    */
   attestationMessage(fields: AttestationFields): Uint8Array;
+
+  /**
+   * The exact text a recipient signs to prove they control an address. The
+   * host comes from the public configuration, never from the request.
+   */
+  walletProofChallenge<P extends WalletProofPurpose>(
+    req: WalletProofChallengeRequest & { readonly purpose: P },
+  ): WalletProofChallenge<P>;
+  /** Checks a signed challenge against the issued one and the signers on chain today. */
+  verifyWalletProof(req: VerifyWalletProofRequest, opts: CallOptions): Promise<WalletProofResult>;
+  /** Whether a destination can receive a payout, and whether a proof's signer is still current. */
+  checkDestination(req: CheckDestinationRequest, opts: CallOptions): Promise<DestinationCheck>;
+  /**
+   * Builds the transaction that gets a recipient ready to be paid, with UJIRA
+   * paying the reserves and the fee, for the recipient's wallet to sign.
+   * Throws UnsupportedError where capabilities().reserveSponsorship is false.
+   */
+  prepareRecipientActivation(
+    req: RecipientActivationRequest,
+    opts: CallOptions,
+  ): Promise<SigningRequest>;
 
   readMandate(
     req: { readonly scope: TenantScope; readonly mandate: MandateRef },
@@ -526,6 +554,51 @@ export interface AdapterCapabilities {
   /** Used by the router to compare speed. */
   readonly typicalSettlementSeconds: number;
   readonly typicalFinalSeconds: number;
+  /** verifyWalletProof can check a proof on this network. */
+  readonly walletProof: boolean;
+  /** Partner authentication is available. */
+  readonly partnerAuth: boolean;
+  /** The agent registry is available. */
+  readonly agentRegistry: boolean;
+  /** prepareRecipientActivation can sponsor a recipient's reserves. */
+  readonly reserveSponsorship: boolean;
+}
+
+/** Why a destination cannot receive. Codes are data; nothing above branches on a chain. */
+export type ReceivabilityReason =
+  | 'ACCOUNT_NOT_FOUND'
+  | 'DESTINATION_IS_ISSUER'
+  | 'NO_TRUSTLINE'
+  | 'TRUSTLINE_NOT_AUTHORIZED'
+  | 'TRUSTLINE_LIMIT';
+
+export type ProofSignerStatus = 'current' | 'not_current' | 'not_applicable';
+
+export interface CheckDestinationRequest {
+  readonly destination: Destination;
+  readonly asset: TokenAsset;
+  /** Checked against what the destination has room to receive, when given. */
+  readonly amount?: TokenAmount;
+  /** The key a wallet proof was signed with, to check it is still current. */
+  readonly proofSigner?: string;
+}
+
+export type DestinationCheck =
+  | { readonly receivable: true; readonly proofSigner: ProofSignerStatus }
+  | {
+      readonly receivable: false;
+      readonly reason: ReceivabilityReason;
+      readonly proofSigner: ProofSignerStatus;
+    };
+
+export interface RecipientActivationRequest {
+  readonly scope: TenantScope;
+  readonly destination: Destination;
+  readonly asset: TokenAsset;
+  /** True when checkDestination found no account there. */
+  readonly createAccount: boolean;
+  /** Sponsorship reservations the activation spends. */
+  readonly reservationIds: readonly string[];
 }
 
 export type HealthState = 'healthy' | 'degraded' | 'down';
@@ -687,7 +760,12 @@ export interface MandateActionRequest {
 /** Human readable and chain neutral, shown before signing. Amounts are core values. */
 export interface SigningSummary {
   readonly action:
-    MandateAction['op'] | 'fund' | 'request_payout' | 'request_payouts' | 'create_funding_account';
+    | MandateAction['op']
+    | 'fund'
+    | 'request_payout'
+    | 'request_payouts'
+    | 'activate_recipient'
+    | 'create_funding_account';
   readonly mandate?: MandateRef;
   readonly amount?: TokenAmount;
   readonly feePaidBy: 'ujira' | 'signer';
@@ -838,7 +916,7 @@ export interface Deposit {
   readonly blockHash: string | null;
   readonly closedAt: UnixSeconds;
   readonly finality: Finality;
-  /** The chain's id for the operation, where it has one. A sweep is keyed on it. */
+  /** The chain's id for the operation, where it has one. A sweep is keyed on it and `eventIndex`. */
   readonly operationId?: string;
   /** Set for the settlement asset on a forwarding account: it is to be swept. */
   readonly forwarding?: ForwardingRoute;

@@ -359,12 +359,28 @@ describe('whose deposit it is', { timeout: 30_000 }, () => {
       expect(sweepDepositOf(NETWORK, deposit)).toEqual({
         scope: w.scope,
         network: NETWORK,
-        depositOperationId: '123456',
+        depositOperationId: '123456-2',
         fundingSourceId: '00000000-0000-4000-8000-0000000000f1',
         mandateInstanceId: '00000000-0000-4000-8000-0000000000f2',
         route: { forwarder, mandate: mandateOf(w), token: usdcOf(w) },
         amount: tokenAmount(500n, 'USDC', 'stellar'),
       });
+    });
+
+    // One call can pay a forwarding account twice. Keyed on the operation alone, the
+    // second transfer would read as a repeat of the first and never be swept.
+    it('gives two transfers in one operation a sweep each', async () => {
+      const w = payWorld();
+      pageOf(w, [
+        transfer(w, { to: forwarder, id: '0000000000123456-0000000002' }),
+        transfer(w, { to: forwarder, id: '0000000000123456-0000000003', amount: 700n }),
+      ]);
+      const { deposits } = await scan(w, () =>
+        Promise.resolve(watchedAs(w, { forwarding: route(w) })),
+      );
+      expect(
+        deposits.map((deposit) => sweepDepositOf(NETWORK, deposit)?.depositOperationId),
+      ).toEqual(['123456-2', '123456-3']);
     });
 
     it('reports another asset, and never sweeps it', async () => {

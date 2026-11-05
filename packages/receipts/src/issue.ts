@@ -160,8 +160,8 @@ function isoSeconds(seconds: bigint): string {
   return new Date(Number(seconds) * 1000).toISOString();
 }
 
-function chainCall<T>(
-  ports: ReceiptIssuePorts,
+export function chainCall<T>(
+  ports: Pick<ReceiptIssuePorts, 'chainTimeoutMs'>,
   opts: CallOptions,
   call: (opts: CallOptions) => Promise<T>,
 ): Promise<T> {
