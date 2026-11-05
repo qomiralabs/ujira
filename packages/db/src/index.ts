@@ -108,6 +108,8 @@ export {
   type RecordedApproval,
 } from './repositories/payout-legs.js';
 export {
+  ReceiptDocumentHashError,
+  receiptDocumentIntact,
   ReceiptRevisionError,
   receipts,
   type NewReceipt,

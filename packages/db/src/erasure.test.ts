@@ -35,6 +35,7 @@ import {
   newPayout,
   ONE_USDC,
   payoutFixture,
+  receiptFields,
   usdc,
   type PayoutFixture,
 } from './testing/payout-fixture.js';
@@ -360,15 +361,16 @@ describe('subject keys and erasure', () => {
           payoutId: payout.id,
           attemptId: attempt.id,
           revision: 1,
+          ...receiptFields(payout.id, 1),
           chainReceiptRef: 'ref',
           settlement: usdc(5n * ONE_USDC),
           fee: 0n,
           legs: [
             {
               legIndex: 0,
-              destinationAddress: fixture.destinationAddress,
+              destinationMasked: 'GABC...WXYZ',
               amount: 5n * ONE_USDC,
-              chainTxHash: 'tx',
+              chainReceiptRef: 'tx',
             },
           ],
         });

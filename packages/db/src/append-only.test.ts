@@ -21,7 +21,13 @@ import { approvals } from './repositories/payout-legs.js';
 import { payoutAttempts, payouts } from './repositories/payouts.js';
 import { receipts } from './repositories/receipts.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
-import { newAttempt, newPayout, payoutFixture, usdc } from './testing/payout-fixture.js';
+import {
+  newAttempt,
+  newPayout,
+  payoutFixture,
+  receiptFields,
+  usdc,
+} from './testing/payout-fixture.js';
 import {
   createTestDatabase,
   roleUrl,
@@ -42,7 +48,7 @@ const CHANGES: Readonly<Record<string, string>> = {
   'ujira.ledger_entries': 'created_at = now()',
   'ujira.mandate_state_snapshots': 'taken_at = now()',
   'ujira.receipts': `chain_receipt_ref = 'changed'`,
-  'ujira.receipt_legs': `chain_tx_hash = 'changed'`,
+  'ujira.receipt_legs': `chain_receipt_ref = 'changed'`,
 };
 const TABLES = Object.keys(CHANGES);
 
@@ -166,15 +172,16 @@ beforeAll(async () => {
       payoutId: payout.id,
       attemptId: attempt.id,
       revision: 1,
+      ...receiptFields(payout.id, 1),
       chainReceiptRef: 'receipt-ref',
       settlement: attempt.total,
       fee: 0n,
       legs: [
         {
           legIndex: 0,
-          destinationAddress: fixture.destinationAddress,
+          destinationMasked: 'GABC...WXYZ',
           amount: usdc(attempt.total.amount).amount,
-          chainTxHash: 'tx',
+          chainReceiptRef: 'tx',
         },
       ],
     });
