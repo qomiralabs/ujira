@@ -55,6 +55,14 @@ export default defineConfig({
           // database, with a fresh database cloned from it per test file.
           globalSetup: ['src/testing/global-setup.ts'],
         },
+        // The token and rate limit tests run against a real database, because a
+        // limit shared across instances can only be shown with one. Same setup
+        // as the database package, and the same rule: no docker, a failed run.
+        '@ujira/api': {
+          hookTimeout: 180_000,
+          testTimeout: 60_000,
+          globalSetup: ['../db/src/testing/global-setup.ts'],
+        },
         // The conformance suites sign and verify hundreds of times.
         '@ujira/signer': { testTimeout: 60_000, hookTimeout: 60_000 },
         '@ujira/payouts': {
@@ -159,6 +167,14 @@ export default defineConfig({
         // A receipt is the permanent proof of a payment and its hash must
         // never drift, so it carries the money bar too.
         'packages/receipts/src/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
+        // The indexer decides which contracts count as mandates and what is booked
+        // to whom, so it carries the money bar too.
+        'packages/indexer/src/**': {
           lines: 95,
           functions: 95,
           branches: 95,

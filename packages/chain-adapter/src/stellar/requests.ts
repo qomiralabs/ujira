@@ -20,10 +20,13 @@ export interface StoredSigningRequest {
   readonly requestId: string;
   readonly scope: TenantScope;
   readonly network: NetworkId;
-  readonly op: MandateAction['op'] | 'create_funding_account';
+  readonly op:
+    MandateAction['op'] | 'request' | 'request_batch' | 'fund' | 'create_funding_account';
   /** The mandate's C address; for create, the address it will be deployed at. */
   readonly mandate: string | null;
   readonly payoutId: PayoutId | null;
+  /** The payout attempt it is for, where it is a payout's. */
+  readonly attempt?: number | null;
   /** The address that signs: a G principal's account or a C smart wallet. */
   readonly signer: string;
   readonly kind: 'stellar_transaction' | 'stellar_auth_entry';
@@ -37,6 +40,8 @@ export interface StoredSigningRequest {
   readonly fee: bigint;
   readonly validUntil: UnixSeconds;
   readonly summary: SigningSummary;
+  /** How many times this action has been re-simulated to get here. */
+  readonly resimulations?: number;
 }
 
 export interface SigningRequestUse {

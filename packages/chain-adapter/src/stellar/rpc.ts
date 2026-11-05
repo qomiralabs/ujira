@@ -51,16 +51,57 @@ export interface RpcTransaction {
   readonly ledger?: number;
   /** Base64 TransactionResult once included. */
   readonly resultXdr?: string;
+  /** Base64 TransactionMeta once included, which lists any restored entries. */
+  readonly resultMetaXdr?: string;
   /** The RPC's window at the time of the answer, which says what a NOT_FOUND can prove. */
   readonly latestLedger?: number;
   readonly latestLedgerCloseTime?: bigint;
   readonly oldestLedger?: number;
+  /** Unix seconds. What a NOT_FOUND can prove reaches back no further than this. */
+  readonly oldestLedgerCloseTime?: bigint;
 }
 
 export type RawSimulation = Api.RawSimulateTransactionResponse;
 
+/** One event as the RPC reports it. `contractId` is the source the ledger recorded. */
+export interface RpcEvent {
+  readonly type: string;
+  readonly contractId: string;
+  readonly txHash: string;
+  readonly id: string;
+  readonly ledger: number;
+  readonly ledgerClosedAt: string;
+  /** Missing reads as false: an event nothing says succeeded did not. */
+  readonly inSuccessfulContractCall: boolean;
+  /** Base64 ScVals. */
+  readonly topic: readonly string[];
+  /** A base64 ScVal. */
+  readonly value: string;
+}
+
+/** Start at a ledger, or carry on from a cursor. The RPC refuses both at once. */
+export type RpcEventRequest = (
+  | { readonly startLedger: number; readonly limit: number }
+  | { readonly cursor: string; readonly limit: number }
+) & {
+  /** Narrows what the node returns. It is the node's word, so a caller checks again. */
+  readonly filter?: {
+    readonly contractIds?: readonly string[];
+    /** Base64 ScVals by position; '*' matches anything there. */
+    readonly topics?: readonly (readonly string[])[];
+  };
+};
+
+export interface RpcEventPage {
+  readonly events: readonly RpcEvent[];
+  readonly cursor: string | null;
+  readonly latestLedger: number;
+}
+
 export interface StellarRpc {
   getLatestLedger(opts: CallOptions): Promise<RpcLatestLedger>;
+  /** Contract events in ledger order, of every contract. */
+  getEvents(request: RpcEventRequest, opts: CallOptions): Promise<RpcEventPage>;
   getLedgerEntries(
     keys: readonly string[],
     opts: CallOptions,
@@ -185,6 +226,46 @@ export function createStellarRpc(options: JsonRpcOptions): StellarRpc {
       }));
     },
 
+    async getEvents(request, opts) {
+      const start = 'cursor' in request ? {} : { startLedger: request.startLedger };
+      const cursor = 'cursor' in request ? { cursor: request.cursor } : {};
+      const params = {
+        ...start,
+        filters: [{ type: 'contract', ...request.filter }],
+        pagination: { limit: request.limit, ...cursor },
+      };
+      const result = await call('getEvents', params, opts, 'no');
+      return parse(() => {
+        const list = result['events'] ?? [];
+        if (!Array.isArray(list)) throw new TypeError('malformed RPC result');
+        const events = list.map((item: unknown): RpcEvent => {
+          if (!isObject(item) || !Array.isArray(item['topic'])) {
+            throw new TypeError('malformed RPC result');
+          }
+          return {
+            type: str(item, 'type'),
+            contractId: str(item, 'contractId'),
+            txHash: str(item, 'txHash'),
+            id: str(item, 'id'),
+            ledger: int(item, 'ledger'),
+            ledgerClosedAt: str(item, 'ledgerClosedAt'),
+            inSuccessfulContractCall: item['inSuccessfulContractCall'] === true,
+            topic: item['topic'].map((topic: unknown) => {
+              if (typeof topic !== 'string') throw new TypeError('malformed RPC result');
+              return topic;
+            }),
+            value: str(item, 'value'),
+          };
+        });
+        const next = result['cursor'];
+        return {
+          events,
+          cursor: typeof next === 'string' && next !== '' ? next : null,
+          latestLedger: int(result, 'latestLedger'),
+        };
+      });
+    },
+
     async getLedgerEntries(keys, opts) {
       const result = await call('getLedgerEntries', { keys: [...keys] }, opts, 'no');
       return parse(() => {
@@ -239,16 +320,22 @@ export function createStellarRpc(options: JsonRpcOptions): StellarRpc {
         if (!TX_STATUSES.has(status)) throw new TypeError('malformed RPC result');
         const ledger = optionalInt(result, 'ledger');
         const resultXdr = result['resultXdr'];
+        const resultMetaXdr = result['resultMetaXdr'];
         const latestLedger = optionalInt(result, 'latestLedger');
         const oldestLedger = optionalInt(result, 'oldestLedger');
         const closeTime = result['latestLedgerCloseTime'];
+        const oldestCloseTime = result['oldestLedgerCloseTime'];
         return {
           status: status as RpcTransaction['status'],
           ...(ledger === undefined ? {} : { ledger }),
           ...(typeof resultXdr === 'string' ? { resultXdr } : {}),
+          ...(typeof resultMetaXdr === 'string' ? { resultMetaXdr } : {}),
           ...(latestLedger === undefined ? {} : { latestLedger }),
           ...(oldestLedger === undefined ? {} : { oldestLedger }),
           ...(typeof closeTime === 'string' ? { latestLedgerCloseTime: BigInt(closeTime) } : {}),
+          ...(typeof oldestCloseTime === 'string'
+            ? { oldestLedgerCloseTime: BigInt(oldestCloseTime) }
+            : {}),
         };
       });
     },

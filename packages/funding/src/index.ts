@@ -12,6 +12,11 @@ export {
   SweepTimeoutError,
 } from './errors.js';
 export type { FundingErrorCode } from './errors.js';
+export {
+  FUNDING_ACCOUNT_WATCH_INTERVAL_SECONDS,
+  createFundingAccountWatch,
+} from './account-watch.js';
+export type { FundingAccountWatch, FundingAccountWatchOptions } from './account-watch.js';
 export { createFundingAccountService } from './funding-account.js';
 export type {
   ConfirmFundingAccount,
@@ -44,6 +49,7 @@ export {
 export type {
   DepositEvent,
   ObservedTransfer,
+  SweepAccounts,
   SweepAlertKind,
   SweepChain,
   SweepChainResult,

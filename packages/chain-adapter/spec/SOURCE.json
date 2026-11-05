@@ -1,11 +1,11 @@
 {
   "repository": "qomiralabs/ujira-contracts",
-  "commit": "af7a20eeb821b3960f0c286c43cf663eb3370753",
+  "commit": "16b48a7cb52c2a2c6fa6315677aadc5ec3db73c1",
   "note": "Copied byte for byte from spec/ at this commit. Moves to the spec-v1 tag once it is cut.",
   "files": [
     {
       "path": "constants.json",
-      "sha256": "55e0cb75c3df9990a8cdc507a7358c65c557dfe51e4cf50076a706a08edaae56"
+      "sha256": "9cd1c5aef5ae4f99f7e575b833e423b45ec3940c010b8fcba7a625c074b90c28"
     },
     {
       "path": "errors.json",
@@ -17,11 +17,11 @@
     },
     {
       "path": "vectors/amounts.json",
-      "sha256": "b3b70675e776cd2f3d2a6966bcce4ec2b73d2ae35a8ac7d8cf4c83fbdcabd4a6"
+      "sha256": "a7bb92d287146c60abc5fa46bb0fcc9e1b711f214f0e1539f718376cb398ce48"
     },
     {
       "path": "vectors/approval.json",
-      "sha256": "780c8657eec4bf77d93e770b240fd745f0fedf3bd0cd4aaddd786715ced63151"
+      "sha256": "4f724d9270d47269ac307d7b0ef917fe2c4ab38a8bb622f0063737792a17d7fd"
     },
     {
       "path": "vectors/attestation.json",
@@ -61,7 +61,7 @@
     },
     {
       "path": "vectors/fee.json",
-      "sha256": "b5df55ca8bc35c7aed222b9d8c0b2ccbcc3d7dfa63458fd249060469ce6ef374"
+      "sha256": "efef50e7ab30052e534824dacdad0460bea5602e4a79a54531b053780e9d9815"
     },
     {
       "path": "vectors/funding.json",
@@ -81,7 +81,7 @@
     },
     {
       "path": "vectors/payout-lifecycle.json",
-      "sha256": "8ae7bcb2bdfdad3a49210d5c2b061038968c91faf8b6a43a0927f2f862ecabe8"
+      "sha256": "712be1a94c9d0a61a35b1969a2b851bb718714d6cb8bb31d758a0f589cfecb28"
     },
     {
       "path": "vectors/per-payment-cap.json",
@@ -89,7 +89,7 @@
     },
     {
       "path": "vectors/precedence.json",
-      "sha256": "c1d799602dd174b996918107cd998dca4b0356748b6b815b8ca20ec0c507301f"
+      "sha256": "4d69c279350513cc7a5b25f1736dd4791437c39255987846a874ebb8aa9a4b47"
     },
     {
       "path": "vectors/principal.json",
@@ -97,7 +97,7 @@
     },
     {
       "path": "vectors/recipients.json",
-      "sha256": "c64fbb33702c1f4049ebdbd3ba92d10eeb24a5e8cd7548f68e63dcd8dd1efa87"
+      "sha256": "985203a5272bcdf7113696386f569490b275c87956d988d916cddc8f2283e18f"
     },
     {
       "path": "vectors/recover-token.json",
@@ -105,7 +105,7 @@
     },
     {
       "path": "vectors/recovery.json",
-      "sha256": "208d229f19235e59dd1e42f8309cda6dfa78cdf11b1c0b5ac62d1fa0b06ad9cd"
+      "sha256": "35c7d24be07039a0d4b6d0c4bc2af40c9da4904466050b4131e49e30ab56cef0"
     },
     {
       "path": "vectors/revoke.json",
@@ -113,15 +113,15 @@
     },
     {
       "path": "vectors/roles.json",
-      "sha256": "7669a347cb6023a78b427683347cfa0e8b47f9fc88f4db6d25cc4cf7dbfff2d6"
+      "sha256": "6e133073f64d4fadaa1ed696c892fa6626c518807f7d0eefbb5e28383018656d"
     },
     {
       "path": "vectors/schema.json",
-      "sha256": "8a9092b874390b1c7fc428228647fbf7b1668eff98f119636335e5ddca93f14a"
+      "sha256": "9868e454eaa591d62867e2b1b212dfaa6fe93b2eed9fa164389043cc4f2ec14e"
     },
     {
       "path": "vectors/split-totals.json",
-      "sha256": "d8d53c32191e4067c4aceeb7ba58fffbd39d93d89381609e78c976d5da2c49c4"
+      "sha256": "3c3a575847ae1b14a390ff8bf0abc127b4b5d0da4df61228030f4681fda22cb5"
     },
     {
       "path": "vectors/sweep.json",

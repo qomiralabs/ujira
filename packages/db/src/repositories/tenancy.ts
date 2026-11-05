@@ -59,8 +59,11 @@ export interface ApiToken {
   readonly projectId: string;
   readonly prefix: string;
   readonly scopes: readonly string[];
-  readonly expiresAt: Date | null;
+  readonly expiresAt: Date;
   readonly revokedAt: Date | null;
+  // The token this one replaced, in the same project, or null for a first one.
+  readonly rotatedFromId: string | null;
+  readonly lastUsedAt: Date | null;
   readonly createdAt: Date;
 }
 
@@ -71,6 +74,7 @@ export interface NewApiToken {
   readonly scopes: readonly string[];
   // Every token expires: rotation is the only way to keep one working.
   readonly expiresAt: Date;
+  readonly rotatedFromId?: string;
 }
 
 const MEMBER_ROLES: ReadonlySet<string> = new Set<MemberRole>([
@@ -346,6 +350,8 @@ const tokenColumns = [
   'scopes',
   'expires_at',
   'revoked_at',
+  'rotated_from_id',
+  'last_used_at',
   'created_at',
 ] as const;
 
@@ -354,8 +360,10 @@ function toToken(row: {
   project_id: string;
   prefix: string;
   scopes: string[];
-  expires_at: Date | null;
+  expires_at: Date;
   revoked_at: Date | null;
+  rotated_from_id: string | null;
+  last_used_at: Date | null;
   created_at: Date;
 }): ApiToken {
   return {
@@ -365,6 +373,8 @@ function toToken(row: {
     scopes: row.scopes,
     expiresAt: row.expires_at,
     revokedAt: row.revoked_at,
+    rotatedFromId: row.rotated_from_id,
+    lastUsedAt: row.last_used_at,
     createdAt: row.created_at,
   };
 }
@@ -400,10 +410,29 @@ export const apiTokens = {
         secret_sha256: input.secretSha256,
         scopes: [...input.scopes],
         expires_at: input.expiresAt,
+        rotated_from_id: input.rotatedFromId ?? null,
       })
       .returning(tokenColumns)
       .executeTakeFirstOrThrow();
     return toToken(row);
+  },
+
+  // Records use of a token, at most once per five minutes: the condition is here
+  // so it holds across every instance, and a busy token costs no write. True when
+  // this call was the one that wrote.
+  touchLastUsed: async (db: Tx, id: string): Promise<boolean> => {
+    const result = await db
+      .updateTable('ujira.api_tokens')
+      .set({ last_used_at: sql<Date>`now()` })
+      .where('id', '=', id)
+      .where((eb) =>
+        eb.or([
+          eb('last_used_at', 'is', null),
+          eb('last_used_at', '<', sql<Date>`now() - interval '5 minutes'`),
+        ]),
+      )
+      .executeTakeFirst();
+    return result.numUpdatedRows > 0n;
   },
 
   // True when a live token was found and revoked. Revoking is permanent:

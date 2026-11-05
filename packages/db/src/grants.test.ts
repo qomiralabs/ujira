@@ -152,6 +152,7 @@ describe('grants on ujira', () => {
     expect(await executable('ujira_reader')).toEqual([auditHash, ...context]);
     expect(await executable('ujira_indexer')).toEqual([
       ...context,
+      'function ujira.resolve_funding_address(text,text)',
       'function ujira.resolve_mandate_instance(text,text)',
     ]);
   });
@@ -212,9 +213,11 @@ describe('roles', () => {
       { fn: 'ujira.attestation_pending(bytea)', owner: 'ujira_signer_read' },
       { fn: 'ujira.audit_chain()', owner: 'ujira_fn_audit' },
       { fn: 'ujira.authenticate_token(text)', owner: 'ujira_fn_tokens' },
+      { fn: 'ujira.check_payout_booking()', owner: 'ujira_fn_instances' },
       { fn: 'ujira.create_principal(text,text,uuid,text)', owner: 'ujira_fn_principals' },
       { fn: 'ujira.ledger_balanced()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.ledger_stamp()', owner: 'ujira_fn_ledger' },
+      { fn: 'ujira.resolve_funding_address(text,text)', owner: 'ujira_fn_instances' },
       { fn: 'ujira.resolve_mandate_instance(text,text)', owner: 'ujira_fn_instances' },
     ]);
     // Each holds only what its one function needs, and never CREATE.
@@ -231,6 +234,8 @@ describe('roles', () => {
       { grantee: 'ujira_fn_audit', object: 'audit_heads', privilege: 'SELECT' },
       { grantee: 'ujira_fn_audit', object: 'audit_heads', privilege: 'UPDATE' },
       { grantee: 'ujira_fn_audit', object: 'audit_metadata_keys', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_instances', object: 'funding_account_sources', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_instances', object: 'funding_accounts', privilege: 'SELECT' },
       { grantee: 'ujira_fn_instances', object: 'mandate_instances', privilege: 'SELECT' },
       { grantee: 'ujira_fn_ledger', object: 'ledger_accounts', privilege: 'SELECT' },
       { grantee: 'ujira_fn_ledger', object: 'ledger_accounts', privilege: 'UPDATE' },

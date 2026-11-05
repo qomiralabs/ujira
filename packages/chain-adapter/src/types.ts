@@ -16,6 +16,13 @@ import type { ChainAdapterErrorCode, ChainAdapterErrorJson } from './errors.js';
 import type { NetworkId } from './networks.js';
 import type { NetworksConfig } from './config.js';
 import type { AttestationFields, SignerProvider, SignerRef } from './signer.js';
+import type {
+  VerifyWalletProofRequest,
+  WalletProofChallenge,
+  WalletProofChallengeRequest,
+  WalletProofPurpose,
+  WalletProofResult,
+} from './wallet-proof.js';
 
 export const CHAIN_ADAPTER_INTERFACE_VERSION = 1 as const;
 
@@ -106,6 +113,27 @@ export interface ChainAdapter {
    */
   attestationMessage(fields: AttestationFields): Uint8Array;
 
+  /**
+   * The exact text a recipient signs to prove they control an address. The
+   * host comes from the public configuration, never from the request.
+   */
+  walletProofChallenge<P extends WalletProofPurpose>(
+    req: WalletProofChallengeRequest & { readonly purpose: P },
+  ): WalletProofChallenge<P>;
+  /** Checks a signed challenge against the issued one and the signers on chain today. */
+  verifyWalletProof(req: VerifyWalletProofRequest, opts: CallOptions): Promise<WalletProofResult>;
+  /** Whether a destination can receive a payout, and whether a proof's signer is still current. */
+  checkDestination(req: CheckDestinationRequest, opts: CallOptions): Promise<DestinationCheck>;
+  /**
+   * Builds the transaction that gets a recipient ready to be paid, with UJIRA
+   * paying the reserves and the fee, for the recipient's wallet to sign.
+   * Throws UnsupportedError where capabilities().reserveSponsorship is false.
+   */
+  prepareRecipientActivation(
+    req: RecipientActivationRequest,
+    opts: CallOptions,
+  ): Promise<SigningRequest>;
+
   readMandate(
     req: { readonly scope: TenantScope; readonly mandate: MandateRef },
     opts: CallOptions,
@@ -140,9 +168,47 @@ export interface ChainAdapterRegistry {
 // ---------------------------------------------------------------------------
 // Ports the adapter is given. Implemented outside it, faked in tests.
 
+/** A contract a trusted factory announced as a mandate, from its mandate_created. */
+export interface MandateRegistration {
+  readonly network: NetworkId;
+  readonly contractId: string;
+  /** The contract the ledger recorded as the source of the event. */
+  readonly factory: string;
+  readonly tenantTag: Bytes32;
+  /** Its tag differs from the tag of the tenant that claims it. Nothing of it counts. */
+  readonly flagged: boolean;
+}
+
+/**
+ * The contracts accepted as mandates. A contract cannot prove which factory
+ * deployed it, so this is the only thing the adapter takes as proof. What the
+ * contract stores or runs can be compared with it and never replaces it.
+ */
+export interface MandateRegistry {
+  registered(
+    network: NetworkId,
+    contractId: string,
+    opts: CallOptions,
+  ): Promise<MandateRegistration | null>;
+  /**
+   * When this tenant recorded the contract as its own mandate instance, which
+   * UJIRA's create flow does before it submits, or null when it has not. It is
+   * never a reason to trust the contract: for a limited time it only turns the
+   * refusal of one that is not registered yet into something to wait for.
+   */
+  claimedAt(
+    scope: TenantScope,
+    network: NetworkId,
+    contractId: string,
+    opts: CallOptions,
+  ): Promise<UnixSeconds | null>;
+}
+
 export interface AdapterPorts {
   /** Implemented in the db repository layer. */
   readonly store: AdapterStore;
+  /** Written only by event intake, from a trusted factory's mandate_created. */
+  readonly registry: MandateRegistry;
   /** Every key UJIRA holds signs through it; the adapter never sees key material. */
   readonly signer: SignerProvider;
   /** createSponsorshipPolicy over the database ledger, or a stand in under test. */
@@ -333,6 +399,20 @@ export interface AdapterStore {
     txHash: string,
     patch: SubmissionPatch,
   ): Promise<void>;
+  /** The landed submission that executed this payout on its own, if one is stored. */
+  landedSubmission(key: {
+    readonly scope: TenantScope;
+    readonly network: NetworkId;
+    /** Chain encoded, as in SubmissionRecord. */
+    readonly mandate: string;
+    readonly payoutId: PayoutId;
+  }): Promise<SubmissionRecord | null>;
+  /** One tenant's record by hash, in any state. Another tenant's row reads as null. */
+  findSubmission(
+    scope: TenantScope,
+    network: NetworkId,
+    txHash: string,
+  ): Promise<SubmissionRecord | null>;
   liveSubmission(key: {
     readonly scope: TenantScope;
     readonly network: NetworkId;
@@ -474,6 +554,51 @@ export interface AdapterCapabilities {
   /** Used by the router to compare speed. */
   readonly typicalSettlementSeconds: number;
   readonly typicalFinalSeconds: number;
+  /** verifyWalletProof can check a proof on this network. */
+  readonly walletProof: boolean;
+  /** Partner authentication is available. */
+  readonly partnerAuth: boolean;
+  /** The agent registry is available. */
+  readonly agentRegistry: boolean;
+  /** prepareRecipientActivation can sponsor a recipient's reserves. */
+  readonly reserveSponsorship: boolean;
+}
+
+/** Why a destination cannot receive. Codes are data; nothing above branches on a chain. */
+export type ReceivabilityReason =
+  | 'ACCOUNT_NOT_FOUND'
+  | 'DESTINATION_IS_ISSUER'
+  | 'NO_TRUSTLINE'
+  | 'TRUSTLINE_NOT_AUTHORIZED'
+  | 'TRUSTLINE_LIMIT';
+
+export type ProofSignerStatus = 'current' | 'not_current' | 'not_applicable';
+
+export interface CheckDestinationRequest {
+  readonly destination: Destination;
+  readonly asset: TokenAsset;
+  /** Checked against what the destination has room to receive, when given. */
+  readonly amount?: TokenAmount;
+  /** The key a wallet proof was signed with, to check it is still current. */
+  readonly proofSigner?: string;
+}
+
+export type DestinationCheck =
+  | { readonly receivable: true; readonly proofSigner: ProofSignerStatus }
+  | {
+      readonly receivable: false;
+      readonly reason: ReceivabilityReason;
+      readonly proofSigner: ProofSignerStatus;
+    };
+
+export interface RecipientActivationRequest {
+  readonly scope: TenantScope;
+  readonly destination: Destination;
+  readonly asset: TokenAsset;
+  /** True when checkDestination found no account there. */
+  readonly createAccount: boolean;
+  /** Sponsorship reservations the activation spends. */
+  readonly reservationIds: readonly string[];
 }
 
 export type HealthState = 'healthy' | 'degraded' | 'down';
@@ -635,7 +760,12 @@ export interface MandateActionRequest {
 /** Human readable and chain neutral, shown before signing. Amounts are core values. */
 export interface SigningSummary {
   readonly action:
-    MandateAction['op'] | 'fund' | 'request_payout' | 'request_payouts' | 'create_funding_account';
+    | MandateAction['op']
+    | 'fund'
+    | 'request_payout'
+    | 'request_payouts'
+    | 'activate_recipient'
+    | 'create_funding_account';
   readonly mandate?: MandateRef;
   readonly amount?: TokenAmount;
   readonly feePaidBy: 'ujira' | 'signer';
@@ -653,6 +783,8 @@ export type SigningRequest =
       readonly sponsored: boolean;
       readonly summary: SigningSummary;
       readonly requestId: string;
+      /** Set when this replaces a request the network refused for resources. */
+      readonly reason?: 'RESIMULATED';
     }
   | {
       readonly kind: 'stellar_auth_entry';
@@ -662,6 +794,8 @@ export type SigningRequest =
       readonly expirationLedger: number;
       readonly summary: SigningSummary;
       readonly requestId: string;
+      /** Set when this replaces a request the network refused for resources. */
+      readonly reason?: 'RESIMULATED';
     };
 
 export interface SignedSubmission {
@@ -721,6 +855,8 @@ export interface FundingInstructions {
   readonly asset: TokenAsset;
   /** Token contract, shown so the principal can verify it. */
   readonly assetContract: string;
+  /** The asset's issuer, where the chain has one. */
+  readonly assetIssuer?: string;
   readonly label: string;
   readonly memoRequired: false;
   readonly warnings: readonly (
@@ -737,10 +873,22 @@ export interface PrepareFundingRequest {
   readonly amount: TokenAmount;
 }
 
+/** A forwarding account, and the mandate its deposits are swept into. */
+export interface ForwardingRoute {
+  readonly fundingSourceId: string;
+  readonly mandateInstanceId: string;
+  /** The account that received the deposit. */
+  readonly forwarder: string;
+  /** Chain encoded. */
+  readonly mandate: string;
+}
+
 export interface WatchedMandate {
   readonly scope: TenantScope;
   readonly mandate: MandateRef;
   readonly asset: TokenAsset;
+  /** Set when the address asked about is a forwarding account, not the mandate. */
+  readonly forwarding?: ForwardingRoute;
 }
 
 export interface DepositScanRequest {
@@ -768,6 +916,10 @@ export interface Deposit {
   readonly blockHash: string | null;
   readonly closedAt: UnixSeconds;
   readonly finality: Finality;
+  /** The chain's id for the operation, where it has one. A sweep is keyed on it and `eventIndex`. */
+  readonly operationId?: string;
+  /** Set for the settlement asset on a forwarding account: it is to be swept. */
+  readonly forwarding?: ForwardingRoute;
 }
 
 export interface DepositScanPage {
@@ -969,6 +1121,20 @@ export type DeadProof =
       readonly kind: 'deadline_passed';
       readonly network: NetworkId;
       readonly finalTime: UnixSeconds;
+      readonly at: { readonly ledgerOrBlock: bigint; readonly finality: 'final' };
+    }
+  /** Requested, but past its own expiry at a final ledger, so it can never execute. */
+  | {
+      readonly kind: 'payout_lapsed';
+      readonly network: NetworkId;
+      readonly expiresAt: UnixSeconds;
+      readonly finalTime: UnixSeconds;
+      readonly at: { readonly ledgerOrBlock: bigint; readonly finality: 'final' };
+    }
+  /** Its agent was removed after the request, so the mandate refuses to execute it. */
+  | {
+      readonly kind: 'agent_removed';
+      readonly network: NetworkId;
       readonly at: { readonly ledgerOrBlock: bigint; readonly finality: 'final' };
     };
 

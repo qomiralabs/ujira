@@ -15,7 +15,9 @@ type Tx = Kysely<Schema>;
 const CURRENT_PRINCIPAL = sql<string>`ujira.current_principal_id()`;
 const CURRENT_PROJECT = sql<string>`ujira.current_project_id()`;
 
-export type FundingAccountStatus = 'active' | 'rejected';
+// Rejected is what was found at creation, and is final for the app. Changed is an
+// account verified at creation whose latest read found something else.
+export type FundingAccountStatus = 'active' | 'rejected' | 'changed';
 
 export interface FundingAccount {
   readonly id: string;
@@ -75,6 +77,18 @@ function toAccount(row: {
   };
 }
 
+// What the latest read found, or nothing when it has never been read again.
+async function latestFaults(db: Tx, accountId: string): Promise<readonly string[]> {
+  const latest = await db
+    .selectFrom('ujira.funding_account_checks')
+    .select('faults')
+    .where('funding_account_id', '=', accountId)
+    .orderBy('checked_at', 'desc')
+    .limit(1)
+    .executeTakeFirst();
+  return latest?.faults ?? [];
+}
+
 export const fundingAccounts = {
   forNetwork: async (db: Tx, network: string): Promise<FundingAccount | undefined> => {
     const row = await db
@@ -82,7 +96,29 @@ export const fundingAccounts = {
       .select(columns)
       .where('network', '=', network)
       .executeTakeFirst();
-    return row === undefined ? undefined : toAccount(row);
+    if (row === undefined) return undefined;
+    const account = toAccount(row);
+    // A later good read does not undo what was found at creation.
+    if (account.status === 'rejected') return account;
+    const faults = await latestFaults(db, account.id);
+    return faults.length === 0 ? account : { ...account, status: 'changed', faults };
+  },
+
+  // Beside the row, which stays as what was found at creation. An account that is
+  // not this tenant's fails its key, with the tenant on the row.
+  recordCheck: async (
+    db: Tx,
+    input: { readonly accountId: string; readonly faults: readonly string[] },
+  ): Promise<void> => {
+    await db
+      .insertInto('ujira.funding_account_checks')
+      .values({
+        principal_id: CURRENT_PRINCIPAL,
+        project_id: CURRENT_PROJECT,
+        funding_account_id: input.accountId,
+        faults: [...input.faults],
+      })
+      .execute();
   },
 
   // Undefined when the principal already has an account on this network, or the
@@ -148,6 +184,7 @@ export const fundingAccounts = {
     // The table refuses this too. Asking first keeps a mistake from getting as far
     // as a funding source, which the app could not then remove.
     if (instance?.network !== account.network) return undefined;
+    if ((await latestFaults(db, input.accountId)).length > 0) return undefined;
     const source = await fundingSources.create(db, {
       mandateInstanceId: input.mandateInstanceId,
       kind: 'stellar_funding_account',

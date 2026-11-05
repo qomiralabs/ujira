@@ -9,6 +9,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    },
     "./key-manager": {
       "types": "./dist/key-manager/index.d.ts",
       "default": "./dist/key-manager/index.js"
