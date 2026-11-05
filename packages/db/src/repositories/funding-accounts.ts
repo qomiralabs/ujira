@@ -89,6 +89,15 @@ async function latestFaults(db: Tx, accountId: string): Promise<readonly string[
   return latest?.faults ?? [];
 }
 
+/** The account already funds another mandate instance. */
+export class FundingAccountInUse extends Error {
+  override readonly name = 'FundingAccountInUse';
+
+  constructor() {
+    super('The funding account already funds another mandate instance');
+  }
+}
+
 export const fundingAccounts = {
   forNetwork: async (db: Tx, network: string): Promise<FundingAccount | undefined> => {
     const row = await db
@@ -146,7 +155,9 @@ export const fundingAccounts = {
   // The instance's funding source for this account, made the first time it is
   // asked for. Undefined when this tenant has no such active account, the instance
   // is not this tenant's or not on the account's network, or it is already funded
-  // by a different account.
+  // by a different account. Throws FundingAccountInUse when the account already
+  // funds another instance: a transfer to it cannot say which mandate it is for, so
+  // a second one would stop deposits being attributed for both.
   //
   // The app cannot delete a funding source, so a second confirmation racing the
   // first must not get as far as creating one. The lock makes it wait and then
@@ -185,6 +196,15 @@ export const fundingAccounts = {
     // as a funding source, which the app could not then remove.
     if (instance?.network !== account.network) return undefined;
     if ((await latestFaults(db, input.accountId)).length > 0) return undefined;
+    // Two different instances racing for this account hold different locks above, so
+    // this is what makes the second one see the first.
+    await sql`select pg_advisory_xact_lock(hashtextextended(${input.accountId}, 0))`.execute(db);
+    const taken = await db
+      .selectFrom('ujira.funding_account_sources')
+      .select('id')
+      .where('funding_account_id', '=', input.accountId)
+      .executeTakeFirst();
+    if (taken !== undefined) throw new FundingAccountInUse();
     const source = await fundingSources.create(db, {
       mandateInstanceId: input.mandateInstanceId,
       kind: 'stellar_funding_account',

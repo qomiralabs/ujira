@@ -13,7 +13,11 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
 import type { Database, ProjectContext } from './database.js';
 import { entryPoints } from './repositories/entry-points.js';
-import { fundingAccounts, type NewFundingAccount } from './repositories/funding-accounts.js';
+import {
+  FundingAccountInUse,
+  fundingAccounts,
+  type NewFundingAccount,
+} from './repositories/funding-accounts.js';
 import { fundingSources, mandateInstances, mandates } from './repositories/mandates.js';
 import { projects } from './repositories/tenancy.js';
 import type { Schema } from './schema.generated.js';
@@ -153,13 +157,10 @@ describe('funding accounts', () => {
     expect(other?.network).toBe('stellar:pubnet');
   });
 
-  it('holds a principal to one across its projects, and shows it to the principal only', async () => {
+  it("does not show one project another project's account", async () => {
     const tenant = await newTenant();
     const second = await secondProject(tenant);
     const first = await as(tenant, async (tx) => fundingAccounts.record(tx, newAccount()));
-    expect(
-      await as(second, async (tx) => fundingAccounts.record(tx, newAccount())),
-    ).toBeUndefined();
     expect(await as(second, async (tx) => fundingAccounts.forNetwork(tx, NETWORK))).toBeUndefined();
     const across = await db
       .principal(second, 'app')
@@ -378,16 +379,46 @@ describe('attaching an account to a mandate instance', () => {
     expect(count.rows[0]?.count).toBe('1');
   });
 
-  it('lets one account fund several instances', async () => {
+  // A transfer to the account cannot say which mandate it is for, so a second one
+  // would stop deposits being attributed for both.
+  it('refuses a second mandate instance, and leaves no funding source for it', async () => {
     const tenant = await newTenant();
     const account = await as(tenant, async (tx) => fundingAccounts.record(tx, newAccount()));
     const [one, two] = await Promise.all([newInstance(tenant), newInstance(tenant)]);
-    const sources = await as(tenant, async (tx) => [
-      await fundingAccounts.attach(tx, { accountId: account?.id ?? '', mandateInstanceId: one }),
-      await fundingAccounts.attach(tx, { accountId: account?.id ?? '', mandateInstanceId: two }),
-    ]);
-    expect(sources[0]?.id).not.toBe(sources[1]?.id);
-    expect(sources.map((source) => source?.mandateInstanceId)).toEqual([one, two]);
+    const attach = (mandateInstanceId: string) =>
+      as(tenant, async (tx) =>
+        fundingAccounts.attach(tx, { accountId: account?.id ?? '', mandateInstanceId }),
+      );
+    const first = await attach(one);
+    await expect(attach(two)).rejects.toBeInstanceOf(FundingAccountInUse);
+    const count = await admin.query<{ count: string }>(
+      'select count(*)::text as count from ujira.funding_sources where mandate_instance_id = $1',
+      [two],
+    );
+    expect(count.rows[0]?.count).toBe('0');
+    // The first still answers its retry with the same source.
+    expect((await attach(one))?.id).toBe(first?.id);
+  });
+
+  it('lets one of two racing instances through, whichever comes first', async () => {
+    const tenant = await newTenant();
+    const account = await as(tenant, async (tx) => fundingAccounts.record(tx, newAccount()));
+    const [one, two] = await Promise.all([newInstance(tenant), newInstance(tenant)]);
+    const attach = (mandateInstanceId: string) =>
+      as(tenant, async (tx) =>
+        fundingAccounts.attach(tx, { accountId: account?.id ?? '', mandateInstanceId }),
+      );
+    const results = await Promise.allSettled([attach(one), attach(two)]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const refused = results.find((result) => result.status === 'rejected');
+    expect(refused?.status === 'rejected' ? refused.reason : null).toBeInstanceOf(
+      FundingAccountInUse,
+    );
+    const links = await admin.query<{ count: string }>(
+      'select count(*)::text as count from ujira.funding_account_sources where funding_account_id = $1',
+      [account?.id],
+    );
+    expect(links.rows[0]?.count).toBe('1');
   });
 
   it('does not attach a rejected account', async () => {

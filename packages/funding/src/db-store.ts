@@ -6,10 +6,14 @@
 
 import { isNetworkId } from '@ujira/chain-adapter';
 import type { FundingAccountRecord, FundingAccountStore, NetworkId } from '@ujira/chain-adapter';
-import { fundingAccounts, fundingSweeps, mandateInstances } from '@ujira/db';
+import { FundingAccountInUse, fundingAccounts, fundingSweeps, mandateInstances } from '@ujira/db';
 import type { Database, FundingAccount } from '@ujira/db';
 
-import { FundingAccountConflictError, SweepStateError } from './errors.js';
+import {
+  FundingAccountConflictError,
+  FundingAccountInUseError,
+  SweepStateError,
+} from './errors.js';
 import type { FundingSourceStore } from './funding-account.js';
 import type { SweepStore } from './sweep.js';
 
@@ -134,15 +138,20 @@ export function createDbFundingAccountStores(db: Pick<Database, 'tenant' | 'prin
       // The repository compares the instance's network with the account's, and the
       // table refuses a mismatch whoever writes it.
       async attach(scope, { network, mandateInstanceId }) {
-        return db.tenant(scope).transaction(async (tx) => {
-          const account = await fundingAccounts.forNetwork(tx, network);
-          if (account === undefined) return null;
-          const source = await fundingAccounts.attach(tx, {
-            accountId: account.id,
-            mandateInstanceId,
+        try {
+          return await db.tenant(scope).transaction(async (tx) => {
+            const account = await fundingAccounts.forNetwork(tx, network);
+            if (account === undefined) return null;
+            const source = await fundingAccounts.attach(tx, {
+              accountId: account.id,
+              mandateInstanceId,
+            });
+            return source?.id ?? null;
           });
-          return source?.id ?? null;
-        });
+        } catch (error) {
+          if (error instanceof FundingAccountInUse) throw new FundingAccountInUseError();
+          throw error;
+        }
       },
     },
   };
