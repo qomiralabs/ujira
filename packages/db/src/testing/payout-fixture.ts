@@ -4,7 +4,7 @@
 // What every payout test starts from: a tenant with a recipient and one mandate
 // deployed on one network.
 
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import { tokenAmount, type TokenAmount } from '@ujira/core';
 
@@ -88,6 +88,28 @@ export async function payoutFixture(db: Database): Promise<PayoutFixture> {
 }
 
 // Each leg of an attempt needs its own index, and so its own method and destination.
+// What a receipt carries beyond its figures, for one revision of one payout. The note
+// is there so a test can make a different document for the same revision.
+export function receiptFields(
+  payoutId: string,
+  revision: number,
+  supersedesSha256: string | null = null,
+  note = '',
+) {
+  const document = JSON.stringify({ payoutId, revision, note });
+  const number = createHash('sha256')
+    .update(`${payoutId}|${String(revision)}`)
+    .digest('hex');
+  return {
+    receiptNumber: `R-${number.slice(0, 12).toUpperCase()}`,
+    network: TESTNET,
+    issuedAt: new Date('2026-11-05T00:00:00.000Z'),
+    document,
+    documentSha256: createHash('sha256').update(document, 'utf8').digest('hex'),
+    supersedesSha256,
+  };
+}
+
 export function newLeg(fixture: PayoutFixture, amount: bigint, index = 0): NewPayoutLeg {
   const method = fixture.methods[index];
   if (method === undefined) throw new Error('the fixture has no method for this leg');

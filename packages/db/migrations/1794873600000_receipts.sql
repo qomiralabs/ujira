@@ -2,6 +2,11 @@
 -- Receipts. Every payout produces one, listing every leg with its chain and
 -- transaction reference. A receipt is permanent: a correction is a new revision,
 -- never an edit, so both tables are append only.
+--
+-- The document is stored as the exact text it was hashed from. jsonb would reorder its
+-- keys and drop its whitespace, and it could then never match its hash. It holds what
+-- a receipt shows, which is a masked destination, never a full one: these rows are
+-- kept for good, and survive a recipient's erasure.
 
 -- Up Migration
 set local lock_timeout = '5s';
@@ -18,6 +23,10 @@ create table ujira.receipts (
   -- Bounded, so it reads back exactly as a JavaScript number.
   revision bigint not null
     constraint receipts_revision_range check (revision between 1 and 1000000),
+  receipt_number text not null
+    constraint receipts_number_format check (receipt_number ~ '^R-[0-9A-Z]{12}$'),
+  network ujira.network_id not null,
+  issued_at timestamptz not null,
   -- The adapter's reference, opaque here.
   chain_receipt_ref text not null
     constraint receipts_ref_length check (char_length(chain_receipt_ref) between 1 and 512),
@@ -29,8 +38,16 @@ create table ujira.receipts (
   -- What the rails charged across the legs. UJIRA's take is never in here.
   fee_amount ujira.amount not null default 0
     constraint receipts_fee_not_negative check (fee_amount >= 0),
+  canonical_document text not null
+    constraint receipts_document_present check (char_length(canonical_document) > 0),
+  document_sha256 ujira.hash32 not null,
+  -- The document this one replaces, so revisions form a chain nobody can rewrite.
+  supersedes_sha256 ujira.hash32,
   created_at timestamptz not null default now(),
+  constraint receipts_supersedes_after_first check ((revision = 1) = (supersedes_sha256 is null)),
+  constraint receipts_network_on_chain check (split_part(network, ':', 1) = chain),
   constraint receipts_revision unique (principal_id, project_id, payout_id, revision),
+  constraint receipts_number unique (principal_id, project_id, receipt_number),
   constraint receipts_tenant_key unique (principal_id, project_id, id),
   -- What a receipt leg's foreign key needs.
   constraint receipts_leg_key unique (principal_id, project_id, id, attempt_id, chain, asset, scale),
@@ -48,8 +65,9 @@ create table ujira.receipt_legs (
   receipt_id uuid not null,
   attempt_id uuid not null,
   leg_index bigint not null,
-  destination_address text not null
-    constraint receipt_legs_address_length check (char_length(destination_address) between 1 and 128),
+  -- Short enough that no chain's full address fits.
+  destination_masked text not null
+    constraint receipt_legs_masked_length check (char_length(destination_masked) between 1 and 32),
   destination_tag ujira.u64,
   amount ujira.amount not null
     constraint receipt_legs_amount_positive check (amount > 0),
@@ -58,8 +76,8 @@ create table ujira.receipt_legs (
   chain text not null,
   asset text not null,
   scale ujira.scale not null,
-  chain_tx_hash text not null
-    constraint receipt_legs_tx_hash_length check (char_length(chain_tx_hash) between 1 and 128),
+  chain_receipt_ref text not null
+    constraint receipt_legs_ref_length check (char_length(chain_receipt_ref) between 1 and 512),
   created_at timestamptz not null default now(),
   primary key (principal_id, project_id, receipt_id, leg_index),
   foreign key (principal_id, project_id, receipt_id, attempt_id, chain, asset, scale)

@@ -53,6 +53,7 @@ import {
   tenancyRepositories,
 } from './repositories/tenancy.js';
 import { caseProblems, methodNames } from './testing/cross-tenant.js';
+import { receiptFields } from './testing/payout-fixture.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
 
@@ -286,15 +287,16 @@ async function tenant(name: string): Promise<Tenant> {
         payoutId: payout.id,
         attemptId: attempt.id,
         revision: 1,
+        ...receiptFields(payout.id, 1),
         chainReceiptRef: `ref-${name}`,
         settlement: tokenAmount(50_000_000n, 'USDC', 'stellar'),
         fee: 0n,
         legs: [
           {
             legIndex: 0,
-            destinationAddress,
+            destinationMasked: 'GABC...WXYZ',
             amount: 50_000_000n,
-            chainTxHash: `tx-${name}`,
+            chainReceiptRef: `tx-${name}`,
           },
         ],
       });
@@ -1042,6 +1044,7 @@ const cases: Record<string, () => Promise<void>> = {
         payoutId: b.payoutId,
         attemptId: b.attemptId,
         revision: 1,
+        ...receiptFields(b.payoutId, 1),
         chainReceiptRef: 'taken',
         settlement: tokenAmount(50_000_000n, 'USDC', 'stellar'),
         fee: 0n,
@@ -1049,6 +1052,22 @@ const cases: Record<string, () => Promise<void>> = {
       }),
     );
     expect(await codeOf(attempt)).toBe('23503');
+  },
+  'receipts.byNumber': async () => {
+    // The number is B's own, and from A's context it finds nothing.
+    const theirs = await admin.query<{ receipt_number: string }>(
+      'select receipt_number from ujira.receipts where id = $1',
+      [b.receiptId],
+    );
+    const number = theirs.rows[0]?.receipt_number ?? '';
+    expect(number).not.toBe('');
+    expect(await acrossA(async (tx) => receipts.byNumber(tx, number))).toBeUndefined();
+  },
+  'receipts.list': async () => {
+    const page = await acrossA(async (tx) => receipts.list(tx, { limit: 100 }));
+    const ids = page.items.map((receipt) => receipt.id);
+    expect(ids).toContain(a.receiptId);
+    expect(ids).not.toContain(b.receiptId);
   },
   'receipts.latest': async () => {
     expect(await acrossA(async (tx) => receipts.latest(tx, b.payoutId))).toBeUndefined();

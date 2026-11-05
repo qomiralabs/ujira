@@ -2125,19 +2125,19 @@ CREATE TABLE ujira.receipt_legs (
     receipt_id uuid NOT NULL,
     attempt_id uuid NOT NULL,
     leg_index bigint NOT NULL,
-    destination_address text NOT NULL,
+    destination_masked text NOT NULL,
     destination_tag ujira.u64,
     amount ujira.amount NOT NULL,
     fee_amount ujira.amount DEFAULT 0 NOT NULL,
     chain text NOT NULL,
     asset text NOT NULL,
     scale ujira.scale NOT NULL,
-    chain_tx_hash text NOT NULL,
+    chain_receipt_ref text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT receipt_legs_address_length CHECK (((char_length(destination_address) >= 1) AND (char_length(destination_address) <= 128))),
     CONSTRAINT receipt_legs_amount_positive CHECK (((amount)::numeric > (0)::numeric)),
     CONSTRAINT receipt_legs_fee_not_negative CHECK (((fee_amount)::numeric >= (0)::numeric)),
-    CONSTRAINT receipt_legs_tx_hash_length CHECK (((char_length(chain_tx_hash) >= 1) AND (char_length(chain_tx_hash) <= 128)))
+    CONSTRAINT receipt_legs_masked_length CHECK (((char_length(destination_masked) >= 1) AND (char_length(destination_masked) <= 32))),
+    CONSTRAINT receipt_legs_ref_length CHECK (((char_length(chain_receipt_ref) >= 1) AND (char_length(chain_receipt_ref) <= 512)))
 );
 
 ALTER TABLE ONLY ujira.receipt_legs FORCE ROW LEVEL SECURITY;
@@ -2156,17 +2156,27 @@ CREATE TABLE ujira.receipts (
     payout_id uuid NOT NULL,
     attempt_id uuid NOT NULL,
     revision bigint NOT NULL,
+    receipt_number text NOT NULL,
+    network ujira.network_id NOT NULL,
+    issued_at timestamp with time zone NOT NULL,
     chain_receipt_ref text NOT NULL,
     chain text NOT NULL,
     asset text NOT NULL,
     scale ujira.scale NOT NULL,
     settlement_amount ujira.amount NOT NULL,
     fee_amount ujira.amount DEFAULT 0 NOT NULL,
+    canonical_document text NOT NULL,
+    document_sha256 ujira.hash32 NOT NULL,
+    supersedes_sha256 ujira.hash32,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT receipts_document_present CHECK ((char_length(canonical_document) > 0)),
     CONSTRAINT receipts_fee_not_negative CHECK (((fee_amount)::numeric >= (0)::numeric)),
+    CONSTRAINT receipts_network_on_chain CHECK ((split_part((network)::text, ':'::text, 1) = chain)),
+    CONSTRAINT receipts_number_format CHECK ((receipt_number ~ '^R-[0-9A-Z]{12}$'::text)),
     CONSTRAINT receipts_ref_length CHECK (((char_length(chain_receipt_ref) >= 1) AND (char_length(chain_receipt_ref) <= 512))),
     CONSTRAINT receipts_revision_range CHECK (((revision >= 1) AND (revision <= 1000000))),
-    CONSTRAINT receipts_settlement_positive CHECK (((settlement_amount)::numeric > (0)::numeric))
+    CONSTRAINT receipts_settlement_positive CHECK (((settlement_amount)::numeric > (0)::numeric)),
+    CONSTRAINT receipts_supersedes_after_first CHECK (((revision = 1) = (supersedes_sha256 IS NULL)))
 );
 
 ALTER TABLE ONLY ujira.receipts FORCE ROW LEVEL SECURITY;
@@ -2920,6 +2930,14 @@ ALTER TABLE ONLY ujira.receipt_legs
 
 ALTER TABLE ONLY ujira.receipts
     ADD CONSTRAINT receipts_leg_key UNIQUE (principal_id, project_id, id, attempt_id, chain, asset, scale);
+
+
+--
+-- Name: receipts receipts_number; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.receipts
+    ADD CONSTRAINT receipts_number UNIQUE (principal_id, project_id, receipt_number);
 
 
 --
