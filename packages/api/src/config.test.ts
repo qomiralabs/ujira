@@ -13,6 +13,8 @@ describe('loadApiConfig', () => {
       hostname: '127.0.0.1',
       requestTimeoutMs: 10_000,
       bodyLimitBytes: 1_048_576,
+      environment: 'sandbox',
+      embedOrigins: [],
     });
   });
 
@@ -24,7 +26,43 @@ describe('loadApiConfig', () => {
         UJIRA_API_REQUEST_TIMEOUT_MS: '2500',
         UJIRA_API_BODY_LIMIT_BYTES: '4096',
       }),
-    ).toEqual({ port: 3000, hostname: '0.0.0.0', requestTimeoutMs: 2500, bodyLimitBytes: 4096 });
+    ).toMatchObject({
+      port: 3000,
+      hostname: '0.0.0.0',
+      requestTimeoutMs: 2500,
+      bodyLimitBytes: 4096,
+    });
+  });
+
+  it('runs as the sandbox with no embed origins unless told otherwise', () => {
+    expect(loadApiConfig({})).toMatchObject({ environment: 'sandbox', embedOrigins: [] });
+  });
+
+  it('reads the environment and the embed origins', () => {
+    expect(
+      loadApiConfig({
+        UJIRA_API_ENVIRONMENT: 'production',
+        UJIRA_API_EMBED_ORIGINS: 'https://pay.example.test, https://other.example.test:8443',
+      }),
+    ).toMatchObject({
+      environment: 'production',
+      embedOrigins: ['https://pay.example.test', 'https://other.example.test:8443'],
+    });
+  });
+
+  it.each(['https://pay.example.test/', 'https://pay.example.test/path', 'pay.example.test', '*'])(
+    'refuses an embed origin that a browser would never send: %s',
+    (origin) => {
+      expect(() => loadApiConfig({ UJIRA_API_EMBED_ORIGINS: origin })).toThrow(
+        /UJIRA_API_EMBED_ORIGINS/,
+      );
+    },
+  );
+
+  it('refuses an environment it does not know', () => {
+    expect(() => loadApiConfig({ UJIRA_API_ENVIRONMENT: 'staging' })).toThrow(
+      /UJIRA_API_ENVIRONMENT/,
+    );
   });
 
   it('names a bad setting without repeating its value', () => {

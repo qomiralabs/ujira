@@ -31,7 +31,7 @@ export interface TokenRecord {
   readonly projectId: string;
   readonly secretSha256: Buffer;
   readonly scopes: readonly string[];
-  readonly expiresAt: Date | null;
+  readonly expiresAt: Date;
   readonly revokedAt: Date | null;
 }
 
@@ -96,7 +96,7 @@ export const entryPoints = {
       project_id: string;
       secret_sha256: Buffer;
       scopes: string[];
-      expires_at: Date | null;
+      expires_at: Date;
       revoked_at: Date | null;
     }>`
       select token_id, principal_id, project_id, secret_sha256, scopes, expires_at, revoked_at

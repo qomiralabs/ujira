@@ -5,3 +5,10 @@
 export const PACKAGE_NAME = '@ujira/core';
 
 export * from './money/index.js';
+export {
+  InvalidFeeBpsError,
+  InvalidFeeTotalError,
+  MAX_FEE_BPS,
+  feeBps,
+  feeCap,
+} from './fees/fee-cap.js';

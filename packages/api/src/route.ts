@@ -18,9 +18,11 @@ import { OPENAPI_COMPONENTS, PROBLEM_CODES, ROUTES, parseQuery } from '@ujira/ap
 import type { FieldError, ProblemCode, RouteId, RouteQuery } from '@ujira/api-schema';
 import { z } from 'zod';
 
+import { API_SCOPES } from './auth.js';
 import type { ApiScope, CallOptions, Tenant } from './auth.js';
 import { ApiError, RouteRegistryError } from './errors.js';
 import type { RequestLog } from './log.js';
+import type { RateLimitGroup } from './rate-limit.js';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 export type SuccessStatus = 200 | 201 | 202;
@@ -51,7 +53,12 @@ export type QueryParse =
 
 export type Access =
   | { readonly kind: 'public'; readonly reason: string }
-  | { readonly kind: 'tenant'; readonly scope: ApiScope };
+  | {
+      readonly kind: 'tenant';
+      readonly scope: ApiScope;
+      /** A tighter limit on top of the ones every tenant route has. */
+      readonly rateLimit?: RateLimitGroup;
+    };
 
 /** A route as the pipeline sees it, with its types erased. */
 export interface Route {
@@ -87,6 +94,32 @@ export interface WebhookInput {
   readonly rawBody: Uint8Array;
   /** Only the headers the route declared, by lower case name. */
   readonly headers: Readonly<Record<string, string | undefined>>;
+}
+
+const KNOWN_SCOPES: ReadonlySet<string> = new Set(API_SCOPES);
+
+/**
+ * Everything wrong with how these routes declare who may call them. The
+ * definers require all of it, but a route can be built as a plain object, and a
+ * route with no scope must not get as far as serving.
+ */
+export function routeAccessProblems(routes: readonly Route[]): string[] {
+  const problems: string[] = [];
+  for (const route of routes) {
+    const access = route.access as Access | undefined;
+    if (access?.kind === 'tenant') {
+      if (!KNOWN_SCOPES.has(access.scope)) {
+        problems.push(`route ${route.id} has no scope from the closed list`);
+      }
+    } else if (access?.kind === 'public') {
+      if (access.reason.trim().length < 10) {
+        problems.push(`route ${route.id} must say why it needs no key`);
+      }
+    } else {
+      problems.push(`route ${route.id} declares no access`);
+    }
+  }
+  return problems;
 }
 
 const NoInput = z.strictObject({});
@@ -239,10 +272,16 @@ export function defineTenantRoute<
 >(
   spec: RouteSpec<P, Q, B, R> & {
     readonly scope: ApiScope;
+    readonly rateLimit?: RateLimitGroup;
     readonly handler: (input: Input<P, Q, B>, context: TenantRequestContext) => Promise<z.input<R>>;
   },
 ): Route {
-  return build(spec, { kind: 'tenant', scope: spec.scope }, (input, context, tenant) =>
+  const access: Access = {
+    kind: 'tenant',
+    scope: spec.scope,
+    ...(spec.rateLimit === undefined ? {} : { rateLimit: spec.rateLimit }),
+  };
+  return build(spec, access, (input, context, tenant) =>
     asTenant(context, tenant, (scoped) => spec.handler(input as Input<P, Q, B>, scoped)),
   );
 }

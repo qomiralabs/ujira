@@ -55,6 +55,14 @@ export default defineConfig({
           // database, with a fresh database cloned from it per test file.
           globalSetup: ['src/testing/global-setup.ts'],
         },
+        // The token and rate limit tests run against a real database, because a
+        // limit shared across instances can only be shown with one. Same setup
+        // as the database package, and the same rule: no docker, a failed run.
+        '@ujira/api': {
+          hookTimeout: 180_000,
+          testTimeout: 60_000,
+          globalSetup: ['../db/src/testing/global-setup.ts'],
+        },
         // The conformance suites sign and verify hundreds of times.
         '@ujira/signer': { testTimeout: 60_000, hookTimeout: 60_000 },
         '@ujira/payouts': {
@@ -174,6 +182,13 @@ export default defineConfig({
         },
         // The signer holds every key UJIRA signs with.
         'packages/signer/src/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
+        // A sweep is a money move, so a gap here is a gap in exactly once.
+        'packages/funding/src/**': {
           lines: 95,
           functions: 95,
           branches: 95,

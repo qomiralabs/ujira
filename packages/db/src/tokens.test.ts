@@ -27,6 +27,8 @@ async function principal(name: string): Promise<CreatedPrincipal> {
   );
 }
 
+const EXPIRES_AT = new Date('2100-01-01T00:00:00Z');
+
 function prefix(): string {
   return `uj_test_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
 }
@@ -61,7 +63,7 @@ describe('api tokens', () => {
         prefix: alphaPrefix,
         secretSha256: secret,
         scopes: ['payouts:write'],
-        expiresAt: null,
+        expiresAt: EXPIRES_AT,
       }),
     );
     const bravoPrefix = prefix();
@@ -69,8 +71,8 @@ describe('api tokens', () => {
       apiTokens.create(tx, {
         prefix: bravoPrefix,
         secretSha256: Buffer.alloc(32, 1),
-        scopes: [],
-        expiresAt: null,
+        scopes: ['payouts:read'],
+        expiresAt: EXPIRES_AT,
       }),
     );
 
@@ -81,7 +83,7 @@ describe('api tokens', () => {
       projectId: alpha.projectId,
       secretSha256: secret,
       scopes: ['payouts:write'],
-      expiresAt: null,
+      expiresAt: EXPIRES_AT,
       revokedAt: null,
     });
     expect(
@@ -104,8 +106,8 @@ describe('api tokens', () => {
     const input = {
       prefix: shared,
       secretSha256: Buffer.alloc(32, 2),
-      scopes: [],
-      expiresAt: null,
+      scopes: ['payouts:read'],
+      expiresAt: EXPIRES_AT,
     };
     await db.tenant(alpha).transaction(async (tx) => apiTokens.create(tx, input));
     expect(
@@ -120,8 +122,8 @@ describe('api tokens', () => {
           apiTokens.create(tx, {
             prefix: prefix(),
             secretSha256: Buffer.alloc(31, 3),
-            scopes: [],
-            expiresAt: null,
+            scopes: ['payouts:read'],
+            expiresAt: EXPIRES_AT,
           }),
         ),
       ),
@@ -133,8 +135,8 @@ describe('api tokens', () => {
       apiTokens.create(tx, {
         prefix: prefix(),
         secretSha256: Buffer.alloc(32, 4),
-        scopes: [],
-        expiresAt: null,
+        scopes: ['payouts:read'],
+        expiresAt: EXPIRES_AT,
       }),
     );
     expect(await db.tenant(alpha).transaction(async (tx) => apiTokens.revoke(tx, token.id))).toBe(

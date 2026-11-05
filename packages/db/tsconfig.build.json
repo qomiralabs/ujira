@@ -5,5 +5,14 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts", "src/testing/**"]
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/testing/catalog.ts",
+    "src/testing/container.ts",
+    "src/testing/cross-tenant.ts",
+    "src/testing/fixtures/**",
+    "src/testing/global-setup.ts",
+    "src/testing/image.ts",
+    "src/testing/ops-catalog.ts"
+  ]
 }
