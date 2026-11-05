@@ -6,7 +6,7 @@
 // tables these stand for are not built yet; the in-memory versions in
 // memory.ts serve tests and fail closed when empty.
 
-import type { CallOptions, NetworkId, TenantScope } from '@ujira/chain-adapter';
+import type { CallOptions, NetworkId, TenantScope, SponsoredIntent } from '@ujira/chain-adapter';
 
 import type { MandateSettlement } from '../unpayable.js';
 
@@ -35,7 +35,7 @@ export interface MandateIndex {
 }
 
 /** Why the fee sponsor set money aside. */
-export type SponsorshipIntent = 'fee_bump' | 'create_funding_account' | 'recipient_activation';
+export type SponsorshipIntent = SponsoredIntent;
 
 /** A reserved row of the sponsorship ledger. */
 export interface SponsorshipReservation {

@@ -226,6 +226,19 @@ describe('ujira.funding_sweeps', () => {
     ).toEqual(sweep);
   });
 
+  it('keeps two transfers of one operation as two sweeps', async () => {
+    const operation = randomUUID().replaceAll('-', '');
+    const first = await newSweep({ depositOperationId: `${operation}-0` });
+    const second = await newSweep({ depositOperationId: `${operation}-1` });
+    const rows = await asTenant(async (tx) => [
+      await fundingSweeps.create(tx, first),
+      await fundingSweeps.create(tx, second),
+    ]);
+    expect(rows.map((row) => row.depositOperationId)).toEqual([`${operation}-0`, `${operation}-1`]);
+    expect(await codeOf(asTenant(async (tx) => fundingSweeps.create(tx, first)))).toBe('23505');
+    expect(await codeOf(asTenant(async (tx) => fundingSweeps.create(tx, second)))).toBe('23505');
+  });
+
   it('a second sweep for the same deposit operation is refused', async () => {
     const input = await newSweep();
     await asTenant(async (tx) => fundingSweeps.create(tx, input));

@@ -58,7 +58,7 @@ const NETWORK = 'stellar:testnet' as const;
 const FORWARDER = accountFromSeed(new Uint8Array(32).fill(1));
 const MANDATE = contractAddress(new Uint8Array(32).fill(2));
 const TOKEN = contractAddress(new Uint8Array(32).fill(3));
-const OP_ID = '4294967297';
+const OP_ID = '4294967297-0';
 const AMOUNT = 2_500_000n;
 const usdc = (amount: bigint): TokenAmount => tokenAmount(amount, 'USDC', 'stellar');
 const HASH = 'ab'.repeat(32);
@@ -218,6 +218,28 @@ describe('sweep.test.ts', () => {
       });
     });
 
+    // One call can pay a forwarding account twice. Keyed on the operation alone, the
+    // second transfer would read as a repeat of the first and never be swept.
+    it('two transfers in one operation make two sweeps, each prompted once', async () => {
+      const first = { ...DEPOSIT, depositOperationId: '4294967297-0' };
+      const second = {
+        ...DEPOSIT,
+        depositOperationId: '4294967297-1',
+        amount: usdc(AMOUNT + 1n),
+      };
+      const firstRow = await recordDeposit(first, ports);
+      const secondRow = await recordDeposit(second, ports);
+      expect(secondRow.id).not.toBe(firstRow.id);
+      expect(secondRow.amount).toEqual(usdc(AMOUNT + 1n));
+      await recordDeposit(first, ports);
+      await recordDeposit(second, ports);
+      expect(store.rowsOf(SCOPE)).toHaveLength(2);
+      expect(prompts.delivered().map((prompt) => prompt.depositOperationId)).toEqual([
+        '4294967297-0',
+        '4294967297-1',
+      ]);
+    });
+
     it('does not prompt for a sweep that has moved on', async () => {
       await toSubmitted();
       const before = prompts.attempts();
@@ -244,6 +266,12 @@ describe('sweep.test.ts', () => {
       const bad: unknown[] = [
         { ...DEPOSIT, depositOperationId: 'abc' },
         { ...DEPOSIT, depositOperationId: '' },
+        // A bare operation cannot tell two transfers in it apart.
+        { ...DEPOSIT, depositOperationId: '4294967297' },
+        { ...DEPOSIT, depositOperationId: '4294967297-' },
+        { ...DEPOSIT, depositOperationId: '-1' },
+        { ...DEPOSIT, depositOperationId: '4294967297-1-2' },
+        { ...DEPOSIT, depositOperationId: '4294967297-12345678901' },
         { ...DEPOSIT, scope: { principalId: 'x', projectId: 'y' } },
         { ...DEPOSIT, network: 'stellar:mainnet' },
         { ...DEPOSIT, fundingSourceId: 'x' },
