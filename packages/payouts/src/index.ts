@@ -2,6 +2,38 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 export {
+  FEE_OUTCOMES,
+  FeeNotUnderpaidError,
+  FeeReconciliationNotFoundError,
+  FeeReportForeignRowError,
+  FeeResolutionConflictError,
+  InvalidFeePeriodError,
+  checkFeeAddressBalance,
+  reconcileFee,
+  resolveUnderpaidFee,
+  runFeeReconciliation,
+  underpaidFeeReport,
+} from './fee-reconcile.js';
+export type {
+  FeeAddressLedger,
+  FeeAddressMovement,
+  FeeAlerts,
+  FeeBalanceCheck,
+  FeeDivergenceAlert,
+  FeeMismatchAlert,
+  FeeOutcome,
+  FeePage,
+  FeePageRequest,
+  FeePeriod,
+  FeeReconcileDeps,
+  FeeReconcileSummary,
+  FeeReconciliation,
+  FeeReconciliationRow,
+  FeeReconciliationStore,
+  FeeResolution,
+  UnderpaidFeeReport,
+} from './fee-reconcile.js';
+export {
   FEE_ESTIMATE_OPS,
   FEE_ESTIMATE_WINDOW_DAYS,
   FeeEstimateInputError,
