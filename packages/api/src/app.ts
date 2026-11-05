@@ -35,7 +35,7 @@ import { withOpenApiRoute } from './openapi.js';
 import { rateLimitHeaders } from './rate-limit.js';
 import type { RateLimit } from './rate-limit.js';
 import { fieldErrors, routeAccessProblems } from './route.js';
-import type { Route, WebhookInput } from './route.js';
+import type { FileDownload, Route, WebhookInput } from './route.js';
 import { foreignTenantPath } from './tenant-guard.js';
 
 export const API_DEFAULTS = Object.freeze({
@@ -83,6 +83,24 @@ function respond(
       ...BASE_HEADERS,
       ...extra,
       'content-type': `${type}; charset=utf-8`,
+      'request-id': requestId,
+    },
+  });
+}
+
+function fileResponse(
+  file: FileDownload,
+  contentType: string,
+  status: number,
+  requestId: string,
+): Response {
+  return new Response(typeof file.body === 'string' ? file.body : Buffer.from(file.body), {
+    status,
+    headers: {
+      ...BASE_HEADERS,
+      'content-type': contentType,
+      // Always a download, so nothing a file holds is rendered in a browser.
+      'content-disposition': `attachment; filename="${file.filename}"`,
       'request-id': requestId,
     },
   });
@@ -373,6 +391,14 @@ function checkedResponse(
       issues: parsed.error.issues.slice(0, 20).map((issue) => issue.path.join('.')),
     });
     throw new ApiError('INTERNAL');
+  }
+  if (route.response.download !== undefined) {
+    return fileResponse(
+      parsed.data as FileDownload,
+      route.response.download.contentType,
+      route.response.status,
+      requestId,
+    );
   }
   if (tenant !== null) {
     const foreign = foreignTenantPath(parsed.data, tenant);

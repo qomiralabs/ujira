@@ -86,6 +86,14 @@ answers 503 `WEBHOOK_UNAVAILABLE` until Self has its secrets and durable stores.
 `recipients:write`. The served table uses `WALLET_PROOF_NOT_CONFIGURED` until
 the flow has its tables and the adapter has its wallet proof methods.
 
+`GET /v1/receipts/{id}` and `GET /v1/payouts/{id}/receipt` serve the principal's
+copy of a receipt, `GET /v1/receipt-exports` a filtered set as CSV and
+`GET /v1/receipts/{id}/pdf` one as a PDF, all for a key with `receipts:read`.
+`GET /v1/receipt-verifications/{receiptNumber}?code=` needs no key: the code
+printed on a receipt finds it, and the answer is the recipient view and the
+result of checking it, with nothing that belongs to a tenant. Until the receipts
+tables are in, `v1Routes` has no `ReceiptReads` and all of these answer 503.
+
 ### What the pipeline does for every route
 
 In order: a request id (the `Request-Id` header, and `call.correlationId` for
