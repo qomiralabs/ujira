@@ -42,6 +42,8 @@ function scopeKey(scope: TenantScope): string {
 export function signedBytes(payload: SignPayload): Uint8Array {
   switch (payload.kind) {
     case 'stellar_tx':
+    case 'stellar_relayed_call':
+    case 'stellar_footprint':
     case 'stellar_fee_bump':
     case 'stellar_reserve_sandwich':
     case 'sep10_challenge':

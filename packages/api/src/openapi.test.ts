@@ -17,7 +17,7 @@ import { createApp } from './app.js';
 import { refuseAllCredentials } from './auth.js';
 import { RouteRegistryError } from './errors.js';
 import { memoryLogger } from './log.js';
-import { allowEveryRequest } from './rate-limit.js';
+import { allowEveryAddress, allowEveryRequest } from './rate-limit.js';
 import { OPENAPI_PATH, buildOpenApiDocument, withOpenApiRoute } from './openapi.js';
 import { contractRoute, definePublicRoute, defineTenantRoute } from './route.js';
 import { V1_ROUTES } from './routes/index.js';
@@ -55,6 +55,7 @@ describe('OpenAPI document', () => {
       routes: V1_ROUTES,
       authenticate: refuseAllCredentials,
       rateLimit: allowEveryRequest,
+      addressRateLimit: allowEveryAddress,
       logger: memoryLogger(),
     });
     const response = await app.request(OPENAPI_PATH);

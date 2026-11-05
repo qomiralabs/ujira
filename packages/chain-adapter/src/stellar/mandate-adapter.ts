@@ -934,7 +934,8 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       }
       const signature = await this.#ports.signer.sign(
         { kind: 'executor', network, keyId: session.lease.keyId },
-        { kind: 'stellar_tx', network, xdr: assembled.toXdr() },
+        // Not a stellar_tx: an executor key may sign those only for an execute.
+        { kind: 'stellar_relayed_call', network, xdr: assembled.toXdr() },
         opts,
       );
       attach(assembled, session.address, signature);

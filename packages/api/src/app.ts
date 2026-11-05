@@ -7,7 +7,9 @@
 //    of every call the handler makes;
 // 2. a deadline, as an AbortSignal the handler passes on;
 // 3. for a tenant route, the credential, the rate limits, then the route's
-//    scope, so a request that will be refused its scope still counts;
+//    scope, so a request that will be refused its scope still counts; for a
+//    public route that names a group, the limit by client address, so a refused
+//    request costs one bucket and its body is never read;
 // 4. path, query and body, each validated by the route's zod schema, except
 //    that a webhook route gets its body as the bytes that were sent;
 // 5. the handler;
@@ -28,12 +30,14 @@ import type { Context } from 'hono';
 import { AuthenticatedTenantSchema } from './auth.js';
 import type { AuthenticatedTenant, Authenticate, CallOptions, Tenant } from './auth.js';
 import { readJsonBody, readRawBody } from './body.js';
+import { clientAddress } from './client-address.js';
+import type { TrustedProxy } from './client-address.js';
 import { ApiError, RouteRegistryError, toApiError } from './errors.js';
 import { errorNameOf, requestLog } from './log.js';
 import type { Logger, RequestLog } from './log.js';
 import { withOpenApiRoute } from './openapi.js';
 import { rateLimitHeaders } from './rate-limit.js';
-import type { RateLimit } from './rate-limit.js';
+import type { AddressRateLimit, RateLimit } from './rate-limit.js';
 import { fieldErrors, routeAccessProblems } from './route.js';
 import type { FileDownload, Route, WebhookInput } from './route.js';
 import { foreignTenantPath } from './tenant-guard.js';
@@ -48,6 +52,10 @@ export interface ApiDependencies {
   readonly authenticate: Authenticate;
   /** Required, so a server cannot be built that forgot its limits. */
   readonly rateLimit: RateLimit;
+  /** Needed once a route names a group, and createApp refuses to build without it then. */
+  readonly addressRateLimit?: AddressRateLimit;
+  /** Which forwarded header and hop to believe. Left out, none is, and the peer decides. */
+  readonly trustedProxy?: TrustedProxy | null;
   readonly logger: Logger;
   readonly requestTimeoutMs?: number;
   readonly bodyLimitBytes?: number;
@@ -127,6 +135,13 @@ function namedHeaders(
   return Object.fromEntries(names.map((name) => [name, headers.get(name) ?? undefined]));
 }
 
+// @hono/node-server hands over the socket's request as the environment. Anything
+// else that runs the app, such as a test's app.request, has no socket to offer.
+function peerAddress(c: Context): string | undefined {
+  const env = c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined;
+  return env?.incoming?.socket?.remoteAddress;
+}
+
 function honoPath(path: string): string {
   return path.replace(/\{([A-Za-z0-9_]+)\}/g, ':$1');
 }
@@ -196,6 +211,17 @@ export function createApp(deps: ApiDependencies): Hono {
   if (problem !== undefined) throw new RouteRegistryError(problem);
   const { routes } = withOpenApiRoute(deps.routes);
   checkRegistry(routes);
+  const { addressRateLimit } = deps;
+  if (addressRateLimit === undefined) {
+    for (const route of routes) {
+      if (route.access.kind === 'public' && route.access.addressLimit !== undefined) {
+        throw new RouteRegistryError(
+          `route ${route.id} limits by address, and this server was given no limit to use`,
+        );
+      }
+    }
+  }
+  const trustedProxy = deps.trustedProxy ?? null;
   const timeoutMs = deps.requestTimeoutMs ?? API_DEFAULTS.requestTimeoutMs;
   const bodyLimit = deps.bodyLimitBytes ?? API_DEFAULTS.bodyLimitBytes;
   const nextId = deps.newRequestId ?? newRequestId;
@@ -266,6 +292,23 @@ export function createApp(deps: ApiDependencies): Hono {
             if (!caller.scopes.includes(route.access.scope)) {
               throw new ApiError('INSUFFICIENT_SCOPE', {
                 detail: `This route needs the ${route.access.scope} scope`,
+              });
+            }
+          } else if (route.access.addressLimit !== undefined && addressRateLimit !== undefined) {
+            const decision = await addressRateLimit(
+              {
+                group: route.access.addressLimit,
+                address: clientAddress(
+                  { headers: c.req.raw.headers, peer: peerAddress(c) },
+                  trustedProxy,
+                ),
+              },
+              call,
+            );
+            limitHeaders = rateLimitHeaders(decision);
+            if (!decision.allowed) {
+              throw new ApiError('RATE_LIMITED', {
+                retryAfterSeconds: decision.retryAfterSeconds,
               });
             }
           }

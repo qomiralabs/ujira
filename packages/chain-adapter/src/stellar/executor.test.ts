@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-import { Keypair, TransactionBuilder, xdr } from '@stellar/stellar-sdk/base';
+import { Keypair, SorobanDataBuilder, TransactionBuilder, xdr } from '@stellar/stellar-sdk/base';
 import type { Transaction } from '@stellar/stellar-sdk/base';
 import { describe, expect, it } from 'vitest';
 
@@ -14,7 +14,7 @@ import { fateOf, reconcileSubmission, reconcileUnresolved } from './lifecycle.js
 import { NETWORK, NOW, OPTS, addAccount, setup } from './test-adapter.js';
 import type { TestSetup } from './test-adapter.js';
 import { recordingSponsorship } from './test-ports.js';
-import { invokeTx, txHash } from './tx.js';
+import { footprintTx, invokeTx, txHash } from './tx.js';
 
 const WAIT = { attempts: 3, intervalMs: 0, sleep: () => Promise.resolve() };
 
@@ -229,6 +229,56 @@ describe('sending', { timeout: 30_000 }, () => {
       sendAndRecord(context(t), t.scope, hash, tx.toXdr(), NOW + 100n, OPTS),
     ).rejects.toBeInstanceOf(SubmissionUnknownError);
     expect(t.rpc.sent).toHaveLength(3);
+  });
+});
+
+describe('what a channel asks its key to sign', { timeout: 30_000 }, () => {
+  // An executor key signs a stellar_tx only for an execute, so a restore has to
+  // say what it is, or the signer refuses it and an archived mandate stays archived.
+  it('names a restore and an extension as footprint work, and a call as a transaction', async () => {
+    const t = setup();
+    const kinds: string[] = [];
+    const ports = {
+      ...t.ports,
+      signer: {
+        ...t.ports.signer,
+        sign: (ref: never, payload: { kind: string }, opts: never) => {
+          kinds.push(payload.kind);
+          return t.ports.signer.sign(ref, payload as never, opts);
+        },
+      },
+    };
+    const data = new SorobanDataBuilder().setResourceFee(100n).build().toXdr('base64');
+    await ExecutorSession.run(context(t, { ports }), OPTS, async (session) => {
+      const build = {
+        network: NETWORK,
+        source: session.address,
+        sequence: session.sequence,
+        maxTime: NOW + 100n,
+        sorobanData: data,
+      };
+      const record = { scope: t.scope, op: 'restore' as const, mandate: null, correlationId: 'c' };
+      await session.send(footprintTx({ kind: 'restore' }, build), record, OPTS, false);
+      await session.send(
+        footprintTx(
+          { kind: 'extend_ttl', extendTo: 100 },
+          { ...build, sequence: session.sequence },
+        ),
+        record,
+        OPTS,
+        false,
+      );
+      await session.send(
+        invokeTx(
+          { contract: t.mandate.address.value, fn: 'execute', args: [] },
+          { ...build, sequence: session.sequence },
+        ),
+        { ...record, op: 'execute' },
+        OPTS,
+        false,
+      );
+    });
+    expect(kinds).toEqual(['stellar_footprint', 'stellar_footprint', 'stellar_tx']);
   });
 });
 

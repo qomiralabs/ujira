@@ -63,7 +63,12 @@
         "responses": {
           "200": {
             "description": "OK",
-            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/SelfWebhookAck" } }
             }
@@ -85,6 +90,19 @@
           "415": {
             "description": "UNSUPPORTED_MEDIA_TYPE: The request body must be application/json",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
             }
@@ -766,7 +784,12 @@
         "responses": {
           "200": {
             "description": "OK",
-            "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/PublicReceiptVerification" }
@@ -783,6 +806,19 @@
           "404": {
             "description": "NOT_FOUND: Not found",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
+            "content": {
+              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED: Too many requests",
+            "headers": {
+              "Request-Id": { "schema": { "type": "string" } },
+              "Retry-After": { "schema": { "type": "string" } },
+              "RateLimit-Limit": { "schema": { "type": "string" } },
+              "RateLimit-Remaining": { "schema": { "type": "string" } },
+              "RateLimit-Reset": { "schema": { "type": "string" } }
+            },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
             }
