@@ -1,9 +1,9 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-// What the router reads from the database. A mandate instance and a payout method name
-// a chain, and the router works in networks, so these answer with the enabled network
-// on that chain. One deployment runs one network per chain.
+// What the router reads from the database. A mandate instance names its network. A payout
+// method names only a chain, so it answers with the enabled network on that chain, and one
+// deployment runs one network per chain.
 
 import { railKindOf, type ChainAdapterRegistry, type Uuid } from '@ujira/chain-adapter';
 import { tokenAmount } from '@ujira/core';
@@ -19,7 +19,7 @@ export function databaseMandates(db: Database, adapters: ChainAdapterRegistry): 
         .tenant(scope)
         .transaction(async (tx) => payoutEngine.instancesOfMandate(tx, mandateId));
       return rows.flatMap((row) => {
-        const adapter = adapters.list().find((a) => a.chain === row.chain);
+        const adapter = adapters.list().find((a) => a.network === row.network);
         if (adapter === undefined) return [];
         return [
           {

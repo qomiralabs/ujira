@@ -68,6 +68,7 @@ export async function newInstance(db: Database, tenant: ProjectContext): Promise
     const instance = await mandateInstances.create(tx, {
       mandateId: mandate.id,
       chain: 'stellar',
+      network: 'stellar:testnet',
       contractAddress: `C${randomUUID()}`,
       specVersion: '1',
       asset: 'USDC',

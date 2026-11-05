@@ -112,6 +112,20 @@ describe('every mandate action', () => {
   });
 });
 
+describe('an allowlist entry that can never pay out', () => {
+  it('is refused as the real adapter refuses it, before anything is simulated', async () => {
+    const { h, m } = await world();
+    const { recipientRef } = must(m.recipients[0], 'a recipient');
+    for (const address of [h.factory, m.ref.address]) {
+      const entries = [{ recipientRef, destination: { address, tag: null } }];
+      const refused = await refusalOf(
+        act(h, m.ref, { op: 'allow_recipients', entries }, m.principal),
+      );
+      expect(refused.code).toBe('INVALID_INPUT');
+    }
+  });
+});
+
 describe('leases and signers', () => {
   function storeWith(store: AdapterStore, release: AdapterStore['releaseExecutor']): AdapterStore {
     return {

@@ -60,6 +60,7 @@ import type {
 } from '../wallet-proof.js';
 import { parseStellarDestination } from '../stellar/parse-destination.js';
 import { CHAIN_ADAPTER_INTERFACE_VERSION } from '../types.js';
+import { isUnpayableAddress, settlementAddressesOf } from '../unpayable.js';
 import type {
   AdapterAlerts,
   AdapterCapabilities,
@@ -544,6 +545,7 @@ export class FakeChainAdapter implements ChainAdapter {
       } else {
         if (req.mandate === null) throw invalid('mandate (required)', this.network);
         const engine = this.#mandate(req.scope, req.mandate);
+        if (action.op === 'allow_recipients') this.#refuseUnpayableEntries(action, engine.address);
         run = this.#actionRun(action, engine);
         mandate = engine.address;
       }
@@ -853,7 +855,10 @@ export class FakeChainAdapter implements ChainAdapter {
       };
       const approvals =
         view !== null && 'expiresAt' in view && view.status === 'PENDING'
-          ? { count: view.approvals.length, required: engine.config().approvalsRequired }
+          ? {
+              count: engine.liveApprovals(req.payoutId),
+              required: engine.config().approvalsRequired,
+            }
           : undefined;
       return {
         ...status,
@@ -994,7 +999,10 @@ export class FakeChainAdapter implements ChainAdapter {
     if (view.status === 'PENDING') {
       return {
         kind: 'awaiting_approval',
-        approvals: { count: view.approvals.length, required: engine.config().approvalsRequired },
+        approvals: {
+          count: engine.liveApprovals(req.payoutId),
+          required: engine.config().approvalsRequired,
+        },
       };
     }
     if (this.#now() >= view.expiresAt) throw this.#rule('PAYOUT_LAPSED');
@@ -1089,7 +1097,7 @@ export class FakeChainAdapter implements ChainAdapter {
         ? {
             kind: 'awaiting_approval',
             approvals: {
-              count: view.approvals.length,
+              count: engine.liveApprovals(req.payoutId),
               required: engine.config().approvalsRequired,
             },
           }
@@ -1902,6 +1910,15 @@ export class FakeChainAdapter implements ChainAdapter {
   ): Omit<SigningSummary, 'feePaidBy'> {
     const base = { action: action.op, ...(mandate === null ? {} : { mandate }) };
     return action.op === 'withdraw' ? { ...base, amount: action.amount } : base;
+  }
+
+  #refuseUnpayableEntries(action: { readonly entries: readonly AllowEntryInput[] }, at: string) {
+    const neverPayable = [...settlementAddressesOf(this.#config()), at];
+    for (const { destination } of action.entries) {
+      if (isUnpayableAddress(destination.address.value, neverPayable)) {
+        throw invalid('entries.destination (unpayable)', this.network);
+      }
+    }
   }
 
   #allowEntry(e: AllowEntryInput): { recipientRef: string; destination: EngineDestination } {

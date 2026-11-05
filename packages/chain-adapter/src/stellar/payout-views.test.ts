@@ -14,13 +14,14 @@ import { METHOD, payRequest, payWorld, record, tombstone } from './test-payouts.
 describe('reading payout(id)', { timeout: 30_000 }, () => {
   it('reads each shape the mandate answers with', () => {
     expect(payoutViewOf(xdr.ScVal.scvVoid())).toEqual({ kind: 'absent' });
-    expect(payoutViewOf(record(1, { approvals: 2, fee: 5n, total: 9n, expiresAt: 7n }))).toEqual({
+    const approvals = [{ approver: Keypair.random().publicKey(), epoch: 3 }];
+    expect(payoutViewOf(record(1, { approvals, fee: 5n, total: 9n, expiresAt: 7n }))).toEqual({
       kind: 'open',
       status: 'pending',
       total: 9n,
       fee: 5n,
       expiresAt: 7n,
-      approvals: 2,
+      approvals,
     });
     expect(payoutViewOf(record(2))).toMatchObject({ kind: 'open', status: 'approved' });
     expect(payoutViewOf(tombstone(3))).toEqual({ kind: 'closed', status: 'executed' });

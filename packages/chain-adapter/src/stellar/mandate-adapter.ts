@@ -74,6 +74,7 @@ import type {
   TenantScope,
   UnixSeconds,
 } from '../types.js';
+import { isUnpayableAddress, settlementAddressesOf } from '../unpayable.js';
 import { addressXdr } from './address-xdr.js';
 import { invocationOf } from './calls.js';
 import type { Invocation } from './calls.js';
@@ -268,6 +269,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       maxBisectRounds: options.maxBisectRounds ?? DEFAULT_MAX_BISECT_ROUNDS,
       config: () => this.#config(),
       verify: (scope, mandate, opts) => this.#trust.verify(scope, mandate, opts),
+      approverEpochs: (contract, opts) => this.#trust.approverEpochs(contract, opts),
       prepare: (call, opts) => this.#prepareCall(call, opts),
       submit: (req, opts) => this.submitSigned(req, opts),
     });
@@ -407,6 +409,19 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     }
   }
 
+  // The contract lists an asset's issuer without complaint, and a transfer there is
+  // burned. Only adding is refused: someone who listed one directly on chain must
+  // still be able to take it off through here.
+  #refuseUnpayableEntries(action: MandateAction, mandate: string): void {
+    if (action.op !== 'allow_recipients') return;
+    const neverPayable = [...settlementAddressesOf(this.#config()), mandate];
+    for (const { destination } of action.entries) {
+      if (isUnpayableAddress(destination.address.value, neverPayable)) {
+        throw invalid(this.network, 'entries.destination (unpayable)');
+      }
+    }
+  }
+
   prepareMandateAction(req: MandateActionRequest, opts: CallOptions): Promise<SigningRequest> {
     return this.#prepare(req, opts, 0);
   }
@@ -432,6 +447,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       assetContract: config.assets.USDC.sac,
     });
     this.#refuseTestAttester(action);
+    this.#refuseUnpayableEntries(action, target.address);
     return this.#prepareCall(
       {
         scope: req.scope,

@@ -46,6 +46,7 @@ export async function payoutFixture(db: Database): Promise<PayoutFixture> {
     });
     const mandate = await mandates.create(tx, { name: 'Payroll' });
     const instance = await mandateInstances.create(tx, {
+      network: 'stellar:testnet',
       mandateId: mandate.id,
       chain: 'stellar',
       contractAddress: `C${randomUUID()}`,

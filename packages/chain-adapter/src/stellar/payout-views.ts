@@ -11,6 +11,7 @@ import type { xdr } from '@stellar/stellar-sdk/base';
 import { InternalError } from '../errors.js';
 import type { AttestationInput, Bytes32, Destination, PayRequest, UnixSeconds } from '../types.js';
 import {
+  asAddress,
   asBytes32,
   asI128,
   asOption,
@@ -35,6 +36,12 @@ const STATUS_EXECUTED = 3;
 const STATUS_REJECTED = 4;
 const STATUS_CANCELLED = 5;
 
+/** One entry in a payout's approvals, which may no longer count. See liveApprovalCount. */
+export interface PayoutApproval {
+  readonly approver: string;
+  readonly epoch: number;
+}
+
 export type PayoutView =
   | { readonly kind: 'absent' }
   | {
@@ -43,7 +50,7 @@ export type PayoutView =
       readonly total: bigint;
       readonly fee: bigint;
       readonly expiresAt: UnixSeconds;
-      readonly approvals: number;
+      readonly approvals: readonly PayoutApproval[];
     }
   | { readonly kind: 'closed'; readonly status: 'executed' | 'rejected' | 'cancelled' };
 
@@ -75,8 +82,36 @@ export function payoutViewOf(value: xdr.ScVal): PayoutView {
     total: asI128(field(fields, 'total')),
     fee: asI128(field(fields, 'fee')),
     expiresAt: asU64(field(fields, 'expires_at')) as UnixSeconds,
-    approvals: asVec(field(fields, 'approvals')).length,
+    approvals: asVec(field(fields, 'approvals')).map((entry) => {
+      const approval = fieldsOf(entry);
+      return {
+        approver: asAddress(field(approval, 'approver')),
+        epoch: asU32(field(approval, 'epoch')),
+      };
+    }),
   };
+}
+
+/** Each approver's current epoch, from the mandate's stored roles. */
+export function approverEpochsOf(roles: xdr.ScVal): ReadonlyMap<string, number> {
+  return new Map(
+    asVec(field(fieldsOf(roles), 'approvers')).map((entry) => {
+      const approver = fieldsOf(entry);
+      return [asAddress(field(approver, 'account')), asU32(field(approver, 'epoch'))] as const;
+    }),
+  );
+}
+
+/**
+ * How many approvals the mandate would count. Removing an approver leaves their entry
+ * on the payout but voids it, and adding them back gives them a new epoch, so the
+ * length of the list can say more than the mandate does.
+ */
+export function liveApprovalCount(
+  approvals: readonly PayoutApproval[],
+  epochs: ReadonlyMap<string, number>,
+): number {
+  return approvals.filter((a) => epochs.get(a.approver) === a.epoch).length;
 }
 
 /** One attestation as the contract takes it, carrying the epoch it was signed under. */

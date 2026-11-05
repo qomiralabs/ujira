@@ -231,6 +231,7 @@ describe('what an attempt may point at', () => {
     const instance = await db.tenant(fixture.tenant).transaction(async (tx) => {
       const mandate = await mandates.create(tx, { name: 'Other' });
       return mandateInstances.create(tx, {
+        network: 'stellar:testnet',
         mandateId: mandate.id,
         chain: 'stellar',
         contractAddress: `C${randomUUID()}`,

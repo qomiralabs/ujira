@@ -184,9 +184,7 @@ export function holdStore(
         .tenant(contextOf(scope))
         .transaction(async (tx) => payoutEngine.instance(tx, mandateInstanceId));
       if (found === undefined) throw new Error('a hold names no mandate instance');
-      const adapter = deps.adapters.list().find((a) => a.chain === found.chain);
-      if (adapter === undefined) throw new Error('no network is enabled for this instance');
-      return instanceRef(deps, adapter.network, found.id, found.contractAddress);
+      return instanceRef(deps, found.network as NetworkId, found.id, found.contractAddress);
     },
   };
 }

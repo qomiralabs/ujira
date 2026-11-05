@@ -18,6 +18,7 @@ type Tx = Kysely<Schema>;
 export interface InstanceOfMandate {
   readonly id: string;
   readonly chain: string;
+  readonly network: string;
   readonly contractAddress: string;
 }
 
@@ -114,24 +115,30 @@ export const payoutEngine = {
   instance: async (tx: Tx, id: string): Promise<InstanceOfMandate | undefined> => {
     const row = await tx
       .selectFrom('ujira.mandate_instances')
-      .select(['id', 'chain', 'contract_address'])
+      .select(['id', 'chain', 'network', 'contract_address'])
       .where('id', '=', id)
       .executeTakeFirst();
     return row === undefined
       ? undefined
-      : { id: row.id, chain: row.chain, contractAddress: row.contract_address };
+      : {
+          id: row.id,
+          chain: row.chain,
+          network: row.network,
+          contractAddress: row.contract_address,
+        };
   },
 
   instancesOfMandate: async (tx: Tx, mandateId: string): Promise<readonly InstanceOfMandate[]> => {
     const rows = await tx
       .selectFrom('ujira.mandate_instances')
-      .select(['id', 'chain', 'contract_address'])
+      .select(['id', 'chain', 'network', 'contract_address'])
       .where('mandate_id', '=', mandateId)
       .orderBy('id')
       .execute();
     return rows.map((row) => ({
       id: row.id,
       chain: row.chain,
+      network: row.network,
       contractAddress: row.contract_address,
     }));
   },

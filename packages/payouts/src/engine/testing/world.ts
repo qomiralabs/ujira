@@ -415,6 +415,7 @@ export async function engineWorld(
     const instance = await mandateInstances.create(tx, {
       mandateId: mandate.id,
       chain: 'stellar',
+      network: NETWORK,
       contractAddress: m.ref.address.value,
       specVersion: '1',
       asset: 'USDC',

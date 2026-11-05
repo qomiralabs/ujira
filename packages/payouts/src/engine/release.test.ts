@@ -6,8 +6,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import type { ChainAdapter, NetworkId, Uuid } from '@ujira/chain-adapter';
-import { fakeAdapterHarness, deployMandate } from '@ujira/chain-adapter/testing';
+import type { Uuid } from '@ujira/chain-adapter';
 import { fundingHolds, payoutAttempts, type Payout, type PayoutAttempt } from '@ujira/db';
 import { adminQuery } from '@ujira/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -96,84 +95,6 @@ describe('releasing held payouts', () => {
     for (const payout of payouts) {
       expect((await world.drive(payout)).status).toBe('paid');
     }
-  });
-
-  it('a payout held on two networks with simultaneous deposits routes once', async () => {
-    const world = await emptyWorld();
-    const other: NetworkId = 'stellar:pubnet';
-    const pub = fakeAdapterHarness({ network: other });
-    const pubMandate = await deployMandate(pub, { fund: 100n * ONE_USDC, salt: randomUUID() });
-    await world.h.fund(world.m.ref.address, 100n * ONE_USDC);
-    const payout = await world.payout('two-networks', usdc(2n * ONE_USDC));
-    await harness.db.tenant(TENANT).transaction(async (tx) => {
-      await fundingHolds.hold(
-        tx,
-        payout.id,
-        [NETWORK, other].map((network) => ({
-          network,
-          mandateInstanceId: world.instanceId,
-          needed: usdc(ONE_USDC),
-        })),
-      );
-    });
-    const enabled = new Map<NetworkId, ChainAdapter>([[other, pub.adapter]]);
-    const adapters = {
-      get: (network: NetworkId) => enabled.get(network) ?? world.deps.adapters.get(network),
-      list: () => [...world.deps.adapters.list(), pub.adapter],
-    };
-    const config = world.deps.routing.config();
-    const both = {
-      ...world.deps,
-      adapters,
-      routing: {
-        ...world.deps.routing,
-        adapters,
-        config: () =>
-          ({
-            ...config,
-            networks: { ...config.networks, [other]: config.networks[NETWORK] },
-            rails: [
-              ...config.rails,
-              { id: 'wallet_pub', network: other, rail: 'stellar.wallet', enabled: true },
-            ],
-            corridors: config.corridors.map((corridor) =>
-              corridor.currency === 'USDC'
-                ? {
-                    ...corridor,
-                    candidates: [...corridor.candidates, { rail: 'wallet_pub', priority: 2 }],
-                  }
-                : corridor,
-            ),
-          }) as typeof config,
-        mandates: {
-          ...world.deps.routing.mandates,
-          list: async (...args: Parameters<typeof world.deps.routing.mandates.list>) => [
-            ...(await world.deps.routing.mandates.list(...args)),
-            { mandateInstanceId: world.instanceId, ref: pubMandate.ref },
-          ],
-        },
-        destinations: {
-          list: async (...args: Parameters<typeof world.deps.routing.destinations.list>) => {
-            const found = await world.deps.routing.destinations.list(...args);
-            return [...found, ...found.map((one) => ({ ...one, network: other }))];
-          },
-        },
-      },
-    };
-    const results = await Promise.all([
-      releaseHeld(both, TENANT, NETWORK, noSignal()),
-      releaseHeld(both, TENANT, other, noSignal()),
-    ]);
-    const released = results.flatMap((summary) => summary.released);
-    expect(released).toEqual([payout.id]);
-    expect(await attemptsOf(payout)).toHaveLength(1);
-    expect((await world.read(payout.id)).status).toBe('routed');
-    const left = await adminQuery(
-      harness.database.url,
-      'select 1 from ujira.payout_funding_holds where payout_id = $1',
-      [payout.id],
-    );
-    expect(left).toHaveLength(0);
   });
 
   it('a job killed halfway and rerun is safe', async () => {
