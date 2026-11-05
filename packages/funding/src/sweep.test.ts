@@ -161,6 +161,7 @@ let prompts: RecordingSweepPrompts;
 let reports: RecordingSweepReports;
 let funding: RecordingSweepFunding;
 let ports: SweepPorts;
+let usable: boolean;
 
 beforeEach(() => {
   chain = new LedgerChain();
@@ -171,11 +172,20 @@ beforeEach(() => {
   prompts = new RecordingSweepPrompts();
   reports = new RecordingSweepReports();
   funding = new RecordingSweepFunding();
-  ports = { store, prompts, chain, reports, funding, clock };
+  usable = true;
+  ports = {
+    store,
+    prompts,
+    chain,
+    reports,
+    funding,
+    clock,
+    accounts: { usable: () => Promise.resolve(usable) },
+  };
 });
 
 async function toSubmitted(hash = HASH): Promise<void> {
-  await recordDeposit(DEPOSIT, ports);
+  await recordDeposit(DEPOSIT, ports, OPTIONS);
   await acceptSweepSignature({ ...KEY, signedPayload: hash }, ports);
 }
 
@@ -190,8 +200,8 @@ const statusOf = (): string | undefined => store.rowsOf(SCOPE)[0]?.status;
 describe('sweep.test.ts', () => {
   describe('recording a deposit', () => {
     it('a repeated deposit event creates one sweep', async () => {
-      const first = await recordDeposit(DEPOSIT, ports);
-      const second = await recordDeposit(DEPOSIT, ports);
+      const first = await recordDeposit(DEPOSIT, ports, OPTIONS);
+      const second = await recordDeposit(DEPOSIT, ports, OPTIONS);
       expect(store.rowsOf(SCOPE)).toHaveLength(1);
       expect(second).toEqual(first);
       expect(first).toMatchObject({
@@ -207,9 +217,9 @@ describe('sweep.test.ts', () => {
     });
 
     it('a retried job does not prompt again', async () => {
-      await recordDeposit(DEPOSIT, ports);
-      await recordDeposit(DEPOSIT, ports);
-      await recordDeposit(DEPOSIT, ports);
+      await recordDeposit(DEPOSIT, ports, OPTIONS);
+      await recordDeposit(DEPOSIT, ports, OPTIONS);
+      await recordDeposit(DEPOSIT, ports, OPTIONS);
       expect(prompts.delivered()).toHaveLength(1);
       expect(prompts.delivered()[0]).toMatchObject({
         scope: SCOPE,
@@ -227,12 +237,12 @@ describe('sweep.test.ts', () => {
         depositOperationId: '4294967297-1',
         amount: usdc(AMOUNT + 1n),
       };
-      const firstRow = await recordDeposit(first, ports);
-      const secondRow = await recordDeposit(second, ports);
+      const firstRow = await recordDeposit(first, ports, OPTIONS);
+      const secondRow = await recordDeposit(second, ports, OPTIONS);
       expect(secondRow.id).not.toBe(firstRow.id);
       expect(secondRow.amount).toEqual(usdc(AMOUNT + 1n));
-      await recordDeposit(first, ports);
-      await recordDeposit(second, ports);
+      await recordDeposit(first, ports, OPTIONS);
+      await recordDeposit(second, ports, OPTIONS);
       expect(store.rowsOf(SCOPE)).toHaveLength(2);
       expect(prompts.delivered().map((prompt) => prompt.depositOperationId)).toEqual([
         '4294967297-0',
@@ -243,23 +253,23 @@ describe('sweep.test.ts', () => {
     it('does not prompt for a sweep that has moved on', async () => {
       await toSubmitted();
       const before = prompts.attempts();
-      await recordDeposit(DEPOSIT, ports);
+      await recordDeposit(DEPOSIT, ports, OPTIONS);
       expect(prompts.attempts()).toBe(before);
     });
 
     it('refuses a deposit recorded under another tenant, and hands nothing over', async () => {
-      await recordDeposit(DEPOSIT, ports);
-      await expect(recordDeposit({ ...DEPOSIT, scope: OTHER }, ports)).rejects.toBeInstanceOf(
-        SweepTenantError,
-      );
+      await recordDeposit(DEPOSIT, ports, OPTIONS);
+      await expect(
+        recordDeposit({ ...DEPOSIT, scope: OTHER }, ports, OPTIONS),
+      ).rejects.toBeInstanceOf(SweepTenantError);
       expect(store.rowsOf(OTHER)).toEqual([]);
       expect(prompts.delivered()).toHaveLength(1);
     });
 
     it('finds its own row when a racing attempt inserts it first', async () => {
-      const row = await recordDeposit(DEPOSIT, ports);
+      const row = await recordDeposit(DEPOSIT, ports, OPTIONS);
       store.hideNextRead = true;
-      await expect(recordDeposit(DEPOSIT, ports)).resolves.toEqual(row);
+      await expect(recordDeposit(DEPOSIT, ports, OPTIONS)).resolves.toEqual(row);
     });
 
     it('refuses a deposit event it cannot trust', async () => {
@@ -287,7 +297,7 @@ describe('sweep.test.ts', () => {
         null,
       ];
       for (const event of bad) {
-        await expect(recordDeposit(event as DepositEvent, ports)).rejects.toBeInstanceOf(
+        await expect(recordDeposit(event as DepositEvent, ports, OPTIONS)).rejects.toBeInstanceOf(
           FundingInputError,
         );
       }
@@ -297,7 +307,7 @@ describe('sweep.test.ts', () => {
 
   describe('sending', () => {
     it('submitted is written before the transaction is sent', async () => {
-      await recordDeposit(DEPOSIT, ports);
+      await recordDeposit(DEPOSIT, ports, OPTIONS);
       const row = await acceptSweepSignature(SIGNED, ports);
       // Accepting the signature writes the row and sends nothing: sending is a
       // later job step, with the same hash and time bounds already on the row.
@@ -348,13 +358,13 @@ describe('sweep.test.ts', () => {
     });
 
     it('refuses to send anything for a sweep not submitted', async () => {
-      await recordDeposit(DEPOSIT, ports);
+      await recordDeposit(DEPOSIT, ports, OPTIONS);
       await expect(sendSweep(SIGNED, ports, OPTIONS)).rejects.toBeInstanceOf(SweepStateError);
       expect(chain.sent).toEqual([]);
     });
 
     it('refuses a signature whose time bound has already passed', async () => {
-      await recordDeposit(DEPOSIT, ports);
+      await recordDeposit(DEPOSIT, ports, OPTIONS);
       chain.envelope = { ...chain.envelope, validUntil: new Date(START.getTime() - 1) };
       await expect(acceptSweepSignature(SIGNED, ports)).rejects.toBeInstanceOf(SweepStateError);
       expect(statusOf()).toBe('awaiting_signature');
@@ -406,7 +416,7 @@ describe('sweep.test.ts', () => {
     });
 
     it('insufficient balance on a duplicate sweep marks it failed without retry', async () => {
-      await recordDeposit(DEPOSIT, ports);
+      await recordDeposit(DEPOSIT, ports, OPTIONS);
       // The funds already moved under another transaction, such as one the
       // principal built in their own wallet.
       chain.token.transfer(FORWARDER, { address: MANDATE, tag: null }, AMOUNT);
@@ -508,7 +518,7 @@ describe('sweep.test.ts', () => {
       for (const transfers of scopes) {
         const local = new MemorySweepStore({ now: () => now });
         const here: SweepPorts = { ...ports, store: local };
-        await recordDeposit(DEPOSIT, here);
+        await recordDeposit(DEPOSIT, here, OPTIONS);
         await acceptSweepSignature(SIGNED, here);
         chain.results.set(HASH, { kind: 'landed', ledger: 77, transfers });
         const done = await reconcileSweep({ ...KEY, route: ROUTE }, here, OPTIONS);
@@ -519,7 +529,7 @@ describe('sweep.test.ts', () => {
     });
 
     it('returns anything not submitted as it is', async () => {
-      await recordDeposit(DEPOSIT, ports);
+      await recordDeposit(DEPOSIT, ports, OPTIONS);
       const row = await reconcileSweep({ ...KEY, route: ROUTE }, ports, OPTIONS);
       expect(row.status).toBe('awaiting_signature');
     });
@@ -657,9 +667,66 @@ describe('sweep.test.ts', () => {
     });
   });
 
+  describe('an account that no longer matches', () => {
+    const CHANGED = {
+      principalId: PRINCIPAL,
+      projectId: PROJECT,
+      network: NETWORK,
+      depositOperationId: OP_ID,
+    };
+
+    it('no signature is asked for from an account that no longer matches', async () => {
+      usable = false;
+      const row = await recordDeposit(DEPOSIT, ports, OPTIONS);
+      expect(prompts.delivered()).toEqual([]);
+      expect(reports.changes()).toEqual([CHANGED]);
+      // The deposit stays visible, as a sweep nobody has been asked to sign.
+      expect(row.status).toBe('awaiting_signature');
+      expect(funding.records()).toEqual([]);
+    });
+
+    it('prompts once the account matches again', async () => {
+      usable = false;
+      await recordDeposit(DEPOSIT, ports, OPTIONS);
+      usable = true;
+      await recordDeposit(DEPOSIT, ports, OPTIONS);
+      expect(prompts.delivered()).toHaveLength(1);
+      expect(store.rowsOf(SCOPE)).toHaveLength(1);
+    });
+
+    it('declines to go round again, leaving the sweep failed', async () => {
+      await toFailedByExpiry();
+      chain.latest = 2_001;
+      usable = false;
+      const delivered = prompts.delivered().length;
+      const retry = await retrySweep({ ...KEY, route: ROUTE }, ports, OPTIONS);
+      expect(retry).toEqual({ kind: 'declined', reason: 'account_changed' });
+      expect(statusOf()).toBe('failed');
+      expect(prompts.delivered()).toHaveLength(delivered);
+      expect(reports.changes()).toEqual([CHANGED]);
+    });
+
+    it('asks only after waiting out the entry, so the answer is current', async () => {
+      await toFailedByExpiry();
+      usable = false;
+      const retry = await retrySweep({ ...KEY, route: ROUTE }, ports, OPTIONS);
+      expect(retry).toEqual({ kind: 'waiting', untilLedger: 2_001 });
+      expect(reports.changes()).toEqual([]);
+    });
+
+    it('prompts nobody when the account cannot be read in time, and can run again', async () => {
+      ports = { ...ports, accounts: { usable: () => new Promise(() => undefined) } };
+      await expect(recordDeposit(DEPOSIT, ports, { timeoutMs: 20 })).rejects.toMatchObject({
+        name: 'SweepTimeoutError',
+      });
+      expect(prompts.delivered()).toEqual([]);
+      expect(statusOf()).toBe('awaiting_signature');
+    });
+  });
+
   describe('cancelling', () => {
     it('cancels a sweep awaiting its signature, for good', async () => {
-      await recordDeposit(DEPOSIT, ports);
+      await recordDeposit(DEPOSIT, ports, OPTIONS);
       const row = await cancelSweep(KEY, ports);
       expect(row.status).toBe('cancelled');
       await expect(acceptSweepSignature(SIGNED, ports)).rejects.toBeInstanceOf(SweepStateError);
@@ -782,7 +849,7 @@ describe('the store holds the rules of funding_sweeps', () => {
   ]);
 
   async function rowAt(status: (typeof STATUSES)[number]): Promise<string> {
-    const row = await recordDeposit(DEPOSIT, ports);
+    const row = await recordDeposit(DEPOSIT, ports, OPTIONS);
     const hash = Buffer.from(HASH, 'hex');
     const submit = {
       status: 'submitted',
@@ -836,7 +903,7 @@ describe('the store holds the rules of funding_sweeps', () => {
   });
 
   it('refuses submitted with time bounds already past', async () => {
-    const row = await recordDeposit(DEPOSIT, ports);
+    const row = await recordDeposit(DEPOSIT, ports, OPTIONS);
     await expect(
       store.setStatus(SCOPE, row.id, {
         status: 'submitted',
@@ -848,7 +915,7 @@ describe('the store holds the rules of funding_sweeps', () => {
   });
 
   it('is unique on the chain and the operation across tenants, and false for a stranger', async () => {
-    const row = await recordDeposit(DEPOSIT, ports);
+    const row = await recordDeposit(DEPOSIT, ports, OPTIONS);
     const again = {
       fundingSourceId: SOURCE,
       mandateInstanceId: INSTANCE,

@@ -195,6 +195,11 @@ export class MemoryFundingAccounts implements FundingAccountStore, FundingSource
     return Promise.resolve();
   }
 
+  recordCheck(row: FundingAccountRecord): Promise<void> {
+    this.#accounts.set(`${row.principalId}|${row.network}`, row);
+    return Promise.resolve();
+  }
+
   attach(
     scope: TenantScope,
     input: { readonly network: NetworkId; readonly mandateInstanceId: string },
@@ -257,10 +262,19 @@ export class RecordingSweepFunding implements SweepFunding {
 
 export class RecordingSweepReports implements SweepReports {
   readonly #events: Parameters<SweepReports['sweepFailed']>[0][] = [];
+  readonly #changes: Parameters<SweepReports['accountChanged']>[0][] = [];
   readonly #alerts: Parameters<SweepReports['transferAlert']>[0][] = [];
 
   sweepFailed(event: Parameters<SweepReports['sweepFailed']>[0]): void {
     this.#events.push(event);
+  }
+
+  accountChanged(event: Parameters<SweepReports['accountChanged']>[0]): void {
+    this.#changes.push(event);
+  }
+
+  changes(): readonly Parameters<SweepReports['accountChanged']>[0][] {
+    return [...this.#changes];
   }
 
   transferAlert(event: Parameters<SweepReports['transferAlert']>[0]): void {

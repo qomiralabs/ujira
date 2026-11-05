@@ -106,8 +106,27 @@ export type SweepFailureReason =
 
 export type SweepAlertKind = 'landed_after_failed' | 'unexplained' | 'expiry_not_provable';
 
+/** Whether a forwarding account is still the one that was verified, read now. */
+export interface SweepAccounts {
+  usable(
+    request: {
+      readonly scope: SweepScope;
+      readonly network: NetworkId;
+      readonly forwarder: string;
+    },
+    signal: AbortSignal,
+  ): Promise<boolean>;
+}
+
 /** What a person should look at. */
 export interface SweepReports {
+  /** A deposit waits in an account that no longer matches, and nobody was prompted. */
+  accountChanged(event: {
+    readonly principalId: string;
+    readonly projectId: string;
+    readonly network: NetworkId;
+    readonly depositOperationId: string;
+  }): void;
   sweepFailed(event: {
     readonly principalId: string;
     readonly projectId: string;
@@ -147,6 +166,7 @@ export interface SweepPorts {
   readonly store: SweepStore;
   readonly prompts: SweepPrompts;
   readonly chain: SweepChain;
+  readonly accounts: SweepAccounts;
   readonly reports: SweepReports;
   readonly funding: SweepFunding;
   readonly clock: { now(): Date };
@@ -168,7 +188,10 @@ export type SweepRetry =
   | { readonly kind: 'retried'; readonly sweep: FundingSweep }
   /** Run the step again once the network reaches this ledger. */
   | { readonly kind: 'waiting'; readonly untilLedger: number }
-  | { readonly kind: 'declined'; readonly reason: 'insufficient_balance' | 'landed' };
+  | {
+      readonly kind: 'declined';
+      readonly reason: 'insufficient_balance' | 'landed' | 'account_changed';
+    };
 
 export interface ObservedTransfer {
   readonly scope: SweepScope;
@@ -290,6 +313,31 @@ async function moved(
   return requireSweep(key, store);
 }
 
+// A signature is only ever asked for from an account still as it was verified. The
+// deposit stays visible, as a sweep awaiting its signature, and funds nothing.
+async function promptable(
+  key: SweepKey,
+  route: SweepRoute,
+  ports: SweepPorts,
+  limits: SweepOptions,
+): Promise<boolean> {
+  const usable = await withDeadline(limits, (signal) =>
+    ports.accounts.usable(
+      { scope: key.scope, network: key.network, forwarder: route.forwarder },
+      signal,
+    ),
+  );
+  if (!usable) {
+    ports.reports.accountChanged({
+      principalId: key.scope.principalId,
+      projectId: key.scope.projectId,
+      network: key.network,
+      depositOperationId: key.depositOperationId,
+    });
+  }
+  return usable;
+}
+
 function firstPromptKey(key: SweepKey): string {
   return `sweep:${chainOf(key.network)}:${key.depositOperationId}`;
 }
@@ -299,12 +347,18 @@ function firstPromptKey(key: SweepKey): string {
  * sighting of the same deposit. It trusts the tenant the event names, so whoever
  * attributes deposits must have checked that the forwarding account and mandate
  * are that tenant's. Throws SweepTenantError when the operation is already
- * recorded under another tenant.
+ * recorded under another tenant. An account that no longer matches gets the row and
+ * no prompt, and calling this again once it matches prompts then.
  */
-export async function recordDeposit(event: DepositEvent, ports: SweepPorts): Promise<FundingSweep> {
+export async function recordDeposit(
+  event: DepositEvent,
+  ports: SweepPorts,
+  options: SweepOptions,
+): Promise<FundingSweep> {
   const read = parsed(depositSchema, event, 'deposit');
+  const limits = parsed(optionsSchema, options, 'options');
   const row = (await find(read, ports.store)) ?? (await createSweep(read, ports.store));
-  if (row.status === 'awaiting_signature') {
+  if (row.status === 'awaiting_signature' && (await promptable(read, read.route, ports, limits))) {
     await ports.prompts.requestSignature(
       {
         scope: read.scope,
@@ -521,6 +575,9 @@ export async function retrySweep(
     const latest = await withDeadline(limits, (signal) => ports.chain.latestLedger(signal));
     // The entry is still good in the ledger it names.
     if (BigInt(latest) <= expires) return { kind: 'waiting', untilLedger: Number(expires) + 1 };
+  }
+  if (!(await promptable(read, read.route, ports, limits))) {
+    return { kind: 'declined', reason: 'account_changed' };
   }
   // Queued before the row gives up the old hash, which is what keeps the key the
   // same if this step runs again after a crash. The outbox then drops the repeat.
