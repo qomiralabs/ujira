@@ -283,18 +283,15 @@ describe('funding-account.test.ts', () => {
   it('makes no new source from an account that has changed since it was verified', async () => {
     const w = world();
     const scope = tenant();
-    const first = randomUUID();
-    const second = randomUUID();
-    w.store.addInstance(scope, first);
-    w.store.addInstance(scope, second);
+    const second = w.instance(scope);
     const { account } = await w.service.confirm(
-      { scope, network: NETWORK, requestId: 'r1', mandateInstanceId: first },
+      { scope, requestId: 'r1', mandateInstanceId: w.instance(scope) },
       OPTS,
     );
     await w.store.recordCheck({ ...account, status: 'changed', faults: ['extra_signer'] });
-    await expect(
-      w.service.attach({ scope, network: NETWORK, mandateInstanceId: second }),
-    ).rejects.toBeInstanceOf(FundingAccountStateError);
+    await expect(w.service.attach({ scope, mandateInstanceId: second })).rejects.toBeInstanceOf(
+      FundingAccountStateError,
+    );
     expect(w.store.sources()).toHaveLength(1);
   });
 

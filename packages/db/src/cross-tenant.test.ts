@@ -161,6 +161,7 @@ async function tenant(name: string): Promise<Tenant> {
   } = await db.tenant(first).transaction(async (tx) => {
     const mandate = await mandates.create(tx, { name: `${name} mandate` });
     const instance = await mandateInstances.create(tx, {
+      network: 'stellar:testnet',
       mandateId: mandate.id,
       chain: 'stellar',
       contractAddress: `C${randomUUID()}`,
@@ -684,6 +685,7 @@ const cases: Record<string, () => Promise<void>> = {
     // Naming B's mandate is a tenant violation at the composite foreign key.
     const attempt = asA(async (tx) =>
       mandateInstances.create(tx, {
+        network: 'stellar:testnet',
         mandateId: b.mandateId,
         chain: 'stellar',
         contractAddress: `C${randomUUID()}`,
