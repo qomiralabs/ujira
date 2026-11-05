@@ -21,6 +21,7 @@ import { mandateAddressOf } from './mandate-address.js';
 import type {
   RawSimulation,
   RpcEventPage,
+  RpcEventRequest,
   RpcLatestLedger,
   RpcLedgerEntry,
   RpcSendResult,
@@ -199,9 +200,9 @@ export class FakeRpc implements StellarRpc {
     return rpc;
   }
 
-  getEvents(): Promise<RpcEventPage> {
-    return Promise.resolve({ events: [], cursor: null, latestLedger: this.latest.sequence });
-  }
+  /** Replaced by a test that needs events; none otherwise. */
+  getEvents: (request: RpcEventRequest) => Promise<RpcEventPage> = () =>
+    Promise.resolve({ events: [], cursor: null, latestLedger: this.latest.sequence });
 
   getLatestLedger(): Promise<RpcLatestLedger> {
     this.calls.push('getLatestLedger');

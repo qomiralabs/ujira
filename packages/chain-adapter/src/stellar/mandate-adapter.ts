@@ -37,6 +37,10 @@ import { isPublicTestAttesterKey } from '../test-attester-keys.js';
 import type {
   AdapterPorts,
   BatchStep,
+  DepositScanPage,
+  DepositScanRequest,
+  FundingInstructions,
+  PrepareFundingRequest,
   ChainReceipt,
   DeadProof,
   PayBatchRequest,
@@ -86,6 +90,7 @@ import { reconcileSubmission, reconcileUnresolved } from './lifecycle.js';
 import type { ReconcileResult, SweepOptions } from './lifecycle.js';
 import type { DestinationState } from './destination-check.js';
 import { mandateAddressOf } from './mandate-address.js';
+import { StellarFunding } from './funding.js';
 import { StellarPayouts } from './pay.js';
 import type { ExecutionMirror, PayoutMethodSource } from './pay.js';
 import type { StellarRpc } from './rpc.js';
@@ -167,6 +172,9 @@ export type StellarMandateOperations = Pick<
   | 'proveDead'
   | 'receipt'
   | 'verifyReceipt'
+  | 'fundingInstructions'
+  | 'prepareFunding'
+  | 'scanDeposits'
 >;
 
 const SPEC_VERSION = 1;
@@ -194,6 +202,7 @@ const INTENTS: Partial<Record<StoredSigningRequest['op'], SponsoredIntent>> = {
   cancel: 'cancel',
   cancel_batch: 'cancel',
   withdraw: 'withdraw',
+  fund: 'fund',
 };
 
 function invalid(network: StellarNetworkId, issue: string): InvalidInputError {
@@ -214,6 +223,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
   readonly #ttlExtendLedgers: number | undefined;
   readonly #newRequestId: () => string;
   readonly #payouts: StellarPayouts;
+  readonly #funding: StellarFunding;
   readonly #paddedCalls: ReadonlySet<string>;
   readonly #steps: StepLog;
   readonly #nodeEnv: string | undefined;
@@ -256,6 +266,29 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       prepare: (call, opts) => this.#prepareCall(call, opts),
       submit: (req, opts) => this.submitSigned(req, opts),
     });
+    this.#funding = new StellarFunding({
+      network: options.network,
+      rpc: options.rpc,
+      ports: options.ports,
+      config: () => this.#config(),
+      verify: (scope, mandate, opts) => this.#trust.verify(scope, mandate, opts),
+      prepare: (call, opts) => this.#prepareCall(call, opts),
+    });
+  }
+
+  fundingInstructions(
+    req: { readonly scope: TenantScope; readonly mandate: MandateRef },
+    opts: CallOptions,
+  ): Promise<FundingInstructions> {
+    return this.#funding.fundingInstructions(req, opts);
+  }
+
+  prepareFunding(req: PrepareFundingRequest, opts: CallOptions): Promise<SigningRequest> {
+    return this.#funding.prepareFunding(req, opts);
+  }
+
+  scanDeposits(req: DepositScanRequest, opts: CallOptions): Promise<DepositScanPage> {
+    return this.#funding.scanDeposits(req, opts);
   }
 
   pay(req: PayRequest, opts: CallOptions): Promise<PayStep> {
@@ -442,7 +475,10 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       maxTime: validUntil,
     };
     const tx = invokeTx(inv, build);
-    let sim = await simulate(this.#rpc, network, tx, inv.contract, opts);
+    // Funding calls the token. Its errors are numbered on its own, so they are read
+    // against the mandate, which makes any of them a failed transfer.
+    const failsAs = call.op === 'fund' ? target : inv.contract;
+    let sim = await simulate(this.#rpc, network, tx, failsAs, opts);
     const archived = archivedKeys(sim);
     if (archived.length > 0) {
       await ExecutorSession.run(this.#executor, opts, (session) =>
@@ -460,7 +496,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
           opts,
         ),
       );
-      sim = await simulate(this.#rpc, network, tx, inv.contract, opts);
+      sim = await simulate(this.#rpc, network, tx, failsAs, opts);
     }
     const auth = (sim.result?.auth ?? []).map((entry) =>
       checkedEntry(network, entry, signer, viaWallet),
