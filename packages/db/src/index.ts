@@ -134,6 +134,19 @@ export {
   type RecipientStatus,
 } from './repositories/recipients.js';
 export {
+  HeldPayoutUnreadableError,
+  UnsupportedSpecVersionError,
+  createRouteStores,
+  type RouteStoreOptions,
+  type RouteStores,
+} from './route-stores.js';
+export {
+  routing,
+  type HeldRow,
+  type InstanceOfMandate,
+  type UsableMethod,
+} from './repositories/routing.js';
+export {
   executors,
   identityProviderEvents,
   routingConfig,
