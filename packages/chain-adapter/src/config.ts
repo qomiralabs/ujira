@@ -198,6 +198,30 @@ const recipientActivation = z
 const fees = z
   .strictObject({
     uncoveredNetworkCost: z.strictObject({ monthlyBudgetStroops: stroops }),
+    networkFee: z.strictObject({ marginBps: bps.default(1_200) }).prefault({}),
+    xlmRate: z
+      .strictObject({
+        // How old each source may be. Horizon answers live, so 60 seconds is
+        // already generous. Reflector's feed publishes every 300 seconds, so
+        // anything under that would refuse it for part of every tick and it
+        // could not stand in when Horizon is down: 360 is one tick plus a
+        // margin. A rate this old only feeds a shortfall estimate, never a
+        // payment amount.
+        maxAgeSeconds: z
+          .strictObject({
+            stellar_dex: z.int().min(1).max(86_400).default(60),
+            reflector: z.int().min(1).max(86_400).default(360),
+          })
+          .prefault({}),
+        maxDeviationBps: bps.default(200),
+        // XLM has no market price on testnet, so one is configured. Text, so
+        // no rate passes through a float.
+        testnetReferenceRate: z
+          .string()
+          .regex(/^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,18})?$/)
+          .optional(),
+      })
+      .prefault({}),
   })
   .prefault({ uncoveredNetworkCost: { monthlyBudgetStroops: '0' } });
 
@@ -228,9 +252,21 @@ const feeSponsor = z
     path: ['lowBalanceStroops'],
   });
 
+// The rules for building Soroban transactions. instanceTtlExtendLedgers covers
+// the instance and the asset balance entry only; a payout record's lifetime
+// comes from its own expiry, so it takes no value here.
+const soroban = z
+  .strictObject({
+    writeBytesPadding: z.int().min(512).max(1_048_576).default(512),
+    resimulateRetries: z.int().min(0).max(10).default(2),
+    instanceTtlExtendLedgers: z.int().min(1).max(6_312_000).default(535_680),
+  })
+  .prefault({});
+
 const stellarNetwork = z
   .strictObject({
     ...common,
+    soroban,
     trustedFactories: z.strictObject({ '1': uniqueList(stellarContract) }),
     assets: z.strictObject({
       USDC: z.strictObject({ sac: stellarContract, issuer: stellarAccount }),
@@ -254,6 +290,15 @@ const stellarNetwork = z
     // UJIRA's login key for each anchor it pays out through.
     sep10: sep10Keys,
     signingWindowSeconds: z.int().min(30).max(SECONDS_PER_HOUR),
+    // How long a tenant's claim on a contract counts as waiting for its factory's
+    // event. A real create registers within minutes, and a day leaves room for an
+    // outage. After it the contract is refused as untrusted, so a payout held on one
+    // that will never register does resolve.
+    pendingMandateMaxAgeSeconds: z
+      .int()
+      .min(SECONDS_PER_HOUR)
+      .max(7 * 24 * SECONDS_PER_HOUR)
+      .default(24 * SECONDS_PER_HOUR),
     // The operations team's pause-only guardian, added to new mandates
     // unless the principal opts out. An address only: the key is held by
     // people, not by the signer. Optional so a network can run before one

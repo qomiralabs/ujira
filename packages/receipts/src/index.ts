@@ -40,6 +40,13 @@ export {
   ReceiptUnverifiedError,
 } from './errors.js';
 export type { ReceiptErrorCode } from './errors.js';
+export { receiptPdf, receiptsCsv } from './export.js';
+export { VERIFICATION_CODE, verificationCodeFor, verifyPublicReceipt } from './verify.js';
+export type {
+  PublicReceiptPorts,
+  PublicVerification,
+  PublicVerificationRequest,
+} from './verify.js';
 export {
   RECEIPT_ISSUE_MAX_ATTEMPTS,
   RECEIPT_ISSUE_TASK,

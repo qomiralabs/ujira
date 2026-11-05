@@ -67,7 +67,7 @@ describe('ujira.attestation_pending', () => {
     expect(await as(role, (client) => codeOf(client.query(CALL, [DIGEST])))).toBe('42501');
   });
 
-  it('returns no rows before the attestation log exists', async () => {
+  it('returns no rows for a digest that is not pending', async () => {
     const result = await as('ujira_signer_attester', (client) => client.query(CALL, [DIGEST]));
     expect(result.rows).toEqual([]);
     expect(result.fields.map((field) => field.name)).toEqual([

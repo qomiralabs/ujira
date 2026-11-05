@@ -117,6 +117,8 @@ describe('leases and signers', () => {
     return {
       recordSubmission: (s) => store.recordSubmission(s),
       updateSubmission: (...a) => store.updateSubmission(...a),
+      landedSubmission: (k) => store.landedSubmission(k),
+      findSubmission: (...a) => store.findSubmission(...a),
       liveSubmission: (k) => store.liveSubmission(k),
       unresolvedSubmissions: (...a) => store.unresolvedSubmissions(...a),
       leaseExecutor: (...a) => store.leaseExecutor(...a),

@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
+import { randomUUID } from 'node:crypto';
+
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
@@ -20,6 +22,10 @@ const TABLES = [
   'ops.routing_config_versions',
   'ops.routing_config_active',
   'ops.identity_provider_events',
+  'ops.email_quota_usage',
+  'ops.mandate_alerts',
+  'ops.mandate_registry',
+  'ops.rate_limit_buckets',
 ];
 
 let database: TestDatabase;
@@ -60,7 +66,7 @@ describe('the ops role', () => {
     });
   });
 
-  it('the other service roles cannot reach the schema at all', async () => {
+  it('the other service roles can read no ops table and call no function of the app', async () => {
     for (const role of [
       'ujira_reader',
       'ujira_retention',
@@ -69,6 +75,9 @@ describe('the ops role', () => {
     ] as const) {
       await as(role, async (client) => {
         expect(await codeOf(client.query('select * from ops.chain_cursors')), role).toBe('42501');
+        expect(await codeOf(client.query('select * from ops.mandate_registry')), role).toBe(
+          '42501',
+        );
         expect(await codeOf(client.query('select * from ops.active_routing_config()')), role).toBe(
           '42501',
         );
@@ -96,6 +105,35 @@ describe('the ops role', () => {
       ).toBe('42501');
       await client.query('insert into ops.routing_config_active (version) values ($1)', [version]);
     });
+  });
+
+  it('refuses a rate limit bucket whose key is not a digest', async () => {
+    await as('ujira_ops', async (client) => {
+      const insert = (key: string): Promise<unknown> =>
+        client.query(
+          `insert into ops.rate_limit_buckets (bucket_key, tokens, refilled_at) values ($1, 1, now())`,
+          [key],
+        );
+      await insert(`token:${'a'.repeat(64)}`);
+      // A raw id would put a tenant identifier in a schema that promises none.
+      expect(await codeOf(insert(`token:${randomUUID()}`))).toBe('23514');
+      expect(await codeOf(insert('ujk_live_abcdefghijklmnop'))).toBe('23514');
+    });
+  });
+
+  it('keeps the rate limit buckets out of the write ahead log', async () => {
+    const admin = new pg.Client({ connectionString: database.url });
+    await admin.connect();
+    try {
+      const found = await admin.query<{ persistence: string }>(
+        `select c.relpersistence as persistence
+           from pg_class c join pg_namespace n on n.oid = c.relnamespace
+          where n.nspname = 'ops' and c.relname = 'rate_limit_buckets'`,
+      );
+      expect(found.rows).toEqual([{ persistence: 'u' }]);
+    } finally {
+      await admin.end();
+    }
   });
 
   it('has no rights on ujira beyond what it was given, and cannot read a tenant table', async () => {

@@ -48,6 +48,8 @@ export const attestationFieldsSchema = z.strictObject({
 
 const payloadSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('stellar_tx'), network, xdr }),
+  z.strictObject({ kind: z.literal('stellar_relayed_call'), network, xdr }),
+  z.strictObject({ kind: z.literal('stellar_footprint'), network, xdr }),
   z.strictObject({ kind: z.literal('stellar_fee_bump'), network, xdr }),
   z.strictObject({ kind: z.literal('stellar_reserve_sandwich'), network, xdr }),
   z.strictObject({

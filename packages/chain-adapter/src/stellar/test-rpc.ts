@@ -8,7 +8,7 @@
 // account when it is the transaction's source and with its own address
 // credentials otherwise. Test code only.
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { Address, SorobanDataBuilder, TransactionBuilder, xdr } from '@stellar/stellar-sdk/base';
@@ -20,6 +20,8 @@ import { addressXdr } from './address-xdr.js';
 import { mandateAddressOf } from './mandate-address.js';
 import type {
   RawSimulation,
+  RpcEventPage,
+  RpcEventRequest,
   RpcLatestLedger,
   RpcLedgerEntry,
   RpcSendResult,
@@ -46,9 +48,10 @@ export const FIXTURE_FACTORY = 'CAAVOGDGGM7JOLDS3CIQNPGSJOYFI54CJSAQQEFQKW7CES5U
 export const FIXTURE_USDC = 'CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA';
 
 export function loadReadFixture(): ReadFixture {
-  return JSON.parse(
-    readFileSync(path.join(import.meta.dirname, 'fixtures', 'testnet-read.json'), 'utf8'),
-  ) as ReadFixture;
+  // Beside this file in the source, and back in the source when run from a build.
+  const here = path.join(import.meta.dirname, 'fixtures', 'testnet-read.json');
+  const source = path.join(import.meta.dirname, '../../src/stellar/fixtures', 'testnet-read.json');
+  return JSON.parse(readFileSync(existsSync(here) ? here : source, 'utf8')) as ReadFixture;
 }
 
 /** A recorded struct with its stored tenant reference replaced by the tag. */
@@ -128,6 +131,10 @@ export function invoked(tx: Transaction): {
 }
 
 const CALLER_FUNCTIONS = new Set([
+  'request_payout',
+  'request_payouts',
+  'execute',
+  'execute_batch',
   'pause',
   'approve',
   'reject',
@@ -193,6 +200,10 @@ export class FakeRpc implements StellarRpc {
     upgradeRecorded(rpc, fixture);
     return rpc;
   }
+
+  /** Replaced by a test that needs events; none otherwise. */
+  getEvents: (request: RpcEventRequest) => Promise<RpcEventPage> = () =>
+    Promise.resolve({ events: [], cursor: null, latestLedger: this.latest.sequence });
 
   getLatestLedger(): Promise<RpcLatestLedger> {
     this.calls.push('getLatestLedger');

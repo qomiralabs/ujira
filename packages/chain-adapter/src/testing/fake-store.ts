@@ -122,6 +122,17 @@ export class FakeAdapterStore implements AdapterStore {
     return !this.#off.has(rule);
   }
 
+  findSubmission(
+    scope: TenantScope,
+    network: NetworkId,
+    txHash: string,
+  ): Promise<SubmissionRecord | null> {
+    const row = this.#submissions.find(
+      (r) => r.network === network && r.txHash === txHash && sameScope(r.scope, scope),
+    );
+    return Promise.resolve(row ?? null);
+  }
+
   recordSubmission(s: SubmissionRecord): Promise<void> {
     if (this.#on('starts_built') && s.state !== 'built') {
       return Promise.reject(refused('submission.state (not_built)'));
@@ -177,6 +188,25 @@ export class FakeAdapterStore implements AdapterStore {
     this.#submissions[at] = Object.freeze({ ...row, ...patch });
     if (next !== row.state) this.#moves.push({ txHash, from: row.state, to: next });
     return Promise.resolve();
+  }
+
+  landedSubmission(key: {
+    readonly scope: TenantScope;
+    readonly network: NetworkId;
+    readonly mandate: string;
+    readonly payoutId: PayoutId;
+  }): Promise<SubmissionRecord | null> {
+    const found = this.submissions.find(
+      (s) =>
+        s.state === 'landed' &&
+        s.op === 'execute' &&
+        s.network === key.network &&
+        s.mandate === key.mandate &&
+        s.payoutId === key.payoutId &&
+        s.scope.principalId === key.scope.principalId &&
+        s.scope.projectId === key.scope.projectId,
+    );
+    return Promise.resolve(found ?? null);
   }
 
   liveSubmission(key: {
