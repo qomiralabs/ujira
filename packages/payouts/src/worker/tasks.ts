@@ -36,18 +36,34 @@ function need(ids: Readonly<Record<string, string | undefined>>, name: string): 
 // order, and one slow mandate holds up nobody else.
 const mandateQueue = (ids: TaskIds): string => `mandate:${need(ids, 'mandateInstanceId')}`;
 
+// A payout goes on its mandate's queue rather than an instance's, because which
+// instance it settles on is what the job itself decides. One mandate has one instance
+// per chain, so with one chain live this is the same line.
+const payoutQueue = (ids: TaskIds): string => `mandate:${need(ids, 'mandateId')}`;
+
 export const PAYOUT_ADVANCE: TenantTask = {
   name: 'payout:advance',
-  ids: ['payoutId', 'mandateInstanceId'],
+  ids: ['payoutId', 'mandateId'],
   jobKey: (ids) => `payout:${need(ids, 'payoutId')}`,
-  queueName: mandateQueue,
+  queueName: payoutQueue,
 };
 
 export const BATCH_ADVANCE: TenantTask = {
   name: 'batch:advance',
-  ids: ['batchId', 'mandateInstanceId'],
+  ids: ['batchId', 'mandateId'],
   jobKey: (ids) => `batch:${need(ids, 'batchId')}`,
-  queueName: mandateQueue,
+  queueName: payoutQueue,
+};
+
+// One queue per principal and network, so releases run one at a time, and one key per
+// project, so a burst of deposits collapses into one job that sees all of them. The
+// project is in the key because a principal scoped key is shared across its projects.
+export const RELEASE_HELD: TenantTask = {
+  name: 'payouts:release_held',
+  ids: ['network', 'project'],
+  jobKey: (ids) => `release_held:${need(ids, 'project')}:${need(ids, 'network')}`,
+  queueName: (ids) => `release_held:${need(ids, 'network')}`,
+  scope: 'principal',
 };
 
 export const MANDATE_RECONCILE: TenantTask = {
@@ -72,6 +88,7 @@ export const TTL_KEEP_ALIVE: TenantTask = {
 export const TENANT_TASKS: readonly TenantTask[] = [
   PAYOUT_ADVANCE,
   BATCH_ADVANCE,
+  RELEASE_HELD,
   MANDATE_RECONCILE,
   TTL_KEEP_ALIVE,
 ];
@@ -82,6 +99,7 @@ export type { NetworkId };
 export const SYSTEM_TASKS = Object.freeze({
   indexerScan: 'indexer:scan',
   reconcileSweep: 'reconcile:sweep',
+  releaseSweep: 'payouts:release_sweep',
   submissionSweep: 'submissions:reconcile',
   ttlSweep: 'ttl:sweep',
   unlockStale: 'jobs:unlock_stale',

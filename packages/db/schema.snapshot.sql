@@ -852,6 +852,34 @@ $$;
 ALTER FUNCTION ujira.funding_hold_is_held() OWNER TO ujira_owner;
 
 --
+-- Name: funding_hold_targets(uuid, uuid, text, integer); Type: FUNCTION; Schema: ujira; Owner: ujira_scheduler
+--
+
+CREATE FUNCTION ujira.funding_hold_targets(p_after_principal uuid, p_after_project uuid, p_after_network text, p_limit integer) RETURNS TABLE(principal_id uuid, project_id uuid, network text)
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if p_limit is null or p_limit not between 1 and 500 then
+    raise exception using errcode = '22023', message = 'limit must be from 1 to 500';
+  end if;
+  return query
+    select distinct h.principal_id, h.project_id, h.network::text
+      from ujira.payout_funding_holds as h
+     where (h.principal_id, h.project_id, h.network::text) > (
+             coalesce(p_after_principal, '00000000-0000-0000-0000-000000000000'::uuid),
+             coalesce(p_after_project, '00000000-0000-0000-0000-000000000000'::uuid),
+             coalesce(p_after_network, '')
+           )
+     order by 1, 2, 3
+     limit p_limit;
+end
+$$;
+
+
+ALTER FUNCTION ujira.funding_hold_targets(p_after_principal uuid, p_after_project uuid, p_after_network text, p_limit integer) OWNER TO ujira_scheduler;
+
+--
 -- Name: keep_funding_sweep(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2413,8 +2441,10 @@ CREATE TABLE ujira.payout_attempts (
     status text DEFAULT 'created'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    fee_amount ujira.amount DEFAULT 0 NOT NULL,
     CONSTRAINT payout_attempts_chain_id_length CHECK (((char_length(on_chain_payout_id) >= 1) AND (char_length(on_chain_payout_id) <= 128))),
     CONSTRAINT payout_attempts_dead_has_proof CHECK (((status = 'dead'::text) = (dead_proof IS NOT NULL))),
+    CONSTRAINT payout_attempts_fee_not_negative CHECK (((fee_amount)::numeric >= (0)::numeric)),
     CONSTRAINT payout_attempts_network_on_chain CHECK ((split_part((network)::text, ':'::text, 1) = chain)),
     CONSTRAINT payout_attempts_number_range CHECK (((attempt_number >= 1) AND (attempt_number <= 1000000))),
     CONSTRAINT payout_attempts_proof_object CHECK (((dead_proof IS NULL) OR (jsonb_typeof(dead_proof) = 'object'::text))),
@@ -2495,12 +2525,27 @@ CREATE TABLE ujira.payout_legs (
     status text DEFAULT 'planned'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    rail text,
+    receive_amount ujira.amount,
+    receive_currency text,
+    receive_scale ujira.scale,
+    fx_numerator ujira.amount,
+    fx_denominator ujira.amount,
+    cost_bearer text,
+    quote_id text,
     CONSTRAINT payout_legs_address_length CHECK (((char_length(destination_address) >= 1) AND (char_length(destination_address) <= 128))),
     CONSTRAINT payout_legs_amount_positive CHECK (((amount)::numeric > (0)::numeric)),
+    CONSTRAINT payout_legs_cost_bearer CHECK ((cost_bearer = ANY (ARRAY['recipient'::text, 'principal'::text]))),
+    CONSTRAINT payout_legs_delivery_whole CHECK ((num_nonnulls(receive_amount, receive_currency, receive_scale, fx_numerator, fx_denominator, cost_bearer, quote_id) = ANY (ARRAY[0, 7]))),
     CONSTRAINT payout_legs_fee_not_negative CHECK (((fee_amount)::numeric >= (0)::numeric)),
+    CONSTRAINT payout_legs_fx_denominator_positive CHECK (((fx_denominator)::numeric > (0)::numeric)),
+    CONSTRAINT payout_legs_fx_numerator_positive CHECK (((fx_numerator)::numeric > (0)::numeric)),
     CONSTRAINT payout_legs_index_range CHECK (((leg_index >= 0) AND (leg_index <= 3))),
     CONSTRAINT payout_legs_key_format CHECK ((leg_key ~ '^[0-9a-f]{64}$'::text)),
     CONSTRAINT payout_legs_method CHECK ((method = ANY (ARRAY['stellar_wallet'::text, 'bank'::text, 'mobile_money'::text, 'cash_pickup'::text]))),
+    CONSTRAINT payout_legs_quote_id_length CHECK (((char_length(quote_id) >= 1) AND (char_length(quote_id) <= 128))),
+    CONSTRAINT payout_legs_rail_length CHECK (((char_length(rail) >= 1) AND (char_length(rail) <= 64))),
+    CONSTRAINT payout_legs_receive_positive CHECK (((receive_amount)::numeric > (0)::numeric)),
     CONSTRAINT payout_legs_status CHECK ((status = ANY (ARRAY['planned'::text, 'submitted'::text, 'settled'::text, 'delivering'::text, 'delivered'::text, 'failed'::text, 'cancelled'::text]))),
     CONSTRAINT payout_legs_tx_hash_length CHECK (((char_length(chain_tx_hash) >= 1) AND (char_length(chain_tx_hash) <= 128)))
 );
@@ -2580,9 +2625,11 @@ END) STORED NOT NULL,
     status_reason text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    refusal_code text,
     CONSTRAINT payouts_cashout_cost_bearer CHECK ((cashout_cost_bearer = ANY (ARRAY['recipient'::text, 'principal'::text]))),
     CONSTRAINT payouts_key_length CHECK (((char_length(idempotency_key) >= 1) AND (char_length(idempotency_key) <= 255))),
     CONSTRAINT payouts_method CHECK ((method = ANY (ARRAY['stellar_wallet'::text, 'bank'::text, 'mobile_money'::text, 'cash_pickup'::text]))),
+    CONSTRAINT payouts_refusal_code_format CHECK ((refusal_code ~ '^[A-Z][A-Z0-9_]{0,63}$'::text)),
     CONSTRAINT payouts_requested_positive CHECK (((requested_amount)::numeric > (0)::numeric)),
     CONSTRAINT payouts_requested_unit CHECK ((((cashout_cost_bearer = 'recipient'::text) AND (num_nonnulls(requested_asset, requested_chain, requested_token_scale) = 3) AND (num_nonnulls(requested_currency, requested_currency_scale) = 0)) OR ((cashout_cost_bearer = 'principal'::text) AND (num_nonnulls(requested_asset, requested_chain, requested_token_scale) = 0) AND (num_nonnulls(requested_currency, requested_currency_scale) = 2)))),
     CONSTRAINT payouts_status CHECK ((status = ANY (ARRAY['received'::text, 'routed'::text, 'submitting'::text, 'pending_approval'::text, 'approved'::text, 'settling'::text, 'delivering'::text, 'partly_paid'::text, 'paid'::text, 'needs_attention'::text, 'blocked'::text, 'rejected'::text, 'cancelled'::text, 'failed'::text]))),
@@ -5690,6 +5737,13 @@ CREATE POLICY scheduler_read ON ujira.payout_attempts FOR SELECT TO ujira_schedu
 
 
 --
+-- Name: payout_funding_holds scheduler_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY scheduler_read ON ujira.payout_funding_holds FOR SELECT TO ujira_scheduler USING (true);
+
+
+--
 -- Name: attestations signer_pending; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6764,6 +6818,14 @@ REVOKE ALL ON FUNCTION ujira.funding_hold_is_held() FROM PUBLIC;
 
 
 --
+-- Name: FUNCTION funding_hold_targets(p_after_principal uuid, p_after_project uuid, p_after_network text, p_limit integer); Type: ACL; Schema: ujira; Owner: ujira_scheduler
+--
+
+REVOKE ALL ON FUNCTION ujira.funding_hold_targets(p_after_principal uuid, p_after_project uuid, p_after_network text, p_limit integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.funding_hold_targets(p_after_principal uuid, p_after_project uuid, p_after_network text, p_limit integer) TO ujira_app;
+
+
+--
 -- Name: FUNCTION keep_funding_sweep(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -7331,6 +7393,27 @@ GRANT SELECT ON TABLE ujira.payout_funding_holds TO ujira_reader;
 
 
 --
+-- Name: COLUMN payout_funding_holds.principal_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(principal_id) ON TABLE ujira.payout_funding_holds TO ujira_scheduler;
+
+
+--
+-- Name: COLUMN payout_funding_holds.project_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(project_id) ON TABLE ujira.payout_funding_holds TO ujira_scheduler;
+
+
+--
+-- Name: COLUMN payout_funding_holds.network; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(network) ON TABLE ujira.payout_funding_holds TO ujira_scheduler;
+
+
+--
 -- Name: TABLE payout_legs; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -7408,6 +7491,13 @@ GRANT UPDATE(status) ON TABLE ujira.payouts TO ujira_app;
 --
 
 GRANT UPDATE(status_reason) ON TABLE ujira.payouts TO ujira_app;
+
+
+--
+-- Name: COLUMN payouts.refusal_code; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(refusal_code) ON TABLE ujira.payouts TO ujira_app;
 
 
 --

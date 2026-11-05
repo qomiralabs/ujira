@@ -70,6 +70,7 @@ export {
   type CreatedPayout,
   type FundingHold,
   type FundingHoldInput,
+  type NewLegDelivery,
   type NewPayout,
   type NetworkId,
   type NewPayoutAttempt,
@@ -91,7 +92,13 @@ export {
   type NewApproval,
   type PayoutLeg,
   type RecordedApproval,
+  type LegDelivery,
 } from './repositories/payout-legs.js';
+export {
+  payoutEngine,
+  payoutEngineRepositories,
+  type InstanceOfMandate,
+} from './repositories/payout-engine.js';
 export {
   managedSigners,
   signingKeys,
@@ -226,6 +233,7 @@ export {
   type DeadLetter,
   type NewDeadLetter,
   type QueueState,
+  type FundingHoldTarget,
   type ReconcileTarget,
   type TenantTx,
   type JobIds,

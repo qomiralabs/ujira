@@ -42,6 +42,19 @@ export type WorkerAlert =
       readonly deadLetterId: string;
       readonly reason: string;
     }
+  | {
+      readonly kind: 'payout_failed';
+      readonly principalId: string;
+      readonly projectId: string;
+      readonly payoutId: string;
+      readonly reason: string;
+    }
+  | {
+      readonly kind: 'payout_needs_attention';
+      readonly principalId: string;
+      readonly projectId: string;
+      readonly payoutId: string;
+    }
   | { readonly kind: 'job_exhausted'; readonly task: string; readonly jobId: string }
   | { readonly kind: 'locks_released'; readonly pools: readonly string[] }
   | { readonly kind: 'worker_fault'; readonly operation: string; readonly error: string };

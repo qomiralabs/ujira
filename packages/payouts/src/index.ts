@@ -2,6 +2,7 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 export * from './worker/index.js';
+export * from './engine/index.js';
 export {
   FEE_ESTIMATE_OPS,
   FEE_ESTIMATE_WINDOW_DAYS,

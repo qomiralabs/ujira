@@ -474,6 +474,7 @@ export interface UjiraPayoutAttempts {
   created_at: Generated<Timestamp>;
   dead_proof: Json | null;
   deadline: Timestamp;
+  fee_amount: Generated<Numeric>;
   id: Generated<string>;
   mandate_instance_id: string;
   network: string;
@@ -515,10 +516,13 @@ export interface UjiraPayoutLegs {
   attempt_id: string;
   chain: string;
   chain_tx_hash: string | null;
+  cost_bearer: string | null;
   created_at: Generated<Timestamp>;
   destination_address: string;
   destination_tag: Numeric | null;
   fee_amount: Generated<Numeric>;
+  fx_denominator: Numeric | null;
+  fx_numerator: Numeric | null;
   id: Generated<string>;
   leg_index: Int8;
   leg_key: Generated<string>;
@@ -527,6 +531,11 @@ export interface UjiraPayoutLegs {
   payout_method_id: string;
   principal_id: string;
   project_id: string;
+  quote_id: string | null;
+  rail: string | null;
+  receive_amount: Numeric | null;
+  receive_currency: string | null;
+  receive_scale: number | null;
   scale: number;
   status: Generated<string>;
   updated_at: Generated<Timestamp>;
@@ -562,6 +571,7 @@ export interface UjiraPayouts {
   project_id: string;
   public_status: Generated<string>;
   recipient_id: string;
+  refusal_code: string | null;
   request_hash: Buffer;
   requested_amount: Numeric;
   requested_asset: string | null;

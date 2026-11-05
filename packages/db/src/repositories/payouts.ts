@@ -553,12 +553,24 @@ export type NetworkId = string;
 export interface NewPayoutLeg {
   readonly payoutMethodId: string;
   readonly method: PayoutMinimumMethod;
+  // As the chain adapter names it.
+  readonly rail?: string;
   readonly destinationAddress: string;
   readonly destinationTag?: bigint | null;
   // In the attempt's unit, so raw token units.
   readonly amount: bigint;
   // What the rail charges on this leg, in the same unit.
   readonly fee?: bigint;
+  // What a cash-out delivers, for a leg an anchor pays out.
+  readonly delivery?: NewLegDelivery;
+}
+
+export interface NewLegDelivery {
+  readonly receive: Money;
+  readonly fxNumerator: bigint;
+  readonly fxDenominator: bigint;
+  readonly costBearer: CashoutCostBearer;
+  readonly quoteId: string;
 }
 
 export interface NewPayoutAttempt {
@@ -567,6 +579,8 @@ export interface NewPayoutAttempt {
   // Must be on the total's chain, or the database refuses it.
   readonly network: NetworkId;
   readonly total: TokenAmount;
+  // The take, on top of the total and in its unit. Zero when absent.
+  readonly fee?: TokenAmount;
   readonly deadline: Date;
   readonly onChainPayoutId?: string | null;
   // In leg order. They must sum to the total, or the commit is refused (UJ005).
@@ -580,6 +594,7 @@ export interface PayoutAttempt {
   readonly network: NetworkId;
   readonly mandateInstanceId: string;
   readonly total: TokenAmount;
+  readonly fee: TokenAmount;
   readonly onChainPayoutId: string | null;
   readonly deadline: Date;
   readonly deadProof: unknown;
@@ -595,6 +610,7 @@ const attemptColumns = [
   'network',
   'mandate_instance_id',
   'total_amount',
+  'fee_amount',
   'asset',
   'scale',
   'on_chain_payout_id',
@@ -612,6 +628,7 @@ function toAttempt(row: {
   network: string;
   mandate_instance_id: string;
   total_amount: string;
+  fee_amount: string;
   asset: string;
   scale: number;
   on_chain_payout_id: string | null;
@@ -629,6 +646,12 @@ function toAttempt(row: {
     mandateInstanceId: row.mandate_instance_id,
     total: tokenFromRow({
       amount: row.total_amount,
+      asset: row.asset,
+      chain: row.chain,
+      scale: row.scale,
+    }),
+    fee: tokenFromRow({
+      amount: row.fee_amount,
       asset: row.asset,
       chain: row.chain,
       scale: row.scale,
@@ -668,6 +691,7 @@ export const payoutAttempts = {
         network: input.network,
         mandate_instance_id: input.mandateInstanceId,
         total_amount: amountParam(input.total),
+        fee_amount: input.fee === undefined ? '0' : amountParam(input.fee),
         asset: input.total.asset,
         scale: input.total.scale,
         on_chain_payout_id: input.onChainPayoutId ?? null,
@@ -695,6 +719,7 @@ export const payoutAttempts = {
           leg_index: index,
           payout_method_id: leg.payoutMethodId,
           method: leg.method,
+          rail: leg.rail ?? null,
           destination_address: leg.destinationAddress,
           destination_tag: leg.destinationTag?.toString() ?? null,
           amount: leg.amount.toString(),
@@ -702,6 +727,13 @@ export const payoutAttempts = {
           asset: input.total.asset,
           scale: input.total.scale,
           fee_amount: (leg.fee ?? 0n).toString(),
+          receive_amount: leg.delivery === undefined ? null : amountParam(leg.delivery.receive),
+          receive_currency: leg.delivery?.receive.currency ?? null,
+          receive_scale: leg.delivery?.receive.scale ?? null,
+          fx_numerator: leg.delivery?.fxNumerator.toString() ?? null,
+          fx_denominator: leg.delivery?.fxDenominator.toString() ?? null,
+          cost_bearer: leg.delivery?.costBearer ?? null,
+          quote_id: leg.delivery?.quoteId ?? null,
         })),
       )
       .execute();

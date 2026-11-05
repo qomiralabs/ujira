@@ -207,7 +207,35 @@ export interface ReconcileTarget {
   readonly mandateInstanceId: string;
 }
 
+export interface FundingHoldTarget {
+  readonly principalId: string;
+  readonly projectId: string;
+  readonly network: string;
+}
+
 export const cronTargets = {
+  // Every project and network with a payout on hold. Keyset paged from `after`.
+  fundingHolds: async (
+    tx: Tx,
+    after: FundingHoldTarget | undefined,
+    limit: number,
+  ): Promise<readonly FundingHoldTarget[]> => {
+    const result = await sql<{ principal_id: string; project_id: string; network: string }>`
+      select principal_id, project_id, network
+        from ujira.funding_hold_targets(
+          ${after?.principalId ?? null}::uuid,
+          ${after?.projectId ?? null}::uuid,
+          ${after?.network ?? null}::text,
+          ${limit}
+        )
+    `.execute(tx);
+    return result.rows.map((row) => ({
+      principalId: row.principal_id,
+      projectId: row.project_id,
+      network: row.network,
+    }));
+  },
+
   reconcile: async (
     tx: Tx,
     after: string | undefined,

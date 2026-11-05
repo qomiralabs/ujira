@@ -22,11 +22,15 @@
   },
   "dependencies": {
     "@ujira/chain-adapter": "workspace:*",
+    "@ujira/core": "workspace:*",
     "@ujira/db": "workspace:*",
+    "@ujira/receipts": "workspace:*",
+    "@ujira/router": "workspace:*",
     "graphile-worker": "0.18.0",
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@ujira/mandates": "workspace:*",
     "fast-check": "4.10.2"
   }
 }
