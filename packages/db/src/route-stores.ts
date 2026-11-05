@@ -11,16 +11,20 @@ import type {
   MandateInstance,
   MandateInstances,
   ReleaseTarget,
+  RouteLeg,
   RouteRequest,
+  RoutedOutcome,
   VerifiedDestination,
   VerifiedDestinations,
 } from '@ujira/router';
-import { isTokenAsset, tokenAmount } from '@ujira/core';
+import { compare, isTokenAsset, tokenAmount } from '@ujira/core';
 import type { TokenAmount } from '@ujira/core';
 
 import type { Database } from './database.js';
 import { mandateInstances } from './repositories/mandates.js';
+import { payoutLegs } from './repositories/payout-legs.js';
 import { fundingHolds, payoutAttempts, payouts } from './repositories/payouts.js';
+import type { NewPayoutLeg } from './repositories/payouts.js';
 import { recipients } from './repositories/recipients.js';
 import { routing } from './repositories/routing.js';
 import { projects } from './repositories/tenancy.js';
@@ -62,6 +66,16 @@ export class HeldPayoutUnreadableError extends Error {
   }
 }
 
+/** A route naming a method its recipient cannot be paid by, as of this transaction. */
+export class RouteLegMethodError extends Error {
+  override readonly name = 'RouteLegMethodError';
+  readonly code = 'ROUTE_LEG_METHOD';
+
+  constructor() {
+    super('A route leg names a method that cannot pay this recipient');
+  }
+}
+
 /** A mandate instance on a contract version the router cannot address. */
 export class UnsupportedSpecVersionError extends Error {
   override readonly name = 'UnsupportedSpecVersionError';
@@ -70,6 +84,34 @@ export class UnsupportedSpecVersionError extends Error {
   constructor() {
     super('The mandate instance is on an unsupported spec version');
   }
+}
+
+// The route says which method. Where the money goes comes from the method's row, read
+// here in the transaction that creates the attempt, because a method can be disabled or
+// a recipient blocked after the route was chosen, and a wrong address cannot be recalled.
+async function legsOfRoute(
+  tx: Parameters<typeof payouts.get>[0],
+  payoutId: string,
+  route: RoutedOutcome,
+): Promise<readonly NewPayoutLeg[]> {
+  const payout = await payouts.get(tx, payoutId);
+  if (payout === undefined) throw new HeldPayoutUnreadableError();
+  const usable = await routing.usableMethods(tx, payout.recipientId);
+  return route.legs.map((leg) => {
+    // A leg is stored in raw units of the total, so another unit would be misread.
+    compare(leg.amount, route.total);
+    const method = usable.find((row) => row.id === leg.recipientMethodId);
+    if (method?.method !== leg.method || method.chain !== route.total.chain) {
+      throw new RouteLegMethodError();
+    }
+    return {
+      payoutMethodId: method.id,
+      method: leg.method,
+      destinationAddress: method.destinationAddress,
+      destinationTag: method.destinationTag,
+      amount: leg.amount.amount,
+    };
+  });
 }
 
 export function createRouteStores(options: RouteStoreOptions): RouteStores {
@@ -120,8 +162,8 @@ export function createRouteStores(options: RouteStoreOptions): RouteStores {
       }));
     },
 
-    // All or nothing, in one transaction: the move, the attempt, and every hold row
-    // of the payout on every network. If the attempt is refused, nothing moved.
+    // All or nothing, in one transaction: the move, the attempt with its legs, and every
+    // hold row of the payout on every network. If any of it is refused, nothing moved.
     async release(scope, payoutId, route, opts) {
       opts.signal.throwIfAborted();
       return db.tenant(scope).transaction(async (tx) => {
@@ -132,6 +174,7 @@ export function createRouteStores(options: RouteStoreOptions): RouteStores {
           network: route.network,
           total: route.total,
           deadline: attemptDeadline(),
+          legs: await legsOfRoute(tx, payoutId, route),
         });
         await fundingHolds.release(tx, payoutId);
         return true;
@@ -167,21 +210,28 @@ export function createRouteStores(options: RouteStoreOptions): RouteStores {
         if (recipient === undefined || settings === undefined || total === null) {
           throw new HeldPayoutUnreadableError();
         }
+        // A payout routed before keeps the split it had. A hold has no legs of its own,
+        // so one that was never routed has only its main method to go on.
+        const last = (await payoutAttempts.forPayout(tx, payoutId)).at(-1);
+        const earlier = last === undefined ? [] : await payoutLegs.forAttempt(tx, last.id);
+        const asked = requested.kind === 'fiat' ? { currency: requested.currency } : {};
+        const legs: readonly RouteLeg[] =
+          earlier.length > 0
+            ? earlier.map((leg) => ({
+                method: leg.method as PayoutMethodName,
+                ...(earlier.length === 1 ? asked : {}),
+                amount: leg.amount,
+              }))
+            : [{ method: payout.method as PayoutMethodName, ...asked, amount: total }];
         return {
           scope,
           mandateId: payout.mandateId as Uuid,
           recipientId: payout.recipientId as Uuid,
           country: recipient.country,
           total,
-          // One leg on the main method. Asked for in local currency, the corridor
-          // must deliver that currency; asked for in the token, the corridor decides.
-          legs: [
-            {
-              method: payout.method as PayoutMethodName,
-              ...(requested.kind === 'fiat' ? { currency: requested.currency } : {}),
-              amount: total,
-            },
-          ],
+          // Asked for in local currency, the corridor must deliver that currency; asked
+          // for in the token, the corridor decides.
+          legs,
           chainFallback: settings.chainFallback,
           correlationId: payoutId,
         };

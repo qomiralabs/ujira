@@ -148,6 +148,7 @@ export {
 } from './repositories/recipients.js';
 export {
   HeldPayoutUnreadableError,
+  RouteLegMethodError,
   UnsupportedSpecVersionError,
   createRouteStores,
   type RouteStoreOptions,

@@ -13,6 +13,8 @@
  * - A job killed after a release and run again does not promise the same funds
  *   twice, because what is routed but not on chain comes off the balance.
  * - One tenant can neither see nor move another tenant's holds.
+ * - A release writes one leg per route leg, with the destination from the method the
+ *   recipient proved and never from the route, and a refused leg moves nothing.
  */
 
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -27,22 +29,35 @@ import type {
   RouteRequest,
   RoutedOutcome,
   RoutingConfig,
+  SelectedLeg,
 } from '@ujira/router';
 
 import type { Database } from './database.js';
-import { fundingHolds, payoutAttempts, payouts } from './repositories/payouts.js';
+import { payoutLegs } from './repositories/payout-legs.js';
+import {
+  AttemptWithoutLegsError,
+  LiveAttemptError,
+  fundingHolds,
+  payoutAttempts,
+  payouts,
+} from './repositories/payouts.js';
 import { mandateInstances, mandates } from './repositories/mandates.js';
 import { payoutMethods, recipients } from './repositories/recipients.js';
 import { PageRequestError } from './repositories/page.js';
 import { routing } from './repositories/routing.js';
 import { projects } from './repositories/tenancy.js';
-import { HeldPayoutUnreadableError, createRouteStores } from './route-stores.js';
+import {
+  HeldPayoutUnreadableError,
+  RouteLegMethodError,
+  createRouteStores,
+} from './route-stores.js';
 import type { RouteStores } from './route-stores.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
 import {
   ONE_USDC,
   TESTNET,
+  newAttempt,
   newPayout,
   payoutFixture,
   usdc,
@@ -117,6 +132,17 @@ async function heldPayout(
   return id;
 }
 
+function legOn(methodId: string, amount: bigint): SelectedLeg {
+  return {
+    method: 'stellar_wallet',
+    currency: 'USDC',
+    amount: usdc(amount),
+    railConfigId: 'wallet',
+    rail: 'stellar.wallet',
+    recipientMethodId: methodId as Id,
+  };
+}
+
 function routeFor(fixture: PayoutFixture, network: string = TESTNET): RoutedOutcome {
   const net = network as Network;
   return {
@@ -125,7 +151,7 @@ function routeFor(fixture: PayoutFixture, network: string = TESTNET): RoutedOutc
     mandateInstanceId: fixture.instanceId,
     mandate: { network: net, address: { network: net, value: 'C1' }, specVersion: 1 },
     total: usdc(FIVE),
-    legs: [],
+    legs: [legOn(fixture.methodId, FIVE)],
     charged: usdc(FIVE),
     collapsed: false,
     methodFallback: false,
@@ -304,18 +330,12 @@ describe('all or nothing', () => {
     const fixture = await payoutFixture(db);
     const id = await heldPayout(fixture);
     // A live attempt already there: the one live attempt index is the backstop.
-    await db.tenant(fixture.tenant).transaction((tx) =>
-      payoutAttempts.create(tx, {
-        payoutId: id,
-        mandateInstanceId: fixture.instanceId,
-        network: TESTNET,
-        total: usdc(FIVE),
-        deadline: new Date(Date.now() + 3_600_000),
-      }),
-    );
+    await db
+      .tenant(fixture.tenant)
+      .transaction((tx) => payoutAttempts.create(tx, newAttempt(fixture, id)));
     await expect(
       stores.holds.release(scopeOf(fixture), id, routeFor(fixture), OPTS),
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(LiveAttemptError);
     const { payout, attempts, holds } = await stateOf(fixture, id);
     expect(payout?.status).toBe('received');
     expect(payout?.statusReason).toBe('awaiting_funding');
@@ -346,6 +366,232 @@ describe('all or nothing', () => {
     expect(rerun.waiting).toEqual([second]);
     expect((await stateOf(fixture, first)).attempts).toHaveLength(1);
     expect((await stateOf(fixture, second)).payout?.statusReason).toBe('awaiting_funding');
+  });
+});
+
+async function legsOf(fixture: PayoutFixture, id: string) {
+  return db.tenant(fixture.tenant).transaction(async (tx) => {
+    const attempts = await payoutAttempts.forPayout(tx, id);
+    const legs = await Promise.all(attempts.map((a) => payoutLegs.forAttempt(tx, a.id)));
+    return legs.flat();
+  });
+}
+
+async function expectStillHeld(fixture: PayoutFixture, id: string) {
+  const { payout, attempts, holds } = await stateOf(fixture, id);
+  expect(payout?.status).toBe('received');
+  expect(payout?.statusReason).toBe('awaiting_funding');
+  expect(attempts).toEqual([]);
+  expect(holds.map((h) => h.payoutId)).toContain(id);
+  expect(await legsOf(fixture, id)).toEqual([]);
+}
+
+describe('the legs of a release', () => {
+  it('writes one leg per route leg, in order, on the proven destination', async () => {
+    const fixture = await payoutFixture(db);
+    const id = await heldPayout(fixture);
+    const [first, second] = fixture.methods;
+    if (first === undefined || second === undefined) throw new Error('two methods');
+    const route = {
+      ...routeFor(fixture),
+      legs: [legOn(first.id, 2n * ONE_USDC), legOn(second.id, 3n * ONE_USDC)],
+    };
+
+    expect(await stores.holds.release(scopeOf(fixture), id, route, OPTS)).toBe(true);
+
+    const legs = await legsOf(fixture, id);
+    expect(
+      legs.map((leg) => [leg.index, leg.payoutMethodId, leg.destinationAddress, leg.status]),
+    ).toEqual([
+      [0, first.id, first.destinationAddress, 'planned'],
+      [1, second.id, second.destinationAddress, 'planned'],
+    ]);
+    expect(legs.map((leg) => leg.amount)).toEqual([usdc(2n * ONE_USDC), usdc(3n * ONE_USDC)]);
+    expect(legs.every((leg) => leg.fee.amount === 0n)).toBe(true);
+  });
+
+  it('carries the tag of the method', async () => {
+    const fixture = await payoutFixture(db);
+    const id = await heldPayout(fixture);
+    const tag = 2n ** 64n - 1n;
+    const tagged = await db.tenant(fixture.tenant).transaction((tx) =>
+      payoutMethods.create(tx, {
+        recipientId: fixture.recipientId,
+        method: 'stellar_wallet',
+        rail: 'wallet',
+        chain: 'stellar',
+        destinationAddress: `G${randomUUID()}`,
+        destinationTag: tag,
+        details: null,
+      }),
+    );
+    const route = { ...routeFor(fixture), legs: [legOn(tagged.id, FIVE)] };
+
+    expect(await stores.holds.release(scopeOf(fixture), id, route, OPTS)).toBe(true);
+
+    expect((await legsOf(fixture, id)).map((leg) => leg.destinationTag)).toEqual([tag]);
+  });
+
+  it('writes one set of legs however many releases race', async () => {
+    const fixture = await payoutFixture(db);
+    const id = await heldPayout(fixture);
+    const outcomes = await Promise.all(
+      Array.from({ length: 20 }, () =>
+        stores.holds.release(scopeOf(fixture), id, routeFor(fixture), OPTS),
+      ),
+    );
+    expect(outcomes.filter(Boolean)).toHaveLength(1);
+    expect(await legsOf(fixture, id)).toHaveLength(1);
+  });
+
+  it('writes the leg the real router selected', async () => {
+    const fixture = await fixtureWithWallet();
+    const id = await heldPayout(fixture);
+
+    const result = await runReleaseHeld(
+      targetOf(fixture),
+      releaseDeps(() => FIVE),
+    );
+
+    expect(result.released).toEqual([id]);
+    const legs = await legsOf(fixture, id);
+    expect(legs).toHaveLength(1);
+    expect(legs[0]?.amount).toEqual(usdc(FIVE));
+  });
+
+  it('stays held when the legs do not add up to the total', async () => {
+    const fixture = await payoutFixture(db);
+    const id = await heldPayout(fixture);
+    const route = { ...routeFor(fixture), legs: [legOn(fixture.methodId, FIVE - 1n)] };
+    await expect(stores.holds.release(scopeOf(fixture), id, route, OPTS)).rejects.toMatchObject({
+      code: 'UJ005',
+    });
+    await expectStillHeld(fixture, id);
+  });
+
+  it('stays held when the route has no legs', async () => {
+    const fixture = await payoutFixture(db);
+    const id = await heldPayout(fixture);
+    const route = { ...routeFor(fixture), legs: [] };
+    await expect(stores.holds.release(scopeOf(fixture), id, route, OPTS)).rejects.toBeInstanceOf(
+      AttemptWithoutLegsError,
+    );
+    await expectStillHeld(fixture, id);
+  });
+
+  it('stays held rather than pay a method of another recipient', async () => {
+    const fixture = await payoutFixture(db);
+    const id = await heldPayout(fixture);
+    const someoneElse = await db.tenant(fixture.tenant).transaction(async (tx) => {
+      const recipient = await recipients.create(tx, {
+        recipientRef: randomBytes(32),
+        country: 'NG',
+      });
+      return payoutMethods.create(tx, {
+        recipientId: recipient.id,
+        method: 'stellar_wallet',
+        rail: 'wallet',
+        chain: 'stellar',
+        destinationAddress: `G${randomUUID()}`,
+        destinationTag: null,
+        details: null,
+      });
+    });
+    const route = { ...routeFor(fixture), legs: [legOn(someoneElse.id, FIVE)] };
+    await expect(stores.holds.release(scopeOf(fixture), id, route, OPTS)).rejects.toBeInstanceOf(
+      RouteLegMethodError,
+    );
+    await expectStillHeld(fixture, id);
+  });
+
+  it('stays held rather than pay a method of another tenant', async () => {
+    const fixture = await payoutFixture(db);
+    const other = await payoutFixture(db);
+    const id = await heldPayout(fixture);
+    const route = { ...routeFor(fixture), legs: [legOn(other.methodId, FIVE)] };
+    await expect(stores.holds.release(scopeOf(fixture), id, route, OPTS)).rejects.toBeInstanceOf(
+      RouteLegMethodError,
+    );
+    await expectStillHeld(fixture, id);
+  });
+
+  it('stays held when the method was disabled after the route was chosen', async () => {
+    const fixture = await payoutFixture(db);
+    const id = await heldPayout(fixture);
+    await db
+      .tenant(fixture.tenant)
+      .transaction((tx) => payoutMethods.disable(tx, fixture.methodId));
+    await expect(
+      stores.holds.release(scopeOf(fixture), id, routeFor(fixture), OPTS),
+    ).rejects.toBeInstanceOf(RouteLegMethodError);
+    await expectStillHeld(fixture, id);
+  });
+
+  it('stays held when the recipient was suspended after the route was chosen', async () => {
+    const fixture = await payoutFixture(db);
+    const id = await heldPayout(fixture);
+    await db
+      .tenant(fixture.tenant)
+      .transaction((tx) => recipients.setStatus(tx, fixture.recipientId, 'suspended'));
+    await expect(
+      stores.holds.release(scopeOf(fixture), id, routeFor(fixture), OPTS),
+    ).rejects.toBeInstanceOf(RouteLegMethodError);
+    await expectStillHeld(fixture, id);
+  });
+
+  it('stays held when the route names another kind of method than the one it found', async () => {
+    const fixture = await payoutFixture(db);
+    const id = await heldPayout(fixture);
+    const route = {
+      ...routeFor(fixture),
+      legs: [{ ...legOn(fixture.methodId, FIVE), method: 'bank' as const }],
+    };
+    await expect(stores.holds.release(scopeOf(fixture), id, route, OPTS)).rejects.toBeInstanceOf(
+      RouteLegMethodError,
+    );
+    await expectStillHeld(fixture, id);
+  });
+
+  it('stays held rather than read a leg in another unit as raw units of the total', async () => {
+    const fixture = await payoutFixture(db);
+    const id = await heldPayout(fixture);
+    const leg = legOn(fixture.methodId, FIVE);
+    const route = {
+      ...routeFor(fixture),
+      legs: [{ ...leg, amount: { ...leg.amount, scale: 2 } }],
+    };
+    await expect(stores.holds.release(scopeOf(fixture), id, route, OPTS)).rejects.toThrow(
+      /scale|unit|currency/i,
+    );
+    await expectStillHeld(fixture, id);
+  });
+
+  it('routes a payout again on the legs of its dead attempt', async () => {
+    const fixture = await payoutFixture(db);
+    const id = await heldPayout(fixture);
+    const [first, second] = fixture.methods;
+    if (first === undefined || second === undefined) throw new Error('two methods');
+    const route = {
+      ...routeFor(fixture),
+      legs: [legOn(first.id, 2n * ONE_USDC), legOn(second.id, 3n * ONE_USDC)],
+    };
+    await stores.holds.release(scopeOf(fixture), id, route, OPTS);
+    await db.tenant(fixture.tenant).transaction(async (tx) => {
+      const [attempt] = await payoutAttempts.forPayout(tx, id);
+      if (attempt === undefined) throw new Error('an attempt');
+      await payoutAttempts.markDead(tx, attempt.id, {
+        from: 'created',
+        proof: { kind: 'deadline_passed' },
+      });
+      await payouts.transition(tx, id, { from: 'routed', to: 'received' });
+    });
+
+    const request = await stores.holds.requestOf(scopeOf(fixture), id, OPTS);
+
+    expect(request.legs.map((leg) => [leg.method, leg.amount])).toEqual([
+      ['stellar_wallet', usdc(2n * ONE_USDC)],
+      ['stellar_wallet', usdc(3n * ONE_USDC)],
+    ]);
   });
 });
 
@@ -536,7 +782,7 @@ describe('reading', () => {
     await db
       .tenant(fixture.tenant)
       .transaction((tx) => payoutMethods.disable(tx, method.recipientMethodId));
-    expect(await list()).toEqual([]);
+    expect((await list()).map((m) => m.recipientMethodId)).not.toContain(method.recipientMethodId);
 
     const suspended = await fixtureWithWallet();
     await admin.query(`update ujira.recipients set status = 'suspended' where id = $1`, [

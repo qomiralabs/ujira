@@ -42,6 +42,9 @@ export interface UsableMethod {
   readonly method: string;
   readonly rail: string;
   readonly chain: string;
+  readonly destinationAddress: string;
+  // Exact: a tag runs to 2^64 - 1, past what a number can hold.
+  readonly destinationTag: bigint | null;
 }
 
 function heldBatch(limit: number): number {
@@ -177,14 +180,28 @@ export const routing = {
           .onRef('r.project_id', '=', 'm.project_id')
           .onRef('r.id', '=', 'm.recipient_id'),
       )
-      .select(['m.id', 'm.method', 'm.rail', 'm.chain'])
+      .select([
+        'm.id',
+        'm.method',
+        'm.rail',
+        'm.chain',
+        'm.destination_address',
+        'm.destination_tag',
+      ])
       .where('m.recipient_id', '=', recipientId)
       .where('m.status', '=', 'active')
       .where('r.status', '=', 'active')
       .orderBy('m.created_at')
       .orderBy('m.id')
       .execute();
-    return rows;
+    return rows.map((row) => ({
+      id: row.id,
+      method: row.method,
+      rail: row.rail,
+      chain: row.chain,
+      destinationAddress: row.destination_address,
+      destinationTag: row.destination_tag === null ? null : BigInt(row.destination_tag),
+    }));
   },
 };
 
