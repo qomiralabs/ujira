@@ -25,6 +25,10 @@ const PII_TABLE_PLAIN_COLUMNS: ReadonlySet<string> = new Set([
   'updated_at',
 ]);
 
+export function readsLikePersonalData(column: string): boolean {
+  return PERSONAL_DATA.test(column);
+}
+
 export async function piiColumnProblems(client: pg.ClientBase): Promise<string[]> {
   const columns = (
     await client.query<{ table_name: string; column_name: string; type: string }>(

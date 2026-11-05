@@ -17,7 +17,10 @@ import { audit } from './repositories/audit.js';
 import { entryPoints, type CreatedPrincipal } from './repositories/entry-points.js';
 import { ledger } from './repositories/ledger.js';
 import { chainEvents, deposits, mandateInstances, mandates } from './repositories/mandates.js';
+import { approvals } from './repositories/payout-legs.js';
+import { payoutAttempts, payouts } from './repositories/payouts.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
+import { newAttempt, newPayout, payoutFixture } from './testing/payout-fixture.js';
 import {
   createTestDatabase,
   roleUrl,
@@ -30,6 +33,7 @@ const roleUrls = inject('dbRoleUrls');
 
 // Every append only table with a row in it, and a change to try on each.
 const CHANGES: Readonly<Record<string, string>> = {
+  'ujira.approvals': `decision = 'rejected'`,
   'ujira.audit_log': `action = 'changed.action'`,
   'ujira.chain_events': `event_type = 'changed'`,
   'ujira.deposits': `from_address = 'changed'`,
@@ -144,6 +148,18 @@ beforeAll(async () => {
     .transaction(async (tx) =>
       audit.record(tx, { action: 'project.created', actor: { kind: 'system' } }),
     );
+  const fixture = await payoutFixture(db);
+  await db.tenant(fixture.tenant).transaction(async (tx) => {
+    const { payout } = await payouts.create(tx, newPayout(fixture));
+    const attempt = await payoutAttempts.create(tx, newAttempt(fixture, payout.id));
+    await approvals.record(tx, {
+      attemptId: attempt.id,
+      approver: 'GAPPROVER',
+      decision: 'approved',
+      signedMessageHash: randomBytes(32),
+      signature: randomBytes(64),
+    });
+  });
 });
 
 afterAll(async () => {
@@ -182,6 +198,22 @@ describe('append only tables', () => {
       }
     }
     expect(await count('ujira.chain_events')).toBe('1');
+  });
+
+  it('approvals cannot be updated or deleted', async () => {
+    for (const [name, statement] of mutations('ujira.approvals')) {
+      const admin = new pg.Client({ connectionString: database.url });
+      await admin.connect();
+      try {
+        await admin.query('begin');
+        await admin.query('set local role ujira_owner');
+        expect(await codeOf(admin.query(statement)), `owner ${name}`).toBe('UJ002');
+        await admin.query('rollback');
+      } finally {
+        await admin.end();
+      }
+    }
+    expect(await count('ujira.approvals')).toBe('1');
   });
 
   it.each(TABLES)('%s refuses the same from the indexer and the owner', async (table) => {

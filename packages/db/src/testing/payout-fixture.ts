@@ -11,13 +11,15 @@ import { tokenAmount, type TokenAmount } from '@ujira/core';
 import type { Database } from '../database.js';
 import { entryPoints, type CreatedPrincipal } from '../repositories/entry-points.js';
 import { mandateInstances, mandates } from '../repositories/mandates.js';
-import type { NewPayout } from '../repositories/payouts.js';
-import { recipients } from '../repositories/recipients.js';
+import type { NewPayout, NewPayoutAttempt, NewPayoutLeg } from '../repositories/payouts.js';
+import { payoutMethods, recipients } from '../repositories/recipients.js';
 
 export interface PayoutFixture {
   readonly tenant: CreatedPrincipal;
   readonly memberId: string;
   readonly recipientId: string;
+  readonly methodId: string;
+  readonly destinationAddress: string;
   readonly mandateId: string;
   readonly instanceId: string;
 }
@@ -51,9 +53,52 @@ export async function payoutFixture(db: Database): Promise<PayoutFixture> {
       asset: 'USDC',
       scale: 7,
     });
-    return { recipientId: recipient.id, mandateId: mandate.id, instanceId: instance.id };
+    const destinationAddress = `G${randomUUID()}`;
+    const method = await payoutMethods.create(tx, {
+      recipientId: recipient.id,
+      method: 'stellar_wallet',
+      rail: 'wallet',
+      chain: 'stellar',
+      destinationAddress,
+      destinationTag: null,
+      details: null,
+    });
+    return {
+      recipientId: recipient.id,
+      methodId: method.id,
+      destinationAddress,
+      mandateId: mandate.id,
+      instanceId: instance.id,
+    };
   });
   return { tenant, memberId, ...rows };
+}
+
+export function newLeg(fixture: PayoutFixture, amount: bigint): NewPayoutLeg {
+  return {
+    payoutMethodId: fixture.methodId,
+    method: 'stellar_wallet',
+    destinationAddress: fixture.destinationAddress,
+    amount,
+  };
+}
+
+// One leg carrying the whole total, unless the caller says otherwise.
+export function newAttempt(
+  fixture: PayoutFixture,
+  payoutId: string,
+  overrides: Partial<NewPayoutAttempt> = {},
+): NewPayoutAttempt {
+  const total = overrides.total ?? usdc(5n * ONE_USDC);
+  return {
+    payoutId,
+    mandateInstanceId: fixture.instanceId,
+    network: TESTNET,
+    total,
+    deadline: new Date(Date.now() + 3_600_000),
+    legs: [newLeg(fixture, total.amount)],
+    ...overrides,
+  };
 }
 
 export function newPayout(fixture: PayoutFixture, overrides: Partial<NewPayout> = {}): NewPayout {

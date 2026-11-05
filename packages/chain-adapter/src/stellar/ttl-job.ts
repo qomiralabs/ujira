@@ -170,7 +170,7 @@ const payloadSchema = z.strictObject({
   principalId: z.string().regex(UUID),
   projectId: z.string().regex(UUID),
   network: z.enum(['stellar:pubnet', 'stellar:testnet']),
-  mandate: z.string().refine(isContractAddress),
+  mandateRef: z.string().refine(isContractAddress),
 });
 
 export type TtlKeepAlivePayload = z.infer<typeof payloadSchema>;
@@ -371,12 +371,14 @@ export interface KeepAliveTargets {
 /**
  * The queue task. Its name and job key are fixed so one queued job per
  * tenant and mandate can exist at a time; attempts and the dead letter
- * path are the queue's.
+ * path are the queue's. The name has a colon, because the queue and the crontab
+ * parser refuse a dot, and the key names no tenant, because the queue puts the
+ * tenant in front of every key itself.
  */
 export const TTL_KEEP_ALIVE_TASK = Object.freeze({
-  name: 'chain_adapter.ttl_keep_alive',
-  jobKey: (payload: TtlKeepAlivePayload): string =>
-    `ttl:${payload.principalId}:${payload.projectId}:${payload.network}:${payload.mandate}`,
+  name: 'ttl:keep_alive',
+  jobKey: (payload: Pick<TtlKeepAlivePayload, 'network' | 'mandateRef'>): string =>
+    `ttl:${payload.network}:${payload.mandateRef}`,
 });
 
 /** The task handler: validates the payload, loads the target and runs one pass. */
@@ -386,7 +388,7 @@ export function ttlKeepAliveTask(
   return async (payload) => {
     const parsed = payloadSchema.safeParse(payload);
     if (!parsed.success) throw issuesOf(parsed.error, 'payload');
-    const { principalId, projectId, network, mandate } = parsed.data;
+    const { principalId, projectId, network, mandateRef: mandate } = parsed.data;
     const scope = { principalId, projectId } as TenantScope;
     const target = await deps.targets.load(scope, network, mandate);
     // A loader bug must not keep another mandate alive on this tenant's budget.

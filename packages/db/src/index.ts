@@ -40,6 +40,7 @@ export {
 } from './repositories/tenancy.js';
 export {
   AmountBelowMinimumError,
+  checkMinimum,
   MinimumNotComparableError,
   PAYOUT_MINIMUM_METHODS,
   requiredMinimum,
@@ -55,6 +56,7 @@ export {
   fundingHolds,
   IdempotencyConflictError,
   IllegalTransitionError,
+  AttemptWithoutLegsError,
   LiveAttemptError,
   PAYOUT_STATUS_VALUES,
   payoutAttempts,
@@ -69,6 +71,7 @@ export {
   type CreatedPayout,
   type FundingHold,
   type FundingHoldInput,
+  type NewLegDelivery,
   type NewPayout,
   type NetworkId,
   type NewPayoutAttempt,
@@ -77,8 +80,27 @@ export {
   type PayoutBatch,
   type PayoutStatusReason,
   type PayoutStatusValue,
+  type NewPayoutLeg,
   type ProjectPayoutMinimum,
 } from './repositories/payouts.js';
+export {
+  approvals,
+  LEG_STATUS_VALUES,
+  payoutLegs,
+  type Approval,
+  type ApprovalDecision,
+  type LegStatusValue,
+  type NewApproval,
+  type PayoutLeg,
+  type RecordedApproval,
+  liveLegs,
+  type LegDelivery,
+} from './repositories/payout-legs.js';
+export {
+  payoutEngine,
+  payoutEngineRepositories,
+  type InstanceOfMandate,
+} from './repositories/payout-engine.js';
 export {
   managedSigners,
   signingKeys,
@@ -223,6 +245,24 @@ export {
   type NewMandateInstance,
   type RoleGrant,
 } from './repositories/mandates.js';
+export {
+  cronTargets,
+  deadLetters,
+  jobPayloadProblems,
+  jobQueue,
+  workerPools,
+  type DeadLetter,
+  type NewDeadLetter,
+  type QueueState,
+  type FundingHoldTarget,
+  type ReconcileTarget,
+  type TenantTx,
+  type JobIds,
+  type JobKeyMode,
+  type JobScope,
+  type JobSpec,
+  type TaskName,
+} from './repositories/jobs.js';
 export {
   CONNECTION_BUDGET,
   loadDatabaseConfig,
