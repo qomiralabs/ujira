@@ -34,7 +34,8 @@ export function usdc(amount: bigint): TokenAmount {
 
 export const ONE_USDC = 10_000_000n;
 
-const MAX_LEGS = 4;
+// One more than an attempt may have, so a test can try a fifth.
+const METHODS = 5;
 
 // The network every fixture instance is on.
 export const TESTNET = 'stellar:testnet';
@@ -59,7 +60,7 @@ export async function payoutFixture(db: Database): Promise<PayoutFixture> {
       scale: 7,
     });
     const methods: { id: string; destinationAddress: string }[] = [];
-    for (let leg = 0; leg < MAX_LEGS; leg += 1) {
+    for (let leg = 0; leg < METHODS; leg += 1) {
       const destinationAddress = `G${randomUUID()}`;
       const method = await payoutMethods.create(tx, {
         recipientId: recipient.id,
