@@ -375,6 +375,12 @@ importers:
       '@types/pg':
         specifier: 8.23.1
         version: 8.23.1
+      '@ujira/api-schema':
+        specifier: workspace:*
+        version: link:../api-schema
+      fast-check:
+        specifier: 4.10.2
+        version: 4.10.2
       graphile-worker:
         specifier: 0.18.0
         version: 0.18.0(supports-color@7.2.0)(typescript@6.0.3)
