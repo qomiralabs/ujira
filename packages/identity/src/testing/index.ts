@@ -36,6 +36,9 @@ export {
   TEST_ATTESTER_SEED,
 } from './attestation.js';
 export type { FakeFailure, LocalAttesterOptions } from './attestation.js';
+export { IDENTITY_CONTRACT_CASES } from './contract.js';
+export type { ContractBackend, ContractCase, ContractSeed, ContractTenant } from './contract.js';
+export { memoryContractBackend } from './memory-contract.js';
 export { InMemoryIdentityStore, tenantKey } from './memory-store.js';
 export { ATTESTATION_BREAKERS, ATTESTATION_STEPS } from './breakers.js';
 export type { AttestationStep, Breaker } from './breakers.js';

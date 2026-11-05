@@ -1450,6 +1450,65 @@ const cases: Record<string, () => Promise<void>> = {
     expect(before.map((row) => row.setBy)).not.toContain(b.ownerUserId);
     expect(before.map((row) => row.setBy)).toContain(a.ownerUserId);
   },
+  'mandateInstances.setStatus': async () => {
+    expect(await asA(async (tx) => mandateInstances.setStatus(tx, b.instanceId, 'paused'))).toBe(
+      false,
+    );
+    expect(await statusOf('ujira.mandate_instances', b.instanceId)).toBe('deploying');
+  },
+  'projects.identitySettings': async () => {
+    await db
+      .tenant(b.first)
+      .transaction(async (tx) =>
+        projects.setIdentitySettings(tx, { recipientRequirement: 'none' }),
+      );
+    expect(await asA(async (tx) => projects.identitySettings(tx))).not.toEqual({
+      recipientRequirement: 'none',
+    });
+  },
+  'projects.setIdentitySettings': async () => {
+    expect(
+      await asA(async (tx) =>
+        projects.setIdentitySettings(tx, { recipientRequirement: 'principal_attested' }),
+      ),
+    ).toBe(true);
+    const theirs = await admin.query<{ identity_settings: unknown }>(
+      'select identity_settings from ujira.projects where id = $1',
+      [b.first.projectId],
+    );
+    expect(theirs.rows[0]?.identity_settings).not.toEqual({
+      recipientRequirement: 'principal_attested',
+    });
+  },
+  'payoutLegs.forAttestation': async () => {
+    expect(
+      await acrossA(async (tx) => payoutLegs.forAttestation(tx, b.attemptId, 0)),
+    ).toBeUndefined();
+    expect(
+      await acrossA(async (tx) => payoutLegs.forAttestation(tx, a.attemptId, 0)),
+    ).toBeDefined();
+  },
+  'recipientIdentities.create': async () => {
+    const attempt = asA(async (tx) =>
+      recipientIdentities.create(tx, {
+        id: randomUUID(),
+        recipientId: b.recipientId,
+        provider: 'principal',
+        providerAccount: null,
+        state: 'pending',
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'recipientIdentities.scopeOf': async () => {
+    // It answers for any id, because a provider's callback carries no tenant. All it
+    // gives away is whose the row is, which the provider was told when it was made.
+    expect(await asA(async (tx) => recipientIdentities.scopeOf(tx, b.identityId))).toEqual({
+      principalId: b.first.principalId,
+      projectId: b.first.projectId,
+    });
+    expect(await asA(async (tx) => recipientIdentities.scopeOf(tx, randomUUID()))).toBeUndefined();
+  },
   'payoutMinimums.set': async () => {
     const attempt = asA(async (tx) =>
       payoutMinimums.set(tx, {

@@ -2,6 +2,29 @@
 
 Smaller design decisions, each with what it was choosing between. Newest first.
 
+## What the identity store reads where the tables are silent
+
+**Problem.** The identity service's records carry facts the tables did not hold: whether a mandate instance is active, whether it takes attestations, which network a payout method is paid on, the project's identity settings, and the tenant of an identity row a provider's callback names by id alone.
+
+**Options.**
+
+1. Add a column for each fact and have the services that own them write it.
+2. Derive what the existing rows already imply, and add columns only for what nothing implies.
+
+**Decision.** Option 2.
+
+- `mandate_instances.status` is new: `deploying` until something marks it `active`, so an instance nobody vouched for pays no one. The store reads deploying and a failed deploy as `pending`.
+- The recipient mode comes from the attester key, which is set exactly when a mandate takes attestations. A mandate in `both` mode reads as `attested`. Eligibility treats the two the same, and the attester reads the mode from the chain itself.
+- A method's network is the deployment's per chain, given to the store. A method records only its chain, because an address reads the same on every network of it.
+- `projects.identity_settings` is new, an object or null for the defaults.
+- `ujira.recipient_identity_scope(id)` answers whose an identity row is, for one exact id, owned by a role of its own.
+- Anchor methods read as absent until methods record their anchor, so nothing is paid through an anchor on a guess.
+- A suspended or erased recipient reads as inactive.
+
+**Trade offs and risks.** Something has to move an instance to `active` before it can pay. Until the mandate flow does that, it is one call to `mandateInstances.setStatus`.
+
+**Evidence.** The shared cases in `packages/identity/src/testing/contract.ts` run against memory and against Postgres (`packages/db/src/identity-store.test.ts`).
+
 ## Two logins run the migrations
 
 **Problem.** The migrator login is `noinherit` and holds no server wide rights, on purpose. It could not run the migrations from zero: creating a schema and administering roles need more than it will ever hold, and a concurrent index build could not take the owner's rights at all. Measured on an empty database, connected as `ujira_migrator`: `permission denied for schema public` for the migrations table, `permission denied for database` for `create schema`, and `permission denied to alter role` in seven migrations. CI missed all of it because it migrated as a superuser.

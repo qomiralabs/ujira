@@ -43,7 +43,9 @@
     "node-pg-migrate": "9.0.0"
   },
   "dependencies": {
+    "@ujira/chain-adapter": "workspace:*",
     "@ujira/core": "workspace:*",
+    "@ujira/identity": "workspace:*",
     "kysely": "0.29.6",
     "pg": "8.23.1"
   }

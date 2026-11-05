@@ -373,9 +373,15 @@ importers:
 
   packages/db:
     dependencies:
+      '@ujira/chain-adapter':
+        specifier: workspace:*
+        version: link:../chain-adapter
       '@ujira/core':
         specifier: workspace:*
         version: link:../core
+      '@ujira/identity':
+        specifier: workspace:*
+        version: link:../identity
       kysely:
         specifier: 0.29.6
         version: 0.29.6

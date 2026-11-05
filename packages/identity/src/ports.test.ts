@@ -10,7 +10,7 @@ import type {
 import { RpcTimeoutError, UnsupportedError } from '@ujira/chain-adapter';
 import { describe, expect, it } from 'vitest';
 
-import { railCatalogFromRegistry } from './ports.js';
+import { attestationChainsFromRegistry, railCatalogFromRegistry } from './ports.js';
 import { ANCHOR_RAIL, TEST_NETWORK, WALLET_RAIL, railCapability } from './testing/index.js';
 
 const OTHER_NETWORK: NetworkId = 'stellar:pubnet';
@@ -48,5 +48,28 @@ describe('railCatalogFromRegistry', () => {
       }),
     );
     expect(() => catalog.rail(TEST_NETWORK, WALLET_RAIL)).toThrow(RpcTimeoutError);
+  });
+});
+
+describe('attestationChainsFromRegistry', () => {
+  it("hands the attester each network's own adapter, which has every call it makes", () => {
+    const adapters = new Map<NetworkId, ChainAdapter>([
+      [TEST_NETWORK, adapterWith([])],
+      [OTHER_NETWORK, adapterWith([])],
+    ]);
+    const chains = attestationChainsFromRegistry(
+      registry((network) => adapters.get(network) ?? adapterWith([])),
+    );
+    expect(chains(TEST_NETWORK)).toBe(adapters.get(TEST_NETWORK));
+    expect(chains(OTHER_NETWORK)).toBe(adapters.get(OTHER_NETWORK));
+  });
+
+  it('a network with no adapter fails the call, as the registry does', () => {
+    const chains = attestationChainsFromRegistry(
+      registry(() => {
+        throw new UnsupportedError({ network: OTHER_NETWORK });
+      }),
+    );
+    expect(() => chains(OTHER_NETWORK)).toThrow(UnsupportedError);
   });
 });

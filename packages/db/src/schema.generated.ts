@@ -448,6 +448,7 @@ export interface UjiraMandateInstances {
   project_id: string;
   scale: number;
   spec_version: string;
+  status: Generated<string>;
 }
 
 export interface UjiraMandates {
@@ -639,6 +640,7 @@ export interface UjiraProjects {
   created_at: Generated<Timestamp>;
   funding_hold_max_seconds: Generated<Int8>;
   id: Generated<string>;
+  identity_settings: Json | null;
   name: string;
   principal_id: string;
   updated_at: Generated<Timestamp>;
