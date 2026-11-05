@@ -122,6 +122,7 @@ export interface MandateInstance {
   readonly id: string;
   readonly mandateId: string;
   readonly chain: string;
+  readonly network: string;
   readonly contractAddress: string;
   readonly specVersion: string;
   readonly asset: string;
@@ -135,6 +136,9 @@ export interface MandateInstance {
 export interface NewMandateInstance {
   readonly mandateId: string;
   readonly chain: string;
+  // Required, with no default. An address reads the same on every network, so a
+  // default here is how a test account comes to be offered for real money.
+  readonly network: string;
   readonly contractAddress: string;
   readonly specVersion: string;
   readonly asset: string;
@@ -147,6 +151,7 @@ const instanceColumns = [
   'id',
   'mandate_id',
   'chain',
+  'network',
   'contract_address',
   'spec_version',
   'asset',
@@ -160,6 +165,7 @@ function toInstance(row: {
   id: string;
   mandate_id: string;
   chain: string;
+  network: string;
   contract_address: string;
   spec_version: string;
   asset: string;
@@ -172,6 +178,7 @@ function toInstance(row: {
     id: row.id,
     mandateId: row.mandate_id,
     chain: row.chain,
+    network: row.network,
     contractAddress: row.contract_address,
     specVersion: row.spec_version,
     asset: row.asset,
@@ -220,7 +227,8 @@ export const mandateInstances = {
   },
 
   // A chain and asset the settlement tokens do not list, or the wrong scale,
-  // is refused by the foreign key (23503).
+  // is refused by the foreign key (23503). A network that is not on the chain is
+  // refused by a check (23514).
   create: async (db: Tx, input: NewMandateInstance): Promise<MandateInstance> => {
     const row = await db
       .insertInto('ujira.mandate_instances')
@@ -229,6 +237,7 @@ export const mandateInstances = {
         project_id: CURRENT_PROJECT,
         mandate_id: input.mandateId,
         chain: input.chain,
+        network: input.network,
         contract_address: input.contractAddress,
         spec_version: input.specVersion,
         asset: input.asset,

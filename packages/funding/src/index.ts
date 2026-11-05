@@ -20,12 +20,12 @@ export {
 export type { FundingAccountWatch, FundingAccountWatchOptions } from './account-watch.js';
 export { createFundingAccountService } from './funding-account.js';
 export type {
-  AttachFundingAccount,
   ConfirmFundingAccount,
   ConfirmedFundingAccount,
   FundingAccountService,
   FundingAccountServiceOptions,
-  FundingAccountOptionsRequest,
+  FundingInstance,
+  FundingInstanceRequest,
   FundingSourceStore,
   StartFundingAccount,
   SubmitFundingAccount,

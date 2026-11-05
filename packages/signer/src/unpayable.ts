@@ -17,9 +17,12 @@
 // because the message does not cover them and a caller's word for them would
 // prove nothing, so they come from the index.
 
-import { DestinationInvalidError, SignerDeniedError } from '@ujira/chain-adapter';
+import {
+  DestinationInvalidError,
+  SignerDeniedError,
+  isUnpayableAddress,
+} from '@ujira/chain-adapter';
 import type { AttestationFields, CallOptions, NetworkId } from '@ujira/chain-adapter';
-import { baseAddress, isZeroAddress } from '@ujira/chain-adapter/codecs';
 
 /** What a mandate pays through, none of which can ever pay anyone out. */
 export interface MandateSettlement {
@@ -43,20 +46,15 @@ function refuse(fields: AttestationFields): never {
 
 /** What the fields alone can show: the destination is the mandate, or all zeros. */
 export function refuseUnpayable(fields: AttestationFields): void {
-  const destination = baseAddress(fields.destination.address.value);
-  if (destination === fields.mandate.address.value || isZeroAddress(destination)) refuse(fields);
+  const { destination, mandate } = fields;
+  if (isUnpayableAddress(destination.address.value, [mandate.address.value])) refuse(fields);
 }
 
 /** The destination is the mandate's factory, its settlement asset or that asset's issuer. */
 export function refuseSettlement(fields: AttestationFields, settlement: MandateSettlement): void {
-  const destination = baseAddress(fields.destination.address.value);
-  if (
-    destination === settlement.factory ||
-    destination === settlement.settlementAsset ||
-    destination === settlement.assetIssuer
-  ) {
-    refuse(fields);
-  }
+  const { factory, settlementAsset, assetIssuer } = settlement;
+  const neverPayable = [factory, settlementAsset, assetIssuer];
+  if (isUnpayableAddress(fields.destination.address.value, neverPayable)) refuse(fields);
 }
 
 /**

@@ -52,6 +52,7 @@ async function newInstance(tenant: ProjectContext, chain = 'stellar') {
   return as(tenant, async (tx) => {
     const mandate = await mandates.create(tx, { name: `mandate ${randomUUID()}` });
     return mandateInstances.create(tx, {
+      network: 'stellar:testnet',
       mandateId: mandate.id,
       chain,
       contractAddress: `C${randomUUID()}`,

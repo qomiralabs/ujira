@@ -156,6 +156,18 @@ export interface UjiraApiTokens {
   secret_sha256: Buffer;
 }
 
+export interface UjiraApprovals {
+  approver: string;
+  attempt_id: string;
+  created_at: Generated<Timestamp>;
+  decision: string;
+  id: Generated<string>;
+  principal_id: string;
+  project_id: string;
+  signature: Buffer;
+  signed_message_hash: Buffer;
+}
+
 export interface UjiraAttestations {
   attempt_id: string;
   attester_key_id: string;
@@ -431,6 +443,7 @@ export interface UjiraMandateInstances {
   created_at: Generated<Timestamp>;
   id: Generated<string>;
   mandate_id: string;
+  network: string;
   principal_id: string;
   project_id: string;
   scale: number;
@@ -467,6 +480,35 @@ export interface UjiraMigrations {
   run_on: Timestamp;
 }
 
+export interface UjiraPayoutAttempts {
+  asset: string;
+  attempt_number: Int8;
+  chain: string;
+  created_at: Generated<Timestamp>;
+  dead_proof: Json | null;
+  deadline: Timestamp;
+  id: Generated<string>;
+  mandate_instance_id: string;
+  network: string;
+  on_chain_payout_id: string | null;
+  payout_id: string;
+  principal_id: string;
+  project_id: string;
+  scale: number;
+  status: Generated<string>;
+  total_amount: Numeric;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface UjiraPayoutBatches {
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  idempotency_key: string;
+  principal_id: string;
+  project_id: string;
+  request_hash: Buffer;
+}
+
 export interface UjiraPayoutBookings {
   chain: string;
   contract_address: string;
@@ -478,6 +520,42 @@ export interface UjiraPayoutBookings {
   payout_id: Buffer;
   principal_id: string;
   project_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface UjiraPayoutFundingHolds {
+  asset: string;
+  chain: string;
+  held_at: Generated<Timestamp>;
+  mandate_instance_id: string;
+  needed_amount: Numeric;
+  network: string;
+  payout_id: string;
+  principal_id: string;
+  project_id: string;
+  scale: number;
+}
+
+export interface UjiraPayoutLegs {
+  amount: Numeric;
+  asset: string;
+  attempt_id: string;
+  chain: string;
+  chain_tx_hash: string | null;
+  created_at: Generated<Timestamp>;
+  destination_address: string;
+  destination_tag: Numeric | null;
+  fee_amount: Generated<Numeric>;
+  id: Generated<string>;
+  leg_index: Int8;
+  leg_key: Generated<string>;
+  method: string;
+  payout_id: string;
+  payout_method_id: string;
+  principal_id: string;
+  project_id: string;
+  scale: number;
+  status: Generated<string>;
   updated_at: Generated<Timestamp>;
 }
 
@@ -499,6 +577,34 @@ export interface UjiraPayoutMethods {
   updated_at: Generated<Timestamp>;
 }
 
+export interface UjiraPayouts {
+  batch_id: string | null;
+  cashout_cost_bearer: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  idempotency_key: string;
+  mandate_id: string;
+  method: string;
+  principal_id: string;
+  project_id: string;
+  public_status: Generated<string>;
+  recipient_id: string;
+  request_hash: Buffer;
+  requested_amount: Numeric;
+  requested_asset: string | null;
+  requested_chain: string | null;
+  requested_currency: string | null;
+  requested_currency_scale: number | null;
+  requested_token_scale: number | null;
+  status: Generated<string>;
+  status_reason: string | null;
+  total_amount: Numeric | null;
+  total_asset: string | null;
+  total_chain: string | null;
+  total_scale: number | null;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface UjiraPrincipalMembers {
   created_at: Generated<Timestamp>;
   principal_id: string;
@@ -515,7 +621,20 @@ export interface UjiraPrincipals {
   updated_at: Generated<Timestamp>;
 }
 
+export interface UjiraProjectPayoutMinimums {
+  created_at: Generated<Timestamp>;
+  currency: string;
+  method: string;
+  min_amount: Numeric;
+  principal_id: string;
+  project_id: string;
+  scale: number;
+  set_by: string;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface UjiraProjects {
+  cashout_cost_bearer: Generated<string>;
   chain_fallback: Generated<string>;
   created_at: Generated<Timestamp>;
   funding_hold_max_seconds: Generated<Int8>;
@@ -620,6 +739,7 @@ export interface Schema {
   ujira_migrations: UjiraMigrations;
   'ujira.agent_identity_links': UjiraAgentIdentityLinks;
   'ujira.api_tokens': UjiraApiTokens;
+  'ujira.approvals': UjiraApprovals;
   'ujira.attestations': UjiraAttestations;
   'ujira.audit_heads': UjiraAuditHeads;
   'ujira.audit_log': UjiraAuditLog;
@@ -645,10 +765,16 @@ export interface Schema {
   'ujira.mandate_instances': UjiraMandateInstances;
   'ujira.mandate_state_snapshots': UjiraMandateStateSnapshots;
   'ujira.mandates': UjiraMandates;
+  'ujira.payout_attempts': UjiraPayoutAttempts;
+  'ujira.payout_batches': UjiraPayoutBatches;
   'ujira.payout_bookings': UjiraPayoutBookings;
+  'ujira.payout_funding_holds': UjiraPayoutFundingHolds;
+  'ujira.payout_legs': UjiraPayoutLegs;
   'ujira.payout_methods': UjiraPayoutMethods;
+  'ujira.payouts': UjiraPayouts;
   'ujira.principal_members': UjiraPrincipalMembers;
   'ujira.principals': UjiraPrincipals;
+  'ujira.project_payout_minimums': UjiraProjectPayoutMinimums;
   'ujira.projects': UjiraProjects;
   'ujira.recipient_identities': UjiraRecipientIdentities;
   'ujira.recipient_pii': UjiraRecipientPii;

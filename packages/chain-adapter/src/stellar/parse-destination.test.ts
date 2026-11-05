@@ -201,9 +201,13 @@ it.each(REFUSED)('%s for %s', (reason, _label, raw, path) => {
   expect(err.toJSON()).toMatchObject({ code: 'INVALID_INPUT', reason, network: TESTNET });
 });
 
-it('reaches every reason but WRONG_NETWORK, which a Stellar address cannot carry', () => {
+// WRONG_NETWORK is what a Stellar address cannot carry, and UNPAYABLE_ADDRESS takes knowing
+// what the network settles through, which the text alone cannot show.
+it('reaches every reason a Stellar address can show by itself', () => {
   const reached = new Set(REFUSED.map(([reason]) => reason));
-  expect([...reached, 'WRONG_NETWORK'].sort()).toEqual([...DESTINATION_PARSE_REASONS].sort());
+  expect([...reached, 'WRONG_NETWORK', 'UNPAYABLE_ADDRESS'].sort()).toEqual(
+    [...DESTINATION_PARSE_REASONS].sort(),
+  );
   // The same address is valid on every Stellar network.
   for (const network of [PUBNET, TESTNET]) {
     expect(parse({ address: ACCOUNT_A }, network)).toEqual({

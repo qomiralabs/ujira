@@ -317,6 +317,7 @@ describe('the country policy', () => {
     const create = (attesterPublicKey: Buffer | null, countryPolicyHash: Buffer | null) =>
       db.tenant(tenant).transaction(async (tx) =>
         mandateInstances.create(tx, {
+          network: 'stellar:testnet',
           mandateId: mandate.id,
           chain: 'stellar',
           contractAddress: `C${randomUUID()}`,
