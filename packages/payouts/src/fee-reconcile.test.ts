@@ -6,7 +6,10 @@
  * chain where the chain is the question.
  *
  * - An executed fee is compared with the take from the agreed terms and nothing else.
- *   Below is underpaid with the exact difference. Above, or not what arrived, is a mismatch.
+ *   What the outcome and shortfall are follows the table's own checks, on what arrived:
+ *   below the expected fee is underpaid by what is missing, and anything else that is not
+ *   an exact match is a mismatch. A fee the chain says it took and did not deliver is
+ *   alerted whatever the outcome reads, and is never invoiced.
  * - The fee address balance change must equal the executed fees less known outflows.
  * - Underpaid fees are reported per principal and period, and settled by a new revision.
  */
@@ -104,6 +107,20 @@ const matched = (attemptId: string, over: Partial<FeeReconciliationRow> = {}) =>
   );
 
 const mismatched = (attemptId: string, over: Partial<FeeReconciliationRow> = {}) =>
+  rowOf(
+    attemptId,
+    reconcileFee({
+      total: usdc(1_000_000n),
+      terms: TERMS,
+      maxFeeBps: MAX_BPS,
+      onChain: usdc(9_100n),
+      received: usdc(9_100n),
+    }),
+    over,
+  );
+
+// The chain says the full fee was taken, and less of it arrived.
+const lostOnTheWay = (attemptId: string, over: Partial<FeeReconciliationRow> = {}) =>
   rowOf(
     attemptId,
     reconcileFee({
@@ -346,9 +363,49 @@ describe('reconcileFee', () => {
     expect(over.shortfall).toEqual(usdc(0n));
   });
 
-  it('calls a fee that did not arrive in full a mismatch, whatever the event says', () => {
-    expect(mismatched('a').outcome).toBe('mismatch');
-    expect(mismatched('a').shortfall).toEqual(usdc(0n));
+  it('counts a fee that did not arrive in full as short by what is missing', () => {
+    expect(lostOnTheWay('a').outcome).toBe('underpaid');
+    expect(lostOnTheWay('a').shortfall).toEqual(usdc(1_000n));
+  });
+
+  it('calls more arriving than the chain says it took a mismatch', () => {
+    const odd = reconcileFee({
+      total: usdc(1_000_000n),
+      terms: TERMS,
+      maxFeeBps: MAX_BPS,
+      onChain: usdc(8_000n),
+      received: usdc(9_000n),
+    });
+    expect(odd.outcome).toBe('mismatch');
+    expect(odd.shortfall).toEqual(usdc(0n));
+  });
+
+  it("always gives what the table's checks would accept", () => {
+    fc.assert(
+      fc.property(
+        fc.bigInt({ min: 0n, max: 20_000n }),
+        fc.bigInt({ min: 0n, max: 20_000n }),
+        (onChain, received) => {
+          const result = reconcileFee({
+            total: usdc(1_000_000n),
+            terms: TERMS,
+            maxFeeBps: MAX_BPS,
+            onChain: usdc(onChain),
+            received: usdc(received),
+          });
+          const expected = result.expected.amount;
+          // fee_reconciliations_shortfall_is_missing and fee_reconciliations_outcome_follows.
+          expect(result.shortfall.amount).toBe(received < expected ? expected - received : 0n);
+          expect(result.outcome).toBe(
+            expected === onChain && onChain === received
+              ? 'matched'
+              : received < expected
+                ? 'underpaid'
+                : 'mismatch',
+          );
+        },
+      ),
+    );
   });
 
   it('expects the lower of the terms and the mandate cap, and nothing at cost', () => {
@@ -430,6 +487,19 @@ describe('runFeeReconciliation', () => {
       key: 'fee-mismatch:c:1',
       correlationId: OPTS.correlationId,
     });
+  });
+
+  it('alerts a fee the chain took and did not deliver, though it reads as underpaid', async () => {
+    const { store } = memoryStore([lostOnTheWay('lost'), underpaid('short')]);
+    const { alerts, mismatches } = recordingAlerts();
+
+    const summary = await runFeeReconciliation(
+      { network: NETWORK, period: MARCH, ...OPTS },
+      { store, alerts },
+    );
+
+    expect(summary).toEqual({ matched: 0, underpaid: 2, mismatch: 0 });
+    expect(mismatches.map((alert) => alert.row.attemptId)).toEqual(['lost']);
   });
 
   it('gives a rerun the same alert key, so nobody is paged twice', async () => {
@@ -659,6 +729,14 @@ describe('resolveUnderpaidFee', () => {
         resolveUnderpaidFee({ scope: TENANT, attemptId, resolution: invoiced }, { store }),
       ).rejects.toBeInstanceOf(FeeNotUnderpaidError);
     }
+  });
+
+  it('will not invoice a fee the chain says the principal already paid', async () => {
+    const { store, revisions } = memoryStore([lostOnTheWay('lost')]);
+    await expect(
+      resolveUnderpaidFee({ scope: TENANT, attemptId: 'lost', resolution: invoiced }, { store }),
+    ).rejects.toBeInstanceOf(FeeNotUnderpaidError);
+    expect(revisions).toHaveLength(1);
   });
 
   it("cannot see or settle another tenant's fee", async () => {
