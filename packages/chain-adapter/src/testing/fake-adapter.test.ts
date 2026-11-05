@@ -436,8 +436,8 @@ describe('input and trust checks', () => {
       snap.config.countryPolicyHash,
     );
     const rogueRef = { ...m.ref, address: { network: net.network, value: engine.address } };
-    const read = await h.adapter.readMandate({ scope: h.scope, mandate: rogueRef }, OPTS);
-    expect(read.trustedFactory).toBe(false);
+    const read = h.adapter.readMandate({ scope: h.scope, mandate: rogueRef }, OPTS);
+    expect((await refusalOf(read)).code).toBe('MANDATE_UNTRUSTED');
     const untrusted = h.adapter.fundingInstructions({ scope: h.scope, mandate: rogueRef }, OPTS);
     expect((await refusalOf(untrusted)).code).toBe('MANDATE_UNTRUSTED');
     const wrongNet = { ...m.ref, network: 'stellar:pubnet' as const };
