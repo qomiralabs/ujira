@@ -198,7 +198,7 @@ Fonts are self-hosted; no page loads a font from a font CDN at runtime. The thre
 | Interface and body                     | Inter          | 400, 500, 600 | `--ujira-font-inter`          |
 | Amounts, codes, labels, always tabular | JetBrains Mono | 400, 500      | `--ujira-font-jetbrains-mono` |
 
-In each app, load the faces with `next/font/google` (it downloads at build time and serves the files from the app), pass `variable` with the names above and `subsets: ['latin', 'latin-ext']` so Hausa, Yoruba and Igbo diacritics render, and put the three `variable` class names on `<html>`. The token stacks (`--ujira-font-display`, `--ujira-font-sans`, `--ujira-font-mono`) fall back to system faces until then.
+In each app, load the faces with `next/font/local`, from files a lockfile pins. Never use `next/font/google`: it downloads at build time, and the same commit has built with different font files, which draws text differently from the visual baselines at random. `apps/dashboard/src/app/layout.tsx` shows how, pass `variable` with the names above and `subsets: ['latin', 'latin-ext']` so Hausa, Yoruba and Igbo diacritics render, and put the three `variable` class names on `<html>`. The token stacks (`--ujira-font-display`, `--ujira-font-sans`, `--ujira-font-mono`) fall back to system faces until then.
 
 Rules the components will enforce: Nunito never below 20px and never in the product interface; every amount in JetBrains Mono with `tabular-nums`; body line height 1.6 or more wherever diacritics appear; the `label` step is set in capitals.
 
