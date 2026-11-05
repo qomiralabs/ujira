@@ -14,6 +14,31 @@ const wholeNumber = (min: number, max: number, fallback: number) =>
     .pipe(z.number().int().min(min).max(max))
     .default(fallback);
 
+export type DeploymentEnvironment = 'sandbox' | 'production';
+
+// Comma separated. Each must be exactly an origin, because a browser's Origin
+// header is compared with it character for character.
+const EmbedOrigins = z
+  .string()
+  .default('')
+  .transform((text) =>
+    text
+      .split(',')
+      .map((part) => part.trim())
+      .filter((part) => part !== ''),
+  )
+  .pipe(
+    z.array(
+      z.string().refine((origin) => {
+        try {
+          return new URL(origin).origin === origin;
+        } catch {
+          return false;
+        }
+      }),
+    ),
+  );
+
 const ApiEnvironment = z.object({
   UJIRA_API_PORT: wholeNumber(1, 65_535, 8080),
   // Loopback unless told otherwise, so a local run is never reachable from
@@ -21,6 +46,9 @@ const ApiEnvironment = z.object({
   UJIRA_API_HOST: z.string().min(1).max(255).default('127.0.0.1'),
   UJIRA_API_REQUEST_TIMEOUT_MS: wholeNumber(100, 60_000, API_DEFAULTS.requestTimeoutMs),
   UJIRA_API_BODY_LIMIT_BYTES: wholeNumber(1, 10_485_760, API_DEFAULTS.bodyLimitBytes),
+  // Sandbox unless told otherwise, so a local run never accepts a live key.
+  UJIRA_API_ENVIRONMENT: z.enum(['sandbox', 'production']).default('sandbox'),
+  UJIRA_API_EMBED_ORIGINS: EmbedOrigins,
 });
 
 export interface ApiConfig {
@@ -28,6 +56,10 @@ export interface ApiConfig {
   readonly hostname: string;
   readonly requestTimeoutMs: number;
   readonly bodyLimitBytes: number;
+  /** Decides which keys work here: test keys in the sandbox, live keys in production. */
+  readonly environment: DeploymentEnvironment;
+  /** Exact origins a browser may send a key from. Empty means none. */
+  readonly embedOrigins: readonly string[];
 }
 
 /** Reads the API settings. A bad one fails naming the setting, never its value. */
@@ -42,5 +74,7 @@ export function loadApiConfig(env: Readonly<Record<string, string | undefined>>)
     hostname: parsed.data.UJIRA_API_HOST,
     requestTimeoutMs: parsed.data.UJIRA_API_REQUEST_TIMEOUT_MS,
     bodyLimitBytes: parsed.data.UJIRA_API_BODY_LIMIT_BYTES,
+    environment: parsed.data.UJIRA_API_ENVIRONMENT,
+    embedOrigins: parsed.data.UJIRA_API_EMBED_ORIGINS,
   };
 }

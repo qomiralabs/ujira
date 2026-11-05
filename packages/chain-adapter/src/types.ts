@@ -268,6 +268,14 @@ export interface SubmissionRecord {
   readonly specCode: number | null;
   /** The submission this one replaced, for a fee bump of the same envelope. */
   readonly replacesTxHash: string | null;
+  /**
+   * The latest ledger just before the send, or null where none was read. A
+   * transaction cannot land before it, so an RPC whose retention reaches back
+   * this far can prove the transaction is gone.
+   */
+  readonly submittedAtLedger: bigint | null;
+  /** The sponsorship reservation paying for it, or null for UJIRA's own transaction. */
+  readonly reservationId: string | null;
   readonly correlationId: string;
   readonly createdAt: UnixSeconds;
 }
@@ -353,6 +361,12 @@ export interface AdapterStore {
     txHash: string,
     patch: SubmissionPatch,
   ): Promise<void>;
+  /** One tenant's record by hash, in any state. Another tenant's row reads as null. */
+  findSubmission(
+    scope: TenantScope,
+    network: NetworkId,
+    txHash: string,
+  ): Promise<SubmissionRecord | null>;
   liveSubmission(key: {
     readonly scope: TenantScope;
     readonly network: NetworkId;
@@ -700,7 +714,12 @@ export interface MandateActionRequest {
 /** Human readable and chain neutral, shown before signing. Amounts are core values. */
 export interface SigningSummary {
   readonly action:
-    MandateAction['op'] | 'fund' | 'request_payout' | 'request_payouts' | 'activate_recipient';
+    | MandateAction['op']
+    | 'fund'
+    | 'request_payout'
+    | 'request_payouts'
+    | 'activate_recipient'
+    | 'create_funding_account';
   readonly mandate?: MandateRef;
   readonly amount?: TokenAmount;
   readonly feePaidBy: 'ujira' | 'signer';
@@ -718,6 +737,8 @@ export type SigningRequest =
       readonly sponsored: boolean;
       readonly summary: SigningSummary;
       readonly requestId: string;
+      /** Set when this replaces a request the network refused for resources. */
+      readonly reason?: 'RESIMULATED';
     }
   | {
       readonly kind: 'stellar_auth_entry';
@@ -727,6 +748,8 @@ export type SigningRequest =
       readonly expirationLedger: number;
       readonly summary: SigningSummary;
       readonly requestId: string;
+      /** Set when this replaces a request the network refused for resources. */
+      readonly reason?: 'RESIMULATED';
     };
 
 export interface SignedSubmission {

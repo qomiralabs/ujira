@@ -923,6 +923,10 @@ export default defineConfig(
       'apps/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
     ],
     ignores: ['packages/chain-adapter/**'],
+    // A disable comment would switch the rule off for one line without
+    // review. The TypeScript fence above already ignores inline config; this
+    // covers the JavaScript files the fence does not match.
+    linterOptions: { noInlineConfig: true },
     rules: {
       'ujira/no-chain-branching': 'error',
     },
@@ -939,6 +943,7 @@ export default defineConfig(
       'apps/**/*.test-d.ts',
     ],
     ignores: ['packages/chain-adapter/**'],
+    linterOptions: { noInlineConfig: true },
     rules: {
       'ujira/no-chain-branching': ['error', { regex: false, memberNames: false }],
     },

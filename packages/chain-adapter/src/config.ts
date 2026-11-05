@@ -198,6 +198,30 @@ const recipientActivation = z
 const fees = z
   .strictObject({
     uncoveredNetworkCost: z.strictObject({ monthlyBudgetStroops: stroops }),
+    networkFee: z.strictObject({ marginBps: bps.default(1_200) }).prefault({}),
+    xlmRate: z
+      .strictObject({
+        // How old each source may be. Horizon answers live, so 60 seconds is
+        // already generous. Reflector's feed publishes every 300 seconds, so
+        // anything under that would refuse it for part of every tick and it
+        // could not stand in when Horizon is down: 360 is one tick plus a
+        // margin. A rate this old only feeds a shortfall estimate, never a
+        // payment amount.
+        maxAgeSeconds: z
+          .strictObject({
+            stellar_dex: z.int().min(1).max(86_400).default(60),
+            reflector: z.int().min(1).max(86_400).default(360),
+          })
+          .prefault({}),
+        maxDeviationBps: bps.default(200),
+        // XLM has no market price on testnet, so one is configured. Text, so
+        // no rate passes through a float.
+        testnetReferenceRate: z
+          .string()
+          .regex(/^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,18})?$/)
+          .optional(),
+      })
+      .prefault({}),
   })
   .prefault({ uncoveredNetworkCost: { monthlyBudgetStroops: '0' } });
 
@@ -228,9 +252,21 @@ const feeSponsor = z
     path: ['lowBalanceStroops'],
   });
 
+// The rules for building Soroban transactions. instanceTtlExtendLedgers covers
+// the instance and the asset balance entry only; a payout record's lifetime
+// comes from its own expiry, so it takes no value here.
+const soroban = z
+  .strictObject({
+    writeBytesPadding: z.int().min(512).max(1_048_576).default(512),
+    resimulateRetries: z.int().min(0).max(10).default(2),
+    instanceTtlExtendLedgers: z.int().min(1).max(6_312_000).default(535_680),
+  })
+  .prefault({});
+
 const stellarNetwork = z
   .strictObject({
     ...common,
+    soroban,
     trustedFactories: z.strictObject({ '1': uniqueList(stellarContract) }),
     assets: z.strictObject({
       USDC: z.strictObject({ sac: stellarContract, issuer: stellarAccount }),
@@ -245,6 +281,9 @@ const stellarNetwork = z
       txValiditySeconds: z.int().min(10).max(300),
       // The channel account pool. Jobs lease one key at a time from it.
       keys: z.array(keyRef).min(1).max(256),
+      // A channel holds far less than the sponsor, so it has its own lines.
+      lowBalanceStroops: stroops.default(500_000_000n),
+      minBalanceStroops: stroops.default(50_000_000n),
     }),
     feeSponsor,
     fees,

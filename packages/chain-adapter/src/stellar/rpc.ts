@@ -27,6 +27,8 @@ export interface RpcLedgerEntry {
   readonly lastModifiedLedgerSeq: number;
   /** Absent for entries that do not expire, such as accounts. */
   readonly liveUntilLedgerSeq?: number;
+  /** Base64 LedgerEntryExt, which names the entry's reserve sponsor. Absent on older nodes. */
+  readonly extXdr?: string;
 }
 
 export interface RpcLatestLedger {
@@ -49,6 +51,12 @@ export interface RpcTransaction {
   readonly ledger?: number;
   /** Base64 TransactionResult once included. */
   readonly resultXdr?: string;
+  /** Base64 TransactionMeta once included, which lists any restored entries. */
+  readonly resultMetaXdr?: string;
+  /** The RPC's window at the time of the answer, which says what a NOT_FOUND can prove. */
+  readonly latestLedger?: number;
+  readonly latestLedgerCloseTime?: bigint;
+  readonly oldestLedger?: number;
 }
 
 export type RawSimulation = Api.RawSimulateTransactionResponse;
@@ -187,11 +195,16 @@ export function createStellarRpc(options: JsonRpcOptions): StellarRpc {
         const entries = list.map((item: unknown): RpcLedgerEntry => {
           if (!isObject(item)) throw new TypeError('malformed RPC result');
           const live = optionalInt(item, 'liveUntilLedgerSeq');
+          const ext = item['extXdr'];
+          if (ext !== undefined && typeof ext !== 'string') {
+            throw new TypeError('malformed RPC result');
+          }
           return {
             key: str(item, 'key'),
             xdr: str(item, 'xdr'),
             lastModifiedLedgerSeq: int(item, 'lastModifiedLedgerSeq'),
             ...(live === undefined ? {} : { liveUntilLedgerSeq: live }),
+            ...(ext === undefined ? {} : { extXdr: ext }),
           };
         });
         return { latestLedger: int(result, 'latestLedger'), entries };
@@ -228,10 +241,18 @@ export function createStellarRpc(options: JsonRpcOptions): StellarRpc {
         if (!TX_STATUSES.has(status)) throw new TypeError('malformed RPC result');
         const ledger = optionalInt(result, 'ledger');
         const resultXdr = result['resultXdr'];
+        const resultMetaXdr = result['resultMetaXdr'];
+        const latestLedger = optionalInt(result, 'latestLedger');
+        const oldestLedger = optionalInt(result, 'oldestLedger');
+        const closeTime = result['latestLedgerCloseTime'];
         return {
           status: status as RpcTransaction['status'],
           ...(ledger === undefined ? {} : { ledger }),
           ...(typeof resultXdr === 'string' ? { resultXdr } : {}),
+          ...(typeof resultMetaXdr === 'string' ? { resultMetaXdr } : {}),
+          ...(latestLedger === undefined ? {} : { latestLedger }),
+          ...(oldestLedger === undefined ? {} : { oldestLedger }),
+          ...(typeof closeTime === 'string' ? { latestLedgerCloseTime: BigInt(closeTime) } : {}),
         };
       });
     },

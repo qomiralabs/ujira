@@ -30,12 +30,15 @@ import {
 } from '../errors.js';
 import type { StellarNetworkId } from '../networks.js';
 import { reservationIdOf } from '../sponsorship/policy.js';
+import { canMoveSubmission } from '../submission-states.js';
 import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
+import { isPublicTestAttesterKey } from '../test-attester-keys.js';
 import type {
   AdapterPorts,
   Bytes32,
   CallOptions,
   ChainAdapter,
+  MandateAction,
   MandateActionRequest,
   MandateRef,
   MandateSnapshot,
@@ -44,7 +47,10 @@ import type {
   SigningRequest,
   SigningSummary,
   SponsoredIntent,
+  SubmissionPatch,
+  SubmissionRecord,
   SubmissionRef,
+  SubmissionState,
   TenantScope,
   UnixSeconds,
 } from '../types.js';
@@ -58,11 +64,23 @@ import type {
   SigningRequestStore,
   StoredSigningRequest,
 } from './requests.js';
-import { archivedKeys, restoreAndExtend } from './restore.js';
-import { INSTANCE_TTL_EXTEND_LEDGERS, STELLAR_LEDGER_SECONDS } from './restore-policy.js';
+import { decodeFeeWrite1KB, feeWriteSettingKey } from './rent-settings.js';
+import { archivedKeys, extendRestored, restoreAndExtend } from './restore.js';
+import { STELLAR_LEDGER_SECONDS } from './restore-policy.js';
+import { reconcileSubmission, reconcileUnresolved } from './lifecycle.js';
+import type { ReconcileResult, SweepOptions } from './lifecycle.js';
 import { mandateAddressOf } from './mandate-address.js';
 import type { StellarRpc } from './rpc.js';
 import { asAddress } from './scval.js';
+import {
+  PADDED_CALLS,
+  createMemoryStepLog,
+  padWriteBytes,
+  resourceFailureOf,
+  restoredKeysOf,
+  ttlExtensionKey,
+} from './soroban-rules.js';
+import type { StepLog } from './soroban-rules.js';
 import { MandateTrust } from './trust.js';
 import {
   INCLUSION_FEE,
@@ -83,6 +101,11 @@ import { configViewOf, stateOf } from './views.js';
 
 export interface StellarMandateAdapterOptions {
   readonly network: StellarNetworkId;
+  /**
+   * The deployment environment. Only 'test' may set a public test attester
+   * key on a mandate, so left out, the keys are refused.
+   */
+  readonly nodeEnv?: string;
   readonly rpc: StellarRpc;
   readonly ports: AdapterPorts;
   readonly requests: SigningRequestStore;
@@ -91,9 +114,23 @@ export interface StellarMandateAdapterOptions {
   readonly executorLeaseSeconds?: number;
   /** How long a send may take before its outcome counts as unknown. */
   readonly submitTimeoutMs?: number;
+  /** Overrides the network's soroban.instanceTtlExtendLedgers. */
   readonly instanceTtlExtendLedgers?: number;
   readonly newRequestId?: () => string;
+  /** The mandate functions that get write padding. Defaults to PADDED_CALLS. */
+  readonly paddedCalls?: ReadonlySet<string>;
+  /** Where the step after a restore is remembered. Production backs this with the database. */
+  readonly steps?: StepLog;
 }
+
+/**
+ * How a principal-signed action turned out. Only getTransaction moves it to
+ * landed: a send status or simulated events never do.
+ */
+export type SignedOutcome =
+  | { readonly status: 'pending'; readonly txHash: string }
+  | { readonly status: 'landed'; readonly txHash: string; readonly ledger: number }
+  | { readonly status: 'resimulated'; readonly signingRequest: SigningRequest };
 
 export type StellarMandateOperations = Pick<
   ChainAdapter,
@@ -138,8 +175,11 @@ export class StellarMandateAdapter implements StellarMandateOperations {
   readonly #requests: SigningRequestStore;
   readonly #trust: MandateTrust;
   readonly #executor: ExecutorContext;
-  readonly #ttlExtendLedgers: number;
+  readonly #ttlExtendLedgers: number | undefined;
   readonly #newRequestId: () => string;
+  readonly #paddedCalls: ReadonlySet<string>;
+  readonly #steps: StepLog;
+  readonly #nodeEnv: string | undefined;
 
   constructor(options: StellarMandateAdapterOptions) {
     this.network = options.network;
@@ -156,9 +196,13 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       wait: options.wait ?? DEFAULT_WAIT,
       leaseSeconds: options.executorLeaseSeconds ?? DEFAULT_LEASE_SECONDS,
       submitTimeoutMs: options.submitTimeoutMs ?? DEFAULT_SUBMIT_TIMEOUT_MS,
+      lowBalanceAlerted: new Set(),
     };
-    this.#ttlExtendLedgers = options.instanceTtlExtendLedgers ?? INSTANCE_TTL_EXTEND_LEDGERS;
+    this.#ttlExtendLedgers = options.instanceTtlExtendLedgers;
     this.#newRequestId = options.newRequestId ?? randomUUID;
+    this.#paddedCalls = options.paddedCalls ?? PADDED_CALLS;
+    this.#steps = options.steps ?? createMemoryStepLog();
+    this.#nodeEnv = options.nodeEnv;
   }
 
   #config(): StellarNetworkConfig {
@@ -223,9 +267,27 @@ export class StellarMandateAdapter implements StellarMandateOperations {
   // -------------------------------------------------------------------------
   // Actions
 
-  async prepareMandateAction(
+  // The contract only checks the key's length, so a mandate set up with a key
+  // anyone can rebuild would pay on anybody's attestation. Here is the last
+  // place that can see it before the principal signs.
+  #refuseTestAttester(action: MandateAction): void {
+    if (this.#nodeEnv === 'test') return;
+    let attester: Uint8Array | null = null;
+    if (action.op === 'create') attester = action.config.attester;
+    if (action.op === 'set_attestation_policy') attester = action.attester;
+    if (attester !== null && isPublicTestAttesterKey(attester)) {
+      throw invalid(this.network, 'attester (test_key)');
+    }
+  }
+
+  prepareMandateAction(req: MandateActionRequest, opts: CallOptions): Promise<SigningRequest> {
+    return this.#prepare(req, opts, 0);
+  }
+
+  async #prepare(
     req: MandateActionRequest,
     opts: CallOptions,
+    resimulations: number,
   ): Promise<SigningRequest> {
     const { network } = this;
     const config = this.#config();
@@ -242,6 +304,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       caller: signer,
       assetContract: config.assets.USDC.sac,
     });
+    this.#refuseTestAttester(action);
     const now = this.#ports.clock.nowSeconds();
     const validUntil = (now + BigInt(config.signingWindowSeconds)) as UnixSeconds;
     const viaWallet = signer.startsWith('C');
@@ -268,7 +331,8 @@ export class StellarMandateAdapter implements StellarMandateOperations {
             scope: req.scope,
             target: { mandate: target.address, asset: config.assets.USDC.sac },
             keys: archived,
-            instanceTtlExtendLedgers: this.#ttlExtendLedgers,
+            instanceTtlExtendLedgers:
+              this.#ttlExtendLedgers ?? config.soroban.instanceTtlExtendLedgers,
             correlationId: opts.correlationId,
           },
           opts,
@@ -285,7 +349,14 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     if (action.op === 'create' && asAddress(returned(sim)) !== target.address) {
       throw new InternalError({ network });
     }
-    const fee = BigInt(sim.minResourceFee) + INCLUSION_FEE * 2n;
+    const padding = this.#paddedCalls.has(inv.fn)
+      ? padWriteBytes(simulatedData(sim), {
+          network,
+          paddingBytes: config.soroban.writeBytesPadding,
+          feeWrite1KB: await this.#feeWrite1KB(opts),
+        })
+      : { sorobanData: simulatedData(sim), addedFee: 0n };
+    const fee = BigInt(sim.minResourceFee) + padding.addedFee + INCLUSION_FEE * 2n;
     if (fee > config.feeSponsor.maxFeePerTxStroops) throw new SponsorDeniedError({ network });
     const summary: SigningSummary = {
       action: action.op,
@@ -306,10 +377,12 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       fee,
       validUntil,
       summary,
+      ...(resimulations === 0 ? {} : { resimulations }),
     } as const;
+    const reason = resimulations === 0 ? {} : { reason: 'RESIMULATED' as const };
     const signerRef = { network, value: signer };
     if (!viaWallet) {
-      const assembled = invokeTx(inv, { ...build, sorobanData: simulatedData(sim) }, auth);
+      const assembled = invokeTx(inv, { ...build, sorobanData: padding.sorobanData }, auth);
       await this.#requests.save({
         ...base,
         kind: 'stellar_transaction',
@@ -326,6 +399,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
         sponsored: true,
         summary,
         requestId,
+        ...reason,
       };
     }
     const [entry] = auth;
@@ -352,7 +426,27 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       expirationLedger,
       summary,
       requestId,
+      ...reason,
     };
+  }
+
+  // The price of a ledger write, read only for a call that gets padded.
+  async #feeWrite1KB(opts: CallOptions): Promise<bigint> {
+    const key = feeWriteSettingKey();
+    const { entries } = await this.#rpc.getLedgerEntries([key], opts);
+    const [entry] = entries;
+    if (entry === undefined) throw new InternalError({ network: this.network });
+    return decodeFeeWrite1KB(entry.xdr);
+  }
+
+  /** Asks the chain about one recorded submission and moves its record forward. */
+  reconcile(record: SubmissionRecord, opts: CallOptions): Promise<ReconcileResult> {
+    return reconcileSubmission(this.#executor, record, opts);
+  }
+
+  /** Reconciles what is still open, oldest first, and alerts on what is stuck. */
+  reconcileUnresolved(sweep: SweepOptions, opts: CallOptions): Promise<readonly ReconcileResult[]> {
+    return reconcileUnresolved(this.#executor, sweep, opts);
   }
 
   async #signerAddress(req: MandateActionRequest, opts: CallOptions): Promise<string> {
@@ -400,6 +494,11 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     const { network } = this;
     const loaded = await this.#requests.load(req.scope, req.requestId);
     if (loaded === null) throw invalid(network, 'requestId (not_found)');
+    // The sponsor's own transaction, paid for as a reserve sandwich rather than
+    // fee bumped, so it has its own way in.
+    if (loaded.request.op === 'create_funding_account') {
+      throw invalid(network, 'requestId (wrong_flow)');
+    }
     if (loaded.use !== null) return this.#replay(loaded.use, req.signed, opts);
     const { request } = loaded;
     if (this.#ports.clock.nowSeconds() > request.validUntil) {
@@ -431,8 +530,14 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     try {
       const hash =
         signed.kind === 'tx'
-          ? await this.#submitFeeBumped(request, signed.tx, req.correlationId, opts)
-          : await this.#submitFromChannel(request, signed.entry, req.correlationId, opts);
+          ? await this.#submitFeeBumped(request, signed.tx, reservationId, req.correlationId, opts)
+          : await this.#submitFromChannel(
+              request,
+              signed.entry,
+              reservationId,
+              req.correlationId,
+              opts,
+            );
       return { network, txHash: hash, finality: 'none' };
     } catch (error) {
       // Only an outcome that certainly sent nothing gives the reservation back.
@@ -441,6 +546,100 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       }
       throw error;
     }
+  }
+
+  /**
+   * How a signed action turned out, read from getTransaction alone. A failure
+   * for resources gets a new signing request to sign, up to the configured
+   * retries, and then fails as SUBMISSION_REJECTED with nothing landed, never
+   * as a mandate rule. `req` is the action the request was prepared for.
+   */
+  async signedOutcome(
+    req: MandateActionRequest,
+    requestId: string,
+    opts: CallOptions,
+  ): Promise<SignedOutcome> {
+    const { network } = this;
+    const loaded = await this.#requests.load(req.scope, requestId);
+    if (loaded === null) throw invalid(network, 'requestId (not_found)');
+    const { request, use } = loaded;
+    if (request.op !== req.action.op) throw invalid(network, 'action (mismatch)');
+    if (use?.txHash == null) throw invalid(network, 'requestId (not_submitted)');
+    const txHash = use.txHash;
+    const tx = await this.#rpc.getTransaction(txHash, opts);
+    if (tx.status === 'NOT_FOUND') return { status: 'pending', txHash };
+    if (tx.status === 'SUCCESS') {
+      const ledger = tx.ledger ?? 0;
+      await this.#closeSubmission(req.scope, txHash, {
+        state: 'landed',
+        landedAtHeight: BigInt(ledger),
+      });
+      await this.#extendAfterRestore(request, tx.resultMetaXdr, ledger, opts);
+      return { status: 'landed', txHash, ledger };
+    }
+    await this.#closeSubmission(req.scope, txHash, {
+      state: 'failed',
+      errorCode: 'SUBMISSION_REJECTED',
+    });
+    if (resourceFailureOf(tx.resultXdr) === null) {
+      throw new SubmissionRejectedError({ network, landed: 'yes' });
+    }
+    const resimulations = (request.resimulations ?? 0) + 1;
+    if (resimulations > this.#config().soroban.resimulateRetries) {
+      throw new SubmissionRejectedError({ network, landed: 'no' });
+    }
+    return {
+      status: 'resimulated',
+      signingRequest: await this.#prepare(req, opts, resimulations),
+    };
+  }
+
+  // The outcome can be read any number of times and the reconciliation sweep
+  // may get there first, and the store refuses any move out of a closed record.
+  // A record it cannot find still goes to the store, which refuses it.
+  async #closeSubmission(
+    scope: TenantScope,
+    txHash: string,
+    patch: SubmissionPatch & { readonly state: SubmissionState },
+  ): Promise<void> {
+    const { network } = this;
+    const { store } = this.#ports;
+    const record = await store.findSubmission(scope, network, txHash);
+    if (record !== null && !canMoveSubmission(record.state, patch.state)) return;
+    await store.updateSubmission(scope, network, txHash, patch);
+  }
+
+  // After any transaction whose result lists restored entries: a sponsored
+  // extension, as its own step, once per network, mandate and ledger.
+  async #extendAfterRestore(
+    request: StoredSigningRequest,
+    resultMetaXdr: string | undefined,
+    ledger: number,
+    opts: CallOptions,
+  ): Promise<void> {
+    const { network } = this;
+    const restored = restoredKeysOf(resultMetaXdr);
+    const { mandate } = request;
+    if (restored.length === 0 || mandate === null) return;
+    const step = ttlExtensionKey(network, mandate, ledger);
+    if (await this.#steps.isDone(step)) return;
+    const config = this.#config();
+    await ExecutorSession.run(this.#executor, opts, (session) =>
+      extendRestored(
+        this.#executor,
+        session,
+        {
+          scope: request.scope,
+          target: { mandate, asset: config.assets.USDC.sac },
+          keys: restored.map((key) => xdr.LedgerKey.fromXdr(key, 'base64')),
+          instanceTtlExtendLedgers:
+            this.#ttlExtendLedgers ?? config.soroban.instanceTtlExtendLedgers,
+          correlationId: opts.correlationId,
+        },
+        opts,
+      ),
+    );
+    await this.#steps.markDone(step);
   }
 
   async #replay(
@@ -499,6 +698,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
   async #submitFeeBumped(
     request: StoredSigningRequest,
     inner: Transaction,
+    reservationId: string,
     correlationId: string,
     opts: CallOptions,
   ): Promise<string> {
@@ -515,8 +715,23 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     );
     attach(bump, sponsor, signature);
     const hash = txHash(bump);
-    await this.#record(request, hash, request.signer, request.sequence ?? 0n, correlationId);
-    await sendAndRecord(this.#executor, request.scope, hash, bump.toXdr(), opts);
+    await this.#record(
+      request,
+      hash,
+      request.signer,
+      request.sequence ?? 0n,
+      reservationId,
+      correlationId,
+      opts,
+    );
+    await sendAndRecord(
+      this.#executor,
+      request.scope,
+      hash,
+      bump.toXdr(),
+      request.validUntil,
+      opts,
+    );
     return hash;
   }
 
@@ -524,6 +739,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
   async #submitFromChannel(
     request: StoredSigningRequest,
     entry: xdr.SorobanAuthorizationEntry,
+    reservationId: string,
     correlationId: string,
     opts: CallOptions,
   ): Promise<string> {
@@ -559,9 +775,24 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       );
       attach(assembled, session.address, signature);
       const hash = txHash(assembled);
-      await this.#record(request, hash, session.address, BigInt(assembled.sequence), correlationId);
+      await this.#record(
+        request,
+        hash,
+        session.address,
+        BigInt(assembled.sequence),
+        reservationId,
+        correlationId,
+        opts,
+      );
       session.sequence = BigInt(assembled.sequence);
-      await sendAndRecord(this.#executor, request.scope, hash, assembled.toXdr(), opts);
+      await sendAndRecord(
+        this.#executor,
+        request.scope,
+        hash,
+        assembled.toXdr(),
+        build.maxTime,
+        opts,
+      );
       return hash;
     });
   }
@@ -571,7 +802,9 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     hash: string,
     signerAddress: string,
     sequence: bigint,
+    reservationId: string,
     correlationId: string,
+    opts: CallOptions,
   ): Promise<void> {
     await this.#requests.setTxHash(request.scope, request.requestId, hash);
     await this.#ports.store.recordSubmission({
@@ -590,6 +823,8 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       errorCode: null,
       specCode: null,
       replacesTxHash: null,
+      submittedAtLedger: BigInt((await this.#rpc.getLatestLedger(opts)).sequence),
+      reservationId,
       correlationId,
       createdAt: this.#ports.clock.nowSeconds(),
     });

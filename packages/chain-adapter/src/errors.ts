@@ -31,6 +31,7 @@ export const CHAIN_ADAPTER_ERROR_CODES = Object.freeze([
   'QUOTE_EXPIRED',
   'QUOTE_UNAVAILABLE',
   'LIQUIDITY_UNAVAILABLE',
+  'RATE_UNAVAILABLE',
   'RAIL_UNAVAILABLE',
   'RAIL_REJECTED',
   'RAIL_TIMEOUT',
@@ -157,6 +158,7 @@ const DEFAULTS: Readonly<Record<ChainAdapterErrorCode, Defaults>> = {
   QUOTE_EXPIRED: { retryable: true, landed: 'no', message: 'Quote expired' },
   QUOTE_UNAVAILABLE: { retryable: false, landed: 'no', message: 'Quote unavailable' },
   LIQUIDITY_UNAVAILABLE: { retryable: false, landed: 'no', message: 'Liquidity unavailable' },
+  RATE_UNAVAILABLE: { retryable: true, landed: 'no', message: 'No fresh native asset rate' },
   RAIL_UNAVAILABLE: { retryable: true, landed: 'no', message: 'Delivery rail unavailable' },
   RAIL_REJECTED: { retryable: false, landed: 'no', message: 'Delivery rail rejected the transfer' },
   RAIL_TIMEOUT: { retryable: true, landed: 'no', message: 'Delivery rail timed out' },
@@ -258,9 +260,11 @@ const ADAPTER_ERROR_NAMES = [
   'ActivationBudgetExhaustedError',
   'ExecutorUnfundedError',
   'DestinationInvalidError',
+  'UnsupportedMemoDestinationError',
   'QuoteExpiredError',
   'QuoteUnavailableError',
   'LiquidityUnavailableError',
+  'RateUnavailableError',
   'RailUnavailableError',
   'RailRejectedError',
   'RailTimeoutError',
@@ -357,6 +361,67 @@ export abstract class ChainAdapterError extends Error {
 export function isChainAdapterError(value: unknown): value is ChainAdapterError {
   return value instanceof ChainAdapterError;
 }
+
+/** What a log line may hold of an error that passed through the adapter. */
+export interface AdapterErrorLog {
+  /** The class name, from the runtime's and this module's own names only. */
+  readonly name: string;
+  /** An adapter error's fixed message for its code. Absent for anything else. */
+  readonly message?: string;
+  /** An adapter error's job form: code, network, retry and landed state. */
+  readonly error?: ChainAdapterErrorJson;
+  /** The kind of the cause, under the same fixed wording the error keeps. */
+  readonly cause?: string;
+}
+
+const REDACTED_CAUSE_TEXT = /^Cause redacted: ([A-Za-z]{1,64})$/;
+
+// What the error records of its cause. The redacted cause's own text is
+// re-checked rather than trusted, and anything else found there (a cause
+// swapped in after construction) is reduced to its kind the same way.
+function causeText(cause: unknown): string | undefined {
+  if (cause === undefined) return undefined;
+  if (cause instanceof RedactedCause) {
+    const kind = REDACTED_CAUSE_TEXT.exec(cause.message)?.[1];
+    if (kind !== undefined && KNOWN_CAUSE_NAMES.has(kind)) return `Cause redacted: ${kind}`;
+    return 'Cause redacted: Error';
+  }
+  return `Cause redacted: ${causeName(cause)}`;
+}
+
+/**
+ * The log serializer for errors that pass through the adapter, for a
+ * structured logger's `err` key. Loggers print a message, a stack and the
+ * whole cause chain, and a transport error quotes the provider URL with
+ * its key, so the line keeps only what the adapter wrote itself: the class
+ * name, the fixed message for the code, the job form and the kind of the
+ * cause. Fields are read back from the code table rather than the instance,
+ * so a message or cause changed after construction cannot reach the log.
+ * Anything that is not an adapter error is named by its class and nothing
+ * else. It never throws: a log call is the worst place for a hostile value
+ * to break a request, so a value that throws while being read is logged as
+ * a plain Error.
+ */
+export function serializeAdapterError(value: unknown): AdapterErrorLog {
+  try {
+    if (!(value instanceof ChainAdapterError)) return { name: causeName(value) };
+    const cause = causeText(value.cause);
+    return {
+      name: causeName(value),
+      message: DEFAULTS[value.code].message,
+      error: value.toJSON(),
+      ...(cause === undefined ? {} : { cause }),
+    };
+  } catch {
+    return { name: 'Error' };
+  }
+}
+
+/** Serializers keyed the way structured loggers look them up. */
+export const ADAPTER_LOG_SERIALIZERS: Readonly<{
+  err: (value: unknown) => AdapterErrorLog;
+  error: (value: unknown) => AdapterErrorLog;
+}> = Object.freeze({ err: serializeAdapterError, error: serializeAdapterError });
 
 // "path (code)": the path is field names, indexes, network IDs and, where an
 // operator needs it to fix a config, a host name; the code a lower snake
@@ -580,11 +645,41 @@ export class ExecutorUnfundedError extends ChainAdapterError {
   }
 }
 
-/** Bad address, missing trustline, or a tag the destination needs but the network cannot carry. */
+/**
+ * Bad address, missing trustline, a tag the destination needs but the network
+ * cannot carry, or an address the mandate could never pay out, which the
+ * attester refuses to sign for.
+ */
 export class DestinationInvalidError extends ChainAdapterError {
   override readonly name = 'DestinationInvalidError';
   constructor(options?: ChainAdapterErrorOptions) {
     super('DESTINATION_INVALID', options);
+  }
+}
+
+/**
+ * Shown to a recipient whose destination needs a text or hash memo. Plain
+ * fixed text, so a widget or an API can show it as it is.
+ */
+export const UNSUPPORTED_MEMO_DESTINATION_MESSAGE =
+  'This destination needs a text or hash memo, which a payout from a mandate cannot carry. Choose another payout method, or an address that needs no memo or only a numeric one.';
+
+/**
+ * A destination that needs a text or hash memo. A contract cannot attach a
+ * transaction memo and a muxed tag holds only a 64 bit number, so it could
+ * never be paid; it is refused when the destination is captured, not found
+ * at payout time. It is invalid input with reason MEMO_NOT_ID, so callers
+ * that branch on the code or the reason need no new case.
+ */
+export class UnsupportedMemoDestinationError extends InvalidInputError {
+  override readonly name: string = 'UnsupportedMemoDestinationError';
+
+  constructor(options: { readonly network: NetworkId | null; readonly path: string }) {
+    super({
+      network: options.network,
+      reason: 'MEMO_NOT_ID',
+      issues: [`${options.path} (memo_not_id)`],
+    });
   }
 }
 
@@ -606,6 +701,14 @@ export class LiquidityUnavailableError extends ChainAdapterError {
   override readonly name = 'LiquidityUnavailableError';
   constructor(options?: ChainAdapterErrorOptions) {
     super('LIQUIDITY_UNAVAILABLE', options);
+  }
+}
+
+/** No source gave a fresh price for the native asset. A rate is never guessed. */
+export class RateUnavailableError extends ChainAdapterError {
+  override readonly name = 'RateUnavailableError';
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('RATE_UNAVAILABLE', options);
   }
 }
 

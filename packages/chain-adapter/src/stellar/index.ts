@@ -35,6 +35,9 @@ export {
 export type { ExtensionGroup, ExtensionPolicy, RestoredEntry } from './restore-policy.js';
 export { createStellarRpc } from './rpc.js';
 export { accountBalance } from './tx.js';
+export { horizonDexSource, reflectorOracleSource } from './xlm-rate-sources.js';
+export { fateOf } from './lifecycle.js';
+export type { ReconcileResult, SubmissionFate, SweepOptions } from './lifecycle.js';
 export type {
   JsonRpcOptions,
   RpcLatestLedger,
@@ -44,3 +47,28 @@ export type {
   RpcTransaction,
   StellarRpc,
 } from './rpc.js';
+export { createFundingAccountFlow } from './funding-account.js';
+export type { FundingAccountFlowOptions } from './funding-account.js';
+export { CONTRACT_ADDRESS_LABEL, parseForwarderRequest, stellarFundingView } from './forwarder.js';
+export type { ForwarderFault, ForwarderRecord, StellarFundingView } from './forwarder.js';
+export {
+  REVIEWED_WALLET_CODE,
+  WALLET_REFUSALS,
+  checkSingleKey,
+  checkWalletChange,
+  checkWalletTrust,
+  fewestSignatures,
+  guardWalletChange,
+  guardWalletForMandate,
+} from './wallet-rules.js';
+export type {
+  WalletDecision,
+  WalletMandate,
+  WalletOp,
+  WalletPolicy,
+  WalletReader,
+  WalletRefusal,
+  WalletRule,
+  WalletSigner,
+  WalletSnapshot,
+} from './wallet-rules.js';

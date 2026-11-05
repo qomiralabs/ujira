@@ -20,7 +20,7 @@ export interface StoredSigningRequest {
   readonly requestId: string;
   readonly scope: TenantScope;
   readonly network: NetworkId;
-  readonly op: MandateAction['op'];
+  readonly op: MandateAction['op'] | 'create_funding_account';
   /** The mandate's C address; for create, the address it will be deployed at. */
   readonly mandate: string | null;
   readonly payoutId: PayoutId | null;
@@ -37,6 +37,8 @@ export interface StoredSigningRequest {
   readonly fee: bigint;
   readonly validUntil: UnixSeconds;
   readonly summary: SigningSummary;
+  /** How many times this action has been re-simulated to get here. */
+  readonly resimulations?: number;
 }
 
 export interface SigningRequestUse {
