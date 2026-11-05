@@ -162,6 +162,19 @@ describe('parseNetworksConfig', () => {
     expect(parseNetworksConfig(doc)['stellar:pubnet']?.assets.USDC.issuer).toBe(CIRCLE_TESTNET);
   });
 
+  it('waits a day for a claimed mandate to register unless told otherwise', () => {
+    const parsed = networksConfigSchema.safeParse({ 'stellar:pubnet': stellar() });
+    expect(parsed.data?.['stellar:pubnet']?.pendingMandateMaxAgeSeconds).toBe(86_400);
+  });
+
+  it.each([[3_599], [604_801], [86_400.5]])(
+    'refuses %d seconds as the wait for a claimed mandate',
+    (pendingMandateMaxAgeSeconds) => {
+      const network = { ...stellar(), pendingMandateMaxAgeSeconds };
+      expect(networksConfigSchema.safeParse({ 'stellar:pubnet': network }).success).toBe(false);
+    },
+  );
+
   it('returns a frozen snapshot', () => {
     const config = parseNetworksConfig({ 'stellar:pubnet': stellar() });
     expect(Object.isFrozen(config)).toBe(true);

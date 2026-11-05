@@ -59,6 +59,19 @@ export {
   type TokenRecord,
 } from './repositories/entry-points.js';
 export {
+  mandateEventStore,
+  mandateRegistry,
+  payoutBookings,
+  type IntakeBooking,
+  type IntakeTenant,
+  type MandateAlert,
+  type MandateFlagReason,
+  type MandateRegistryRow,
+  type NewMandateRegistration,
+  type PayoutBooking,
+  type PayoutBookingEvent,
+} from './repositories/mandate-registry.js';
+export {
   audit,
   AuditScopeError,
   type AuditActor,
@@ -119,6 +132,7 @@ export {
   type WalletChallengeRow,
 } from './repositories/identity-evidence.js';
 export {
+  chainCursors,
   emailQuota,
   executors,
   identityProviderEvents,

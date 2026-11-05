@@ -203,6 +203,22 @@ export const mandateInstances = {
     return row === undefined ? undefined : toInstance(row);
   },
 
+  // This tenant's instance at a contract. Another tenant's stays out of sight, so
+  // this cannot tell anyone that an address is taken.
+  byAddress: async (
+    db: Tx,
+    chain: string,
+    contractAddress: string,
+  ): Promise<MandateInstance | undefined> => {
+    const row = await db
+      .selectFrom('ujira.mandate_instances')
+      .select(instanceColumns)
+      .where('chain', '=', chain)
+      .where('contract_address', '=', contractAddress)
+      .executeTakeFirst();
+    return row === undefined ? undefined : toInstance(row);
+  },
+
   // A chain and asset the settlement tokens do not list, or the wrong scale,
   // is refused by the foreign key (23503).
   create: async (db: Tx, input: NewMandateInstance): Promise<MandateInstance> => {
@@ -683,7 +699,8 @@ export interface FundingSweep {
 export interface NewFundingSweep {
   readonly fundingSourceId: string;
   readonly mandateInstanceId: string;
-  // The chain's id for the deposit. This is the idempotency key of the sweep.
+  // The chain's id for the deposit: its operation and its event's index in that
+  // operation, since one operation can pay twice. This is the sweep's idempotency key.
   readonly depositOperationId: string;
   readonly amount: TokenAmount;
 }

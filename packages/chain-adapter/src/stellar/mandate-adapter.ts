@@ -10,6 +10,7 @@
 // the adapter keeps its own copy of what it built and refuses a signed
 // payload that differs from it in any byte other than the signature.
 
+import type { TokenAmount } from '@ujira/core';
 import { createHash, randomUUID } from 'node:crypto';
 
 import { xdr } from '@stellar/stellar-sdk/base';
@@ -35,6 +36,23 @@ import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
 import { isPublicTestAttesterKey } from '../test-attester-keys.js';
 import type {
   AdapterPorts,
+  BatchStep,
+  DepositScanPage,
+  DepositScanRequest,
+  FundingInstructions,
+  PrepareFundingRequest,
+  ChainReceipt,
+  DeadProof,
+  PayBatchRequest,
+  PayRequest,
+  PayStep,
+  PayoutChainStatus,
+  PayoutId,
+  ProveDeadRequest,
+  ReceiptRef,
+  ReceiptRequest,
+  ReceiptVerification,
+  StatusRequest,
   Bytes32,
   CallOptions,
   ChainAdapter,
@@ -56,6 +74,7 @@ import type {
 } from '../types.js';
 import { addressXdr } from './address-xdr.js';
 import { invocationOf } from './calls.js';
+import type { Invocation } from './calls.js';
 import { wrapInFeeBump } from './contract-call.js';
 import { ExecutorSession, sendAndRecord } from './executor.js';
 import type { ExecutorContext } from './executor.js';
@@ -69,7 +88,11 @@ import { archivedKeys, extendRestored, restoreAndExtend } from './restore.js';
 import { STELLAR_LEDGER_SECONDS } from './restore-policy.js';
 import { reconcileSubmission, reconcileUnresolved } from './lifecycle.js';
 import type { ReconcileResult, SweepOptions } from './lifecycle.js';
+import type { DestinationState } from './destination-check.js';
 import { mandateAddressOf } from './mandate-address.js';
+import { StellarFunding } from './funding.js';
+import { StellarPayouts } from './pay.js';
+import type { ExecutionMirror, PayoutMethodSource } from './pay.js';
 import type { StellarRpc } from './rpc.js';
 import { asAddress } from './scval.js';
 import {
@@ -109,6 +132,11 @@ export interface StellarMandateAdapterOptions {
   readonly rpc: StellarRpc;
   readonly ports: AdapterPorts;
   readonly requests: SigningRequestStore;
+  /** Where each payout leg's destination is kept. */
+  readonly methods?: PayoutMethodSource;
+  /** The indexer's copy of executions, for receipts past the RPC's retention. */
+  readonly mirror?: ExecutionMirror;
+  readonly maxBisectRounds?: number;
   /** How the restore step waits for its transactions. */
   readonly wait?: WaitOptions;
   readonly executorLeaseSeconds?: number;
@@ -134,12 +162,28 @@ export type SignedOutcome =
 
 export type StellarMandateOperations = Pick<
   ChainAdapter,
-  'network' | 'readMandate' | 'prepareMandateAction' | 'submitSigned'
+  | 'network'
+  | 'readMandate'
+  | 'prepareMandateAction'
+  | 'submitSigned'
+  | 'pay'
+  | 'payBatch'
+  | 'status'
+  | 'proveDead'
+  | 'receipt'
+  | 'verifyReceipt'
+  | 'fundingInstructions'
+  | 'prepareFunding'
+  | 'scanDeposits'
 >;
 
 const SPEC_VERSION = 1;
 const DEFAULT_LEASE_SECONDS = 120;
 const DEFAULT_SUBMIT_TIMEOUT_MS = 30_000;
+const DEFAULT_MAX_BISECT_ROUNDS = 16;
+// With no source of destinations every leg reads as unknown, so a service wired
+// without one refuses payouts rather than paying somewhere it made up.
+const NO_METHODS: PayoutMethodSource = { destination: () => Promise.resolve(null) };
 
 /** How the restore step waits for each of its transactions to land. */
 export const DEFAULT_WAIT: WaitOptions = {
@@ -158,6 +202,7 @@ const INTENTS: Partial<Record<StoredSigningRequest['op'], SponsoredIntent>> = {
   cancel: 'cancel',
   cancel_batch: 'cancel',
   withdraw: 'withdraw',
+  fund: 'fund',
 };
 
 function invalid(network: StellarNetworkId, issue: string): InvalidInputError {
@@ -177,6 +222,8 @@ export class StellarMandateAdapter implements StellarMandateOperations {
   readonly #executor: ExecutorContext;
   readonly #ttlExtendLedgers: number | undefined;
   readonly #newRequestId: () => string;
+  readonly #payouts: StellarPayouts;
+  readonly #funding: StellarFunding;
   readonly #paddedCalls: ReadonlySet<string>;
   readonly #steps: StepLog;
   readonly #nodeEnv: string | undefined;
@@ -186,9 +233,14 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     this.#rpc = options.rpc;
     this.#ports = options.ports;
     this.#requests = options.requests;
-    this.#trust = new MandateTrust(options.network, options.rpc, () => [
-      ...this.#config().trustedFactories['1'],
-    ]);
+    this.#trust = new MandateTrust(
+      options.network,
+      options.rpc,
+      () => [...this.#config().trustedFactories['1']],
+      options.ports.registry,
+      options.ports.clock,
+      () => this.#config().pendingMandateMaxAgeSeconds,
+    );
     this.#executor = {
       network: options.network,
       rpc: options.rpc,
@@ -203,6 +255,74 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     this.#paddedCalls = options.paddedCalls ?? PADDED_CALLS;
     this.#steps = options.steps ?? createMemoryStepLog();
     this.#nodeEnv = options.nodeEnv;
+    this.#payouts = new StellarPayouts({
+      network: options.network,
+      rpc: options.rpc,
+      ports: options.ports,
+      executor: this.#executor,
+      methods: options.methods ?? NO_METHODS,
+      mirror: options.mirror ?? null,
+      maxBisectRounds: options.maxBisectRounds ?? DEFAULT_MAX_BISECT_ROUNDS,
+      config: () => this.#config(),
+      verify: (scope, mandate, opts) => this.#trust.verify(scope, mandate, opts),
+      prepare: (call, opts) => this.#prepareCall(call, opts),
+      submit: (req, opts) => this.submitSigned(req, opts),
+    });
+    this.#funding = new StellarFunding({
+      network: options.network,
+      rpc: options.rpc,
+      ports: options.ports,
+      config: () => this.#config(),
+      verify: (scope, mandate, opts) => this.#trust.verify(scope, mandate, opts),
+      prepare: (call, opts) => this.#prepareCall(call, opts),
+    });
+  }
+
+  fundingInstructions(
+    req: { readonly scope: TenantScope; readonly mandate: MandateRef },
+    opts: CallOptions,
+  ): Promise<FundingInstructions> {
+    return this.#funding.fundingInstructions(req, opts);
+  }
+
+  prepareFunding(req: PrepareFundingRequest, opts: CallOptions): Promise<SigningRequest> {
+    return this.#funding.prepareFunding(req, opts);
+  }
+
+  scanDeposits(req: DepositScanRequest, opts: CallOptions): Promise<DepositScanPage> {
+    return this.#funding.scanDeposits(req, opts);
+  }
+
+  pay(req: PayRequest, opts: CallOptions): Promise<PayStep> {
+    return this.#payouts.pay(req, opts);
+  }
+
+  payBatch(req: PayBatchRequest, opts: CallOptions): Promise<BatchStep> {
+    return this.#payouts.payBatch(req, opts);
+  }
+
+  status(req: StatusRequest, opts: CallOptions): Promise<PayoutChainStatus> {
+    return this.#payouts.status(req, opts);
+  }
+
+  proveDead(req: ProveDeadRequest, opts: CallOptions): Promise<DeadProof | null> {
+    return this.#payouts.proveDead(req, opts);
+  }
+
+  receipt(req: ReceiptRequest, opts: CallOptions): Promise<ChainReceipt> {
+    return this.#payouts.receipt(req, opts);
+  }
+
+  verifyReceipt(ref: ReceiptRef, opts: CallOptions): Promise<ReceiptVerification> {
+    return this.#payouts.verifyReceipt(ref, opts);
+  }
+
+  /** Whether a destination can take an amount now, for the attester's and a request's precheck. */
+  checkDestination(
+    req: Parameters<StellarPayouts['checkDestination']>[0],
+    opts: CallOptions,
+  ): Promise<DestinationState> {
+    return this.#payouts.checkDestination(req, opts);
   }
 
   #config(): StellarNetworkConfig {
@@ -305,6 +425,43 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       assetContract: config.assets.USDC.sac,
     });
     this.#refuseTestAttester(action);
+    return this.#prepareCall(
+      {
+        scope: req.scope,
+        mandate: req.mandate,
+        op: action.op,
+        inv,
+        signer,
+        target: target.address,
+        payoutId: 'payoutId' in action ? action.payoutId : null,
+        ...(action.op === 'withdraw' ? { amount: action.amount } : {}),
+        resimulations,
+      },
+      opts,
+    );
+  }
+
+  /** What `signer` signs for this call: its own transaction, or a wallet's entry. */
+  async #prepareCall(
+    call: {
+      readonly scope: TenantScope;
+      readonly mandate: MandateRef | null;
+      readonly op: StoredSigningRequest['op'];
+      readonly inv: Invocation;
+      readonly signer: string;
+      readonly target: string;
+      readonly payoutId: PayoutId | null;
+      readonly attempt?: number | null;
+      readonly amount?: TokenAmount;
+      readonly resimulations?: number;
+    },
+    opts: CallOptions,
+  ): Promise<SigningRequest> {
+    const { network } = this;
+    const config = this.#config();
+    const { inv, signer, target, resimulations = 0 } = call;
+    const req = { scope: call.scope, mandate: call.mandate };
+    const action = { op: call.op };
     const now = this.#ports.clock.nowSeconds();
     const validUntil = (now + BigInt(config.signingWindowSeconds)) as UnixSeconds;
     const viaWallet = signer.startsWith('C');
@@ -320,7 +477,10 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       maxTime: validUntil,
     };
     const tx = invokeTx(inv, build);
-    let sim = await simulate(this.#rpc, network, tx, inv.contract, opts);
+    // Funding calls the token. Its errors are numbered on its own, so they are read
+    // against the mandate, which makes any of them a failed transfer.
+    const failsAs = call.op === 'fund' ? target : inv.contract;
+    let sim = await simulate(this.#rpc, network, tx, failsAs, opts);
     const archived = archivedKeys(sim);
     if (archived.length > 0) {
       await ExecutorSession.run(this.#executor, opts, (session) =>
@@ -329,7 +489,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
           session,
           {
             scope: req.scope,
-            target: { mandate: target.address, asset: config.assets.USDC.sac },
+            target: { mandate: target, asset: config.assets.USDC.sac },
             keys: archived,
             instanceTtlExtendLedgers:
               this.#ttlExtendLedgers ?? config.soroban.instanceTtlExtendLedgers,
@@ -338,7 +498,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
           opts,
         ),
       );
-      sim = await simulate(this.#rpc, network, tx, inv.contract, opts);
+      sim = await simulate(this.#rpc, network, tx, failsAs, opts);
     }
     const auth = (sim.result?.auth ?? []).map((entry) =>
       checkedEntry(network, entry, signer, viaWallet),
@@ -346,7 +506,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     // The tag in this call is bound to the address worked out above. If the
     // factory would deploy anywhere else the tag would be wrong for good, so
     // nothing is handed out to sign.
-    if (action.op === 'create' && asAddress(returned(sim)) !== target.address) {
+    if (action.op === 'create' && asAddress(returned(sim)) !== target) {
       throw new InternalError({ network });
     }
     const padding = this.#paddedCalls.has(inv.fn)
@@ -359,9 +519,14 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     const fee = BigInt(sim.minResourceFee) + padding.addedFee + INCLUSION_FEE * 2n;
     if (fee > config.feeSponsor.maxFeePerTxStroops) throw new SponsorDeniedError({ network });
     const summary: SigningSummary = {
-      action: action.op,
+      action:
+        call.op === 'request'
+          ? 'request_payout'
+          : call.op === 'request_batch'
+            ? 'request_payouts'
+            : call.op,
       ...(req.mandate === null ? {} : { mandate: req.mandate }),
-      ...(action.op === 'withdraw' ? { amount: action.amount } : {}),
+      ...(call.amount === undefined ? {} : { amount: call.amount }),
       feePaidBy: 'ujira',
       estimatedFee: stroops(network, fee),
     };
@@ -371,8 +536,9 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       scope: req.scope,
       network,
       op: action.op,
-      mandate: target.address,
-      payoutId: 'payoutId' in action ? action.payoutId : null,
+      mandate: target,
+      payoutId: call.payoutId,
+      attempt: call.attempt ?? null,
       signer,
       fee,
       validUntil,
@@ -770,7 +936,8 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       }
       const signature = await this.#ports.signer.sign(
         { kind: 'executor', network, keyId: session.lease.keyId },
-        { kind: 'stellar_tx', network, xdr: assembled.toXdr() },
+        // Not a stellar_tx: an executor key may sign those only for an execute.
+        { kind: 'stellar_relayed_call', network, xdr: assembled.toXdr() },
         opts,
       );
       attach(assembled, session.address, signature);
@@ -814,7 +981,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
       op: request.op,
       mandate: request.mandate,
       payoutId: request.payoutId,
-      attempt: null,
+      attempt: request.attempt ?? null,
       signerAddress,
       sequenceOrNonce: sequence,
       maxTime: request.validUntil,

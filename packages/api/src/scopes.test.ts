@@ -12,7 +12,7 @@ import { API_SCOPES, refuseAllCredentials } from './auth.js';
 import { RouteRegistryError } from './errors.js';
 import { memoryLogger } from './log.js';
 import { withOpenApiRoute } from './openapi.js';
-import { allowEveryRequest } from './rate-limit.js';
+import { allowEveryAddress, allowEveryRequest } from './rate-limit.js';
 import { defineTenantRoute, routeAccessProblems } from './route.js';
 import type { Route } from './route.js';
 import { V1_ROUTES } from './routes/index.js';
@@ -87,6 +87,7 @@ describe('the check', () => {
         routes: [route],
         authenticate: refuseAllCredentials,
         rateLimit: allowEveryRequest,
+        addressRateLimit: allowEveryAddress,
         logger: memoryLogger(),
       }),
     ).toThrow(RouteRegistryError);
