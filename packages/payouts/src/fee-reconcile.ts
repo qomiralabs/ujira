@@ -28,7 +28,7 @@ export interface FeeReconciliation {
   readonly expected: TokenAmount;
   readonly onChain: TokenAmount;
   readonly received: TokenAmount;
-  /** What the agreed fee was short by. Above zero only when underpaid. */
+  /** What the agreed fee was short by, on what arrived. Above zero only when underpaid. */
   readonly shortfall: TokenAmount;
   readonly outcome: FeeOutcome;
 }
@@ -164,7 +164,10 @@ export class FeeReconciliationNotFoundError extends Error {
   }
 }
 
-/** Only an underpaid row can be invoiced or waived. A mismatch has to be explained. */
+/**
+ * Only a principal's own underpayment can be invoiced or waived. A mismatch has to be
+ * explained, and a fee the chain says was taken has already been paid by the principal.
+ */
 export class FeeNotUnderpaidError extends Error {
   override readonly name = 'FeeNotUnderpaidError';
   readonly code = 'FEE_NOT_UNDERPAID';
@@ -198,8 +201,9 @@ function zeroOf(amount: TokenAmount): TokenAmount {
  * builder prices a payout, on the total as requested. A total grossed up to cover a cost
  * has the take on that total, and the cost itself is not in the fee.
  *
- * Above the expected fee is a mismatch and not a pass: a principal paid more than agreed,
- * and that is ours to put right.
+ * The outcome and shortfall are the ones the table's checks hold a row to, and they go by
+ * what arrived, so there is one definition of each. Anything above the expected fee is a
+ * mismatch and not a pass: a principal paid more than agreed, and that is ours to put right.
  */
 export function reconcileFee(input: {
   readonly total: TokenAmount;
@@ -210,18 +214,20 @@ export function reconcileFee(input: {
 }): FeeReconciliation {
   const { onChain, received } = input;
   const { fee: expected } = applyFee(input.total, input.terms, input.maxFeeBps);
-  const against = compare(onChain, expected);
-  const outcome: FeeOutcome =
-    compare(onChain, received) !== 0 || against > 0
-      ? 'mismatch'
-      : against < 0
-        ? 'underpaid'
-        : 'matched';
+  const arrived = compare(received, expected);
+  const exact = arrived === 0 && compare(onChain, received) === 0;
+  const outcome: FeeOutcome = exact ? 'matched' : arrived < 0 ? 'underpaid' : 'mismatch';
   const shortfall =
-    outcome === 'underpaid'
-      ? tokenAmount(expected.amount - onChain.amount, expected.asset, expected.chain)
+    arrived < 0
+      ? tokenAmount(expected.amount - received.amount, expected.asset, expected.chain)
       : zeroOf(expected);
   return { expected, onChain, received, shortfall, outcome };
+}
+
+// The chain says it took one amount and another arrived. That reads as underpaid when less
+// arrived, but it is not a principal paying too little: the money went somewhere.
+function lostOnTheWay(row: FeeReconciliation): boolean {
+  return compare(row.onChain, row.received) !== 0;
 }
 
 async function* pagesOf(
@@ -251,7 +257,10 @@ export interface FeeReconcileSummary {
   readonly mismatch: number;
 }
 
-/** Reads a network's executed fees for a period and raises every mismatch at high severity. */
+/**
+ * Reads a network's executed fees for a period, and raises every mismatch and every fee that
+ * did not arrive as the chain says at high severity.
+ */
 export async function runFeeReconciliation(
   input: {
     readonly network: NetworkId;
@@ -269,7 +278,7 @@ export async function runFeeReconciliation(
   for await (const rows of pagesOf(read, timeoutMs)) {
     for (const row of rows) {
       counts[row.outcome] += 1;
-      if (row.outcome !== 'mismatch') continue;
+      if (row.outcome !== 'mismatch' && !lostOnTheWay(row)) continue;
       await deps.alerts.mismatch(
         {
           key: `fee-mismatch:${row.attemptId}:${String(row.revision)}`,
@@ -394,7 +403,7 @@ export async function resolveUnderpaidFee(
   const read = async (): Promise<FeeReconciliationRow> => {
     const row = await deps.store.latest(scope, attemptId, opts);
     if (row === null) throw new FeeReconciliationNotFoundError();
-    if (row.outcome !== 'underpaid') throw new FeeNotUnderpaidError();
+    if (row.outcome !== 'underpaid' || lostOnTheWay(row)) throw new FeeNotUnderpaidError();
     if (row.resolution.kind !== 'none' && !sameResolution(row.resolution, resolution)) {
       throw new FeeResolutionConflictError();
     }

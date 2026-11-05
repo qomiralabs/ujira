@@ -43,6 +43,8 @@ export interface ReadFixture {
 
 export const FIXTURE_FACTORY = 'CB4AYBA5NVQPVPNOWUCSZQK6ZIGOF7KSCS6SF6UV6D2OKPDXLHEPD4V7';
 export const FIXTURE_USDC = 'CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA';
+/** The one approver the recorded mandate stores, at epoch 0. */
+export const FIXTURE_APPROVER = 'GBSWX5EGQ4PO34WLVAK5GS46G5WHNEAMOE6OI4CSK2D2CQSWAEVWMLWH';
 
 export function loadReadFixture(): ReadFixture {
   // Beside this file in the source, and back in the source when run from a build.

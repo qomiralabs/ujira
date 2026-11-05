@@ -844,6 +844,15 @@ export class MandateEngine implements LedgerContract {
     });
   }
 
+  /** How many approvals on an open payout still count, by the rule execute goes by. */
+  liveApprovals(payoutId: string): number {
+    const id = input.bytes32('payoutId', payoutId);
+    return this.#view(() => {
+      const entry = this.#s.payouts.get(id);
+      return entry !== undefined && isOpen(entry) ? this.#liveApprovals(entry) : 0;
+    });
+  }
+
   /** Today's executed total for a recipient; a stored day that is not today counts as nothing. */
   dailyUsed(recipientRef: string): EngineDailyUsage {
     const ref = input.bytes32('recipientRef', recipientRef);

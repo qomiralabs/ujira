@@ -71,6 +71,7 @@ async function newInstance(scope: TenantScope) {
     return mandateInstances.create(tx, {
       mandateId: mandate.id,
       chain: 'stellar',
+      network: NETWORK,
       contractAddress: `C${randomUUID()}`,
       specVersion: '1',
       asset: 'USDC',

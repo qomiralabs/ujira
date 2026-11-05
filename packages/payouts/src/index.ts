@@ -83,7 +83,6 @@ export {
 export type { AppliedFee, FeeBasis, FeeTerms, FeeTermsSource } from './fee-builder.js';
 export { isTransferFailed, onTransferFailed, zeroFeeRequest } from './fee-fallback.js';
 export type {
-  CancelSigner,
   FeeFallbackAdapter,
   FeeFallbackDeps,
   FeeFallbackOutcome,

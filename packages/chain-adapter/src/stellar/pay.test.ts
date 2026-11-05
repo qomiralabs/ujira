@@ -7,12 +7,23 @@ import { tokenAmount } from '@ujira/core';
 import { describe, expect, it } from 'vitest';
 
 import { encodeMuxedAddress, decodeAccountAddress } from '../codecs/strkey.js';
-import { ChainUnavailableError } from '../errors.js';
+import { ChainUnavailableError, InternalError } from '../errors.js';
 import { feeCap } from '../fee-cap.js';
 import { formatReceiptRef } from '../receipt-ref.js';
 import type { Bytes32, LegKey, PayStep, UnixSeconds } from '../types.js';
 import { readDestination } from './destination-check.js';
-import { asVec, bytes32, destination, field, fieldsOf, i128, struct, u32, vec } from './scval.js';
+import {
+  asVec,
+  bytes32,
+  destination,
+  field,
+  fieldsOf,
+  i128,
+  struct,
+  sym,
+  u32,
+  vec,
+} from './scval.js';
 import { NETWORK, OPTS, addAccount } from './test-adapter.js';
 import {
   METHOD,
@@ -27,8 +38,43 @@ import {
   trustline,
 } from './test-payouts.js';
 import type { PayWorld } from './test-payouts.js';
-import { invoked } from './test-rpc.js';
+import { FIXTURE_APPROVER, invoked } from './test-rpc.js';
+import { instanceKey } from './trust.js';
 import { PASSPHRASES } from './tx.js';
+
+/** An approval the recorded mandate would count: its one approver, at its stored epoch. */
+const LIVE_APPROVAL = { approver: FIXTURE_APPROVER, epoch: 0 };
+const removedApproval = () => ({ approver: Keypair.random().publicKey(), epoch: 0 });
+
+/** The recorded mandate, with no roles where the adapter looks for them. */
+function dropStoredRoles(w: PayWorld): void {
+  const key = instanceKey(w.mandate.address.value).toXdr('base64');
+  const entry = w.rpc.entries.get(key);
+  if (entry === undefined) throw new Error('no instance entry');
+  const data = xdr.LedgerEntryData.fromXdr(entry.xdr, 'base64');
+  if (data.type !== 'contractData' || data.contractData.val.type !== 'scvContractInstance') {
+    throw new Error('not an instance');
+  }
+  const { contractData } = data;
+  const { instance } = contractData.val as xdr.ScVal & { type: 'scvContractInstance' };
+  const roles = vec([sym('Roles')]).toXdr('base64');
+  const kept = (instance.storage ?? []).filter((e) => e.key.toXdr('base64') !== roles);
+  expect(kept).toHaveLength((instance.storage ?? []).length - 1);
+  w.rpc.entries.set(key, {
+    ...entry,
+    xdr: xdr.LedgerEntryData.contractData(
+      new xdr.ContractDataEntry({
+        ext: contractData.ext,
+        contract: contractData.contract,
+        key: contractData.key,
+        durability: contractData.durability,
+        val: xdr.ScVal.scvContractInstance(
+          new xdr.ScContractInstance({ executable: instance.executable, storage: kept }),
+        ),
+      }),
+    ).toXdr('base64'),
+  });
+}
 
 function refuseAs(w: PayWorld, name: 'AGENT_REMOVED') {
   return refusal(w.mandate.address.value, name);
@@ -181,6 +227,26 @@ describe('the pay step', { timeout: 30_000 }, () => {
       await refusedBefore(bare, 'DESTINATION_INVALID');
     });
 
+    // Already refused by the destination read. Pinned, because a transfer here burns.
+    it('a leg to the asset issuer gives DESTINATION_INVALID, under a tag as well', async () => {
+      const issuer = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
+      const w = payWorld();
+      w.methods.set(METHOD, { address: { network: NETWORK, value: issuer }, tag: null });
+      await refusedBefore(w, 'DESTINATION_INVALID');
+      const tagged = payWorld();
+      tagged.methods.set(METHOD, { address: { network: NETWORK, value: issuer }, tag: 7n });
+      await refusedBefore(tagged, 'DESTINATION_INVALID');
+      const muxed = payWorld();
+      muxed.methods.set(METHOD, {
+        address: {
+          network: NETWORK,
+          value: encodeMuxedAddress(decodeAccountAddress(issuer), 7n),
+        },
+        tag: null,
+      });
+      await refusedBefore(muxed, 'DESTINATION_INVALID');
+    });
+
     it('maintain-only trustline', async () => {
       const w = payWorld();
       trustline(w, w.recipient, { flags: 2 });
@@ -273,11 +339,51 @@ describe('the pay step', { timeout: 30_000 }, () => {
     it('waits for approvals on a pending payout', async () => {
       const w = payWorld();
       const req = payRequest(w);
-      w.views.set(req.payoutId, record(1, { approvals: 1 }));
+      w.views.set(req.payoutId, record(1, { approvals: [LIVE_APPROVAL] }));
       expect(await w.payouts.pay(req, OPTS)).toMatchObject({
         kind: 'awaiting_approval',
         approvals: { count: 1 },
       });
+    });
+
+    // The mandate voids an approval along with its approver's seat, so a list that still
+    // holds it does not mean what it looks like: this payout cannot execute.
+    it('does not count an approval from an approver since removed', async () => {
+      const w = payWorld();
+      const req = payRequest(w);
+      w.views.set(req.payoutId, record(1, { approvals: [LIVE_APPROVAL, removedApproval()] }));
+      expect(await w.payouts.pay(req, OPTS)).toMatchObject({ approvals: { count: 1 } });
+      w.views.set(req.payoutId, record(1, { approvals: [removedApproval()] }));
+      expect(await w.payouts.pay(req, OPTS)).toMatchObject({ approvals: { count: 0 } });
+    });
+
+    // Adding an approver back gives them a new epoch, and what they approved under the old
+    // one stays void. The address alone would count it.
+    it('does not count an approval given under an approver epoch that has passed', async () => {
+      const w = payWorld();
+      const req = payRequest(w);
+      const stale = { approver: FIXTURE_APPROVER, epoch: LIVE_APPROVAL.epoch + 1 };
+      w.views.set(req.payoutId, record(1, { approvals: [stale] }));
+      expect(await w.payouts.pay(req, OPTS)).toMatchObject({ approvals: { count: 0 } });
+    });
+
+    // This reads the mandate's storage, which is no public interface. The fixture is
+    // recorded from the deployed contract, so a change there fails here once re-recorded.
+    it('counts against the approvers the recorded testnet mandate stores', async () => {
+      const w = payWorld();
+      const req = payRequest(w);
+      w.views.set(req.payoutId, record(1, { approvals: [LIVE_APPROVAL] }));
+      expect(await w.payouts.pay(req, OPTS)).toMatchObject({ approvals: { count: 1 } });
+      dropStoredRoles(w);
+      await expect(w.payouts.pay(req, OPTS)).rejects.toBeInstanceOf(InternalError);
+    });
+
+    it('reads no storage for a payout nobody has approved', async () => {
+      const w = payWorld();
+      const req = payRequest(w);
+      dropStoredRoles(w);
+      w.views.set(req.payoutId, record(1));
+      expect(await w.payouts.pay(req, OPTS)).toMatchObject({ approvals: { count: 0 } });
     });
 
     it('holds an approved payout that was asked to hold', async () => {
@@ -491,10 +597,10 @@ describe('status', { timeout: 30_000 }, () => {
     });
     await w.payouts.pay(payRequest(w), OPTS);
     const id = payRequest(w).payoutId as unknown as string;
-    w.views.set(id, record(1, { approvals: 2 }));
+    w.views.set(id, record(1, { approvals: [LIVE_APPROVAL, removedApproval()] }));
     expect(await w.payouts.status(request(w), OPTS)).toMatchObject({
       onChain: 'pending',
-      approvals: { count: 2 },
+      approvals: { count: 1 },
       legs: [{ rail: 'stellar.wallet', state: 'not_applicable' }],
     });
     w.views.set(id, record(2, { expiresAt: 1n }));
@@ -611,6 +717,19 @@ describe('batches', { timeout: 30_000 }, () => {
     ]);
     expect(step.submissions).toHaveLength(1);
     expect(w.rpc.sent).toHaveLength(1);
+  });
+
+  it('counts only live approvals on a pending item in a batch too', async () => {
+    const w = payWorld();
+    const pending = payRequest(w, 1);
+    const fine = payRequest(w, 2);
+    w.views.set(pending.payoutId, record(1, { approvals: [LIVE_APPROVAL, removedApproval()] }));
+    w.views.set(fine.payoutId, record(2));
+    const step = await batch(w, [pending, fine]);
+    expect(step.items[0]?.step).toMatchObject({
+      kind: 'awaiting_approval',
+      approvals: { count: 1 },
+    });
   });
 
   it('refuses a request batch with mixed signers', async () => {
