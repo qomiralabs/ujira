@@ -132,7 +132,7 @@ export type FeeFallbackOutcome =
 /**
  * Decides what a TRANSFER_FAILED means and carries out the fee path if it was the fee.
  * Call it again with the same input to resume. A failed read or write throws, because
- * guessing here either cancels a payout for nothing or holds up a payment.
+ * guessing here either gives up a fee for nothing or holds up a payment.
  */
 export async function onTransferFailed(
   input: FeeTransferFailure,
