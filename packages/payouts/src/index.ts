@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
+export * from './worker/index.js';
+export * from './engine/index.js';
 export {
   FEE_OUTCOMES,
   FeeNotUnderpaidError,

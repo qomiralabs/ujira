@@ -16,9 +16,12 @@ import type { Database, ProjectContext } from './database.js';
 import type { Schema } from './schema.generated.js';
 import { audit, auditRepositories } from './repositories/audit.js';
 import { entryPoints } from './repositories/entry-points.js';
+import { deadLetters, jobQueue, jobRepositories } from './repositories/jobs.js';
 import { fundingAccountRepositories, fundingAccounts } from './repositories/funding-accounts.js';
 import { managedSigners } from './repositories/signers.js';
 import { ledger, ledgerRepositories } from './repositories/ledger.js';
+import { approvals, legRepositories, payoutLegs } from './repositories/payout-legs.js';
+import { payoutEngine, payoutEngineRepositories } from './repositories/payout-engine.js';
 import {
   chainEvents,
   deposits,
@@ -97,6 +100,7 @@ interface Tenant {
   readonly batchId: string;
   readonly attemptId: string;
   readonly heldPayoutId: string;
+  readonly legId: string;
   readonly sessionId: string;
   readonly challengeId: string;
   readonly verificationId: string;
@@ -109,10 +113,13 @@ const REPOSITORIES = {
   ...mandateRepositories,
   ...fundingAccountRepositories,
   ...ledgerRepositories,
+  ...payoutEngineRepositories,
   ...recipientRepositories,
   ...identityEvidenceRepositories,
   ...auditRepositories,
+  ...jobRepositories,
   ...payoutRepositories,
+  ...legRepositories,
   payoutBookings,
 };
 
@@ -201,6 +208,7 @@ async function tenant(name: string): Promise<Tenant> {
       fundingAccountId: forwarder?.id ?? '',
     };
   });
+  const destinationAddress = `G${randomUUID()}`;
   const eventTxHash = randomBytes(32);
   const bookingPayoutId = randomBytes(32);
   const roleAddress = `G${name}`;
@@ -285,7 +293,7 @@ async function tenant(name: string): Promise<Tenant> {
       method: 'stellar_wallet',
       rail: 'wallet',
       chain: 'stellar',
-      destinationAddress: `G${randomUUID()}`,
+      destinationAddress,
       destinationTag: null,
       details: null,
     });
@@ -353,11 +361,12 @@ async function tenant(name: string): Promise<Tenant> {
       agentLinkId: agentLink.id,
     };
   });
-  const { payoutId, batchId, attemptId, heldPayoutId } = await db
+  const { recipientId, methodId } = evidence;
+  const { payoutId, batchId, attemptId, heldPayoutId, legId } = await db
     .tenant(first)
     .transaction(async (tx) => {
       const payoutInput = {
-        recipientId: evidence.recipientId,
+        recipientId,
         mandateId,
         method: 'stellar_wallet' as const,
         requested: tokenAmount(50_000_000n, 'USDC', 'stellar'),
@@ -377,6 +386,22 @@ async function tenant(name: string): Promise<Tenant> {
         network: 'stellar:testnet',
         total: tokenAmount(50_000_000n, 'USDC', 'stellar'),
         deadline: new Date(Date.now() + 3_600_000),
+        legs: [
+          {
+            payoutMethodId: methodId,
+            method: 'stellar_wallet',
+            destinationAddress,
+            amount: 50_000_000n,
+          },
+        ],
+      });
+      const [leg] = await payoutLegs.forAttempt(tx, attempt.id);
+      await approvals.record(tx, {
+        attemptId: attempt.id,
+        approver: `G${name}`,
+        decision: 'approved',
+        signedMessageHash: randomBytes(32),
+        signature: randomBytes(64),
       });
       await fundingHolds.hold(tx, held.payout.id, [
         {
@@ -395,6 +420,7 @@ async function tenant(name: string): Promise<Tenant> {
         batchId: batch.id,
         attemptId: attempt.id,
         heldPayoutId: held.payout.id,
+        legId: leg?.id ?? '',
       };
     });
   return {
@@ -425,6 +451,7 @@ async function tenant(name: string): Promise<Tenant> {
     batchId,
     attemptId,
     heldPayoutId,
+    legId,
   };
 }
 
@@ -493,6 +520,84 @@ const acrossA = async <T>(work: (tx: Kysely<Schema>) => Promise<T>): Promise<T> 
 
 // One case per repository method, each run as tenant A.
 const cases: Record<string, () => Promise<void>> = {
+  'deadLetters.record': async () => {
+    // The same job id on both sides, so the unique key is tested across tenants.
+    const input = {
+      sourceJobId: 7001n,
+      task: 'cross:tenant',
+      ids: { payoutId: 'p1' },
+      tries: 12,
+      reason: 'RPC_UNAVAILABLE',
+    } as const;
+    const theirs = await db
+      .tenant(b.first)
+      .transaction(async (tx) => deadLetters.record(tx, input));
+    const mine = await asA(async (tx) => deadLetters.record(tx, input));
+    expect(mine.created).toBe(true);
+    expect(mine.id).not.toBe(theirs.id);
+  },
+  'deadLetters.open': async () => {
+    const theirs = await db.tenant(b.first).transaction(async (tx) =>
+      deadLetters.record(tx, {
+        sourceJobId: 7002n,
+        task: 'cross:tenant',
+        ids: {},
+        tries: 1,
+        reason: 'RPC_UNAVAILABLE',
+      }),
+    );
+    const page = await asA(async (tx) => deadLetters.open(tx, { limit: 100 }));
+    expect(page.items.map((letter) => letter.id)).not.toContain(theirs.id);
+  },
+  'deadLetters.get': async () => {
+    const theirs = await db.tenant(b.first).transaction(async (tx) =>
+      deadLetters.record(tx, {
+        sourceJobId: 7003n,
+        task: 'cross:tenant',
+        ids: {},
+        tries: 1,
+        reason: 'RPC_UNAVAILABLE',
+      }),
+    );
+    expect(await asA(async (tx) => deadLetters.get(tx, theirs.id))).toBeUndefined();
+  },
+  'deadLetters.markReplayed': async () => {
+    const theirs = await db.tenant(b.first).transaction(async (tx) =>
+      deadLetters.record(tx, {
+        sourceJobId: 7004n,
+        task: 'cross:tenant',
+        ids: {},
+        tries: 1,
+        reason: 'RPC_UNAVAILABLE',
+      }),
+    );
+    expect(await asA(async (tx) => deadLetters.markReplayed(tx, theirs.id))).toBe(false);
+    const still = await db
+      .tenant(b.first)
+      .transaction(async (tx) => deadLetters.get(tx, theirs.id));
+    expect(still?.replayedAt).toBeNull();
+  },
+  // A job names no other tenant's row, so the question is whether A can file one
+  // under B or touch B's by key. The key below is B's own, and it lands as A's.
+  'jobQueue.enqueue': async () => {
+    const jobKey = 'cross:tenant';
+    await db
+      .tenant(b.first)
+      .transaction(async (tx) => jobQueue.enqueue(tx, { task: 'cross:tenant', ids: {}, jobKey }));
+    await asA(async (tx) =>
+      jobQueue.enqueue(tx, { task: 'cross:tenant', ids: { from: 'a' }, jobKey }),
+    );
+    const jobs = await admin.query<{ key: string; payload: Record<string, string> }>(
+      `select key, payload from graphile_worker._private_jobs where key like '%cross:tenant'`,
+    );
+    const keyOf = (tenant: ProjectContext): string =>
+      `${tenant.principalId}:${tenant.projectId}:${jobKey}`;
+    const held = new Map(jobs.rows.map((row) => [row.key, row.payload]));
+    expect(held.get(keyOf(a.first))?.['principalId']).toBe(a.first.principalId);
+    expect(held.get(keyOf(b.first))?.['principalId']).toBe(b.first.principalId);
+    // B's job was not replaced by A's.
+    expect(held.get(keyOf(b.first))?.['from']).toBeUndefined();
+  },
   'principals.current': async () => {
     const found = await asA(async (tx) => principals.current(tx));
     expect(found?.id).toBe(a.first.principalId);
@@ -1177,6 +1282,69 @@ const cases: Record<string, () => Promise<void>> = {
     );
     expect(await codeOf(attempt)).toBe('23503');
   },
+  'payoutMethods.forRecipient': async () => {
+    expect(await asA(async (tx) => payoutMethods.forRecipient(tx, b.recipientId, 10))).toEqual([]);
+  },
+  'payoutEngine.idempotencyKey': async () => {
+    expect(await asA(async (tx) => payoutEngine.idempotencyKey(tx, b.payoutId))).toBeUndefined();
+  },
+  'payoutEngine.setTotal': async () => {
+    const total = tokenAmount(1n, 'USDC', 'stellar');
+    expect(await asA(async (tx) => payoutEngine.setTotal(tx, b.payoutId, total))).toBe(false);
+  },
+  'payoutEngine.end': async () => {
+    const move = { from: 'received', to: 'failed', code: 'NOPE' } as const;
+    expect(await asA(async (tx) => payoutEngine.end(tx, b.payoutId, move))).toBe(false);
+  },
+  'payoutEngine.markUnavailable': async () => {
+    expect(await asA(async (tx) => payoutEngine.markUnavailable(tx, b.payoutId))).toBe(false);
+  },
+  'payoutEngine.noteRefusal': async () => {
+    expect(await asA(async (tx) => payoutEngine.noteRefusal(tx, b.payoutId, 'NOPE'))).toBe(false);
+  },
+  'payoutBatches.items': async () => {
+    const page = await asA(async (tx) =>
+      payoutBatches.items(tx, b.batchId, b.mandateId, { limit: 10 }),
+    );
+    expect(page.items).toEqual([]);
+  },
+  'payoutAttempts.replaceLegs': async () => {
+    const theirs = {
+      id: b.attemptId,
+      payoutId: b.payoutId,
+      total: tokenAmount(1n, 'USDC', 'stellar'),
+    };
+    const leg = {
+      payoutMethodId: a.methodId,
+      method: 'stellar_wallet' as const,
+      destinationAddress: 'GNOPE',
+      amount: 1n,
+    };
+    expect(await asA(async (tx) => payoutAttempts.replaceLegs(tx, theirs, [leg]))).toBe(false);
+  },
+  'payoutEngine.lockBalance': async () => {
+    expect(await asA(async (tx) => payoutEngine.lockBalance(tx, b.instanceId))).toBe(false);
+  },
+  'payoutEngine.lapsedUncancelled': async () => {
+    expect(await asA(async (tx) => payoutEngine.lapsedUncancelled(tx, b.instanceId, 10))).toEqual(
+      [],
+    );
+  },
+  'payoutEngine.markLapseCancelled': async () => {
+    expect(await asA(async (tx) => payoutEngine.markLapseCancelled(tx, b.attemptId))).toBe(false);
+  },
+  'payoutEngine.refusalCode': async () => {
+    expect(await asA(async (tx) => payoutEngine.refusalCode(tx, b.payoutId))).toBeUndefined();
+  },
+  'payoutEngine.instance': async () => {
+    expect(await asA(async (tx) => payoutEngine.instance(tx, b.instanceId))).toBeUndefined();
+  },
+  'payoutEngine.instancesOfMandate': async () => {
+    expect(await asA(async (tx) => payoutEngine.instancesOfMandate(tx, b.mandateId))).toEqual([]);
+  },
+  'payoutEngine.unrequestedOn': async () => {
+    expect(await asA(async (tx) => payoutEngine.unrequestedOn(tx, b.instanceId))).toBe(0n);
+  },
   'payoutMethods.disable': async () => {
     expect(await asA(async (tx) => payoutMethods.disable(tx, b.methodId))).toBe(false);
   },
@@ -1309,9 +1477,45 @@ const cases: Record<string, () => Promise<void>> = {
         network: 'stellar:testnet',
         total: tokenAmount(50_000_000n, 'USDC', 'stellar'),
         deadline: new Date(Date.now() + 3_600_000),
+        legs: [
+          {
+            payoutMethodId: b.methodId,
+            method: 'stellar_wallet',
+            destinationAddress: 'GB',
+            amount: 50_000_000n,
+          },
+        ],
       }),
     );
     expect(await codeOf(attempt)).toBe('UJ014');
+  },
+  'payoutLegs.forAttempt': async () => {
+    expect(await acrossA(async (tx) => payoutLegs.forAttempt(tx, b.attemptId))).toEqual([]);
+    expect(await acrossA(async (tx) => payoutLegs.forAttempt(tx, a.attemptId))).toHaveLength(1);
+  },
+  'payoutLegs.transition': async () => {
+    expect(
+      await asA(async (tx) =>
+        payoutLegs.transition(tx, b.legId, { from: 'planned', to: 'submitted' }),
+      ),
+    ).toBeUndefined();
+    expect(await statusOf('ujira.payout_legs', b.legId)).toBe('planned');
+  },
+  'approvals.record': async () => {
+    const attempt = asA(async (tx) =>
+      approvals.record(tx, {
+        attemptId: b.attemptId,
+        approver: 'GINTRUDER',
+        decision: 'approved',
+        signedMessageHash: randomBytes(32),
+        signature: randomBytes(64),
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'approvals.forAttempt': async () => {
+    expect(await acrossA(async (tx) => approvals.forAttempt(tx, b.attemptId))).toEqual([]);
+    expect(await acrossA(async (tx) => approvals.forAttempt(tx, a.attemptId))).toHaveLength(1);
   },
   'payoutAttempts.get': async () => {
     expect(await acrossA(async (tx) => payoutAttempts.get(tx, b.attemptId))).toBeUndefined();

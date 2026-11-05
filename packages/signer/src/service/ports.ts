@@ -16,6 +16,12 @@ export type RecipientMode = 'allowlist' | 'attested' | 'both';
 export interface IndexedMandate extends MandateSettlement {
   readonly tenant: TenantScope;
   readonly recipientMode: RecipientMode;
+  /**
+   * Who may cancel a live payout, as far as the index knows. Absent when it cannot say,
+   * and an executor is then refused a cancel, since it might be one of them.
+   */
+  readonly principal?: string;
+  readonly agents?: readonly string[];
 }
 
 /** The mandate instances the deposit and event indexer has seen deployed by a trusted factory. */

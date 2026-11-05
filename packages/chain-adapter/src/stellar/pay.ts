@@ -46,6 +46,8 @@ import type {
   PayStep,
   PayoutChainStatus,
   PayoutId,
+  CancelLapsedRequest,
+  CancelLapsedStep,
   ProveDeadRequest,
   ReceiptLeg,
   ReceiptRef,
@@ -822,6 +824,61 @@ export class StellarPayouts {
           }
         : {}),
     };
+  }
+
+  async cancelLapsed(req: CancelLapsedRequest, opts: CallOptions): Promise<CancelLapsedStep> {
+    const { network, rpc, ports, executor } = this.#c;
+    const instance = await this.#c.verify(req.scope, req.mandate, opts);
+    // A cancel that may still land is reconciled first, like any other submission.
+    const live = await ports.store.liveSubmission({
+      scope: req.scope,
+      network,
+      mandate: instance.address,
+      payoutId: req.payoutId,
+      op: 'cancel',
+    });
+    if (live !== null) {
+      const { state } = await reconcileSubmission(executor, live, opts);
+      if (isLiveSubmission(state)) {
+        return {
+          kind: 'submitted',
+          submission: { network, txHash: live.txHash, finality: 'none' },
+        };
+      }
+    }
+    const view = await this.#view(instance.address, req.payoutId, opts);
+    if (view.kind === 'absent') return { kind: 'absent' };
+    if (view.kind === 'closed') {
+      return view.status === 'cancelled'
+        ? { kind: 'cancelled', final: true }
+        : { kind: 'closed', status: view.status };
+    }
+    if ((await this.#now(opts)) < view.expiresAt) return { kind: 'not_lapsed' };
+    const config = this.#c.config();
+    const submission = await ExecutorSession.run(executor, opts, async (session) => {
+      const inv: Invocation = {
+        contract: instance.address,
+        fn: 'cancel',
+        args: [address('caller', session.address), bytes32('payoutId', req.payoutId)],
+      };
+      const build = {
+        network,
+        source: session.address,
+        sequence: session.sequence,
+        maxTime: ports.clock.nowSeconds() + BigInt(config.executor.txValiditySeconds),
+      };
+      const sim = await simulate(rpc, network, invokeTx(inv, build), inv.contract, opts);
+      return this.#assembleAndSend(
+        session,
+        req.scope,
+        inv,
+        build,
+        sim.result?.auth ?? [],
+        { op: 'cancel', payoutId: req.payoutId, attempt: null },
+        opts,
+      );
+    });
+    return { kind: 'submitted', submission };
   }
 
   async proveDead(req: ProveDeadRequest, opts: CallOptions): Promise<DeadProof | null> {

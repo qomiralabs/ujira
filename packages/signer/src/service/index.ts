@@ -12,6 +12,7 @@ export type { AttestPolicyOptions } from './attest-policy.js';
 export { tokenAuthenticator } from './auth.js';
 export type { Authenticate, ServiceCaller } from './auth.js';
 export {
+  EXECUTOR_CANCEL_FUNCTIONS,
   EXECUTOR_FUNCTIONS,
   MAX_CHALLENGE_VALIDITY_SECONDS,
   MAX_SANDWICH_VALIDITY_SECONDS,

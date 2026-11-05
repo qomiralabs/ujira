@@ -153,6 +153,12 @@ export interface ChainAdapter {
   payBatch(req: PayBatchRequest, opts: CallOptions): Promise<BatchStep>;
   status(req: StatusRequest, opts: CallOptions): Promise<PayoutChainStatus>;
   proveDead(req: ProveDeadRequest, opts: CallOptions): Promise<DeadProof | null>;
+  /**
+   * Cancels a payout past its own expiry, as UJIRA's executor, which releases the funds it
+   * still holds. Anyone may do that once it has lapsed, and only then, so this sends
+   * nothing for one that has not. Asking again continues rather than repeats.
+   */
+  cancelLapsed(req: CancelLapsedRequest, opts: CallOptions): Promise<CancelLapsedStep>;
 
   receipt(req: ReceiptRequest, opts: CallOptions): Promise<ChainReceipt>;
   verifyReceipt(ref: ReceiptRef, opts: CallOptions): Promise<ReceiptVerification>;
@@ -1101,6 +1107,24 @@ export interface PayoutChainStatus {
   readonly receipt?: ReceiptRef;
   readonly observedAt: { readonly ledgerOrBlock: bigint; readonly time: UnixSeconds };
 }
+
+export interface CancelLapsedRequest {
+  readonly scope: TenantScope;
+  readonly mandate: MandateRef;
+  readonly payoutId: PayoutId;
+}
+
+export type CancelLapsedStep =
+  /** Sent, and not seen on chain yet. */
+  | { readonly kind: 'submitted'; readonly submission: SubmissionRef }
+  /** Cancelled. Its funds are free once this is final. */
+  | { readonly kind: 'cancelled'; readonly final: boolean }
+  /** Open, and within its time to live, so nothing was sent. */
+  | { readonly kind: 'not_lapsed' }
+  /** Closed some other way. */
+  | { readonly kind: 'closed'; readonly status: 'executed' | 'rejected' }
+  /** The mandate never recorded it. */
+  | { readonly kind: 'absent' };
 
 export interface ProveDeadRequest {
   readonly scope: TenantScope;
