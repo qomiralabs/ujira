@@ -1,15 +1,16 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-// Rate limits per key and per principal, plus a tighter one on payout creation.
-// The buckets live in the database rather than in this process, so a limit holds
+// Rate limits per key and per principal, plus a tighter one on payout creation, and
+// per client address on the public routes that have neither. The buckets live in the database rather than in this process, so a limit holds
 // across every instance of the API.
 //
 // A bucket's key is a digest of what it limits, because the table sits in the
 // schema that holds no customer data. The digest also means two kinds of bucket
-// for one id can never collide.
+// for one id can never collide. An address gets a keyed digest instead, because
+// every IPv4 address can be hashed and looked up in an afternoon.
 
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 
 import type { CallOptions, Tenant } from './auth.js';
 
@@ -34,6 +35,24 @@ export const RATE_LIMIT_DEFAULTS: RateLimitRules = Object.freeze({
 /** A tighter limit a route opts into on top of the ones every tenant route has. */
 export type RateLimitGroup = 'payout_creation';
 
+/** Who a public route limits together. Each has its own buckets for one address. */
+export type AddressLimitGroup = 'invite_exchange' | 'receipt_verification' | 'webhook';
+
+// The two a person reaches by hand get a burst and then about one a second. A webhook
+// comes from a provider's few machines, in bursts when it catches up, so it gets room.
+export const ADDRESS_LIMIT_DEFAULTS: Readonly<Record<AddressLimitGroup, RateLimitRule>> =
+  Object.freeze({
+    invite_exchange: Object.freeze({ capacity: 20, refillPerSecond: 1 }),
+    receipt_verification: Object.freeze({ capacity: 30, refillPerSecond: 1 }),
+    webhook: Object.freeze({ capacity: 200, refillPerSecond: 50 }),
+  });
+
+export interface AddressLimitSubject {
+  readonly group: AddressLimitGroup;
+  /** Null when there is no address to believe; all of those share one bucket. */
+  readonly address: string | null;
+}
+
 export interface RateLimitSubject {
   readonly tenant: Tenant;
   readonly tokenId: string;
@@ -52,6 +71,11 @@ export interface RateLimitDecision {
 
 export type RateLimit = (
   subject: RateLimitSubject,
+  call: CallOptions,
+) => Promise<RateLimitDecision>;
+
+export type AddressRateLimit = (
+  subject: AddressLimitSubject,
   call: CallOptions,
 ) => Promise<RateLimitDecision>;
 
@@ -83,9 +107,25 @@ export interface BucketStore {
 export const allowEveryRequest: RateLimit = () =>
   Promise.resolve({ allowed: true, limit: 0, remaining: 0, resetSeconds: 0, retryAfterSeconds: 0 });
 
+/** For tests, and for a local run with no database to keep buckets in. */
+export const allowEveryAddress: AddressRateLimit = () =>
+  Promise.resolve({ allowed: true, limit: 0, remaining: 0, resetSeconds: 0, retryAfterSeconds: 0 });
+
 export function bucketKey(kind: 'token' | 'principal' | 'payout_creation', id: string): string {
   const digest = createHash('sha256').update(`${kind}:${id}`, 'utf8').digest('hex');
   return `${kind}:${digest}`;
+}
+
+/** Null gets a key of its own, which no real address can produce. */
+export function addressBucketKey(
+  group: AddressLimitGroup,
+  address: string | null,
+  hmacKey: Uint8Array,
+): string {
+  const digest = createHmac('sha256', hmacKey)
+    .update(`${group}:${address ?? 'unknown'}`, 'utf8')
+    .digest('hex');
+  return `${group}:${digest}`;
 }
 
 function bucketsFor(
@@ -111,39 +151,55 @@ interface Reading {
   readonly tokens: number;
 }
 
+async function takeAndDecide(
+  store: BucketStore,
+  [first, ...others]: readonly [BucketRequest, ...BucketRequest[]],
+  call: CallOptions,
+): Promise<RateLimitDecision> {
+  const results = await store.take([first, ...others], call);
+  const tokensOf = new Map(results.map((result) => [result.key, result.tokens]));
+  const read = (bucket: BucketRequest): Reading => ({
+    bucket,
+    tokens: tokensOf.get(bucket.key) ?? 0,
+  });
+  // A store that answers for fewer buckets than it was asked about has not
+  // said yes to all of them.
+  const allowed = results.length === others.length + 1 && results.every((result) => result.allowed);
+  // The bucket that decides what the client is told: when refused, the one that
+  // takes longest to allow a retry; when allowed, the one nearest to refusing.
+  const score = ({ bucket, tokens }: Reading): number =>
+    allowed ? -Math.floor(tokens) : (1 - tokens) / bucket.refillPerSecond;
+  const { bucket, tokens } = others
+    .map(read)
+    .reduce((best, reading) => (score(reading) > score(best) ? reading : best), read(first));
+  return {
+    allowed,
+    limit: bucket.capacity,
+    remaining: Math.max(Math.floor(tokens), 0),
+    resetSeconds: secondsUntil(bucket.capacity - tokens, bucket.refillPerSecond),
+    retryAfterSeconds: allowed ? 0 : Math.max(secondsUntil(1 - tokens, bucket.refillPerSecond), 1),
+  };
+}
+
 export function createRateLimit(
   store: BucketStore,
   rules: RateLimitRules = RATE_LIMIT_DEFAULTS,
 ): RateLimit {
-  return async (subject, call) => {
-    const [first, ...others] = bucketsFor(subject, rules);
-    const results = await store.take([first, ...others], call);
-    const tokensOf = new Map(results.map((result) => [result.key, result.tokens]));
-    const read = (bucket: BucketRequest): Reading => ({
-      bucket,
-      tokens: tokensOf.get(bucket.key) ?? 0,
-    });
-    // A store that answers for fewer buckets than it was asked about has not
-    // said yes to all of them.
-    const allowed =
-      results.length === others.length + 1 && results.every((result) => result.allowed);
-    // The bucket that decides what the client is told: when refused, the one that
-    // takes longest to allow a retry; when allowed, the one nearest to refusing.
-    const score = ({ bucket, tokens }: Reading): number =>
-      allowed ? -Math.floor(tokens) : (1 - tokens) / bucket.refillPerSecond;
-    const { bucket, tokens } = others
-      .map(read)
-      .reduce((best, reading) => (score(reading) > score(best) ? reading : best), read(first));
-    return {
-      allowed,
-      limit: bucket.capacity,
-      remaining: Math.max(Math.floor(tokens), 0),
-      resetSeconds: secondsUntil(bucket.capacity - tokens, bucket.refillPerSecond),
-      retryAfterSeconds: allowed
-        ? 0
-        : Math.max(secondsUntil(1 - tokens, bucket.refillPerSecond), 1),
-    };
-  };
+  return (subject, call) => takeAndDecide(store, bucketsFor(subject, rules), call);
+}
+
+/** `hmacKey` has to be the same on every instance, or each keeps its own buckets. */
+export function createAddressRateLimit(
+  store: BucketStore,
+  hmacKey: Uint8Array,
+  rules: Readonly<Record<AddressLimitGroup, RateLimitRule>> = ADDRESS_LIMIT_DEFAULTS,
+): AddressRateLimit {
+  return ({ group, address }, call) =>
+    takeAndDecide(
+      store,
+      [{ key: addressBucketKey(group, address, hmacKey), ...rules[group] }],
+      call,
+    );
 }
 
 /** The headers every rate limited response carries. */

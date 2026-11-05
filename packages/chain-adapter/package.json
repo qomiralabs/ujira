@@ -17,6 +17,10 @@
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"
     },
+    "./testing/stellar": {
+      "types": "./dist/stellar/test-kit.d.ts",
+      "default": "./dist/stellar/test-kit.js"
+    },
     "./stellar": {
       "types": "./dist/stellar/index.d.ts",
       "default": "./dist/stellar/index.js"

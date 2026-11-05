@@ -8,7 +8,7 @@
 // account when it is the transaction's source and with its own address
 // credentials otherwise. Test code only.
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { Address, SorobanDataBuilder, TransactionBuilder, xdr } from '@stellar/stellar-sdk/base';
@@ -48,9 +48,10 @@ export const FIXTURE_FACTORY = 'CAAVOGDGGM7JOLDS3CIQNPGSJOYFI54CJSAQQEFQKW7CES5U
 export const FIXTURE_USDC = 'CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA';
 
 export function loadReadFixture(): ReadFixture {
-  return JSON.parse(
-    readFileSync(path.join(import.meta.dirname, 'fixtures', 'testnet-read.json'), 'utf8'),
-  ) as ReadFixture;
+  // Beside this file in the source, and back in the source when run from a build.
+  const here = path.join(import.meta.dirname, 'fixtures', 'testnet-read.json');
+  const source = path.join(import.meta.dirname, '../../src/stellar/fixtures', 'testnet-read.json');
+  return JSON.parse(readFileSync(existsSync(here) ? here : source, 'utf8')) as ReadFixture;
 }
 
 /** A recorded struct with its stored tenant reference replaced by the tag. */

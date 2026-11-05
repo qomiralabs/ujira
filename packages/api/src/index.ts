@@ -16,6 +16,8 @@ export type {
   Credentials,
   Tenant,
 } from './auth.js';
+export { clientAddress, normalizeAddress } from './client-address.js';
+export type { RequestOrigin, TrustedProxy } from './client-address.js';
 export { loadApiConfig } from './config.js';
 export type { ApiConfig, DeploymentEnvironment } from './config.js';
 export {
@@ -34,13 +36,20 @@ export type { LogFields, LogLevel, LogRecord, Logger, RequestLog } from './log.j
 export { OPENAPI_PATH, buildOpenApiDocument, withOpenApiRoute } from './openapi.js';
 export { databaseBucketStore, databaseTokenStore } from './postgres-stores.js';
 export {
+  ADDRESS_LIMIT_DEFAULTS,
   RATE_LIMIT_DEFAULTS,
+  addressBucketKey,
+  allowEveryAddress,
   allowEveryRequest,
   bucketKey,
+  createAddressRateLimit,
   createRateLimit,
   rateLimitHeaders,
 } from './rate-limit.js';
 export type {
+  AddressLimitGroup,
+  AddressLimitSubject,
+  AddressRateLimit,
   BucketRequest,
   BucketResult,
   BucketStore,

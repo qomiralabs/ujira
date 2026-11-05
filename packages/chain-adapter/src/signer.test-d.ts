@@ -69,6 +69,8 @@ describe('the types carry no vendor encoding', () => {
   it('payloads are typed intents over plain encodings', () => {
     expectTypeOf<SignPayload['kind']>().toEqualTypeOf<
       | 'stellar_tx'
+      | 'stellar_relayed_call'
+      | 'stellar_footprint'
       | 'stellar_fee_bump'
       | 'stellar_reserve_sandwich'
       | 'stellar_auth_entry'

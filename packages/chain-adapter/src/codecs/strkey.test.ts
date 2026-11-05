@@ -212,6 +212,7 @@ describe('strkey codecs', () => {
       'decodeTransactionEnvelope',
       'encodeAccountAddress',
       'encodeMuxedAddress',
+      'invocationAuthEntries',
       'isAccountAddress',
       'isContractAddress',
       'isZeroAddress',
