@@ -144,13 +144,10 @@ export function createFundingAccountFlow(options: FundingAccountFlowOptions): Fu
     const tx = parseEnvelope(signed, network);
     return reservationIdOf(network, tx.hash());
   };
-  // The principal's one account stays with the project that made it. Another
-  // project may learn it cannot make a second, but is not given this one to use:
-  // a deposit there would have to be attributed to a project that holds nothing.
-  const ownAccount = async (scope: TenantScope): Promise<FundingAccountRecord | null> => {
-    const known = await accounts.forPrincipal(scope, network);
-    return known?.projectId === scope.projectId ? known : null;
-  };
+  // Each project has its own, because a deposit is credited to whoever holds the
+  // account it reached. The sponsor's limit is still per principal, since reserves are.
+  const ownAccount = (scope: TenantScope): Promise<FundingAccountRecord | null> =>
+    accounts.forProject(scope, network);
 
   const readerFor = (opts: CallOptions, asset: ForwarderAsset): ForwarderPorts['reader'] => ({
     async readEntries(entry, signal) {
@@ -175,7 +172,7 @@ export function createFundingAccountFlow(options: FundingAccountFlowOptions): Fu
       if (!req.businessVerified && network !== TESTNET) {
         throw new SponsorDeniedError({ network });
       }
-      if ((await accounts.forPrincipal(scope, network)) !== null) {
+      if ((await ownAccount(scope)) !== null) {
         throw new SponsorDeniedError({ network });
       }
       if ((await accountSequence(rpc, publicKey, opts)) !== null) {
@@ -321,7 +318,7 @@ export function createFundingAccountFlow(options: FundingAccountFlowOptions): Fu
     async confirm(req, opts) {
       const { scope } = req;
       const { request, use } = await fundingRequest(scope, req.requestId);
-      const known = await accounts.forPrincipal(scope, network);
+      const known = await ownAccount(scope);
       if (known !== null) return known;
       if (use?.txHash === null || use === null) {
         throw new InvalidInputError({ network, issues: ['requestId (not_submitted)'] });

@@ -60,10 +60,8 @@ function flowOn(
   store: MemoryFundingAccounts,
   calls: string[],
 ): FundingAccountFlow {
-  const ownOf = async (scope: TenantScope): Promise<FundingAccountRecord | null> => {
-    const known = await store.forPrincipal(scope, network);
-    return known?.projectId === scope.projectId ? known : null;
-  };
+  const ownOf = (scope: TenantScope): Promise<FundingAccountRecord | null> =>
+    store.forProject(scope, network);
   return {
     prepare: (req) => {
       calls.push(`prepare ${network} ${req.publicKey} ${String(req.businessVerified)}`);
@@ -74,13 +72,16 @@ function flowOn(
       return Promise.resolve({ network, txHash: SPONSOR_TX, finality: 'none' });
     },
     confirm: async (req) => {
-      const known = await store.forPrincipal(req.scope, network);
+      const known = await store.forProject(req.scope, network);
       if (known !== null) return known;
       const row: FundingAccountRecord = {
         principalId: req.scope.principalId,
         projectId: req.scope.projectId,
         network,
-        address: `GFORWARDER-${network}`,
+        // One request stands for a second wallet. Every other uses the same address, which
+        // is what lets a test show that one address cannot be held twice.
+        address:
+          req.requestId === 'second-wallet' ? `GFORWARDER2-${network}` : `GFORWARDER-${network}`,
         sponsor: 'GSPONSOR',
         sponsorTxHash: SPONSOR_TX,
         status: 'active',
@@ -249,21 +250,36 @@ describe('funding-account.test.ts', () => {
     );
   });
 
-  it("makes no source in one project from another project's account", async () => {
+  it('gives a second project its own account and its own source', async () => {
     const w = world();
     const scope = tenant();
     const elsewhere = otherProject(scope);
-    const ours = w.instance(scope);
+    const other = await w.service.confirm(
+      { scope: elsewhere, requestId: 'r1', mandateInstanceId: w.instance(elsewhere) },
+      OPTS,
+    );
+    const done = await w.service.confirm(
+      { scope, requestId: 'second-wallet', mandateInstanceId: w.instance(scope) },
+      OPTS,
+    );
+    expect(other.account.projectId).toBe(elsewhere.projectId);
+    expect(done.account.projectId).toBe(scope.projectId);
+    expect(done.fundingSourceId).not.toBeNull();
+    expect(done.fundingSourceId).not.toBe(other.fundingSourceId);
+    expect(w.store.sources()).toHaveLength(2);
+  });
+
+  it('makes no source for a project that has no account, whatever its sibling has', async () => {
+    const w = world();
+    const scope = tenant();
+    const elsewhere = otherProject(scope);
     await w.service.confirm(
       { scope: elsewhere, requestId: 'r1', mandateInstanceId: w.instance(elsewhere) },
       OPTS,
     );
-    const done = await w.service.confirm({ scope, requestId: 'r2', mandateInstanceId: ours }, OPTS);
-    expect(done.account.projectId).toBe(elsewhere.projectId);
-    expect(done.fundingSourceId).toBeNull();
-    await expect(w.service.attach({ scope, mandateInstanceId: ours })).rejects.toBeInstanceOf(
-      FundingAccountStateError,
-    );
+    await expect(
+      w.service.attach({ scope, mandateInstanceId: w.instance(scope) }),
+    ).rejects.toBeInstanceOf(FundingAccountStateError);
     expect(w.store.sources()).toHaveLength(1);
   });
 
@@ -480,7 +496,7 @@ describe('funding-account.test.ts', () => {
     ).rejects.toBeInstanceOf(FundingAccountConflictError);
   });
 
-  it('holds a principal to the account it has', async () => {
+  it('holds a project to the account it has', async () => {
     const store = new MemoryFundingAccounts();
     const scope = tenant();
     const row: FundingAccountRecord = {
