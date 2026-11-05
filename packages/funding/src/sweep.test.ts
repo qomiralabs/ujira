@@ -237,12 +237,12 @@ describe('sweep.test.ts', () => {
         depositOperationId: '4294967297-1',
         amount: usdc(AMOUNT + 1n),
       };
-      const firstRow = await recordDeposit(first, ports);
-      const secondRow = await recordDeposit(second, ports);
+      const firstRow = await recordDeposit(first, ports, OPTIONS);
+      const secondRow = await recordDeposit(second, ports, OPTIONS);
       expect(secondRow.id).not.toBe(firstRow.id);
       expect(secondRow.amount).toEqual(usdc(AMOUNT + 1n));
-      await recordDeposit(first, ports);
-      await recordDeposit(second, ports);
+      await recordDeposit(first, ports, OPTIONS);
+      await recordDeposit(second, ports, OPTIONS);
       expect(store.rowsOf(SCOPE)).toHaveLength(2);
       expect(prompts.delivered().map((prompt) => prompt.depositOperationId)).toEqual([
         '4294967297-0',
