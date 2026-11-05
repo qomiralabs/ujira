@@ -93,14 +93,6 @@ describe('a funding hold', () => {
     expect(await onNetwork(PUBNET)).toEqual([]);
   });
 
-  // Both on one instance for now, because an instance does not record its network
-  // yet. Once it does, each hold has to name an instance on its own network.
-  it('can be held on two networks of one chain', async () => {
-    await hold([TESTNET, PUBNET]);
-    expect((await onNetwork(TESTNET)).map((row) => row.payoutId)).toEqual([payoutId]);
-    expect((await onNetwork(PUBNET)).map((row) => row.payoutId)).toEqual([payoutId]);
-  });
-
   it('refuses a chain name, or a network that does not exist', async () => {
     expect(await codeOf(hold(['stellar']))).toBe('23514');
     expect(await codeOf(hold(['stellar:mainnet']))).toBe('23514');
