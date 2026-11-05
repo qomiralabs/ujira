@@ -926,6 +926,35 @@ $$;
 ALTER FUNCTION ujira.legs_match_attempt() OWNER TO ujira_owner;
 
 --
+-- Name: legs_match_method(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.legs_match_method() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if not exists (
+    select 1
+      from ujira.payout_methods as m
+     where m.principal_id = new.principal_id
+       and m.project_id = new.project_id
+       and m.id = new.payout_method_id
+       and m.destination_address = new.destination_address
+       and m.destination_tag is not distinct from new.destination_tag
+  ) then
+    raise exception using
+      errcode = 'UJ010',
+      message = 'a leg must use exactly the destination of its payout method';
+  end if;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.legs_match_method() OWNER TO ujira_owner;
+
+--
 -- Name: payout_attempt_needs_open_payout(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2172,6 +2201,7 @@ CREATE TABLE ujira.payout_legs (
     CONSTRAINT payout_legs_key_format CHECK ((leg_key ~ '^[0-9a-f]{64}$'::text)),
     CONSTRAINT payout_legs_method CHECK ((method = ANY (ARRAY['stellar_wallet'::text, 'bank'::text, 'mobile_money'::text, 'cash_pickup'::text]))),
     CONSTRAINT payout_legs_status CHECK ((status = ANY (ARRAY['planned'::text, 'submitted'::text, 'settled'::text, 'delivering'::text, 'delivered'::text, 'failed'::text, 'cancelled'::text]))),
+    CONSTRAINT payout_legs_tag_chain CHECK (((destination_tag IS NULL) OR (chain = 'stellar'::text))),
     CONSTRAINT payout_legs_tx_hash_length CHECK (((char_length(chain_tx_hash) >= 1) AND (char_length(chain_tx_hash) <= 128)))
 );
 
@@ -2371,6 +2401,7 @@ CREATE TABLE ujira.receipt_legs (
     CONSTRAINT receipt_legs_address_length CHECK (((char_length(destination_address) >= 1) AND (char_length(destination_address) <= 128))),
     CONSTRAINT receipt_legs_amount_positive CHECK (((amount)::numeric > (0)::numeric)),
     CONSTRAINT receipt_legs_fee_not_negative CHECK (((fee_amount)::numeric >= (0)::numeric)),
+    CONSTRAINT receipt_legs_tag_chain CHECK (((destination_tag IS NULL) OR (chain = 'stellar'::text))),
     CONSTRAINT receipt_legs_tx_hash_length CHECK (((char_length(chain_tx_hash) >= 1) AND (char_length(chain_tx_hash) <= 128)))
 );
 
@@ -3368,10 +3399,24 @@ CREATE INDEX payout_legs_by_payout ON ujira.payout_legs USING btree (principal_i
 
 
 --
+-- Name: payout_legs_destination_identity; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE UNIQUE INDEX payout_legs_destination_identity ON ujira.payout_legs USING btree (principal_id, project_id, attempt_id, destination_address, destination_tag) NULLS NOT DISTINCT;
+
+
+--
 -- Name: payout_methods_by_recipient; Type: INDEX; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE INDEX payout_methods_by_recipient ON ujira.payout_methods USING btree (principal_id, project_id, recipient_id);
+
+
+--
+-- Name: payout_methods_destination_identity; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE UNIQUE INDEX payout_methods_destination_identity ON ujira.payout_methods USING btree (principal_id, chain, destination_address, destination_tag) NULLS NOT DISTINCT WHERE (status = 'active'::text);
 
 
 --
@@ -3855,6 +3900,13 @@ CREATE TRIGGER payout_legs_no_truncate BEFORE TRUNCATE ON ujira.payout_legs FOR 
 --
 
 CREATE TRIGGER payout_legs_stamp BEFORE INSERT OR UPDATE OF payout_id, leg_index, payout_method_id, chain, method ON ujira.payout_legs FOR EACH ROW EXECUTE FUNCTION ujira.payout_leg_stamp();
+
+
+--
+-- Name: payout_legs payout_legs_to_method; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER payout_legs_to_method BEFORE INSERT OR UPDATE OF payout_method_id, destination_address, destination_tag ON ujira.payout_legs FOR EACH ROW EXECUTE FUNCTION ujira.legs_match_method();
 
 
 --
@@ -6161,6 +6213,13 @@ REVOKE ALL ON FUNCTION ujira.ledger_stamp() FROM PUBLIC;
 --
 
 REVOKE ALL ON FUNCTION ujira.legs_match_attempt() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION legs_match_method(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.legs_match_method() FROM PUBLIC;
 
 
 --
