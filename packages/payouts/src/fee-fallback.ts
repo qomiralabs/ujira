@@ -5,7 +5,7 @@
 // recipients would go unpaid over a problem that is ours. Principal funds are not at
 // risk. Those payouts are sent again with no fee, and the fee is invoiced instead.
 //
-// No key UJIRA holds may cancel on chain, so the failed attempt is left to lapse. A
+// UJIRA's agent key never cancels, so the failed attempt is left to lapse. A
 // retry must never pay twice, so the new attempt goes out only once the chain proves
 // the old one can never land, and a recipient can wait up to the mandate's payout time
 // to live for that. The job may die at any step and rerun, so every step is decided from
@@ -176,8 +176,9 @@ export async function onTransferFailed(
 
   const proof = await proveDead();
   if (proof === null) return { kind: 'awaiting_lapse' };
-  // UJIRA never cancels, so a tombstone is a person's decision about this payout: a
-  // principal's cancel or an approver's rejection. Neither may be undone by paying it.
+  // A principal's cancel or an approver's rejection may not be undone by paying it. The
+  // operator's sweep of a lapsed attempt reads the same here, because a proof carries no
+  // reason, so a swept attempt takes the normal retry path until the event's reason is read.
   if (proof.kind === 'tombstone') return { kind: 'attempt_dead', proof };
   const request = await store.resendWithoutFee(
     { scope, payout: input.payout, failed, unpaidFee: failed.fee, proof },

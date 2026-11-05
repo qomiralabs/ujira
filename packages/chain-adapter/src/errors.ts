@@ -47,7 +47,9 @@ export type ChainAdapterErrorCode = (typeof CHAIN_ADAPTER_ERROR_CODES)[number];
 /**
  * Why a destination was refused. The set is the same on every chain, and a
  * chain need not produce every reason: Stellar addresses name no network,
- * so Stellar never gives WRONG_NETWORK.
+ * so Stellar never gives WRONG_NETWORK. UNPAYABLE_ADDRESS is a well formed
+ * address that can never pay anyone out, which reading the text alone cannot
+ * tell, so onboarding gives it rather than the parser.
  */
 export const DESTINATION_PARSE_REASONS = Object.freeze([
   'MALFORMED',
@@ -57,6 +59,7 @@ export const DESTINATION_PARSE_REASONS = Object.freeze([
   'TAG_NOT_SUPPORTED',
   'TAG_OUT_OF_RANGE',
   'WRONG_NETWORK',
+  'UNPAYABLE_ADDRESS',
 ] as const);
 
 export type DestinationParseReason = (typeof DESTINATION_PARSE_REASONS)[number];

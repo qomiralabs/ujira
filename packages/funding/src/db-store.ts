@@ -4,7 +4,7 @@
 // The funding account ports over the database's repositories. Its own entry point,
 // so a service that only takes the chain side, or a test, does not load a driver.
 
-import { chainOf } from '@ujira/chain-adapter';
+import { isNetworkId } from '@ujira/chain-adapter';
 import type { FundingAccountRecord, FundingAccountStore, NetworkId } from '@ujira/chain-adapter';
 import { fundingAccounts, fundingSweeps, mandateInstances } from '@ujira/db';
 import type { Database, FundingAccount } from '@ujira/db';
@@ -119,11 +119,24 @@ export function createDbFundingAccountStores(db: Pick<Database, 'tenant' | 'prin
     },
 
     sources: {
+      async instance(scope, mandateInstanceId) {
+        const row = await db
+          .tenant(scope)
+          .transaction(async (tx) => mandateInstances.get(tx, mandateInstanceId));
+        if (row === undefined) return null;
+        return {
+          // Anything the adapter does not know reads as unknown, which funds nothing.
+          network: isNetworkId(row.network) ? row.network : null,
+          contractAddress: row.contractAddress,
+        };
+      },
+
+      // The repository compares the instance's network with the account's, and the
+      // table refuses a mismatch whoever writes it.
       async attach(scope, { network, mandateInstanceId }) {
         return db.tenant(scope).transaction(async (tx) => {
           const account = await fundingAccounts.forNetwork(tx, network);
-          const instance = await mandateInstances.get(tx, mandateInstanceId);
-          if (account === undefined || instance?.chain !== chainOf(network)) return null;
+          if (account === undefined) return null;
           const source = await fundingAccounts.attach(tx, {
             accountId: account.id,
             mandateInstanceId,

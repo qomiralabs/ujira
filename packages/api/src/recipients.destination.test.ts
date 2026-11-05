@@ -31,6 +31,7 @@ const TENANT = {
 };
 
 const ACCOUNT = 'GA3D5KRYM6CB7OWQ6TWYRR3Z4T7GNZLKERYNZGGA5SOAOPIFY6YQHES5';
+const ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 const MUXED_123456 = 'MA3D5KRYM6CB7OWQ6TWYRR3Z4T7GNZLKERYNZGGA5SOAOPIFY6YQGAAAAAAAAAPCICBKU';
 
 const authenticate: Authenticate = (credentials) =>
@@ -58,7 +59,7 @@ const recipientDestination = defineTenantRoute({
   response: { status: 201, name: 'BoundDestination', schema: Bound },
   errors: ['DESTINATION_INVALID'],
   handler: ({ body }, context) =>
-    Promise.resolve({ ...context.tenant, ...readRecipientDestination(body) }),
+    Promise.resolve({ ...context.tenant, ...readRecipientDestination(body, [ISSUER]) }),
 });
 
 function post(body: unknown): Promise<Response> {
@@ -82,6 +83,14 @@ async function problemOf(response: Response): Promise<Problem> {
 }
 
 describe('recipients.destination.test.ts', () => {
+  it('POST with the asset issuer, where a payout would be burned, returns 422', async () => {
+    const response = await post({ network: 'stellar:testnet', address: ISSUER });
+    expect(response.status).toBe(422);
+    const problem = await problemOf(response);
+    expect(problem.code).toBe('DESTINATION_INVALID');
+    expect(problem.errors).toEqual([{ field: 'destination', code: 'invalid_value' }]);
+  });
+
   it('POST with a hash memo destination returns 422', async () => {
     const response = await post({
       network: 'stellar:testnet',

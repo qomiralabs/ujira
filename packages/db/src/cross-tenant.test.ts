@@ -174,6 +174,7 @@ async function tenant(name: string): Promise<Tenant> {
   } = await db.tenant(first).transaction(async (tx) => {
     const mandate = await mandates.create(tx, { name: `${name} mandate` });
     const instance = await mandateInstances.create(tx, {
+      network: 'stellar:testnet',
       mandateId: mandate.id,
       chain: 'stellar',
       contractAddress: `C${randomUUID()}`,
@@ -992,6 +993,7 @@ const cases: Record<string, () => Promise<void>> = {
     // Naming B's mandate is a tenant violation at the composite foreign key.
     const attempt = asA(async (tx) =>
       mandateInstances.create(tx, {
+        network: 'stellar:testnet',
         mandateId: b.mandateId,
         chain: 'stellar',
         contractAddress: `C${randomUUID()}`,
@@ -1115,14 +1117,15 @@ const cases: Record<string, () => Promise<void>> = {
         }),
       ),
     ).toBeUndefined();
-    // And another tenant's instance fails its key, with the tenant on the row.
-    const attempt = asA(async (tx) =>
-      fundingAccounts.attach(tx, {
-        accountId: a.fundingAccountId,
-        mandateInstanceId: b.instanceId,
-      }),
-    );
-    expect(await codeOf(attempt)).toBe('23503');
+    // And another tenant's instance is not there to fund.
+    expect(
+      await asA(async (tx) =>
+        fundingAccounts.attach(tx, {
+          accountId: a.fundingAccountId,
+          mandateInstanceId: b.instanceId,
+        }),
+      ),
+    ).toBeUndefined();
     const count = await admin.query<{ count: string }>(
       'select count(*)::text as count from ujira.funding_account_sources where mandate_instance_id = $1',
       [b.instanceId],

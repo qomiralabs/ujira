@@ -18,7 +18,7 @@ import type {
 import type { FundingSweep, FundingSweepMove, NewFundingSweep } from '@ujira/db';
 
 import { FundingAccountConflictError, SweepStateError } from './errors.js';
-import type { FundingSourceStore } from './funding-account.js';
+import type { FundingInstance, FundingSourceStore } from './funding-account.js';
 import { FAILED_EXPIRY_MARGIN_MS } from './sweep.js';
 import type {
   SweepFunding,
@@ -157,22 +157,31 @@ export class MemorySweepStore implements SweepStore {
 /**
  * What funding_accounts and funding_account_sources hold: one account per
  * principal and network, no address held twice, one source per mandate instance,
- * and only an active account of this project attached to this project's instance.
+ * and only an active account of this project attached to this project's instance
+ * on the same network.
  */
 export class MemoryFundingAccounts implements FundingAccountStore, FundingSourceStore {
   /** The next attach throws this, as a crash after the chain step would. */
   failNextAttach: Error | null = null;
   readonly #accounts = new Map<string, FundingAccountRecord>();
-  readonly #instances = new Map<string, TenantScope>();
+  readonly #instances = new Map<
+    string,
+    { readonly scope: TenantScope; readonly instance: FundingInstance }
+  >();
   readonly #sources = new Map<string, string>();
 
   /** A mandate instance that exists for this tenant. */
-  addInstance(scope: TenantScope, mandateInstanceId: string): void {
-    this.#instances.set(mandateInstanceId, scope);
+  addInstance(scope: TenantScope, mandateInstanceId: string, instance: FundingInstance): void {
+    this.#instances.set(mandateInstanceId, { scope, instance });
   }
 
   sources(): readonly string[] {
     return [...this.#sources.values()];
+  }
+
+  instance(scope: TenantScope, mandateInstanceId: string): Promise<FundingInstance | null> {
+    const held = this.#instances.get(mandateInstanceId);
+    return Promise.resolve(held !== undefined && isScope(held.scope, scope) ? held.instance : null);
   }
 
   forPrincipal(scope: TenantScope, network: NetworkId): Promise<FundingAccountRecord | null> {
@@ -210,12 +219,13 @@ export class MemoryFundingAccounts implements FundingAccountStore, FundingSource
       return Promise.reject(error);
     }
     const account = this.#accounts.get(`${scope.principalId}|${input.network}`);
-    const instance = this.#instances.get(input.mandateInstanceId);
+    const held = this.#instances.get(input.mandateInstanceId);
     if (
       account?.status !== 'active' ||
       account.projectId !== scope.projectId ||
-      instance === undefined ||
-      !isScope(instance, scope)
+      held === undefined ||
+      !isScope(held.scope, scope) ||
+      held.instance.network !== input.network
     ) {
       return Promise.resolve(null);
     }

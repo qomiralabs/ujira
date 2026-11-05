@@ -2,8 +2,9 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 /*
- * Contract for fee reconciliation (fee-reconcile.ts), with fees really moved on the fake
- * chain where the chain is the question.
+ * Contract for fee reconciliation (fee-reconcile.ts), CHAINOPS-FEE-001 and the underpayment
+ * rule of CHAINOPS-FEE-002, with fees really moved on the fake chain where the chain is the
+ * question.
  *
  * - An executed fee is compared with the take from the agreed terms and nothing else.
  *   What the outcome and shortfall are follows the table's own checks, on what arrived:
@@ -233,7 +234,7 @@ async function paidOnChain(label: string, total: bigint, fee: bigint) {
   return { h, request, received: usdc((await h.balance(feeAddress)) - before) };
 }
 
-describe('fee-reconcile', () => {
+describe('fee-reconcile, CHAINOPS-FEE-001', () => {
   it('fee below tier is flagged with the exact difference', async () => {
     const total = 1_000_000n;
     const { request, received } = await paidOnChain('low', total, 1_234n);
@@ -558,7 +559,7 @@ describe('runFeeReconciliation', () => {
 describe('checkFeeAddressBalance', () => {
   const input = { network: NETWORK, asset: 'USDC' as const, period: MARCH, ...OPTS };
 
-  it('does not call a fee refund a divergence', async () => {
+  it('does not call a fee refund a divergence, CHAINOPS-FEE-004', async () => {
     const { store } = memoryStore([matched('a')]);
     const { alerts, divergences } = recordingAlerts();
     const ledger = {
