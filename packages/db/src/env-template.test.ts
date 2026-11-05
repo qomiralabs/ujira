@@ -77,6 +77,7 @@ const DEFAULT_READERS: Readonly<Record<string, (config: DatabaseConfig) => strin
   UJIRA_DB_WORKER_POOL_SIZE: (config) => String(config.worker.poolSize),
   UJIRA_DB_READER_POOL_SIZE: (config) => String(config.reader.poolSize),
   UJIRA_DB_MIGRATION_POOL_SIZE: (config) => String(config.migration.poolSize),
+  UJIRA_DB_INDEXER_POOL_SIZE: (config) => String(config.indexer.poolSize),
   UJIRA_DB_ACQUIRE_TIMEOUT_MS: (config) => String(config.acquireTimeoutMs),
   UJIRA_DB_STATEMENT_TIMEOUT_MS: (config) => String(config.statementTimeoutMs),
   UJIRA_DB_LOCK_TIMEOUT_MS: (config) => String(config.lockTimeoutMs),
@@ -84,9 +85,9 @@ const DEFAULT_READERS: Readonly<Record<string, (config: DatabaseConfig) => strin
 
 describe('.env.example', () => {
   it('was parsed, so an unreadable or reshaped file cannot pass silently', () => {
-    expect(ENTRIES.map((entry) => entry.key)).toHaveLength(12);
-    expect(REQUIRED).toHaveLength(4);
-    expect(OPTIONAL).toHaveLength(8);
+    expect(ENTRIES.map((entry) => entry.key)).toHaveLength(14);
+    expect(REQUIRED).toHaveLength(5);
+    expect(OPTIONAL).toHaveLength(9);
   });
 
   it('lists every variable the package reads', () => {

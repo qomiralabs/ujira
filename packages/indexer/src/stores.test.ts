@@ -99,8 +99,8 @@ describe('the cursor store', () => {
     expect(repo.read).toHaveBeenCalledWith(tx, NETWORK);
     expect(repo.advance).toHaveBeenCalledWith(tx, NETWORK, 'stellar:v1:ledger:6');
     expect(opened).toEqual([
-      { session: 'unscoped', detail: 'worker' },
-      { session: 'unscoped', detail: 'worker' },
+      { session: 'unscoped', detail: 'indexer' },
+      { session: 'unscoped', detail: 'indexer' },
     ]);
   });
 });

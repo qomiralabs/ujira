@@ -48,6 +48,7 @@ beforeAll(async () => {
     UJIRA_DB_READER_URL: roleUrl(roleUrls, 'ujira_reader', database.name),
     // The refresh writes as ujira_ops, the only role that may.
     UJIRA_DB_WORKER_URL: roleUrl(roleUrls, 'ujira_ops', database.name),
+    UJIRA_DB_INDEXER_URL: roleUrl(roleUrls, 'ujira_ops', database.name),
     UJIRA_DB_MIGRATION_URL: database.url,
     UJIRA_DB_TLS: 'off',
     UJIRA_DB_APP_POOL_SIZE: '2',
