@@ -100,7 +100,7 @@ describe('signer service logs', () => {
           {
             network: NETWORK,
             txHash: bump.inner.hash,
-            intent: 'fee_bump',
+            intent: 'pause',
             tenant: TENANT,
             maxFeeStroops: 10_000n,
           },

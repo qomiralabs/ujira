@@ -5,7 +5,15 @@
 // sets what payout(id) answers and which calls the mandate refuses, and the real
 // adapter does the rest. Test code only.
 
-import { Address, Keypair, TransactionBuilder, xdr } from '@stellar/stellar-sdk/base';
+import { createHash } from 'node:crypto';
+
+import {
+  Address,
+  Keypair,
+  SorobanDataBuilder,
+  TransactionBuilder,
+  xdr,
+} from '@stellar/stellar-sdk/base';
 import type { Transaction } from '@stellar/stellar-sdk/base';
 import { tokenAmount } from '@ujira/core';
 
@@ -19,6 +27,7 @@ import type {
   MandateRegistration,
   PayRequest,
   PayoutId,
+  SponsorshipPolicy,
   UnixSeconds,
   Uuid,
 } from '../types.js';
@@ -31,7 +40,7 @@ import { bytes32, i128, struct, sym, u32, u64, vec } from './scval.js';
 import { NETWORK, addAccount, setup } from './test-adapter.js';
 import type { TestSetup } from './test-adapter.js';
 import { invoked } from './test-rpc.js';
-import { PASSPHRASES } from './tx.js';
+import { PASSPHRASES, footprintTx, invokeTx, parseEnvelope } from './tx.js';
 
 export const METHOD = '00000000-0000-4000-8000-0000000000aa' as Uuid;
 export const TOTAL = 1_000_000n;
@@ -133,6 +142,9 @@ export function payWorld(
     readonly mirror?: ExecutionMirror;
     readonly registered?: boolean;
     readonly registration?: Partial<MandateRegistration>;
+    /** Puts something in front of the signer, such as the real signer policies. */
+    readonly wrapSigner?: (inner: SignerProvider, agent: Keypair, t: TestSetup) => SignerProvider;
+    readonly sponsorship?: (t: TestSetup) => SponsorshipPolicy;
   } = {},
 ): PayWorld {
   const t = setup({
@@ -193,7 +205,8 @@ export function payWorld(
     rpc: t.rpc,
     ports: {
       ...t.ports,
-      signer,
+      signer: options.wrapSigner?.(signer, agent, t) ?? signer,
+      ...(options.sponsorship === undefined ? {} : { sponsorship: options.sponsorship(t) }),
       alerts: {
         ...t.ports.alerts,
         batch: (e) => alerts.push(e),
@@ -279,4 +292,109 @@ export function executedEvent(
     }).toXdr('base64'),
     ...over,
   };
+}
+
+// What a test of the signer needs, built here because the signer does not depend on
+// the Stellar SDK and should not start to for a test.
+
+/** An authorization entry for one call, under `who`'s own credentials. */
+export function authEntryFor(
+  who: string,
+  contract: string,
+  fn: string,
+  signed = true,
+): xdr.SorobanAuthorizationEntry {
+  return new xdr.SorobanAuthorizationEntry({
+    credentials: xdr.SorobanCredentials.sorobanCredentialsAddress(
+      new xdr.SorobanAddressCredentials({
+        address: Address.fromString(who).toScAddress(),
+        nonce: 1n,
+        signatureExpirationLedger: 100,
+        signature: signed ? xdr.ScVal.scvBytes(Buffer.alloc(64, 1)) : xdr.ScVal.scvVoid(),
+      }),
+    ),
+    rootInvocation: new xdr.SorobanAuthorizedInvocation({
+      function: xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
+        new xdr.InvokeContractArgs({
+          contractAddress: Address.fromString(contract).toScAddress(),
+          functionName: fn,
+          args: [],
+        }),
+      ),
+      subInvocations: [],
+    }),
+  });
+}
+
+/** The same call, authorized by the transaction's own source. */
+export function sourceAccountEntry(
+  entry: xdr.SorobanAuthorizationEntry,
+): xdr.SorobanAuthorizationEntry {
+  return new xdr.SorobanAuthorizationEntry({
+    credentials: xdr.SorobanCredentials.sorobanCredentialsSourceAccount(),
+    rootInvocation: entry.rootInvocation,
+  });
+}
+
+/** What the adapter keys a wallet's reservation on: the signed entry. */
+export function entryHash(entry: xdr.SorobanAuthorizationEntry): Uint8Array {
+  return createHash('sha256').update(entry.toXdr()).digest();
+}
+
+/** The entry a wallet hands back: the one it was given, now with a signature. */
+export function withWalletSignature(entryXdr: string): string {
+  const entry = xdr.SorobanAuthorizationEntry.fromXdr(entryXdr, 'base64');
+  const { credentials } = entry;
+  if (credentials.type !== 'sorobanCredentialsAddress') throw new Error('not address credentials');
+  return new xdr.SorobanAuthorizationEntry({
+    credentials: xdr.SorobanCredentials.sorobanCredentialsAddress(
+      new xdr.SorobanAddressCredentials({
+        address: credentials.address.address,
+        nonce: credentials.address.nonce,
+        signatureExpirationLedger: credentials.address.signatureExpirationLedger,
+        signature: xdr.ScVal.scvBytes(Buffer.alloc(64, 1)),
+      }),
+    ),
+    rootInvocation: entry.rootInvocation,
+  }).toXdr('base64');
+}
+
+export function signedBy(transactionXdr: string, key: Keypair): string {
+  const tx = parseEnvelope(transactionXdr, NETWORK);
+  tx.sign(key);
+  return tx.toXdr();
+}
+
+function builtWith(w: PayWorld, resourceFee: bigint) {
+  return {
+    network: NETWORK,
+    source: w.channel.publicKey(),
+    sequence: 1n,
+    maxTime: w.rpc.latest.closeTime + 60n,
+    sorobanData: new SorobanDataBuilder().setResourceFee(resourceFee).build().toXdr('base64'),
+  };
+}
+
+/** A call on the mandate from the channel account, carrying these entries. */
+export function relayedCallXdr(
+  w: PayWorld,
+  auth: readonly xdr.SorobanAuthorizationEntry[],
+  over: { contract?: string; fn?: string; resourceFee?: bigint } = {},
+): string {
+  return invokeTx(
+    {
+      contract: over.contract ?? w.mandate.address.value,
+      fn: over.fn ?? 'pause',
+      args: [],
+    },
+    builtWith(w, over.resourceFee ?? 1000n),
+    auth,
+  ).toXdr();
+}
+
+export function footprintXdr(w: PayWorld, kind: 'restore' | 'extend', resourceFee = 1000n): string {
+  return footprintTx(
+    kind === 'restore' ? { kind: 'restore' } : { kind: 'extend_ttl', extendTo: 100 },
+    builtWith(w, resourceFee),
+  ).toXdr();
 }
