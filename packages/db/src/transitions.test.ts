@@ -84,7 +84,7 @@ async function insertAttempt(status: string): Promise<string> {
        insert into ujira.payout_legs
          (principal_id, project_id, payout_id, attempt_id, leg_index, payout_method_id, method,
           destination_address, amount, chain, asset, scale)
-       select $1, $2, $3, attempt.id, 0, $7, 'stellar_wallet', 'G', 1, 'stellar', 'USDC', 7
+       select $1, $2, $3, attempt.id, 0, $7, 'stellar_wallet', $8, 1, 'stellar', 'USDC', 7
          from attempt
      )
      select id from attempt`,
@@ -96,6 +96,7 @@ async function insertAttempt(status: string): Promise<string> {
       status,
       status === 'dead' ? '{}' : null,
       fixture.methodId,
+      fixture.destinationAddress,
     ],
   );
   const id = inserted.rows[0]?.id;
