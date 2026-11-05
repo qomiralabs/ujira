@@ -19,15 +19,22 @@
 // lose the lock. migrate.test.ts measures both the lock being session held
 // and what a second concurrent run does with it.
 //
+// Two logins run them, because no one login should hold both jobs. The bootstrap
+// login creates schemas and administers roles, and needs server wide rights to. The
+// migrator does everything else, and takes the owner's rights only for as long as a
+// migration needs them. Each file says which it needs, and the runner refuses to run a
+// file under the wrong login, so a mistake stops the deploy instead of half applying.
+//
 // This file imports nothing from its own package. The root scripts load it
 // directly under Node's type stripping, which cannot follow a sibling import
 // written with a .js specifier.
 
-import { readFile } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { readFile, readdir } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { runner, type MigrationBuilder, type RunnerOption } from 'node-pg-migrate';
+import pg from 'pg';
 
 export const MIGRATIONS_DIR = fileURLToPath(new URL('../migrations', import.meta.url));
 
@@ -57,13 +64,52 @@ export const DECLARATION_LINES: Readonly<Record<MigrationKind, string>> = {
 export const NO_TRANSACTION_LINE = '-- no-transaction';
 // Owns every object in the schema. The roles migration creates it.
 export const MIGRATION_OWNER_ROLE = 'ujira_owner';
+// A migration that creates a schema or administers roles says so on its second line, and
+// runs under the bootstrap login. Every other migration runs under the migrator.
+export const BOOTSTRAP_LINE = '-- bootstrap';
 export const UP_MARKER = '-- Up Migration';
 export const DOWN_MARKER = '-- Down Migration';
+
+export type MigrationLogin = 'bootstrap' | 'migrator';
+
+// Files merged before the marker existed, which are never edited. A new file carries the
+// marker instead, and check-migrations refuses one that needs it and does not have it.
+//
+// The first file is here for the tool's own table, which it creates on the first run:
+// the migrator cannot create anything in the public schema.
+export const MERGED_BOOTSTRAP_MIGRATIONS: ReadonlySet<string> = new Set([
+  '1761004800000_init.sql',
+  '1793404800000_amount_domain_reference_data.sql',
+  '1793491200000_roles_tenant_context.sql',
+  '1793577600000_principals_projects_tokens.sql',
+  '1793664000000_ops_schema.sql',
+  '1793923200000_attestation_pending.sql',
+  '1794009600000_mandates_chain_events.sql',
+  '1794096000000_ledger.sql',
+  '1794268800000_audit_log.sql',
+]);
+
+// What only the bootstrap login can do. Comments are taken out first, and do blocks are
+// read too, because most role work is inside one.
+export const BOOTSTRAP_STATEMENT =
+  /\b(?:create|alter|drop)\s+role\b|\bgrant\s+ujira_\w+\s+to\b|\brevoke\s+ujira_\w+\s+from\b|\bcreate\s+schema\b|\bdrop\s+schema\b/i;
+
+export function needsBootstrap(sql: string): boolean {
+  return BOOTSTRAP_STATEMENT.test(sql.replace(/--[^\n]*/g, ''));
+}
+
+/** A migration and the login running it disagree, or the login is not what it claims. */
+export class MigrationLoginError extends Error {
+  override readonly name = 'MigrationLoginError';
+}
 
 export interface MigrationSource {
   readonly name: string;
   readonly kind: MigrationKind;
   readonly transactional: boolean;
+  // Left out on a plain file rather than false, because this runner ships ahead of the
+  // code it deploys, and that code's tests compare parsed files whole.
+  readonly bootstrap?: true;
   // Each section starts at its marker line, so a line number in it is the
   // line number in the file minus the section's offset.
   readonly up: string;
@@ -106,11 +152,18 @@ export function parseMigration(name: string, source: string): MigrationSource {
     name,
     kind,
     transactional: lines[1] !== NO_TRANSACTION_LINE,
+    ...(lines[1] === BOOTSTRAP_LINE || MERGED_BOOTSTRAP_MIGRATIONS.has(name)
+      ? { bootstrap: true as const }
+      : {}),
     up: lines.slice(up, down).join('\n').trimEnd(),
     upLine: up + 1,
     down: lines.slice(down).join('\n').trimEnd(),
     downLine: down + 1,
   };
+}
+
+export function migrationLogin(migration: MigrationSource): MigrationLogin {
+  return migration.bootstrap === true ? 'bootstrap' : 'migrator';
 }
 
 // Only a login that does not already hold the owner's rights takes the role. An admin
@@ -126,8 +179,18 @@ begin
 end
 $take_role$`;
 
-function actionFor(sql: string, transactional: boolean): (pgm: MigrationBuilder) => void {
+function actionFor(
+  migration: MigrationSource,
+  sql: string,
+  transactional: boolean,
+  login: MigrationLogin | undefined,
+): (pgm: MigrationBuilder) => void {
   return (pgm) => {
+    if (login !== undefined && migrationLogin(migration) !== login) {
+      throw new MigrationLoginError(
+        `${migration.name} needs the ${migrationLogin(migration)} login, and this run is the ${login}`,
+      );
+    }
     if (transactional) {
       pgm.sql(sql);
       return;
@@ -146,20 +209,69 @@ function actionFor(sql: string, transactional: boolean): (pgm: MigrationBuilder)
   };
 }
 
-async function loadSqlMigrations(filePaths: string[]) {
-  return Promise.all(
-    filePaths.map(async (filePath) => {
-      const migration = parseMigration(basename(filePath), await readFile(filePath, 'utf8'));
-      return {
-        id: filePath,
-        filePaths: [filePath],
-        actions: {
-          up: actionFor(migration.up, migration.transactional),
-          down: actionFor(migration.down, migration.transactional),
-        },
-      };
-    }),
-  );
+function sqlMigrationsLoader(login: MigrationLogin | undefined) {
+  return async (filePaths: string[]) =>
+    Promise.all(
+      filePaths.map(async (filePath) => {
+        const migration = parseMigration(basename(filePath), await readFile(filePath, 'utf8'));
+        return {
+          id: filePath,
+          filePaths: [filePath],
+          actions: {
+            up: actionFor(migration, migration.up, migration.transactional, login),
+            down: actionFor(migration, migration.down, migration.transactional, login),
+          },
+        };
+      }),
+    );
+}
+
+interface LoginRights {
+  readonly superuser: boolean;
+  readonly createRole: boolean;
+}
+
+async function withConnection<T>(url: string, work: (client: pg.Client) => Promise<T>): Promise<T> {
+  const client = new pg.Client({ connectionString: url });
+  await client.connect();
+  try {
+    return await work(client);
+  } finally {
+    await client.end();
+  }
+}
+
+async function rightsOf(url: string): Promise<LoginRights> {
+  return withConnection(url, async (client) => {
+    const { rows } = await client.query<{ rolsuper: boolean; rolcreaterole: boolean }>(
+      'select rolsuper, rolcreaterole from pg_catalog.pg_roles where rolname = current_user',
+    );
+    return {
+      superuser: rows[0]?.rolsuper === true,
+      createRole: rows[0]?.rolcreaterole === true,
+    };
+  });
+}
+
+// A run says which login it is, and the server says whether that is true, so a URL pasted
+// into the wrong variable stops here. Naming nothing leaves a superuser free, as a test or
+// a local container on a disposable database is. Anyone else is taken for the migrator,
+// the least a login can be, so naming nothing can never get a marked file run.
+async function settleLogin(
+  url: string,
+  named: MigrationLogin | undefined,
+): Promise<MigrationLogin | undefined> {
+  const rights = await rightsOf(url);
+  if (named === undefined && rights.superuser) return undefined;
+  const administers = rights.superuser || rights.createRole;
+  const login = named ?? 'migrator';
+  if (login === 'bootstrap' && !administers) {
+    throw new MigrationLoginError('the bootstrap login cannot create roles');
+  }
+  if (login === 'migrator' && administers) {
+    throw new MigrationLoginError('the migrator login holds more rights than its job needs');
+  }
+  return login;
 }
 
 export type MigrationDirection = 'up' | 'down';
@@ -178,6 +290,9 @@ export interface MigrateOptions {
   // command meant to step back one migration wants.
   readonly count?: number;
   readonly lockMode?: LockMode;
+  // Which login this URL is. A file that needs the other one is refused. Left out, a
+  // superuser may run anything, and any other login is taken for the migrator.
+  readonly login?: MigrationLogin;
   readonly log?: (message: string) => void;
   // Another folder of migrations, for tests that need a fixture. Everything
   // real runs from MIGRATIONS_DIR.
@@ -196,12 +311,13 @@ export async function runMigrations(options: MigrateOptions): Promise<MigrationR
   // `down` with no count would undo every migration, which is never what a
   // command meant to step back one wants. `up` with no count runs them all.
   const count = options.count ?? (options.direction === 'down' ? 1 : undefined);
+  const login = await settleLogin(options.databaseUrl, options.login);
   const runnerOptions: RunnerOption = {
     databaseUrl: options.databaseUrl,
     dir: options.dir ?? MIGRATIONS_DIR,
     migrationsTable: MIGRATIONS_TABLE,
     direction: options.direction,
-    migrationLoaderStrategies: [{ extensions: ['.sql'], loader: loadSqlMigrations }],
+    migrationLoaderStrategies: [{ extensions: ['.sql'], loader: sqlMigrationsLoader(login) }],
     // Every transactional migration runs inside one transaction, so a
     // failure leaves the schema as it was. A `-- no-transaction` migration
     // breaks it: what ran before it is committed first.
@@ -231,4 +347,100 @@ export async function runMigrations(options: MigrateOptions): Promise<MigrationR
   };
   const applied = await runner(runnerOptions);
   return { names: applied.map((migration) => migration.name) };
+}
+
+export interface TwoLoginMigrateOptions {
+  // Creates schemas and administers roles. Needs CREATEROLE or to be a superuser.
+  readonly bootstrapUrl: string;
+  // Everything else. Holds neither right.
+  readonly migratorUrl: string;
+  readonly direction: MigrationDirection;
+  readonly count?: number;
+  readonly lockMode?: LockMode;
+  readonly log?: (message: string) => void;
+  readonly dir?: string;
+}
+
+// Any number that is this file's own. The tool's lock covers one file at a time here, and
+// this one keeps a second run from slipping in between them.
+const RUN_LOCK_KEY = 7_330_214;
+
+async function appliedNames(client: pg.Client): Promise<string[]> {
+  const { rows: found } = await client.query<{ table: string | null }>(
+    `select to_regclass('public.${MIGRATIONS_TABLE}')::text as table`,
+  );
+  if (found[0]?.table == null) return [];
+  const { rows } = await client.query<{ name: string }>(
+    `select name from public.${MIGRATIONS_TABLE} order by run_on desc, id desc`,
+  );
+  return rows.map((row) => row.name);
+}
+
+// The migrator records its own migrations in a table the bootstrap login created. Run
+// after each bootstrap file, because the role does not exist until one of them makes it.
+async function letMigratorRecord(client: pg.Client): Promise<void> {
+  await client.query(`
+    do $grant_ledger$
+    begin
+      if exists (select from pg_catalog.pg_roles where rolname = 'ujira_migrator') then
+        grant select, insert, delete on public.${MIGRATIONS_TABLE} to ujira_migrator;
+        grant usage, select on sequence public.${MIGRATIONS_TABLE}_id_seq to ujira_migrator;
+      end if;
+    end
+    $grant_ledger$
+  `);
+}
+
+/**
+ * Runs each file under the login it says it needs, in order, and stops at the first
+ * failure. This is how a real database is migrated: a rerun picks up where it stopped.
+ */
+export async function runMigrationsByFile(options: TwoLoginMigrateOptions): Promise<MigrationRun> {
+  const dir = options.dir ?? MIGRATIONS_DIR;
+  await settleLogin(options.bootstrapUrl, 'bootstrap');
+  const shared = {
+    direction: options.direction,
+    dir,
+    ...(options.log === undefined ? {} : { log: options.log }),
+    ...(options.lockMode === undefined ? {} : { lockMode: options.lockMode }),
+  };
+  return withConnection(options.bootstrapUrl, async (client) => {
+    const lock =
+      options.lockMode === 'wait'
+        ? await client.query<{ got: boolean }>('select pg_advisory_lock($1) is not null as got', [
+            RUN_LOCK_KEY,
+          ])
+        : await client.query<{ got: boolean }>('select pg_try_advisory_lock($1) as got', [
+            RUN_LOCK_KEY,
+          ]);
+    if (lock.rows[0]?.got !== true) throw new Error('Another migration is already running');
+
+    const files = (await readdir(dir)).filter((name) => name.endsWith('.sql')).sort();
+    const applied = await appliedNames(client);
+    const stem = (file: string) => file.replace(/\.sql$/, '');
+    // `down` with no count steps back one, as it does in runMigrations.
+    const chosen =
+      options.direction === 'up'
+        ? files
+            .filter((file) => !applied.includes(stem(file)))
+            .slice(0, options.count ?? files.length)
+        : applied.slice(0, options.count ?? 1).map((name) => `${name}.sql`);
+
+    const names: string[] = [];
+    for (const file of chosen) {
+      const login = migrationLogin(parseMigration(file, await readFile(join(dir, file), 'utf8')));
+      const url = login === 'bootstrap' ? options.bootstrapUrl : options.migratorUrl;
+      const run = await runMigrations({ ...shared, databaseUrl: url, count: 1, login });
+      // The tool picks the next file itself, so a disagreement here means the two
+      // readings of the folder differ, which is worth stopping on.
+      if (run.names.join() !== stem(file)) {
+        throw new MigrationFileError(
+          `expected to run ${file}, and ran ${run.names.join() || 'nothing'}`,
+        );
+      }
+      names.push(stem(file));
+      if (login === 'bootstrap' && options.direction === 'up') await letMigratorRecord(client);
+    }
+    return { names };
+  });
 }

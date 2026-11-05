@@ -5,12 +5,12 @@
 // later change, kept in one place so create, the constructor and the
 // administrative calls can never disagree on a domain or a role conflict.
 
+import { feeCap } from '../fee-cap.js';
 import { accountKeyOf } from './address.js';
 import { equalBytes } from './bytes.js';
 import { refusal } from './failures.js';
 import {
   ATTESTER_KEY_BYTES,
-  BPS_DENOMINATOR,
   MAX_AGENTS,
   MAX_APPROVERS,
   MAX_EXECUTORS,
@@ -120,11 +120,7 @@ export function recoveryFits(threshold: number, members: number): boolean {
   return threshold >= 1 && threshold <= members;
 }
 
-/** floor(total * bps / 10000) without ever forming total * bps. */
-export function feeCap(total: bigint, maxFeeBps: number): bigint {
-  const bps = BigInt(maxFeeBps);
-  return (total / BPS_DENOMINATOR) * bps + ((total % BPS_DENOMINATOR) * bps) / BPS_DENOMINATOR;
-}
+export { feeCap };
 
 function hasRepeat(list: readonly string[]): boolean {
   return new Set(list).size !== list.length;

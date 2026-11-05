@@ -60,3 +60,5 @@ export { startSignerService } from './serve.js';
 export type { RunningService, ServeOptions } from './serve.js';
 export { createSignerService } from './service.js';
 export type { SignerServiceOptions } from './service.js';
+
+export { sponsorshipsFromLedger } from './sponsorships.js';

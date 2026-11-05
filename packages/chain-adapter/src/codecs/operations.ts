@@ -48,6 +48,8 @@ export type DecodedOperationDetail =
       readonly value: Uint8Array | null;
     }
   /** Any other operation; its type says what it is. */
+  | { readonly kind: 'restore_footprint' }
+  | { readonly kind: 'extend_footprint' }
   | { readonly kind: 'other' };
 
 function accountIdText(id: xdr.AccountId): string {
@@ -101,6 +103,10 @@ export function operationDetail(op: xdr.Operation, field: string): DecodedOperat
         argCount: call.args().length,
       };
     }
+    case 'restoreFootprint':
+      return { kind: 'restore_footprint' };
+    case 'extendFootprintTtl':
+      return { kind: 'extend_footprint' };
     case 'beginSponsoringFutureReserves':
       return {
         kind: 'begin_sponsoring',

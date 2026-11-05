@@ -387,6 +387,14 @@ export interface AdapterStore {
     txHash: string,
     patch: SubmissionPatch,
   ): Promise<void>;
+  /** The landed submission that executed this payout on its own, if one is stored. */
+  landedSubmission(key: {
+    readonly scope: TenantScope;
+    readonly network: NetworkId;
+    /** Chain encoded, as in SubmissionRecord. */
+    readonly mandate: string;
+    readonly payoutId: PayoutId;
+  }): Promise<SubmissionRecord | null>;
   /** One tenant's record by hash, in any state. Another tenant's row reads as null. */
   findSubmission(
     scope: TenantScope,
@@ -835,6 +843,8 @@ export interface FundingInstructions {
   readonly asset: TokenAsset;
   /** Token contract, shown so the principal can verify it. */
   readonly assetContract: string;
+  /** The asset's issuer, where the chain has one. */
+  readonly assetIssuer?: string;
   readonly label: string;
   readonly memoRequired: false;
   readonly warnings: readonly (
@@ -851,10 +861,22 @@ export interface PrepareFundingRequest {
   readonly amount: TokenAmount;
 }
 
+/** A forwarding account, and the mandate its deposits are swept into. */
+export interface ForwardingRoute {
+  readonly fundingSourceId: string;
+  readonly mandateInstanceId: string;
+  /** The account that received the deposit. */
+  readonly forwarder: string;
+  /** Chain encoded. */
+  readonly mandate: string;
+}
+
 export interface WatchedMandate {
   readonly scope: TenantScope;
   readonly mandate: MandateRef;
   readonly asset: TokenAsset;
+  /** Set when the address asked about is a forwarding account, not the mandate. */
+  readonly forwarding?: ForwardingRoute;
 }
 
 export interface DepositScanRequest {
@@ -882,6 +904,10 @@ export interface Deposit {
   readonly blockHash: string | null;
   readonly closedAt: UnixSeconds;
   readonly finality: Finality;
+  /** The chain's id for the operation, where it has one. A sweep is keyed on it and `eventIndex`. */
+  readonly operationId?: string;
+  /** Set for the settlement asset on a forwarding account: it is to be swept. */
+  readonly forwarding?: ForwardingRoute;
 }
 
 export interface DepositScanPage {
@@ -1083,6 +1109,20 @@ export type DeadProof =
       readonly kind: 'deadline_passed';
       readonly network: NetworkId;
       readonly finalTime: UnixSeconds;
+      readonly at: { readonly ledgerOrBlock: bigint; readonly finality: 'final' };
+    }
+  /** Requested, but past its own expiry at a final ledger, so it can never execute. */
+  | {
+      readonly kind: 'payout_lapsed';
+      readonly network: NetworkId;
+      readonly expiresAt: UnixSeconds;
+      readonly finalTime: UnixSeconds;
+      readonly at: { readonly ledgerOrBlock: bigint; readonly finality: 'final' };
+    }
+  /** Its agent was removed after the request, so the mandate refuses to execute it. */
+  | {
+      readonly kind: 'agent_removed';
+      readonly network: NetworkId;
       readonly at: { readonly ledgerOrBlock: bigint; readonly finality: 'final' };
     };
 

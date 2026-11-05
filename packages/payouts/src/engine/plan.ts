@@ -12,7 +12,6 @@ import type {
   ChainAdapterRegistry,
   CountryCode,
   NetworkId,
-  PayoutId,
   PayoutLegInput,
   Quote,
   SignerRef,
@@ -92,17 +91,6 @@ export interface EngineDeps {
     readonly attestations: readonly AttestationInput[];
     readonly earliestValidUntil: UnixSeconds | null;
   }>;
-  // Sends the cancel for a payout past its expiry, which anyone may do. The tombstone
-  // it leaves is the proof that frees the next attempt.
-  readonly cancelLapsed: (
-    req: {
-      readonly scope: TenantScope;
-      readonly mandateInstanceId: string;
-      readonly network: NetworkId;
-      readonly payoutId: PayoutId;
-    },
-    opts: CallOptions,
-  ) => Promise<void>;
   // The recipient's split. Absent or empty pays the main method alone.
   readonly splitOf?: (context: ProjectContext, payout: Payout) => Promise<readonly LegShare[]>;
   readonly minimumContext?: (

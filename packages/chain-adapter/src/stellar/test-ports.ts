@@ -12,7 +12,7 @@ import { TransactionBuilder } from '@stellar/stellar-sdk/base';
 import type { Keypair } from '@stellar/stellar-sdk/base';
 
 import { InvalidInputError, SignerDeniedError } from '../errors.js';
-import { canMoveSubmission } from '../submission-states.js';
+import { canMoveSubmission, isLiveSubmission } from '../submission-states.js';
 import type { NetworkId, StellarNetworkId } from '../networks.js';
 import type { SignerProvider, SignerRef } from '../signer.js';
 import type {
@@ -21,6 +21,7 @@ import type {
   MandateRegistration,
   MandateRegistry,
   SponsorshipPolicy,
+  LegDeliveryRecord,
   SubmissionRecord,
   UnixSeconds,
 } from '../types.js';
@@ -44,6 +45,7 @@ export function memoryStore(
   const current = new Map<string, string>();
   let next = 0;
   const submissions = new Map<string, SubmissionRecord>();
+  const deliveries = new Map<string, LegDeliveryRecord>();
   const releases: { leaseId: string; sequenceOrNonce: bigint }[] = [];
   const unsupported = (): Promise<never> => Promise.reject(new Error('not used by these tests'));
   return {
@@ -103,10 +105,34 @@ export function memoryStore(
       releases.push({ leaseId: lease.leaseId, sequenceOrNonce: after.sequenceOrNonce });
       return Promise.resolve();
     },
-    liveSubmission: unsupported,
+    landedSubmission: (key) =>
+      Promise.resolve(
+        [...submissions.values()].find(
+          (s) =>
+            s.state === 'landed' &&
+            s.op === 'execute' &&
+            s.mandate === key.mandate &&
+            s.payoutId === key.payoutId,
+        ) ?? null,
+      ),
+    liveSubmission: (key) =>
+      Promise.resolve(
+        [...submissions.values()].find(
+          (s) =>
+            isLiveSubmission(s.state) &&
+            s.op === key.op &&
+            s.mandate === key.mandate &&
+            s.payoutId === key.payoutId &&
+            s.scope.principalId === key.scope.principalId &&
+            s.scope.projectId === key.scope.projectId,
+        ) ?? null,
+      ),
     unresolvedSubmissions: unsupported,
-    upsertDelivery: unsupported,
-    liveDelivery: unsupported,
+    upsertDelivery(delivery) {
+      deliveries.set(delivery.legKey, delivery);
+      return Promise.resolve();
+    },
+    liveDelivery: (_scope, legKey) => Promise.resolve(deliveries.get(legKey) ?? null),
   };
 }
 
@@ -181,6 +207,8 @@ export function keypairSigner(
         if (
           payload.kind !== 'stellar_tx' &&
           payload.kind !== 'stellar_fee_bump' &&
+          payload.kind !== 'stellar_relayed_call' &&
+          payload.kind !== 'stellar_footprint' &&
           payload.kind !== 'stellar_reserve_sandwich'
         ) {
           throw new SignerDeniedError({ network });
