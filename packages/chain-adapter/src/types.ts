@@ -815,7 +815,7 @@ export interface Deposit {
   readonly blockHash: string | null;
   readonly closedAt: UnixSeconds;
   readonly finality: Finality;
-  /** The chain's id for the operation, where it has one. A sweep is keyed on it. */
+  /** The chain's id for the operation, where it has one. A sweep is keyed on it and `eventIndex`. */
   readonly operationId?: string;
   /** Set for the settlement asset on a forwarding account: it is to be swept. */
   readonly forwarding?: ForwardingRoute;
