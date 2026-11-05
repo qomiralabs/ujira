@@ -20,8 +20,8 @@ const skipped = vectors.filter((v) => !appliesTo(v, 'stellar'));
 describe('the shared vectors on the in-memory mandate', () => {
   it('loads the whole vendored set and counts what applies to Stellar', () => {
     expect(new Set(vectors.map((v) => v.file)).size).toBe(29);
-    expect(vectors).toHaveLength(590);
-    expect(stellar).toHaveLength(548);
+    expect(vectors).toHaveLength(611);
+    expect(stellar).toHaveLength(569);
     expect(skipped).toHaveLength(42);
     expect(new Set(vectors.map((v) => v.parsed.id)).size).toBe(vectors.length);
   });

@@ -6,7 +6,7 @@
 // administrative calls can never disagree on a domain or a role conflict.
 
 import { feeCap } from '../fee-cap.js';
-import { accountKeyOf } from './address.js';
+import { accountAddress, accountKeyOf, contractAddress } from './address.js';
 import { equalBytes } from './bytes.js';
 import { refusal } from './failures.js';
 import {
@@ -46,6 +46,16 @@ const DISJOINT: Readonly<Record<RoleCode, readonly RoleCode[]>> = Object.freeze(
 
 // The principal may also approve or guard, never spend, submit or vote.
 const NEVER_PRINCIPAL: ReadonlySet<RoleCode> = new Set([ROLE.AGENT, ROLE.EXECUTOR, ROLE.RECOVERY]);
+
+// Stellar has no zero address, but these two are valid addresses nobody holds a key
+// to. As a role member one would count toward a threshold without ever being able to
+// act, and a transfer to one burns the amount.
+const ZERO_ACCOUNT = accountAddress(new Uint8Array(ATTESTER_KEY_BYTES));
+const ZERO_CONTRACT = contractAddress(new Uint8Array(ATTESTER_KEY_BYTES));
+
+export function isZeroAddress(address: string): boolean {
+  return address === ZERO_ACCOUNT || address === ZERO_CONTRACT;
+}
 
 export function isRoleCode(code: number): code is RoleCode {
   return Number.isInteger(code) && code >= ROLE.AGENT && code <= ROLE.RECOVERY;
@@ -160,6 +170,9 @@ export function validateConfig(c: EngineConfig, feeAddress: string, now: bigint)
     throw refusal('CONFIG_INVALID');
   }
   if (!attesterFitsMode(c.recipientMode, c.attester)) throw refusal('CONFIG_INVALID');
+  if ([c.principal, ...ROLE_CODES.flatMap((role) => sets[role])].some(isZeroAddress)) {
+    throw refusal('CONFIG_INVALID');
+  }
   const conflict = ROLE_CODES.some((role) =>
     sets[role].some((account) => joinConflicts(role, account, sets, c.principal, feeAddress)),
   );

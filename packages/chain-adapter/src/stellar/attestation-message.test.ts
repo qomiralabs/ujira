@@ -35,7 +35,7 @@ const read = (name: string): Uint8Array =>
 
 // SHA-256 of vendor/attestation-parity/SOURCE.json, which names the
 // contracts commit and holds the hash of each copied file.
-const PINNED_SOURCE_SHA256 = '4c7fe5f277f7378a5f5341847f14e425317727caa4148d4ade3d67550261f5c7';
+const PINNED_SOURCE_SHA256 = '1eaef7a5ad6755bd0c00c0170179940c381566643db7a084758ec64104b37ee0';
 
 function checkVendored(readFile: (name: string) => Uint8Array = read): string[] {
   const problems: string[] = [];

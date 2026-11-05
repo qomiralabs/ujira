@@ -2,15 +2,12 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 // Runs the mandate operations against the factory deployed on Stellar
-// testnet, with the throwaway testnet identities kept by the stellar CLI
-// outside the repository. Opt in with UJIRA_STELLAR_TESTNET=1; everywhere
-// else, CI included, it is skipped. Secret keys are read into memory through
-// the CLI and never printed. With UJIRA_RECORD_FIXTURES=1 it also writes the
-// raw RPC answers of one read to fixtures/, for the offline read tests.
-//
-// The adapter writes the per mandate tenant tag. Until the factory is deployed
-// again with the wasm that takes it, this fails at create on testnet, because
-// the deployed wasm still expects the reference under its old field name.
+// testnet, with throwaway testnet identities. Opt in with UJIRA_STELLAR_TESTNET=1;
+// everywhere else, the pull request checks included, it is skipped. The nightly job
+// hands each secret key in through the environment, and a developer's machine reads
+// them from the stellar CLI's store outside the repository. Either way they are held
+// in memory and never printed. With UJIRA_RECORD_FIXTURES=1 it also writes the raw
+// RPC answers of one read to fixtures/, for the offline read tests.
 
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -62,7 +59,7 @@ const CONFIG_DIR = path.join(
 );
 
 // The public record of the testnet deployment.
-const FACTORY = 'CAAVOGDGGM7JOLDS3CIQNPGSJOYFI54CJSAQQEFQKW7CES5UYIAZOYUQ';
+const FACTORY = 'CB4AYBA5NVQPVPNOWUCSZQK6ZIGOF7KSCS6SF6UV6D2OKPDXLHEPD4V7';
 const USDC_SAC = 'CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA';
 const USDC_ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 // The one key smart wallet built from packages/chain-adapter/fixtures/test-wallet
@@ -73,6 +70,11 @@ const WALLET =
 const WALLET_OWNER = process.env['UJIRA_TESTNET_WALLET_OWNER'] ?? 'smoke-principal';
 
 function identity(name: string): Keypair {
+  const fromEnvironment =
+    process.env[`UJIRA_TESTNET_KEY_${name.toUpperCase().replaceAll('-', '_')}`];
+  if (fromEnvironment !== undefined && fromEnvironment !== '') {
+    return Keypair.fromSecret(fromEnvironment.trim());
+  }
   const secret = execFileSync(
     'stellar',
     ['--config-dir', CONFIG_DIR, 'keys', 'secret', `ujira-testnet-${name}`],
