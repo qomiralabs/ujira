@@ -4,7 +4,13 @@
 // The batch job on the real database and the fake chain.
 
 import type { PayBatchRequest } from '@ujira/chain-adapter';
-import { payoutAttempts, payoutEngine, type Payout, type PayoutAttempt } from '@ujira/db';
+import {
+  fundingHolds,
+  payoutAttempts,
+  payoutEngine,
+  type Payout,
+  type PayoutAttempt,
+} from '@ujira/db';
 import { adminQuery } from '@ujira/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -129,10 +135,6 @@ describe('batch advance', () => {
       usdc(2n * ONE_USDC),
     ]);
     await runBatch(world, batchId);
-    const [oldest, next, newest] = payouts;
-    if (oldest === undefined || next === undefined || newest === undefined) {
-      throw new Error('items');
-    }
     for (const payout of payouts) {
       expect(await world.read(payout.id)).toMatchObject({
         status: 'received',
@@ -145,6 +147,15 @@ describe('batch advance', () => {
     // Enough for two with their fees, and not the third.
     await world.h.fund(world.m.ref.address, 5n * ONE_USDC);
     // One after the other, as the queue runs them.
+    const order = await harness.db
+      .tenant(TENANT)
+      .transaction(async (tx) => fundingHolds.oldestOnNetwork(tx, NETWORK, 10));
+    const [oldest, next, newest] = order
+      .map((hold) => payouts.find((payout) => payout.id === hold.payoutId))
+      .filter((payout) => payout !== undefined);
+    if (oldest === undefined || next === undefined || newest === undefined) {
+      throw new Error('items');
+    }
     const first = await releaseHeld(world.deps, TENANT, NETWORK, new AbortController().signal);
     const second = await releaseHeld(world.deps, TENANT, NETWORK, new AbortController().signal);
     expect(first.released).toEqual([oldest.id, next.id]);
