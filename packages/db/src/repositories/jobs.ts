@@ -207,6 +207,13 @@ export interface ReconcileTarget {
   readonly mandateInstanceId: string;
 }
 
+export interface LapsedCancelTarget {
+  readonly principalId: string;
+  readonly projectId: string;
+  readonly mandateInstanceId: string;
+  readonly mandateId: string;
+}
+
 export interface FundingHoldTarget {
   readonly principalId: string;
   readonly projectId: string;
@@ -214,6 +221,29 @@ export interface FundingHoldTarget {
 }
 
 export const cronTargets = {
+  // Every instance with a lapsed attempt still to cancel. Keyset paged from `after`.
+  lapsedCancels: async (
+    tx: Tx,
+    after: string | undefined,
+    limit: number,
+  ): Promise<readonly LapsedCancelTarget[]> => {
+    const result = await sql<{
+      principal_id: string;
+      project_id: string;
+      mandate_instance_id: string;
+      mandate_id: string;
+    }>`
+      select principal_id, project_id, mandate_instance_id, mandate_id
+        from ujira.lapsed_cancel_targets(${after ?? null}::uuid, ${limit})
+    `.execute(tx);
+    return result.rows.map((row) => ({
+      principalId: row.principal_id,
+      projectId: row.project_id,
+      mandateInstanceId: row.mandate_instance_id,
+      mandateId: row.mandate_id,
+    }));
+  },
+
   // Every project and network with a payout on hold. Keyset paged from `after`.
   fundingHolds: async (
     tx: Tx,

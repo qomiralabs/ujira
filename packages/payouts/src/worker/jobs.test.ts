@@ -40,6 +40,7 @@ describe('the task registry', () => {
       'payout:advance',
       'batch:advance',
       'payouts:release_held',
+      'payouts:cancel_lapsed',
       'mandate:reconcile',
       'ttl:keep_alive',
     ]);

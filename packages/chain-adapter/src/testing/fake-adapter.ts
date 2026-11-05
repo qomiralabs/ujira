@@ -99,6 +99,8 @@ import type {
   PayoutChainStatus,
   PayoutId,
   PrepareFundingRequest,
+  CancelLapsedRequest,
+  CancelLapsedStep,
   ProveDeadRequest,
   Quote,
   QuoteRequest,
@@ -871,6 +873,53 @@ export class FakeChainAdapter implements ChainAdapter {
       return Promise.resolve(
         this.#deadProof(engine, req.payoutId, req.deadline) ?? this.#openDeadProof(engine, req),
       );
+    });
+  }
+
+  cancelLapsed(req: CancelLapsedRequest, opts: CallOptions): Promise<CancelLapsedStep> {
+    return this.#traced<CancelLapsedStep>('cancelLapsed', async () => {
+      this.#reach(opts);
+      const engine = this.#mandate(req.scope, req.mandate);
+      const run = (caller: string): unknown => {
+        engine.cancel({ caller }, req.payoutId);
+        return null;
+      };
+      const live = await this.#store.liveSubmission({
+        scope: req.scope,
+        network: this.network,
+        mandate: engine.address,
+        payoutId: req.payoutId,
+        op: 'cancel',
+      });
+      if (live !== null && (await this.#reconcile(live, run)) === 'pending') {
+        return { kind: 'submitted', submission: this.#ref(live.txHash, null) };
+      }
+      const view = engine.payout(req.payoutId);
+      if (view === null) return { kind: 'absent' };
+      if (!('expiresAt' in view)) {
+        if (view.status === 'CANCELLED') {
+          const touched = this.#net.lastTouch(req.payoutId);
+          return {
+            kind: 'cancelled',
+            final: touched !== undefined && this.#net.isFinal(touched.ledger),
+          };
+        }
+        return { kind: 'closed', status: view.status === 'EXECUTED' ? 'executed' : 'rejected' };
+      }
+      if (this.#now() < view.expiresAt) return { kind: 'not_lapsed' };
+      const submission = await this.#withExecutor(opts, async (lease, executor, nextSequence) => {
+        this.#simulate(() => run(executor));
+        return this.#signAndSubmit(
+          req.scope,
+          { kind: 'executor', network: this.network, keyId: lease.keyId },
+          executor,
+          { op: 'cancel', mandate: engine.address, payoutId: req.payoutId, attempt: null },
+          () => run(executor),
+          opts,
+          nextSequence(),
+        );
+      });
+      return { kind: 'submitted', submission };
     });
   }
 

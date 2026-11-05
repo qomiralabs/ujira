@@ -67,6 +67,14 @@ export const RELEASE_HELD: TenantTask = {
   scope: 'principal',
 };
 
+// On the mandate's queue, so it does not race that mandate's payouts.
+export const CANCEL_LAPSED: TenantTask = {
+  name: 'payouts:cancel_lapsed',
+  ids: ['mandateInstanceId', 'mandateId'],
+  jobKey: (ids) => `cancel_lapsed:${need(ids, 'mandateInstanceId')}`,
+  queueName: payoutQueue,
+};
+
 export const MANDATE_RECONCILE: TenantTask = {
   name: 'mandate:reconcile',
   ids: ['mandateInstanceId'],
@@ -90,6 +98,7 @@ export const TENANT_TASKS: readonly TenantTask[] = [
   PAYOUT_ADVANCE,
   BATCH_ADVANCE,
   RELEASE_HELD,
+  CANCEL_LAPSED,
   MANDATE_RECONCILE,
   TTL_KEEP_ALIVE,
 ];
@@ -101,6 +110,7 @@ export const SYSTEM_TASKS = Object.freeze({
   indexerScan: 'indexer:scan',
   reconcileSweep: 'reconcile:sweep',
   releaseSweep: 'payouts:release_sweep',
+  lapsedSweep: 'payouts:cancel_lapsed_sweep',
   submissionSweep: 'submissions:reconcile',
   ttlSweep: 'ttl:sweep',
   unlockStale: 'jobs:unlock_stale',

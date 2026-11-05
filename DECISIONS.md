@@ -2,6 +2,34 @@
 
 Smaller design decisions, each with what it was choosing between. Newest first.
 
+## The executor cancels lapsed payouts
+
+**Problem.** A lapsed payout can never execute, but the mandate counts its funds as committed until someone cancels it. So a mandate with nothing spare cannot pay the retry after a lapse. The operator also has to cancel lapsed payouts before their records archive, and nothing did. The agent key never cancels, which a person decided, and `AGENT_FUNCTIONS` stays as it is. Something UJIRA runs has to send this call.
+
+**Options.**
+
+1. Leave it to the principal's wallet. No key changes, but the funds stay stuck until a person acts, and the retry with them.
+2. A key of its own, whose only job is this. Clean to reason about, and one more key to provision, fund and rotate, for a call anyone may make.
+3. Let the executor send it. It already has the role on these mandates and already pays fees.
+
+Chose 3. **This gives no power any address lacks:** once a payout has lapsed, the contract takes a cancel from anyone, and before that it refuses this caller.
+
+- The one way that would not hold is an executor address that is also the mandate's principal or an agent, since the contract takes a live cancel from either. The policy refuses those, and refuses when the index cannot say who holds those roles.
+- `cancel` and `cancel_batch` sit on a list of their own, so `EXECUTOR_FUNCTIONS` still says what an executor exists to do.
+- The adapter checks the payout has lapsed before it sends, so it spends no fee on one the contract would refuse.
+- The retry goes first after the lapse proof when funds allow. When they do not, it is held, and the sweep's cancel frees the funds and wakes the release job.
+- A sweep every ten minutes finds what is left through one narrow function and files a job on each mandate's queue, so it does not race that mandate's payouts. Each attempt records when it was cleared.
+
+**Trade offs and risks.**
+
+- **This widens a signer policy,** so it is on the security review list.
+- The rule against a shared address relies on the index being right about who holds those roles. The production index is not built yet, and has to supply them or every cancel is refused.
+- UJIRA pays the fee on these cancels, per lapsed payout.
+- Deadlines are not timed from a record's `liveUntilLedgerSeq`. Every sweep cancels everything lapsed, so nothing waits long enough to need one. A missed window costs only a restore fee, and an archived record still counts as present.
+- The adapter sends one cancel per payout, not `cancel_batch`. That costs more fees if many lapse at once, and the policy allows the batch for when that matters.
+
+**Evidence.** `packages/signer/src/service/chain-policy.cancel.test.ts`, `packages/chain-adapter/src/testing/cancel-lapsed.test.ts` against the fake engine, which follows the contract's rule, and `packages/payouts/src/engine/cancel-lapsed.test.ts`, which runs the nothing spare case end to end.
+
 ## A split whose transfer failed waits to lapse rather than being cancelled
 
 **Problem.** An execute is atomic, so one leg whose transfer fails blocks the whole payout, and the chain holds the request with funds committed to it. The next attempt, on the recipient's main method, must wait until this one can never land. A cancel would prove that at once. The mandate lets an agent cancel its own payout, but the agent keys UJIRA holds may only ask for a payout: `AGENT_FUNCTIONS` in the signer's agent policy holds `request_payout` and `request_payouts`, and anything else stays with the principal's own wallet.
@@ -20,7 +48,7 @@ Chose 1. Option 2 could be added later as a way for a principal to speed things 
 
 **Trade offs and risks.**
 
-- **The recipient waits up to the mandate's `payout_ttl_seconds`, and the funds stay committed until then.** Attestations can shorten that, and the test mandates use a day. A recipient on a failed split is not paid in the meantime, even if the cause clears. Nothing alerts on this wait: `refusal_code` shows `TRANSFER_FAILED` on a payout that is still live.
+- **The recipient waits up to the mandate's `payout_ttl_seconds`, and the funds stay committed until then, and until the sweep cancels the attempt.** Attestations can shorten that, and the test mandates use a day. A recipient on a failed split is not paid in the meantime, even if the cause clears. Nothing alerts on this wait: `refusal_code` shows `TRANSFER_FAILED` on a payout that is still live.
 - Each waiting payout costs one chain read per look.
 - Splits ship at P1, so nothing reaches this path until then.
 

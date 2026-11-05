@@ -508,6 +508,7 @@ export interface UjiraPayoutAttempts {
   deadline: Timestamp;
   fee_amount: Generated<Numeric>;
   id: Generated<string>;
+  lapse_cancelled_at: Timestamp | null;
   mandate_instance_id: string;
   network: string;
   on_chain_payout_id: string | null;

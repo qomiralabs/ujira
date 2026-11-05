@@ -240,6 +240,7 @@ describe('ujira_scheduler', () => {
     );
     expect(columns.rows).toEqual([
       { relation: 'mandate_instances', column: 'id', privilege: 'SELECT' },
+      { relation: 'mandate_instances', column: 'mandate_id', privilege: 'SELECT' },
       { relation: 'mandate_instances', column: 'principal_id', privilege: 'SELECT' },
       { relation: 'mandate_instances', column: 'project_id', privilege: 'SELECT' },
     ]);

@@ -1226,6 +1226,37 @@ $$;
 ALTER FUNCTION ujira.keep_token_revoked() OWNER TO ujira_owner;
 
 --
+-- Name: lapsed_cancel_targets(uuid, integer); Type: FUNCTION; Schema: ujira; Owner: ujira_scheduler
+--
+
+CREATE FUNCTION ujira.lapsed_cancel_targets(p_after uuid, p_limit integer) RETURNS TABLE(principal_id uuid, project_id uuid, mandate_instance_id uuid, mandate_id uuid)
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if p_limit is null or p_limit not between 1 and 500 then
+    raise exception using errcode = '22023', message = 'limit must be from 1 to 500';
+  end if;
+  return query
+    select distinct a.principal_id, a.project_id, a.mandate_instance_id, i.mandate_id
+      from ujira.payout_attempts as a
+      join ujira.mandate_instances as i
+        on i.principal_id = a.principal_id
+       and i.project_id = a.project_id
+       and i.id = a.mandate_instance_id
+     where a.status = 'dead'
+       and a.lapse_cancelled_at is null
+       and a.dead_proof ->> 'kind' = 'payout_lapsed'
+       and a.mandate_instance_id > coalesce(p_after, '00000000-0000-0000-0000-000000000000'::uuid)
+     order by 3
+     limit p_limit;
+end
+$$;
+
+
+ALTER FUNCTION ujira.lapsed_cancel_targets(p_after uuid, p_limit integer) OWNER TO ujira_scheduler;
+
+--
 -- Name: ledger_accounts_guard(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2801,6 +2832,7 @@ CREATE TABLE ujira.payout_attempts (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     fee_amount ujira.amount DEFAULT 0 NOT NULL,
+    lapse_cancelled_at timestamp with time zone,
     CONSTRAINT payout_attempts_chain_id_length CHECK (((char_length(on_chain_payout_id) >= 1) AND (char_length(on_chain_payout_id) <= 128))),
     CONSTRAINT payout_attempts_dead_has_proof CHECK (((status = 'dead'::text) = (dead_proof IS NOT NULL))),
     CONSTRAINT payout_attempts_fee_not_negative CHECK (((fee_amount)::numeric >= (0)::numeric)),
@@ -4324,6 +4356,13 @@ CREATE INDEX ledger_entries_by_journal ON ujira.ledger_entries USING btree (prin
 --
 
 CREATE UNIQUE INDEX managed_signers_one_active ON ujira.managed_signers USING btree (principal_id, project_id, agent_id, network) WHERE (status = 'active'::text);
+
+
+--
+-- Name: payout_attempts_lapse_uncancelled; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX payout_attempts_lapse_uncancelled ON ujira.payout_attempts USING btree (mandate_instance_id) WHERE ((status = 'dead'::text) AND (lapse_cancelled_at IS NULL) AND ((dead_proof ->> 'kind'::text) = 'payout_lapsed'::text));
 
 
 --
@@ -7544,6 +7583,14 @@ REVOKE ALL ON FUNCTION ujira.keep_token_revoked() FROM PUBLIC;
 
 
 --
+-- Name: FUNCTION lapsed_cancel_targets(p_after uuid, p_limit integer); Type: ACL; Schema: ujira; Owner: ujira_scheduler
+--
+
+REVOKE ALL ON FUNCTION ujira.lapsed_cancel_targets(p_after uuid, p_limit integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.lapsed_cancel_targets(p_after uuid, p_limit integer) TO ujira_app;
+
+
+--
 -- Name: FUNCTION ledger_accounts_guard(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -8040,6 +8087,13 @@ GRANT SELECT(id) ON TABLE ujira.mandate_instances TO ujira_scheduler;
 
 
 --
+-- Name: COLUMN mandate_instances.mandate_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(mandate_id) ON TABLE ujira.mandate_instances TO ujira_scheduler;
+
+
+--
 -- Name: COLUMN mandate_instances.balance_checked_at; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -8084,6 +8138,13 @@ GRANT SELECT(id) ON TABLE ujira.payout_attempts TO ujira_scheduler;
 
 
 --
+-- Name: COLUMN payout_attempts.mandate_instance_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(mandate_instance_id) ON TABLE ujira.payout_attempts TO ujira_scheduler;
+
+
+--
 -- Name: COLUMN payout_attempts.on_chain_payout_id; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -8102,6 +8163,7 @@ GRANT SELECT(deadline) ON TABLE ujira.payout_attempts TO ujira_scheduler;
 --
 
 GRANT UPDATE(dead_proof) ON TABLE ujira.payout_attempts TO ujira_app;
+GRANT SELECT(dead_proof) ON TABLE ujira.payout_attempts TO ujira_scheduler;
 
 
 --
@@ -8110,6 +8172,14 @@ GRANT UPDATE(dead_proof) ON TABLE ujira.payout_attempts TO ujira_app;
 
 GRANT UPDATE(status) ON TABLE ujira.payout_attempts TO ujira_app;
 GRANT SELECT(status) ON TABLE ujira.payout_attempts TO ujira_scheduler;
+
+
+--
+-- Name: COLUMN payout_attempts.lapse_cancelled_at; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(lapse_cancelled_at) ON TABLE ujira.payout_attempts TO ujira_app;
+GRANT SELECT(lapse_cancelled_at) ON TABLE ujira.payout_attempts TO ujira_scheduler;
 
 
 --

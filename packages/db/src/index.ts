@@ -100,6 +100,7 @@ export {
   payoutEngine,
   payoutEngineRepositories,
   type InstanceOfMandate,
+  type LapsedAttempt,
 } from './repositories/payout-engine.js';
 export {
   managedSigners,
@@ -255,6 +256,7 @@ export {
   type NewDeadLetter,
   type QueueState,
   type FundingHoldTarget,
+  type LapsedCancelTarget,
   type ReconcileTarget,
   type TenantTx,
   type JobIds,

@@ -21,6 +21,12 @@ export interface InstanceOfMandate {
   readonly contractAddress: string;
 }
 
+export interface LapsedAttempt {
+  readonly attemptId: string;
+  readonly network: string;
+  readonly onChainPayoutId: string | null;
+}
+
 export const payoutEngine = {
   // What the on-chain payout id derives from. Undefined for another tenant's payout.
   idempotencyKey: async (tx: Tx, payoutId: string): Promise<string | undefined> => {
@@ -128,6 +134,40 @@ export const payoutEngine = {
       chain: row.chain,
       contractAddress: row.contract_address,
     }));
+  },
+
+  // Attempts proven dead because they lapsed, whose funds the chain still holds.
+  lapsedUncancelled: async (
+    tx: Tx,
+    mandateInstanceId: string,
+    limit: number,
+  ): Promise<readonly LapsedAttempt[]> => {
+    const rows = await tx
+      .selectFrom('ujira.payout_attempts')
+      .select(['id', 'network', 'on_chain_payout_id'])
+      .where('mandate_instance_id', '=', mandateInstanceId)
+      .where('status', '=', 'dead')
+      .where('lapse_cancelled_at', 'is', null)
+      .where(sql<boolean>`dead_proof ->> 'kind' = 'payout_lapsed'`)
+      .orderBy('id')
+      .limit(limit)
+      .execute();
+    return rows.map((row) => ({
+      attemptId: row.id,
+      network: row.network,
+      onChainPayoutId: row.on_chain_payout_id,
+    }));
+  },
+
+  // False when it was already done, or is another tenant's.
+  markLapseCancelled: async (tx: Tx, attemptId: string): Promise<boolean> => {
+    const result = await tx
+      .updateTable('ujira.payout_attempts')
+      .set({ lapse_cancelled_at: sql<Date>`now()` })
+      .where('id', '=', attemptId)
+      .where('lapse_cancelled_at', 'is', null)
+      .executeTakeFirst();
+    return result.numUpdatedRows === 1n;
   },
 
   // Holds the instance's row until the transaction ends, which is what serializes new
