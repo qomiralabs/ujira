@@ -64,7 +64,7 @@ set local role ujira_owner;
 
 alter table ujira.payout_legs
   drop constraint payout_legs_index_range,
-  add constraint payout_legs_index_range check (leg_index between 0 and 3) not valid;
+  add constraint payout_legs_index_range check (leg_index between 0 and 3);
 
 create or replace function ujira.legs_match_attempt() returns trigger
   language plpgsql
