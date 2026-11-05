@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@ujira/chain-adapter": "workspace:*",
+    "@ujira/core": "workspace:*",
     "@ujira/db": "workspace:*"
   }
 }

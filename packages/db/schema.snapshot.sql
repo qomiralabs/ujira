@@ -1159,6 +1159,38 @@ $$;
 ALTER FUNCTION ujira.project_scope_all() OWNER TO ujira_owner;
 
 --
+-- Name: resolve_funding_address(text, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_instances
+--
+
+CREATE FUNCTION ujira.resolve_funding_address(target_network text, target_address text) RETURNS TABLE(principal_id uuid, project_id uuid, funding_account_id uuid, account_status text, funding_source_id uuid, mandate_instance_id uuid, contract_address text, asset text)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select a.principal_id, a.project_id, a.id, a.status,
+         attached.funding_source_id, attached.mandate_instance_id,
+         attached.contract_address, attached.asset
+    from ujira.funding_accounts as a
+    left join lateral (
+      select s.funding_source_id, s.mandate_instance_id, i.contract_address, i.asset
+        from ujira.funding_account_sources as s
+        join ujira.mandate_instances as i
+          on i.principal_id = s.principal_id
+         and i.project_id = s.project_id
+         and i.id = s.mandate_instance_id
+       where s.principal_id = a.principal_id
+         and s.project_id = a.project_id
+         and s.funding_account_id = a.id
+         and i.chain = split_part(a.network, ':', 1)
+    ) as attached on true
+   where a.network = target_network
+     and a.address = target_address
+   order by attached.mandate_instance_id
+$$;
+
+
+ALTER FUNCTION ujira.resolve_funding_address(target_network text, target_address text) OWNER TO ujira_fn_instances;
+
+--
 -- Name: resolve_mandate_instance(text, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_instances
 --
 
@@ -4782,6 +4814,20 @@ ALTER TABLE ujira.recipient_pii ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ujira.recipients ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: funding_account_sources resolve_funding_address; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY resolve_funding_address ON ujira.funding_account_sources FOR SELECT TO ujira_fn_instances USING (true);
+
+
+--
+-- Name: funding_accounts resolve_funding_address; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY resolve_funding_address ON ujira.funding_accounts FOR SELECT TO ujira_fn_instances USING (true);
+
+
+--
 -- Name: mandate_instances resolve_instance; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5818,6 +5864,14 @@ GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_indexer;
 
 
 --
+-- Name: FUNCTION resolve_funding_address(target_network text, target_address text); Type: ACL; Schema: ujira; Owner: ujira_fn_instances
+--
+
+REVOKE ALL ON FUNCTION ujira.resolve_funding_address(target_network text, target_address text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.resolve_funding_address(target_network text, target_address text) TO ujira_indexer;
+
+
+--
 -- Name: FUNCTION resolve_mandate_instance(target_chain text, target_address text); Type: ACL; Schema: ujira; Owner: ujira_fn_instances
 --
 
@@ -6074,6 +6128,7 @@ GRANT SELECT ON TABLE ujira.funding_account_checks TO ujira_reader;
 
 GRANT SELECT,INSERT ON TABLE ujira.funding_account_sources TO ujira_app;
 GRANT SELECT ON TABLE ujira.funding_account_sources TO ujira_reader;
+GRANT SELECT ON TABLE ujira.funding_account_sources TO ujira_fn_instances;
 
 
 --
@@ -6082,6 +6137,7 @@ GRANT SELECT ON TABLE ujira.funding_account_sources TO ujira_reader;
 
 GRANT SELECT,INSERT ON TABLE ujira.funding_accounts TO ujira_app;
 GRANT SELECT ON TABLE ujira.funding_accounts TO ujira_reader;
+GRANT SELECT ON TABLE ujira.funding_accounts TO ujira_fn_instances;
 
 
 --

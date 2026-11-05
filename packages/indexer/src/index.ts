@@ -3,3 +3,9 @@
 
 export { createIndexerScan, type IndexerScanOptions } from './scan.js';
 export { dbCursorStore, dbIntakeStore, dbMandateRegistry } from './stores.js';
+export {
+  dbWatchedAddresses,
+  type UnroutableAddress,
+  type UnroutableReason,
+  type WatchedAddressOptions,
+} from './watched.js';
