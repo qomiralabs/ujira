@@ -680,7 +680,8 @@ export interface FundingSweep {
 export interface NewFundingSweep {
   readonly fundingSourceId: string;
   readonly mandateInstanceId: string;
-  // The chain's id for the deposit. This is the idempotency key of the sweep.
+  // The chain's id for the deposit: its operation and its event's index in that
+  // operation, since one operation can pay twice. This is the sweep's idempotency key.
   readonly depositOperationId: string;
   readonly amount: TokenAmount;
 }

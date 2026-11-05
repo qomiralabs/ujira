@@ -30,6 +30,7 @@ export function selfWebhookRoute(verification: SelfWebhookHandler): Route {
     summary: 'Receive a verification result from Self',
     reason: 'Self signs every delivery over its exact bytes, and that signature replaces a key.',
     headers: [SELF_SIGNATURE_HEADER],
+    addressLimit: 'webhook',
     response: { name: 'SelfWebhookAck', schema: SelfWebhookAck },
     errors: [
       'WEBHOOK_SIGNATURE_INVALID',

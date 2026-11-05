@@ -1,4 +1,5 @@
 -- expand
+-- bootstrap
 -- Hardening the job queue and the tenant settings.
 --
 -- A tenant setting must come from the transaction that uses it. ujira.txid

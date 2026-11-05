@@ -19,7 +19,18 @@ import type { RpcEvent, RpcEventRequest, StellarRpc } from './rpc.js';
 // The id is the operation's position and then the event's within it, and a
 // Soroban transaction has one operation, so the last part is its place in the
 // transaction.
-const EVENT_ID = /^\d+-(\d+)$/;
+const EVENT_ID = /^(\d+)-(\d+)$/;
+
+/** The operation an event came from and its place there, as the ledger numbers them. */
+export function eventPositionOf(
+  network: NetworkId,
+  raw: Pick<RpcEvent, 'id'>,
+): { readonly operationId: string; readonly eventIndex: bigint } {
+  const found = EVENT_ID.exec(raw.id);
+  const [, operation, index] = found ?? [];
+  if (operation === undefined || index === undefined) throw new ChainUnavailableError({ network });
+  return { operationId: BigInt(operation).toString(), eventIndex: BigInt(index) };
+}
 
 function jsonOf(value: unknown): EventJson {
   if (value === null || value === undefined) return null;
@@ -54,15 +65,14 @@ function decoded(raw: RpcEvent): Pick<LedgerEvent, 'name' | 'key' | 'fields'> {
 
 /** One RPC event as intake reads it, with its source as the ledger recorded it. */
 export function ledgerEventOf(network: NetworkId, raw: RpcEvent): LedgerEvent {
-  const index = EVENT_ID.exec(raw.id)?.[1];
-  if (index === undefined) throw new ChainUnavailableError({ network });
+  const { eventIndex } = eventPositionOf(network, raw);
   return {
     network,
     contractId: raw.contractId,
     type: raw.type,
     successful: raw.inSuccessfulContractCall,
     txHash: raw.txHash,
-    eventIndex: BigInt(index),
+    eventIndex,
     ledger: BigInt(raw.ledger),
     closedAt: raw.ledgerClosedAt,
     ...decoded(raw),

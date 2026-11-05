@@ -475,7 +475,7 @@ describe('payout advance', () => {
     expect(paid.status).toBe('paid');
     const attempts = await attemptsOf(payout);
     expect(attempts.map((attempt) => attempt.status)).toEqual(['dead', 'final']);
-    expect(attempts[0]?.deadProof).toMatchObject({ kind: 'tombstone', status: 'cancelled' });
+    expect(attempts[0]?.deadProof).toMatchObject({ kind: 'payout_lapsed' });
     expect(new Set(asked)).toEqual(new Set([1, 2]));
     expect(attested.executed(onChainIdOf(attempts[0]))).toBe(0);
     expect(attested.executed(onChainIdOf(attempts[1]))).toBe(1);

@@ -175,7 +175,12 @@ describe('migrations', () => {
     await watcher.connect();
     try {
       const held = await watcher.query<{ count: string }>(
-        `select count(*)::text as count from pg_locks where locktype = 'advisory'`,
+        // This database's only. Other test files migrate their own at the same time, and
+        // an advisory lock is held per database.
+        `select count(*)::text as count
+           from pg_locks
+          where locktype = 'advisory'
+            and database = (select oid from pg_database where datname = current_database())`,
       );
       // Nothing is holding it between runs.
       expect(held.rows[0]?.count).toBe('0');

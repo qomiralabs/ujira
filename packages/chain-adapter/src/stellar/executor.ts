@@ -22,6 +22,7 @@ import type {
   AdapterPorts,
   CallOptions,
   ExecutorLease,
+  PayoutId,
   SubmissionOp,
   TenantScope,
   UnixSeconds,
@@ -62,10 +63,17 @@ function checkChannelBalance(ctx: ExecutorContext, address: string, balance: big
   if (balance < limits.minBalanceStroops) throw new ExecutorUnfundedError({ network });
 }
 
+function isFootprintCall(tx: Transaction): boolean {
+  const type = tx.operations[0]?.type;
+  return type === 'restoreFootprint' || type === 'extendFootprintTtl';
+}
+
 export interface SendRecord {
   readonly scope: TenantScope;
   readonly op: SubmissionOp;
   readonly mandate: string | null;
+  readonly payoutId?: PayoutId | null;
+  readonly attempt?: number | null;
   readonly correlationId: string;
 }
 
@@ -133,7 +141,7 @@ export class ExecutorSession {
     const { network, ports, rpc } = this.ctx;
     const signature = await ports.signer.sign(
       { kind: 'executor', network, keyId: this.lease.keyId },
-      { kind: 'stellar_tx', network, xdr: tx.toXdr() },
+      { kind: isFootprintCall(tx) ? 'stellar_footprint' : 'stellar_tx', network, xdr: tx.toXdr() },
       opts,
     );
     attach(tx, this.address, signature);
@@ -146,8 +154,8 @@ export class ExecutorSession {
       txHash: hash,
       op: record.op,
       mandate: record.mandate,
-      payoutId: null,
-      attempt: null,
+      payoutId: record.payoutId ?? null,
+      attempt: record.attempt ?? null,
       signerAddress: this.address,
       sequenceOrNonce: BigInt(tx.sequence),
       maxTime,
