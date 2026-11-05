@@ -15,6 +15,7 @@ describe('loadApiConfig', () => {
       bodyLimitBytes: 1_048_576,
       environment: 'sandbox',
       embedOrigins: [],
+      trustedProxy: null,
     });
   });
 
@@ -71,5 +72,44 @@ describe('loadApiConfig', () => {
     expect(load).toThrow(ApiConfigError);
     expect(load).toThrow(/UJIRA_API_PORT, UJIRA_API_REQUEST_TIMEOUT_MS/);
     expect(load).not.toThrow(/70000|soon-ish/);
+  });
+
+  it('trusts no proxy by default', () => {
+    expect(loadApiConfig({}).trustedProxy).toBeNull();
+  });
+
+  it('reads the trusted proxy header and hop', () => {
+    expect(
+      loadApiConfig({
+        UJIRA_API_TRUSTED_PROXY_HEADER: 'x-forwarded-for',
+        UJIRA_API_TRUSTED_PROXY_HOP: '2',
+      }).trustedProxy,
+    ).toEqual({ header: 'x-forwarded-for', hop: 2 });
+  });
+
+  it('refuses to start on half a trusted proxy setting', () => {
+    expect(() => loadApiConfig({ UJIRA_API_TRUSTED_PROXY_HEADER: 'x-forwarded-for' })).toThrow(
+      ApiConfigError,
+    );
+    expect(() => loadApiConfig({ UJIRA_API_TRUSTED_PROXY_HOP: '1' })).toThrow(ApiConfigError);
+  });
+
+  it('refuses a proxy header or hop that cannot be right, naming the setting', () => {
+    for (const header of ['', 'X-Forwarded-For', 'x forwarded', 'forwarded']) {
+      expect(() =>
+        loadApiConfig({
+          UJIRA_API_TRUSTED_PROXY_HEADER: header,
+          UJIRA_API_TRUSTED_PROXY_HOP: '1',
+        }),
+      ).toThrow(/UJIRA_API_TRUSTED_PROXY_HEADER/);
+    }
+    for (const hop of ['', '0', '-1', '1.5', '17', 'first']) {
+      expect(() =>
+        loadApiConfig({
+          UJIRA_API_TRUSTED_PROXY_HEADER: 'x-forwarded-for',
+          UJIRA_API_TRUSTED_PROXY_HOP: hop,
+        }),
+      ).toThrow(/UJIRA_API_TRUSTED_PROXY_HOP/);
+    }
   });
 });

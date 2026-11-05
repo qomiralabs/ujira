@@ -7,7 +7,9 @@
 //    of every call the handler makes;
 // 2. a deadline, as an AbortSignal the handler passes on;
 // 3. for a tenant route, the credential, the rate limits, then the route's
-//    scope, so a request that will be refused its scope still counts;
+//    scope, so a request that will be refused its scope still counts; for a
+//    public route that names a group, the limit by client address, so a refused
+//    request costs one bucket and its body is never read;
 // 4. path, query and body, each validated by the route's zod schema, except
 //    that a webhook route gets its body as the bytes that were sent;
 // 5. for a tenant write, the Idempotency-Key, which may answer from what is
@@ -30,6 +32,8 @@ import type { Context } from 'hono';
 import { AuthenticatedTenantSchema } from './auth.js';
 import type { AuthenticatedTenant, Authenticate, CallOptions, Tenant } from './auth.js';
 import { parseJsonBody, readRawBody } from './body.js';
+import { clientAddress } from './client-address.js';
+import type { TrustedProxy } from './client-address.js';
 import { ApiError, RouteRegistryError, toApiError } from './errors.js';
 import {
   IDEMPOTENCY_LEASE_SECONDS,
@@ -42,14 +46,14 @@ import { errorNameOf, requestLog } from './log.js';
 import type { Logger, RequestLog } from './log.js';
 import { withOpenApiRoute } from './openapi.js';
 import { rateLimitHeaders } from './rate-limit.js';
-import type { RateLimit } from './rate-limit.js';
+import type { AddressRateLimit, RateLimit } from './rate-limit.js';
 import {
   fieldErrors,
   requiresIdempotencyKey,
   routeAccessProblems,
   storedResponseProblems,
 } from './route.js';
-import type { Route, WebhookInput } from './route.js';
+import type { FileDownload, Route, WebhookInput } from './route.js';
 import { foreignTenantPath } from './tenant-guard.js';
 
 export const API_DEFAULTS = Object.freeze({
@@ -64,6 +68,10 @@ export interface ApiDependencies {
   readonly rateLimit: RateLimit;
   /** Required, so a server cannot be built whose writes have no replay protection. */
   readonly idempotency: IdempotencyStore;
+  /** Needed once a route names a group, and createApp refuses to build without it then. */
+  readonly addressRateLimit?: AddressRateLimit;
+  /** Which forwarded header and hop to believe. Left out, none is, and the peer decides. */
+  readonly trustedProxy?: TrustedProxy | null;
   readonly logger: Logger;
   readonly requestTimeoutMs?: number;
   readonly bodyLimitBytes?: number;
@@ -116,6 +124,24 @@ function respondText(
   });
 }
 
+function fileResponse(
+  file: FileDownload,
+  contentType: string,
+  status: number,
+  requestId: string,
+): Response {
+  return new Response(typeof file.body === 'string' ? file.body : Buffer.from(file.body), {
+    status,
+    headers: {
+      ...BASE_HEADERS,
+      'content-type': contentType,
+      // Always a download, so nothing a file holds is rendered in a browser.
+      'content-disposition': `attachment; filename="${file.filename}"`,
+      'request-id': requestId,
+    },
+  });
+}
+
 function problemResponse(error: ApiError, requestId: string, extra: Record<string, string> = {}) {
   const body = buildProblem(error.code, requestId, {
     ...(error.detail === undefined ? {} : { detail: error.detail }),
@@ -136,6 +162,13 @@ function namedHeaders(
   names: readonly string[],
 ): Record<string, string | undefined> {
   return Object.fromEntries(names.map((name) => [name, headers.get(name) ?? undefined]));
+}
+
+// @hono/node-server hands over the socket's request as the environment. Anything
+// else that runs the app, such as a test's app.request, has no socket to offer.
+function peerAddress(c: Context): string | undefined {
+  const env = c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined;
+  return env?.incoming?.socket?.remoteAddress;
 }
 
 function honoPath(path: string): string {
@@ -209,6 +242,17 @@ export function createApp(deps: ApiDependencies): Hono {
   if (storedProblem !== undefined) throw new RouteRegistryError(storedProblem);
   const { routes } = withOpenApiRoute(deps.routes);
   checkRegistry(routes);
+  const { addressRateLimit } = deps;
+  if (addressRateLimit === undefined) {
+    for (const route of routes) {
+      if (route.access.kind === 'public' && route.access.addressLimit !== undefined) {
+        throw new RouteRegistryError(
+          `route ${route.id} limits by address, and this server was given no limit to use`,
+        );
+      }
+    }
+  }
+  const trustedProxy = deps.trustedProxy ?? null;
   const timeoutMs = deps.requestTimeoutMs ?? API_DEFAULTS.requestTimeoutMs;
   const bodyLimit = deps.bodyLimitBytes ?? API_DEFAULTS.bodyLimitBytes;
   const nextId = deps.newRequestId ?? newRequestId;
@@ -279,6 +323,23 @@ export function createApp(deps: ApiDependencies): Hono {
             if (!caller.scopes.includes(route.access.scope)) {
               throw new ApiError('INSUFFICIENT_SCOPE', {
                 detail: `This route needs the ${route.access.scope} scope`,
+              });
+            }
+          } else if (route.access.addressLimit !== undefined && addressRateLimit !== undefined) {
+            const decision = await addressRateLimit(
+              {
+                group: route.access.addressLimit,
+                address: clientAddress(
+                  { headers: c.req.raw.headers, peer: peerAddress(c) },
+                  trustedProxy,
+                ),
+              },
+              call,
+            );
+            limitHeaders = rateLimitHeaders(decision);
+            if (!decision.allowed) {
+              throw new ApiError('RATE_LIMITED', {
+                retryAfterSeconds: decision.retryAfterSeconds,
               });
             }
           }
@@ -509,6 +570,14 @@ function checkedResponse(
       issues: parsed.error.issues.slice(0, 20).map((issue) => issue.path.join('.')),
     });
     throw new ApiError('INTERNAL');
+  }
+  if (route.response.download !== undefined) {
+    return fileResponse(
+      parsed.data as FileDownload,
+      route.response.download.contentType,
+      route.response.status,
+      requestId,
+    );
   }
   if (tenant !== null) {
     const foreign = foreignTenantPath(parsed.data, tenant);

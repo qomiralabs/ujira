@@ -158,6 +158,22 @@ export const routingConfig = {
   },
 };
 
+// Where the indexer has read up to on each network, as its login only. The position
+// belongs to the chain's event stream and says nothing about any tenant.
+export const chainCursors = {
+  // Null before the first scan of the network.
+  read: async (db: Tx, network: string): Promise<string | null> => {
+    const result = await sql<{ position: string | null }>`
+      select ops.chain_cursor(${network}) as position
+    `.execute(db);
+    return result.rows[0]?.position ?? null;
+  },
+
+  advance: async (db: Tx, network: string, cursor: string): Promise<void> => {
+    await sql`select ops.advance_chain_cursor(${network}, ${cursor})`.execute(db);
+  },
+};
+
 export interface IdentityProviderEvent {
   readonly provider: string;
   readonly providerAccount: string;

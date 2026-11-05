@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ACCOUNT,
+  ISSUER,
   MUXED_123456,
   TENANT_A,
   problemOf,
@@ -29,6 +30,21 @@ async function post(destination: unknown) {
 const on = (fields: Record<string, unknown>) => ({ network: 'stellar:testnet', ...fields });
 
 describe('a destination on POST /v1/recipients/{id}/methods', () => {
+  it('POST with the asset issuer, where a payout would be burned, returns 422', async () => {
+    const { response, world, id } = await post(on({ address: ISSUER }));
+    expect(response.status).toBe(422);
+    const problem = await problemOf(response);
+    expect(problem.code).toBe('DESTINATION_INVALID');
+    expect(problem.errors).toEqual([{ field: 'destination', code: 'invalid_value' }]);
+    expect(await world.records.methods(TENANT_A, id)).toEqual([]);
+  });
+
+  it('refuses the issuer under an id memo the same way', async () => {
+    const { response } = await post(on({ address: ISSUER, memoType: 'id', memo: '7' }));
+    expect(response.status).toBe(422);
+    expect((await problemOf(response)).code).toBe('DESTINATION_INVALID');
+  });
+
   it('POST with a hash memo destination returns 422', async () => {
     const { response, world, id } = await post(
       on({ address: ACCOUNT, memoType: 'hash', memo: 'a'.repeat(64) }),

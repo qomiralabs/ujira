@@ -161,7 +161,7 @@ export function recipientWorld(
       },
     });
   };
-  const deps = { records, cipher, refSalt: randomBytes(32) };
+  const deps = { records, cipher, refSalt: randomBytes(32), neverPayable: () => [ISSUER] };
   const appOn = (store: IdempotencyStore = idempotency) =>
     createApp({
       routes: recipientRoutes(createRecipientEndpoints(deps)),
@@ -206,3 +206,5 @@ export const PERSON = Object.freeze({
 
 export const ACCOUNT = 'GA3D5KRYM6CB7OWQ6TWYRR3Z4T7GNZLKERYNZGGA5SOAOPIFY6YQHES5';
 export const MUXED_123456 = 'MA3D5KRYM6CB7OWQ6TWYRR3Z4T7GNZLKERYNZGGA5SOAOPIFY6YQGAAAAAAAAAPCICBKU';
+/** The settlement asset's issuer on testnet, where a transfer of the asset is burned. */
+export const ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';

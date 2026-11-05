@@ -11,6 +11,8 @@ import type { Route } from '../route.js';
 import { healthRoute } from './health.js';
 import { MANDATES_NOT_CONFIGURED, mandateRoutes } from './mandates.js';
 import type { MandateEndpoints } from './mandates.js';
+import { RECEIPTS_NOT_CONFIGURED, receiptRoutes } from './receipts.js';
+import type { ReceiptReads } from './receipts.js';
 import { RECIPIENTS_NOT_CONFIGURED, recipientRoutes } from './recipients.js';
 import type { RecipientEndpoints } from './recipients.js';
 import { SELF_WEBHOOK_NOT_CONFIGURED, selfWebhookRoute } from './self-webhook.js';
@@ -27,6 +29,8 @@ export interface RouteDependencies {
   readonly walletProof: WalletProofFlow;
   readonly mandates: MandateEndpoints;
   readonly recipients: RecipientEndpoints;
+  /** Answers 503 when left out, until the receipts tables are in. */
+  readonly receipts?: ReceiptReads;
 }
 
 export function v1Routes(deps: RouteDependencies): readonly Route[] {
@@ -37,6 +41,7 @@ export function v1Routes(deps: RouteDependencies): readonly Route[] {
     walletProofRoute(deps.walletProof),
     ...mandateRoutes(deps.mandates),
     ...recipientRoutes(deps.recipients),
+    ...receiptRoutes(deps.receipts ?? RECEIPTS_NOT_CONFIGURED),
   ]);
 }
 

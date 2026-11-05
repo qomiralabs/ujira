@@ -58,6 +58,7 @@ async function newInstance(mandateId: string): Promise<string> {
     mandateInstances.create(tx, {
       mandateId,
       chain: 'stellar',
+      network: 'stellar:testnet',
       contractAddress: `C${randomUUID()}`,
       specVersion: '1',
       asset: 'USDC',

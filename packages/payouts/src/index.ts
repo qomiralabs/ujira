@@ -2,6 +2,38 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 export {
+  FEE_OUTCOMES,
+  FeeNotUnderpaidError,
+  FeeReconciliationNotFoundError,
+  FeeReportForeignRowError,
+  FeeResolutionConflictError,
+  InvalidFeePeriodError,
+  checkFeeAddressBalance,
+  reconcileFee,
+  resolveUnderpaidFee,
+  runFeeReconciliation,
+  underpaidFeeReport,
+} from './fee-reconcile.js';
+export type {
+  FeeAddressLedger,
+  FeeAddressMovement,
+  FeeAlerts,
+  FeeBalanceCheck,
+  FeeDivergenceAlert,
+  FeeMismatchAlert,
+  FeeOutcome,
+  FeePage,
+  FeePageRequest,
+  FeePeriod,
+  FeeReconcileDeps,
+  FeeReconcileSummary,
+  FeeReconciliation,
+  FeeReconciliationRow,
+  FeeReconciliationStore,
+  FeeResolution,
+  UnderpaidFeeReport,
+} from './fee-reconcile.js';
+export {
   FEE_ESTIMATE_OPS,
   FEE_ESTIMATE_WINDOW_DAYS,
   FeeEstimateInputError,
@@ -40,3 +72,22 @@ export type {
   RefreshFeeEstimatesPorts,
   SubmissionFee,
 } from './fee-estimates.js';
+export {
+  FEE_BASES,
+  FeeTermsMissingError,
+  FeeTermsNotInForceError,
+  applyFee,
+  feeForPayout,
+  withFee,
+} from './fee-builder.js';
+export type { AppliedFee, FeeBasis, FeeTerms, FeeTermsSource } from './fee-builder.js';
+export { isTransferFailed, onTransferFailed, zeroFeeRequest } from './fee-fallback.js';
+export type {
+  FeeFallbackAdapter,
+  FeeFallbackDeps,
+  FeeFallbackOutcome,
+  FeeFallbackStore,
+  FeeTransferFailure,
+  ResendIdentity,
+  ZeroFeeResend,
+} from './fee-fallback.js';

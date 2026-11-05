@@ -57,6 +57,7 @@ async function newInstance(as: typeof asTenant): Promise<string> {
   return as(async (tx) => {
     const mandate = await mandates.create(tx, { name: `mandate ${randomUUID()}` });
     const instance = await mandateInstances.create(tx, {
+      network: 'stellar:testnet',
       mandateId: mandate.id,
       chain: 'stellar',
       contractAddress: `C${randomUUID()}`,
@@ -143,6 +144,73 @@ afterAll(async () => {
   await database.drop();
 });
 
+describe('the expiry of a sweep signed authorization entry', () => {
+  async function submitted(authExpiresLedger: bigint | null): Promise<string> {
+    const id = await created();
+    await asTenant(async (tx) =>
+      fundingSweeps.setStatus(tx, id, {
+        status: 'submitted',
+        sweepTxHash: randomBytes(32),
+        validUntil: inAnHour(),
+        authExpiresLedger,
+      }),
+    );
+    return id;
+  }
+  const read = async (id: string) => asTenant(async (tx) => fundingSweeps.get(tx, id));
+
+  it('stays through a failure, which leaves the entry usable, and goes with a retry', async () => {
+    const id = await submitted(5_000n);
+    expect((await read(id))?.authExpiresLedger).toBe(5_000n);
+    await asTenant(async (tx) =>
+      fundingSweeps.setStatus(tx, id, { status: 'failed', failedLedger: 9n }),
+    );
+    expect((await read(id))?.authExpiresLedger).toBe(5_000n);
+    await asTenant(async (tx) => fundingSweeps.setStatus(tx, id, { status: 'awaiting_signature' }));
+    expect((await read(id))?.authExpiresLedger).toBeNull();
+  });
+
+  it('can be null, for a sweep that carried no signed entry', async () => {
+    expect((await read(await submitted(null)))?.authExpiresLedger).toBeNull();
+  });
+
+  it('cannot be changed once it is there, whoever writes it', async () => {
+    const id = await submitted(5_000n);
+    const change = asTenant(async (tx) =>
+      tx
+        .updateTable('ujira.funding_sweeps')
+        .set({ auth_expires_ledger: 1 })
+        .where('id', '=', id)
+        .execute(),
+    );
+    expect(await codeOf(change)).toBe('UJ006');
+    await asTenant(async (tx) =>
+      fundingSweeps.setStatus(tx, id, { status: 'failed', failedLedger: 9n }),
+    );
+    const onFailed = asTenant(async (tx) =>
+      tx
+        .updateTable('ujira.funding_sweeps')
+        .set({ auth_expires_ledger: null })
+        .where('id', '=', id)
+        .execute(),
+    );
+    expect(await codeOf(onFailed)).toBe('UJ006');
+  });
+
+  it('cannot be negative', async () => {
+    const id = await created();
+    const attempt = asTenant(async (tx) =>
+      fundingSweeps.setStatus(tx, id, {
+        status: 'submitted',
+        sweepTxHash: randomBytes(32),
+        validUntil: inAnHour(),
+        authExpiresLedger: -1n,
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23514');
+  });
+});
+
 describe('ujira.funding_sweeps', () => {
   it('records a sweep awaiting its signature, with no hash yet', async () => {
     const input = await newSweep();
@@ -157,6 +225,19 @@ describe('ujira.funding_sweeps', () => {
         }),
       ),
     ).toEqual(sweep);
+  });
+
+  it('keeps two transfers of one operation as two sweeps', async () => {
+    const operation = randomUUID().replaceAll('-', '');
+    const first = await newSweep({ depositOperationId: `${operation}-0` });
+    const second = await newSweep({ depositOperationId: `${operation}-1` });
+    const rows = await asTenant(async (tx) => [
+      await fundingSweeps.create(tx, first),
+      await fundingSweeps.create(tx, second),
+    ]);
+    expect(rows.map((row) => row.depositOperationId)).toEqual([`${operation}-0`, `${operation}-1`]);
+    expect(await codeOf(asTenant(async (tx) => fundingSweeps.create(tx, first)))).toBe('23505');
+    expect(await codeOf(asTenant(async (tx) => fundingSweeps.create(tx, second)))).toBe('23505');
   });
 
   it('a second sweep for the same deposit operation is refused', async () => {
@@ -212,6 +293,7 @@ describe('ujira.funding_sweeps', () => {
         status: 'submitted',
         sweepTxHash: randomBytes(32),
         validUntil: inAnHour(),
+        authExpiresLedger: null,
       }),
     );
     expect(
@@ -250,6 +332,7 @@ describe('ujira.funding_sweeps', () => {
         status: 'submitted',
         sweepTxHash: hash,
         validUntil: inAnHour(),
+        authExpiresLedger: null,
       }),
     );
     expect(
@@ -291,6 +374,7 @@ describe('ujira.funding_sweeps', () => {
             status: 'submitted',
             sweepTxHash: randomBytes(32),
             validUntil: new Date(Date.now() - 1000),
+            authExpiresLedger: null,
           }),
         ),
       ),
@@ -427,6 +511,7 @@ describe('a failed sweep', () => {
         status: 'submitted',
         sweepTxHash: randomBytes(32),
         validUntil: inAnHour(),
+        authExpiresLedger: null,
       }),
     );
     return id;

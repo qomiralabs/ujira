@@ -16,6 +16,7 @@ import type { z } from 'zod';
 
 import type { Tenant } from './auth.js';
 import { readRecipientDestination } from './destination.js';
+import type { RecipientDestinationBody } from './destination.js';
 import { ApiError } from './errors.js';
 import type { RecipientEndpoints } from './routes/recipients.js';
 
@@ -98,6 +99,11 @@ export interface RecipientServiceDeps {
   readonly cipher: PersonalDataCipher;
   /** The secret a reference is hashed with, so a guessable one cannot be tested against a row. */
   readonly refSalt: Uint8Array;
+  /**
+   * What a network settles through, from settlementAddressesOf, where a payout
+   * would be burned. Required, so a wiring cannot leave the rule out.
+   */
+  readonly neverPayable: (network: RecipientDestinationBody['network']) => readonly string[];
 }
 
 const DEFAULT_PAGE = 50;
@@ -207,7 +213,10 @@ export function createRecipientEndpoints(deps: RecipientServiceDeps): RecipientE
     addMethod: async (id, body, context) => {
       const { tenant } = context;
       await found(id, tenant);
-      const captured = readRecipientDestination(body.destination);
+      const captured = readRecipientDestination(
+        body.destination,
+        deps.neverPayable(body.destination.network),
+      );
       const details =
         body.details === undefined
           ? null

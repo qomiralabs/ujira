@@ -22,10 +22,12 @@ import type {
   AdapterPorts,
   CallOptions,
   ExecutorLease,
+  PayoutId,
   SubmissionOp,
   TenantScope,
   UnixSeconds,
 } from '../types.js';
+import { bookExecutorFee, feeChargedOf } from './lifecycle.js';
 import type { RpcTransaction, StellarRpc } from './rpc.js';
 import { resourceFailureOf } from './soroban-rules.js';
 import { submitEnvelope } from './submit.js';
@@ -62,10 +64,17 @@ function checkChannelBalance(ctx: ExecutorContext, address: string, balance: big
   if (balance < limits.minBalanceStroops) throw new ExecutorUnfundedError({ network });
 }
 
+function isFootprintCall(tx: Transaction): boolean {
+  const type = tx.operations[0]?.type;
+  return type === 'restoreFootprint' || type === 'extendFootprintTtl';
+}
+
 export interface SendRecord {
   readonly scope: TenantScope;
   readonly op: SubmissionOp;
   readonly mandate: string | null;
+  readonly payoutId?: PayoutId | null;
+  readonly attempt?: number | null;
   readonly correlationId: string;
 }
 
@@ -133,7 +142,7 @@ export class ExecutorSession {
     const { network, ports, rpc } = this.ctx;
     const signature = await ports.signer.sign(
       { kind: 'executor', network, keyId: this.lease.keyId },
-      { kind: 'stellar_tx', network, xdr: tx.toXdr() },
+      { kind: isFootprintCall(tx) ? 'stellar_footprint' : 'stellar_tx', network, xdr: tx.toXdr() },
       opts,
     );
     attach(tx, this.address, signature);
@@ -146,8 +155,8 @@ export class ExecutorSession {
       txHash: hash,
       op: record.op,
       mandate: record.mandate,
-      payoutId: null,
-      attempt: null,
+      payoutId: record.payoutId ?? null,
+      attempt: record.attempt ?? null,
       signerAddress: this.address,
       sequenceOrNonce: BigInt(tx.sequence),
       maxTime,
@@ -166,6 +175,10 @@ export class ExecutorSession {
     await sendAndRecord(this.ctx, record.scope, hash, tx.toXdr(), maxTime, opts);
     if (!wait) return { hash, landed: null };
     const landed = await waitForTransaction(rpc, network, hash, this.ctx.wait, opts);
+    // A record closed here is one the sweep never reads again, so the cost has to be
+    // booked now, and before the record closes: a crash in between is put right by the
+    // sweep, where the other order would lose it. A failed transaction still pays.
+    await bookExecutorFee(this.ctx, record.scope, hash, feeChargedOf(landed), record.correlationId);
     if (landed.status !== 'SUCCESS') {
       await ports.store.updateSubmission(record.scope, network, hash, {
         state: 'failed',

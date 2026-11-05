@@ -21,7 +21,7 @@ import { refuseAllCredentials } from '../auth.js';
 import { RouteRegistryError } from '../errors.js';
 import { memoryIdempotencyStore } from '../idempotency.js';
 import { memoryLogger } from '../log.js';
-import { allowEveryRequest } from '../rate-limit.js';
+import { allowEveryAddress, allowEveryRequest } from '../rate-limit.js';
 import { defineWebhookRoute } from '../route.js';
 
 import { V1_ROUTES, v1Routes } from './index.js';
@@ -43,6 +43,7 @@ function served(handler: SelfWebhookHandler, bodyLimitBytes?: number) {
     authenticate: refuseAllCredentials,
     rateLimit: allowEveryRequest,
     idempotency: memoryIdempotencyStore(),
+    addressRateLimit: allowEveryAddress,
     logger,
     ...(bodyLimitBytes === undefined ? {} : { bodyLimitBytes }),
   });
@@ -279,6 +280,7 @@ describe('the served route table', () => {
       authenticate: refuseAllCredentials,
       rateLimit: allowEveryRequest,
       idempotency: memoryIdempotencyStore(),
+      addressRateLimit: allowEveryAddress,
       logger: memoryLogger(),
     });
     const w = selfWorld();

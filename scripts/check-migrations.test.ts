@@ -331,3 +331,30 @@ describe('the squawk input', () => {
     expect(upSectionForLint('select 1;\n')).toBe('select 1;\n');
   });
 });
+
+describe('which login a migration needs', () => {
+  const FILE = '1800000000000_roles.sql';
+  const MARKED = '-- expand\n-- bootstrap';
+  const NEEDS_MARKER =
+    'this creates a schema or administers roles: put -- bootstrap on the second line';
+  const NO_NEED = 'this needs nothing only the bootstrap login can do: take off -- bootstrap';
+
+  it('refuses a file that administers roles and has no marker', () => {
+    expect(messages(migration('create role ujira_a nologin;'), FILE)).toEqual([NEEDS_MARKER]);
+  });
+
+  it('refuses a file that does it inside a block', () => {
+    const block = 'do $x$ begin alter role ujira_a nobypassrls; end $x$;';
+    expect(messages(migration(block), FILE)).toContain(NEEDS_MARKER);
+  });
+
+  it('refuses a marker on a file that needs nothing only the bootstrap login can do', () => {
+    expect(messages(migration('select 1;', 'select 1;', MARKED), FILE)).toEqual([NO_NEED]);
+  });
+
+  it('accepts a marked file that administers roles, and a plain one that does not', () => {
+    const marked = migration('create role ujira_a nologin;', 'drop role ujira_a;', MARKED);
+    expect(messages(marked, FILE)).toEqual([]);
+    expect(messages(migration('select 1;'), FILE)).toEqual([]);
+  });
+});

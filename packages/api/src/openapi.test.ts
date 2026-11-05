@@ -18,7 +18,7 @@ import { refuseAllCredentials } from './auth.js';
 import { RouteRegistryError } from './errors.js';
 import { memoryIdempotencyStore } from './idempotency.js';
 import { memoryLogger } from './log.js';
-import { allowEveryRequest } from './rate-limit.js';
+import { allowEveryAddress, allowEveryRequest } from './rate-limit.js';
 import { OPENAPI_PATH, buildOpenApiDocument, withOpenApiRoute } from './openapi.js';
 import { contractRoute, definePublicRoute, defineTenantRoute } from './route.js';
 import { V1_ROUTES } from './routes/index.js';
@@ -57,6 +57,7 @@ describe('OpenAPI document', () => {
       authenticate: refuseAllCredentials,
       rateLimit: allowEveryRequest,
       idempotency: memoryIdempotencyStore(),
+      addressRateLimit: allowEveryAddress,
       logger: memoryLogger(),
     });
     const response = await app.request(OPENAPI_PATH);
@@ -78,6 +79,11 @@ describe('OpenAPI document', () => {
       '/v1/mandates/{id}/revoke',
       '/v1/mandates/{id}/withdraw',
       OPENAPI_PATH,
+      '/v1/payouts/{id}/receipt',
+      '/v1/receipt-exports',
+      '/v1/receipt-verifications/{receiptNumber}',
+      '/v1/receipts/{id}',
+      '/v1/receipts/{id}/pdf',
       '/v1/recipients',
       '/v1/recipients/{id}',
       '/v1/recipients/{id}/methods',
@@ -105,10 +111,15 @@ describe('OpenAPI document', () => {
       'MandateInstance',
       'Money',
       'OpenApiDocument',
+      'PrincipalReceipt',
       'Problem',
+      'PublicReceiptVerification',
+      'Rate',
+      'ReceiptView',
       'RecipientDetail',
       'RecipientPage',
       'RecipientPayoutMethod',
+      'RecipientReceipt',
       'RecipientSummaryView',
       'SelfWebhookAck',
       'TokenAmount',

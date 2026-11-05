@@ -17,7 +17,7 @@ import {
   vendoredProblems,
 } from './testing/vectors/vendored.js';
 
-// spec/errors.json at qomiralabs/ujira-contracts af7a20e.
+// spec/errors.json at qomiralabs/ujira-contracts 914600e.
 const PINNED_ERRORS_SHA256 = '627e18a7fff3f01798fafca4f1c1613ccf3be8519a6c4930f753d3ec3af97826';
 
 const manifest = parseManifest(readFromDisk('SOURCE.json'));

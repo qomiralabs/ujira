@@ -38,6 +38,7 @@ export async function ledgerFixture(db: Database): Promise<LedgerFixture> {
   const instance = await db.tenant(tenant).transaction(async (tx) => {
     const mandate = await mandates.create(tx, { name: 'Payroll' });
     return mandateInstances.create(tx, {
+      network: 'stellar:testnet',
       mandateId: mandate.id,
       chain: 'stellar',
       contractAddress: `C${randomUUID()}`,

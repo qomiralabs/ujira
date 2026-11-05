@@ -10,7 +10,9 @@
 
 import {
   DOWN_MARKER,
+  MERGED_BOOTSTRAP_MIGRATIONS,
   MigrationFileError,
+  needsBootstrap,
   parseMigration,
   type MigrationSource,
 } from '../packages/db/src/migrate.ts';
@@ -243,6 +245,32 @@ function sectionProblems(
 }
 
 // Every problem with one migration file. An empty list means it passes.
+// The marker and the file have to agree, or the runner would pick the wrong login. A file
+// merged before the marker existed is listed instead, and the first of them is there for
+// the tool's table rather than for anything it holds.
+function loginProblems(file: string, migration: MigrationSource): Problem[] {
+  const administers = needsBootstrap(`${migration.up}\n${migration.down}`);
+  if (administers && migration.bootstrap !== true) {
+    return [
+      {
+        file,
+        line: 1,
+        message: 'this creates a schema or administers roles: put -- bootstrap on the second line',
+      },
+    ];
+  }
+  if (!administers && migration.bootstrap === true && !MERGED_BOOTSTRAP_MIGRATIONS.has(file)) {
+    return [
+      {
+        file,
+        line: 1,
+        message: 'this needs nothing only the bootstrap login can do: take off -- bootstrap',
+      },
+    ];
+  }
+  return [];
+}
+
 export function checkMigration(file: string, source: string): Problem[] {
   const problems: Problem[] = [];
   if (!FILE_NAME.test(file)) {
@@ -261,6 +289,7 @@ export function checkMigration(file: string, source: string): Problem[] {
   }
   return [
     ...problems,
+    ...loginProblems(file, migration),
     ...sectionProblems(file, migration, 'up'),
     ...sectionProblems(file, migration, 'down'),
   ];

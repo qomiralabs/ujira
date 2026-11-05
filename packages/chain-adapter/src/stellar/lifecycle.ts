@@ -19,6 +19,7 @@ import type {
   SubmissionPatch,
   SubmissionRecord,
   SubmissionState,
+  TenantScope,
 } from '../types.js';
 import type { RpcTransaction, StellarRpc } from './rpc.js';
 
@@ -39,7 +40,7 @@ export type SubmissionFate =
   /** Not seen, and nothing here can prove what happened. The mandate's record decides. */
   | { readonly kind: 'unknown' };
 
-function feeChargedOf(tx: RpcTransaction): bigint | null {
+export function feeChargedOf(tx: Pick<RpcTransaction, 'resultXdr'>): bigint | null {
   if (tx.resultXdr === undefined) return null;
   try {
     return xdr.TransactionResult.fromXdr(tx.resultXdr, 'base64').feeCharged;
@@ -93,6 +94,38 @@ function stroops(network: NetworkId, amount: bigint): NativeAmount {
 }
 
 /**
+ * Books what one of UJIRA's own transactions cost. The reservation id comes from the
+ * hash, so a send that waited and a later sweep over the same transaction book one
+ * row. With no fee to read nothing can be booked, and the record is about to close, so
+ * that spend would go uncounted with nobody knowing: it is reported instead.
+ */
+export async function bookExecutorFee(
+  ctx: ReconcileContext,
+  scope: TenantScope,
+  txHash: string,
+  feeCharged: bigint | null,
+  correlationId: string,
+): Promise<void> {
+  const { network, ports } = ctx;
+  if (feeCharged === null) {
+    ports.alerts.divergence({
+      network,
+      kind: 'balance',
+      detail: 'executor_fee_unreadable',
+      correlationId,
+    });
+    return;
+  }
+  await ports.sponsorship.book({
+    scope,
+    network,
+    reservationId: reservationIdOf(network, Buffer.from(txHash, 'hex')),
+    intent: 'executor',
+    actualFee: stroops(network, feeCharged),
+  });
+}
+
+/**
  * Asks the chain about one recorded submission and moves its record forward.
  * What it cost is booked when it was included: a sponsored transaction settles
  * its reservation, and one of UJIRA's own is booked as executor spend.
@@ -131,22 +164,20 @@ export async function reconcileSubmission(
         // hold its one sponsored account for good, whichever of this and the
         // flow's own confirmation got there first.
         await ports.sponsorship.release({ scope, reservationId });
-      } else if (fate.feeCharged !== null) {
+      } else {
         // Reserves are locked rather than burned, but the budget is for what the
         // sponsor gives up, and they are given up only by one that landed.
         const reserves =
           forFundingAccount && fate.kind === 'landed' ? FUNDING_ACCOUNT_RESERVES_STROOPS : 0n;
-        const actualFee = stroops(network, fate.feeCharged + reserves);
+        const cost = fate.feeCharged === null ? null : fate.feeCharged + reserves;
         if (reservationId === null) {
-          await ports.sponsorship.book({
+          await bookExecutorFee(ctx, scope, txHash, cost, record.correlationId);
+        } else if (cost !== null) {
+          await ports.sponsorship.settle({
             scope,
-            network,
-            reservationId: reservationIdOf(network, Buffer.from(txHash, 'hex')),
-            intent: 'executor',
-            actualFee,
+            reservationId,
+            actualFee: stroops(network, cost),
           });
-        } else {
-          await ports.sponsorship.settle({ scope, reservationId, actualFee });
         }
       }
       await move(fate.kind, {

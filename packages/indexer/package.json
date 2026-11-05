@@ -1,0 +1,27 @@
+{
+  "name": "@ujira/indexer",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint --max-warnings 0 .",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@ujira/chain-adapter": "workspace:*",
+    "@ujira/core": "workspace:*",
+    "@ujira/db": "workspace:*"
+  }
+}

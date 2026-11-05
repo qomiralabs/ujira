@@ -68,6 +68,7 @@ import {
   InvalidInputError,
   LiquidityUnavailableError,
   MandateRuleError,
+  MandatePendingError,
   MandateUntrustedError,
   QuoteExpiredError,
   QuoteUnavailableError,
@@ -106,6 +107,7 @@ const TABLE: [ChainAdapterErrorCode, Ctor, boolean, 'no' | 'unknown'][] = [
   ['UNSUPPORTED', UnsupportedError, false, 'no'],
   ['TENANT_MISMATCH', TenantMismatchError, false, 'no'],
   ['MANDATE_UNTRUSTED', MandateUntrustedError, false, 'no'],
+  ['MANDATE_PENDING', MandatePendingError, true, 'no'],
   ['CHAIN_UNAVAILABLE', ChainUnavailableError, true, 'no'],
   ['RPC_TIMEOUT', RpcTimeoutError, true, 'unknown'],
   ['RPC_LAGGING', RpcLaggingError, true, 'no'],
@@ -246,7 +248,7 @@ describe('chain adapter errors', () => {
       expect(bad).toBeInstanceOf(InvalidInputError);
       expect((bad as InvalidInputError).issues).toEqual(['errorOptions.reason (invalid)']);
     }
-    expect(DESTINATION_PARSE_REASONS).toHaveLength(7);
+    expect(DESTINATION_PARSE_REASONS).toHaveLength(8);
     expect(Object.isFrozen(DESTINATION_PARSE_REASONS)).toBe(true);
   });
 

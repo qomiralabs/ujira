@@ -16,6 +16,16 @@
   }
 }
 
+/*
+ * Outside any layer, because the tokens stylesheet is too, and a layered rule would
+ * lose to it. Each family is two faces, which layout.tsx explains.
+ */
+:root {
+  --ujira-font-inter: var(--ujira-font-inter-latin), var(--ujira-font-inter-latin-ext);
+  --ujira-font-jetbrains-mono:
+    var(--ujira-font-jetbrains-mono-latin), var(--ujira-font-jetbrains-mono-latin-ext);
+}
+
 @layer base {
   html {
     background-color: var(--ujira-bg);

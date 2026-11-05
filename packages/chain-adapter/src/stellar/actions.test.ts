@@ -30,7 +30,7 @@ import { mandateAddressOf } from './mandate-address.js';
 import { asBytes32, field, fieldsOf } from './scval.js';
 import { NETWORK, OPTS, addAccount, setup } from './test-adapter.js';
 import type { TestSetup } from './test-adapter.js';
-import { FIXTURE_FACTORY, invoked } from './test-rpc.js';
+import { FIXTURE_FACTORY, FIXTURE_USDC, invoked } from './test-rpc.js';
 import { PASSPHRASES } from './tx.js';
 
 const at = (value: string): ChainAddress => ({ network: NETWORK, value });
@@ -90,6 +90,52 @@ function settingAttester(t: TestSetup, attester: Uint8Array): readonly MandateAc
     },
   ];
 }
+
+describe('an allowlist entry that can never pay out', { timeout: 30_000 }, () => {
+  const ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
+  const entry = (value: string, tag: bigint | null = null) => ({
+    recipientRef: REF,
+    destination: { address: at(value), tag },
+  });
+  const allow = (value: string, tag: bigint | null = null) => ({
+    op: 'allow_recipients' as const,
+    entries: [entry(value, tag)],
+  });
+
+  // The contract refuses every one of these but the issuer, and in allowlist mode no
+  // attester looks at the destination, so a transfer to the issuer would be burned.
+  it.each([
+    ['the settlement asset issuer', () => allow(ISSUER)],
+    ['the issuer under a tag', () => allow(ISSUER, 7n)],
+    ['the settlement asset contract', () => allow(FIXTURE_USDC)],
+    ['a trusted factory', () => allow(FIXTURE_FACTORY)],
+  ])('is refused, with nothing built to sign: %s', async (_label, action) => {
+    const t = setup();
+    const simulated = t.rpc.simulated.length;
+    const run = t.adapter.prepareMandateAction(request(t, action()), OPTS);
+    await expect(run).rejects.toBeInstanceOf(InvalidInputError);
+    await expect(run).rejects.toMatchObject({ issues: ['entries.destination (unpayable)'] });
+    expect(t.rpc.simulated).toHaveLength(simulated);
+  });
+
+  it('is refused when it is the mandate itself', async () => {
+    const t = setup();
+    await expect(
+      t.adapter.prepareMandateAction(request(t, allow(t.mandate.address.value)), OPTS),
+    ).rejects.toMatchObject({ issues: ['entries.destination (unpayable)'] });
+  });
+
+  // A principal can list the issuer by calling the contract directly. Refusing this
+  // too would leave them no way through UJIRA to take it back off.
+  it('can still be taken off the list', async () => {
+    const t = setup();
+    const signing = await t.adapter.prepareMandateAction(
+      request(t, { op: 'disallow_recipients', entries: [entry(ISSUER)] }),
+      OPTS,
+    );
+    expect(signing.kind).toBe('stellar_transaction');
+  });
+});
 
 describe.each(PUBLIC_TEST_ATTESTER_KEYS)(
   'preparing an action that sets the public test key %s as the attester',

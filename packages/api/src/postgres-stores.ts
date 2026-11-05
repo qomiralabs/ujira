@@ -135,6 +135,7 @@ export function databaseMandateRecords(db: Database): MandateRecords {
             const row = await mandateInstances.create(tx, {
               mandateId: input.id,
               chain,
+              network: instance.plan.network,
               contractAddress: instance.address,
               specVersion: '1',
               asset: token.asset,

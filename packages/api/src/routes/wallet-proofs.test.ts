@@ -17,7 +17,7 @@ import type { Authenticate } from '../auth.js';
 import { refuseAllCredentials } from '../auth.js';
 import { memoryIdempotencyStore } from '../idempotency.js';
 import { memoryLogger } from '../log.js';
-import { allowEveryRequest } from '../rate-limit.js';
+import { allowEveryAddress, allowEveryRequest } from '../rate-limit.js';
 
 import { V1_ROUTES, v1Routes } from './index.js';
 import { MANDATES_NOT_CONFIGURED } from './mandates.js';
@@ -66,6 +66,7 @@ function served(w: WalletProofWorld, flow: WalletProofFlow = w.flow) {
     authenticate: authFor(w),
     rateLimit: allowEveryRequest,
     idempotency: memoryIdempotencyStore(),
+    addressRateLimit: allowEveryAddress,
     logger,
   });
   const base = `/v1/recipients/${w.recipient.id}/methods/${w.method.id}`;
@@ -272,6 +273,7 @@ describe('the served route table', () => {
       authenticate: authFor(w),
       rateLimit: allowEveryRequest,
       idempotency: memoryIdempotencyStore(),
+      addressRateLimit: allowEveryAddress,
       logger: memoryLogger(),
     });
     const base = `/v1/recipients/${w.recipient.id}/methods/${w.method.id}`;
@@ -305,6 +307,7 @@ describe('the served route table', () => {
       authenticate: refuseAllCredentials,
       rateLimit: allowEveryRequest,
       idempotency: memoryIdempotencyStore(),
+      addressRateLimit: allowEveryAddress,
       logger: memoryLogger(),
     });
     const response = await app.request(

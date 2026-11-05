@@ -13,7 +13,7 @@ import { RouteRegistryError } from './errors.js';
 import { memoryIdempotencyStore } from './idempotency.js';
 import { memoryLogger } from './log.js';
 import { withOpenApiRoute } from './openapi.js';
-import { allowEveryRequest } from './rate-limit.js';
+import { allowEveryAddress, allowEveryRequest } from './rate-limit.js';
 import { defineTenantRoute, routeAccessProblems } from './route.js';
 import type { Route } from './route.js';
 import { V1_ROUTES } from './routes/index.js';
@@ -89,6 +89,7 @@ describe('the check', () => {
         authenticate: refuseAllCredentials,
         rateLimit: allowEveryRequest,
         idempotency: memoryIdempotencyStore(),
+        addressRateLimit: allowEveryAddress,
         logger: memoryLogger(),
       }),
     ).toThrow(RouteRegistryError);

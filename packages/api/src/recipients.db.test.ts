@@ -20,7 +20,7 @@ import { memoryLogger } from './log.js';
 import { databaseIdempotencyStore, databaseRecipientRecords } from './postgres-stores.js';
 import { allowEveryRequest } from './rate-limit.js';
 import { createRecipientEndpoints } from './recipient-service.js';
-import { ACCOUNT, PERSON, testCipher } from './recipients.test-support.js';
+import { ACCOUNT, ISSUER, PERSON, testCipher } from './recipients.test-support.js';
 import { recipientRoutes } from './routes/recipients.js';
 
 declare module 'vitest' {
@@ -77,6 +77,7 @@ function served() {
         records: databaseRecipientRecords(db),
         cipher: testCipher(),
         refSalt: randomBytes(32),
+        neverPayable: () => [ISSUER],
       }),
     ),
     authenticate,

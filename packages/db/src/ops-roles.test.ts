@@ -23,6 +23,8 @@ const TABLES = [
   'ops.routing_config_active',
   'ops.identity_provider_events',
   'ops.email_quota_usage',
+  'ops.mandate_alerts',
+  'ops.mandate_registry',
   'ops.rate_limit_buckets',
   'ops.security_events',
 ];
@@ -74,6 +76,9 @@ describe('the ops role', () => {
     ] as const) {
       await as(role, async (client) => {
         expect(await codeOf(client.query('select * from ops.chain_cursors')), role).toBe('42501');
+        expect(await codeOf(client.query('select * from ops.mandate_registry')), role).toBe(
+          '42501',
+        );
         expect(await codeOf(client.query('select * from ops.active_routing_config()')), role).toBe(
           '42501',
         );
