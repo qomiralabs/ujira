@@ -156,6 +156,18 @@ export interface UjiraApiTokens {
   secret_sha256: Buffer;
 }
 
+export interface UjiraApprovals {
+  approver: string;
+  attempt_id: string;
+  created_at: Generated<Timestamp>;
+  decision: string;
+  id: Generated<string>;
+  principal_id: string;
+  project_id: string;
+  signature: Buffer;
+  signed_message_hash: Buffer;
+}
+
 export interface UjiraAttestations {
   attempt_id: string;
   attester_key_id: string;
@@ -524,6 +536,29 @@ export interface UjiraPayoutFundingHolds {
   scale: number;
 }
 
+export interface UjiraPayoutLegs {
+  amount: Numeric;
+  asset: string;
+  attempt_id: string;
+  chain: string;
+  chain_tx_hash: string | null;
+  created_at: Generated<Timestamp>;
+  destination_address: string;
+  destination_tag: Numeric | null;
+  fee_amount: Generated<Numeric>;
+  id: Generated<string>;
+  leg_index: Int8;
+  leg_key: Generated<string>;
+  method: string;
+  payout_id: string;
+  payout_method_id: string;
+  principal_id: string;
+  project_id: string;
+  scale: number;
+  status: Generated<string>;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface UjiraPayoutMethods {
   chain: string;
   created_at: Generated<Timestamp>;
@@ -704,6 +739,7 @@ export interface Schema {
   ujira_migrations: UjiraMigrations;
   'ujira.agent_identity_links': UjiraAgentIdentityLinks;
   'ujira.api_tokens': UjiraApiTokens;
+  'ujira.approvals': UjiraApprovals;
   'ujira.attestations': UjiraAttestations;
   'ujira.audit_heads': UjiraAuditHeads;
   'ujira.audit_log': UjiraAuditLog;
@@ -733,6 +769,7 @@ export interface Schema {
   'ujira.payout_batches': UjiraPayoutBatches;
   'ujira.payout_bookings': UjiraPayoutBookings;
   'ujira.payout_funding_holds': UjiraPayoutFundingHolds;
+  'ujira.payout_legs': UjiraPayoutLegs;
   'ujira.payout_methods': UjiraPayoutMethods;
   'ujira.payouts': UjiraPayouts;
   'ujira.principal_members': UjiraPrincipalMembers;
