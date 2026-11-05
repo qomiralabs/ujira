@@ -75,7 +75,7 @@ const INSERT_LEG = `
   insert into ujira.payout_legs
     (principal_id, project_id, payout_id, attempt_id, leg_index, payout_method_id, method,
      destination_address, amount, chain, asset, scale)
-  values ($1, $2, $3, $4, 0, $5, 'stellar_wallet', 'G', 10, 'stellar', 'USDC', 7)`;
+  values ($1, $2, $3, $4, 0, $5, 'stellar_wallet', $6, 10, 'stellar', 'USDC', 7)`;
 
 function legValues(payoutId: string, attemptId: string): unknown[] {
   return [
@@ -84,6 +84,7 @@ function legValues(payoutId: string, attemptId: string): unknown[] {
     payoutId,
     attemptId,
     fixture.methodId,
+    fixture.destinationAddress,
   ];
 }
 
