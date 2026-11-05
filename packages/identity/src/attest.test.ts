@@ -9,7 +9,15 @@ import {
   SignerUnavailableError,
   TenantMismatchError,
 } from '@ujira/chain-adapter';
-import { ed25519PublicKey, ed25519Verify, hexOf, sha256 } from '@ujira/chain-adapter/testing';
+import {
+  deployMandate,
+  ed25519PublicKey,
+  ed25519Verify,
+  fakeAdapterHarness,
+  hexOf,
+  mandateTenantTag,
+  sha256,
+} from '@ujira/chain-adapter/testing';
 import { describe, expect, it } from 'vitest';
 
 import { ATTESTATION_MESSAGE_BYTES, createAttestationService } from './attest.js';
@@ -138,6 +146,60 @@ describe('a clean attestation', () => {
     });
     expect(w.chain.checks).toHaveLength(2);
     expect(w.chain.reads).toHaveLength(2);
+  });
+});
+
+describe('a look-alike mandate', () => {
+  const OPTS = { correlationId: 'look-alike' };
+
+  // The factory's code deployed directly: its stored facts match and its tag is
+  // valid for this tenant, so the only thing against it is that no trusted
+  // factory announced it. The refusal comes from the real adapter's rules.
+  it('is refused before anything is recorded or signed', async () => {
+    const h = fakeAdapterHarness();
+    const m = await deployMandate(h);
+    const net = h.world.net;
+    const address = net.contract('look-alike');
+    const snap = await h.adapter.readMandate({ scope: h.scope, mandate: m.ref }, OPTS);
+    net.deployDirect(address, {
+      principal: m.principal.value,
+      asset: net.token.address,
+      recipientMode: 'ATTESTED',
+      tenantTag: mandateTenantTag(h.scope, address),
+      agents: [h.managedAgent.address.value],
+      approvers: [],
+      approvalsRequired: 0,
+      guardians: [],
+      executors: [],
+      recovery: [],
+      recoveryThreshold: 0,
+      limits: {
+        totalBudget: 10n,
+        perPaymentCap: 10n,
+        perRecipientDailyCap: 10n,
+        approvalThreshold: 11n,
+        payoutTtlSeconds: 3_600n,
+        expiresAt: snap.config.limits.expiresAt,
+      },
+      attester: new Uint8Array(32).fill(7),
+      countryPolicyHash: snap.config.countryPolicyHash,
+      maxFeeBps: 0,
+    });
+    const lookAlike = { ...m.ref, address: { network: net.network, value: address } };
+    const refusal: unknown = await h.adapter
+      .readMandate({ scope: h.scope, mandate: lookAlike }, OPTS)
+      .catch((error: unknown) => error);
+    expect(refusal).toMatchObject({ code: 'MANDATE_UNTRUSTED' });
+
+    const w = attestationWorld();
+    w.chain.readFailure = refusal as Error;
+    expect(await w.attest()).toEqual({
+      attested: false,
+      reason: 'MANDATE_INACTIVE',
+      detail: 'MANDATE_UNTRUSTED',
+    });
+    expect(w.log.rows(w.scope)).toEqual([]);
+    expect(w.attester.signed).toEqual([]);
   });
 });
 

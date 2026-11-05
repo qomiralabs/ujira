@@ -18,6 +18,8 @@ import { createTestDatabase, roleUrl, type LoginRole, type TestDatabase } from '
 import { queuedJobs, type QueuedJob } from './jobs-fixture.js';
 
 export type { LoginRole, QueuedJob, TestDatabase };
+export { createTestDatabase };
+export { databaseAsServiceRoles } from './databases.js';
 
 export interface HarnessDatabase {
   readonly database: TestDatabase;

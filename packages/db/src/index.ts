@@ -123,6 +123,17 @@ export {
   type TokenRecord,
 } from './repositories/entry-points.js';
 export {
+  mandateEventStore,
+  mandateRegistry,
+  payoutBookings,
+  type IntakeBooking,
+  type IntakeTenant,
+  type MandateRegistryRow,
+  type NewMandateRegistration,
+  type PayoutBooking,
+  type PayoutBookingEvent,
+} from './repositories/mandate-registry.js';
+export {
   audit,
   AuditScopeError,
   type AuditActor,
@@ -186,11 +197,14 @@ export {
   emailQuota,
   executors,
   identityProviderEvents,
+  rateLimits,
   type EmailKind,
   type EmailQuotaRequest,
   routingConfig,
   type IdentityProviderEvent,
   type ExecutorLease,
+  type RateLimitBucket,
+  type RateLimitTaken,
   type RoutingConfig,
 } from './repositories/ops.js';
 export {

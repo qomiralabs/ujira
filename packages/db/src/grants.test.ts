@@ -221,6 +221,7 @@ describe('roles', () => {
       { fn: 'ujira.attestation_pending(bytea)', owner: 'ujira_signer_read' },
       { fn: 'ujira.audit_chain()', owner: 'ujira_fn_audit' },
       { fn: 'ujira.authenticate_token(text)', owner: 'ujira_fn_tokens' },
+      { fn: 'ujira.check_payout_booking()', owner: 'ujira_fn_instances' },
       { fn: 'ujira.create_principal(text,text,uuid,text)', owner: 'ujira_fn_principals' },
       {
         fn: 'ujira.due_attempt_deadlines(timestamp with time zone,integer)',

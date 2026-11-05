@@ -186,9 +186,12 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     this.#rpc = options.rpc;
     this.#ports = options.ports;
     this.#requests = options.requests;
-    this.#trust = new MandateTrust(options.network, options.rpc, () => [
-      ...this.#config().trustedFactories['1'],
-    ]);
+    this.#trust = new MandateTrust(
+      options.network,
+      options.rpc,
+      () => [...this.#config().trustedFactories['1']],
+      options.ports.registry,
+    );
     this.#executor = {
       network: options.network,
       rpc: options.rpc,

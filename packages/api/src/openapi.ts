@@ -56,11 +56,18 @@ function components(routes: readonly Route[]): (readonly [string, z.ZodType])[] 
 
 const headerSchema = { schema: { type: 'string' } };
 
+const RATE_LIMIT_HEADERS = {
+  'RateLimit-Limit': headerSchema,
+  'RateLimit-Remaining': headerSchema,
+  'RateLimit-Reset': headerSchema,
+};
+
 function operation(route: Route): JsonObject {
+  const limits = route.access.kind === 'tenant' ? RATE_LIMIT_HEADERS : {};
   const responses: JsonObject = {
     [String(route.response.status)]: {
       description: 'OK',
-      headers: { 'Request-Id': headerSchema },
+      headers: { 'Request-Id': headerSchema, ...limits },
       content: { 'application/json': { schema: { $ref: `${REF}${route.response.name}` } } },
     },
   };
@@ -70,6 +77,7 @@ function operation(route: Route): JsonObject {
       headers: {
         'Request-Id': headerSchema,
         ...(status === 429 || status === 503 ? { 'Retry-After': headerSchema } : {}),
+        ...(status === 429 ? limits : {}),
       },
       content: { 'application/problem+json': { schema: { $ref: `${REF}Problem` } } },
     };

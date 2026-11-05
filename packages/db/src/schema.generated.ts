@@ -73,6 +73,18 @@ export interface OpsIdentityProviderEvents {
   received_at: Generated<Timestamp>;
 }
 
+export interface OpsMandateRegistry {
+  contract_id: string;
+  created_at: Generated<Timestamp>;
+  event_index: Int8;
+  factory_id: string;
+  flagged_at: Timestamp | null;
+  ledger: Int8;
+  network: string;
+  tenant_tag: Buffer;
+  tx_hash: Buffer;
+}
+
 export interface OpsRateLimitBuckets {
   bucket_key: string;
   refilled_at: Timestamp;
@@ -126,6 +138,7 @@ export interface UjiraApiTokens {
   created_at: Generated<Timestamp>;
   expires_at: Timestamp;
   id: Generated<string>;
+  last_used_at: Timestamp | null;
   prefix: string;
   principal_id: string;
   project_id: string;
@@ -497,6 +510,20 @@ export interface UjiraPayoutBatches {
   request_hash: Buffer;
 }
 
+export interface UjiraPayoutBookings {
+  chain: string;
+  contract_address: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  last_event_id: string;
+  last_event_type: string;
+  mandate_instance_id: string;
+  payout_id: Buffer;
+  principal_id: string;
+  project_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface UjiraPayoutFundingHolds {
   asset: string;
   chain: string;
@@ -713,6 +740,7 @@ export interface Schema {
   'ops.executor_accounts': OpsExecutorAccounts;
   'ops.fee_estimates': OpsFeeEstimates;
   'ops.identity_provider_events': OpsIdentityProviderEvents;
+  'ops.mandate_registry': OpsMandateRegistry;
   'ops.rate_limit_buckets': OpsRateLimitBuckets;
   'ops.routing_config_active': OpsRoutingConfigActive;
   'ops.routing_config_versions': OpsRoutingConfigVersions;
@@ -749,6 +777,7 @@ export interface Schema {
   'ujira.mandates': UjiraMandates;
   'ujira.payout_attempts': UjiraPayoutAttempts;
   'ujira.payout_batches': UjiraPayoutBatches;
+  'ujira.payout_bookings': UjiraPayoutBookings;
   'ujira.payout_funding_holds': UjiraPayoutFundingHolds;
   'ujira.payout_legs': UjiraPayoutLegs;
   'ujira.payout_methods': UjiraPayoutMethods;
