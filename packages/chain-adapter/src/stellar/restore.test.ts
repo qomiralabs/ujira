@@ -11,7 +11,7 @@ import {
 import type { Transaction } from '@stellar/stellar-sdk/base';
 import { parseRawSimulation } from '@stellar/stellar-sdk/rpc';
 import type { Api } from '@stellar/stellar-sdk/rpc';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { SubmissionRejectedError, SubmissionUnknownError } from '../errors.js';
 import { archivedKeys, classify } from './restore.js';
@@ -209,6 +209,81 @@ describe('the restore step', { timeout: 30_000 }, () => {
         OPTS,
       ),
     ).rejects.toBeInstanceOf(SubmissionUnknownError);
+  });
+});
+
+describe('what a restore costs', { timeout: 30_000 }, () => {
+  const resultWith = (feeCharged: bigint) =>
+    new xdr.TransactionResult({
+      feeCharged,
+      result: xdr.TransactionResultResult.txSuccess([]),
+      ext: xdr.TransactionResultExt.v0(),
+    }).toXdr('base64');
+
+  function archived(t: TestSetup) {
+    t.rpc.onSimulate = (tx) =>
+      tx.operations[0]?.type === 'invokeHostFunction' && t.rpc.sent.length === 0
+        ? {
+            ...t.rpc.success(tx, xdr.ScVal.scvVoid()),
+            restorePreamble: {
+              minResourceFee: '1',
+              transactionData: new SorobanDataBuilder()
+                .setReadWrite([instanceKey(t.mandate.address.value)])
+                .build()
+                .toXdr('base64'),
+            },
+          }
+        : undefined;
+    return t.adapter.prepareMandateAction(
+      {
+        scope: t.scope,
+        mandate: t.mandate,
+        action: { op: 'pause' },
+        signer: {
+          kind: 'external',
+          network: NETWORK,
+          role: 'principal',
+          address: { network: NETWORK, value: t.principal.publicKey() },
+        },
+      },
+      OPTS,
+    );
+  }
+
+  it('books the fee of each transaction that lands, as executor spend', async () => {
+    const t = setup();
+    const book = vi.spyOn(t.ports.sponsorship, 'book');
+    t.rpc.getTransaction = () =>
+      Promise.resolve({ status: 'SUCCESS', ledger: 9, resultXdr: resultWith(777n) });
+    await archived(t);
+    expect(t.rpc.sent.length).toBeGreaterThan(0);
+    expect(book).toHaveBeenCalledTimes(t.rpc.sent.length);
+    expect(book.mock.calls[0]?.[0]).toMatchObject({
+      scope: t.scope,
+      network: NETWORK,
+      intent: 'executor',
+      actualFee: { amount: 777n, asset: 'XLM', scale: 7 },
+    });
+    const ids = book.mock.calls.map(([booking]) => booking.reservationId);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('books the fee of one that lands and fails, since a failed transaction still pays', async () => {
+    const t = setup();
+    const book = vi.spyOn(t.ports.sponsorship, 'book');
+    t.rpc.getTransaction = () =>
+      Promise.resolve({ status: 'FAILED', ledger: 9, resultXdr: resultWith(55n) });
+    await expect(archived(t)).rejects.toBeInstanceOf(SubmissionRejectedError);
+    expect(book).toHaveBeenCalledTimes(1);
+    expect(book.mock.calls[0]?.[0]).toMatchObject({ actualFee: { amount: 55n } });
+  });
+
+  it('books nothing for one that never shows up, which the sweep finds later', async () => {
+    const t = setup();
+    const book = vi.spyOn(t.ports.sponsorship, 'book');
+    t.rpc.getTransaction = () => Promise.resolve({ status: 'NOT_FOUND' });
+    await expect(archived(t)).rejects.toBeInstanceOf(SubmissionUnknownError);
+    expect(book).not.toHaveBeenCalled();
   });
 });
 

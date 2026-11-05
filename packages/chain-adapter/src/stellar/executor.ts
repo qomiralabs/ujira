@@ -27,6 +27,7 @@ import type {
   TenantScope,
   UnixSeconds,
 } from '../types.js';
+import { bookExecutorFee, feeChargedOf } from './lifecycle.js';
 import type { RpcTransaction, StellarRpc } from './rpc.js';
 import { resourceFailureOf } from './soroban-rules.js';
 import { submitEnvelope } from './submit.js';
@@ -174,6 +175,10 @@ export class ExecutorSession {
     await sendAndRecord(this.ctx, record.scope, hash, tx.toXdr(), maxTime, opts);
     if (!wait) return { hash, landed: null };
     const landed = await waitForTransaction(rpc, network, hash, this.ctx.wait, opts);
+    // A record closed here is one the sweep never reads again, so the cost has to be
+    // booked now, and before the record closes: a crash in between is put right by the
+    // sweep, where the other order would lose it. A failed transaction still pays.
+    await bookExecutorFee(this.ctx, record.scope, hash, feeChargedOf(landed), record.correlationId);
     if (landed.status !== 'SUCCESS') {
       await ports.store.updateSubmission(record.scope, network, hash, {
         state: 'failed',
