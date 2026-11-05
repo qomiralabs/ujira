@@ -5,8 +5,6 @@
 // holds the contract's own rules on it: charged is total plus fee, and the fee is never
 // above the cap, computed the contract's way so a large total cannot overflow it.
 
-import { randomUUID } from 'node:crypto';
-
 import pg from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from 'vitest';
 
@@ -15,6 +13,7 @@ import { payoutAttempts, payouts } from './repositories/payouts.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
 import {
+  feeTerms,
   newAttempt,
   newLeg,
   newPayout,
@@ -27,12 +26,11 @@ import {
 const adminUrl = inject('dbAdminUrl');
 const roleUrls = inject('dbRoleUrls');
 
-const TERMS = randomUUID();
-
 let database: TestDatabase;
 let db: Database;
 let fixture: PayoutFixture;
 let payoutId: string;
+let termsId: string;
 
 async function codeOf(promise: Promise<unknown>): Promise<string | undefined> {
   try {
@@ -50,7 +48,7 @@ async function attemptWith(total: bigint, fee: bigint, bps: number) {
       newAttempt(fixture, payoutId, {
         total: usdc(total),
         legs: [newLeg(fixture, total)],
-        fee: { amount: fee, bps, termsId: fee === 0n ? null : TERMS },
+        fee: { amount: fee, bps, termsId: fee === 0n ? null : termsId },
       }),
     ),
   );
@@ -68,6 +66,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   fixture = await payoutFixture(db);
+  termsId = await feeTerms(db, fixture);
   const { payout } = await db
     .tenant(fixture.tenant)
     .transaction(async (tx) => payouts.create(tx, newPayout(fixture)));
@@ -87,7 +86,7 @@ describe('the fee on an attempt', () => {
     const accepted = await attemptWith(total, atCap, 50);
     expect(accepted.fee).toEqual(usdc(atCap));
     expect(accepted.feeBps).toBe(50);
-    expect(accepted.feeTermsId).toBe(TERMS);
+    expect(accepted.feeTermsId).toBe(termsId);
   });
 
   it('rounds the cap down the way the contract does', async () => {
@@ -175,7 +174,7 @@ describe('the fee on an attempt', () => {
             fixture.instanceId,
             total.toString(),
             fee.toString(),
-            TERMS,
+            termsId,
             charged.toString(),
           ],
         );

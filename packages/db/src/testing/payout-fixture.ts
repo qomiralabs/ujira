@@ -10,6 +10,7 @@ import { tokenAmount, type TokenAmount } from '@ujira/core';
 
 import type { Database } from '../database.js';
 import { entryPoints, type CreatedPrincipal } from '../repositories/entry-points.js';
+import { fees } from '../repositories/fees.js';
 import { mandateInstances, mandates } from '../repositories/mandates.js';
 import type { NewPayout, NewPayoutAttempt, NewPayoutLeg } from '../repositories/payouts.js';
 import { payoutMethods, recipients } from '../repositories/recipients.js';
@@ -85,6 +86,20 @@ export async function payoutFixture(db: Database): Promise<PayoutFixture> {
     };
   });
   return { tenant, memberId, ...rows };
+}
+
+// Terms a fee can name. Once per fixture, because terms are one per project and instant.
+export async function feeTerms(db: Database, fixture: PayoutFixture): Promise<string> {
+  const terms = await db.tenant(fixture.tenant).transaction(async (tx) =>
+    fees.recordTerms(tx, {
+      rateBps: 50,
+      basis: 'standard',
+      validFrom: new Date('2026-01-01T00:00:00.000Z'),
+      contractReference: null,
+      actor: { kind: 'member', id: fixture.memberId },
+    }),
+  );
+  return terms.id;
 }
 
 // Each leg of an attempt needs its own index, and so its own method and destination.

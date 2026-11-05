@@ -204,6 +204,59 @@ export interface UjiraErasureLog {
   subject_id: string;
 }
 
+export interface UjiraFeeReconciliations {
+  asset: string;
+  attempt_id: string;
+  chain: string;
+  created_at: Generated<Timestamp>;
+  expected_fee_amount: Numeric;
+  id: Generated<string>;
+  invoice_reference: string | null;
+  on_chain_fee_amount: Numeric;
+  outcome: string;
+  payout_id: string;
+  principal_id: string;
+  project_id: string;
+  received_fee_amount: Numeric;
+  resolution: Generated<string>;
+  revision: Int8;
+  scale: number;
+  shortfall_amount: Numeric;
+}
+
+export interface UjiraFeeRefunds {
+  amount: Numeric;
+  asset: string;
+  attempt_id: string;
+  chain: string;
+  created_at: Generated<Timestamp>;
+  due_at: Timestamp;
+  failure_reason: string | null;
+  from_address: string | null;
+  id: Generated<string>;
+  idempotency_key: Buffer;
+  leg_refund_id: string;
+  payout_id: string;
+  principal_id: string;
+  project_id: string;
+  scale: number;
+  status: Generated<string>;
+  to_address: string;
+  tx_hash: Buffer | null;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface UjiraFeeTerms {
+  basis: string;
+  contract_reference: string | null;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  principal_id: string;
+  project_id: string;
+  rate_bps: Int8;
+  valid_from: Timestamp;
+}
+
 export interface UjiraFundingSources {
   config: Generated<Json>;
   created_at: Generated<Timestamp>;
@@ -285,6 +338,23 @@ export interface UjiraLedgerReconciliation {
   state_pending: Numeric | null;
   state_spent: Numeric | null;
   taken_at: Timestamp | null;
+}
+
+export interface UjiraLegRefunds {
+  amount: Numeric;
+  asset: string;
+  attempt_id: string;
+  chain: string;
+  created_at: Generated<Timestamp>;
+  event_index: Int8;
+  id: Generated<string>;
+  payout_id: string;
+  payout_leg_id: string;
+  principal_id: string;
+  project_id: string;
+  refund_to_address: string;
+  scale: number;
+  tx_hash: Buffer;
 }
 
 export interface UjiraManagedSigners {
@@ -637,12 +707,16 @@ export interface Schema {
   'ujira.data_keys': UjiraDataKeys;
   'ujira.deposits': UjiraDeposits;
   'ujira.erasure_log': UjiraErasureLog;
+  'ujira.fee_reconciliations': UjiraFeeReconciliations;
+  'ujira.fee_refunds': UjiraFeeRefunds;
+  'ujira.fee_terms': UjiraFeeTerms;
   'ujira.funding_sources': UjiraFundingSources;
   'ujira.funding_sweeps': UjiraFundingSweeps;
   'ujira.ledger_accounts': UjiraLedgerAccounts;
   'ujira.ledger_entries': UjiraLedgerEntries;
   'ujira.ledger_journals': UjiraLedgerJournals;
   'ujira.ledger_reconciliation': UjiraLedgerReconciliation;
+  'ujira.leg_refunds': UjiraLegRefunds;
   'ujira.managed_signers': UjiraManagedSigners;
   'ujira.mandate_instance_roles': UjiraMandateInstanceRoles;
   'ujira.mandate_instances': UjiraMandateInstances;

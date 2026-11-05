@@ -108,6 +108,23 @@ export {
   type RecordedApproval,
 } from './repositories/payout-legs.js';
 export {
+  FEE_REFUND_STATUS_VALUES,
+  FeeAddressUnknownError,
+  fees,
+  FeeTermsExistError,
+  refunds,
+  type FeeBasis,
+  type FeeReconciliation,
+  type FeeRefund,
+  type FeeRefundStatusValue,
+  type FeeResolution,
+  type FeeTerms,
+  type LegRefund,
+  type NewFeeReconciliation,
+  type NewFeeTerms,
+  type NewLegRefund,
+} from './repositories/fees.js';
+export {
   ReceiptDocumentHashError,
   receiptDocumentIntact,
   ReceiptRevisionError,

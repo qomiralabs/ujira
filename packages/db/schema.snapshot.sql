@@ -655,6 +655,70 @@ $$;
 ALTER FUNCTION ujira.fee_cap_only_lowers() OWNER TO ujira_owner;
 
 --
+-- Name: fee_reconciliation_needs_execution(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.fee_reconciliation_needs_execution() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if not exists (
+    select 1
+      from ujira.payout_attempts as a
+     where a.principal_id = new.principal_id
+       and a.project_id = new.project_id
+       and a.id = new.attempt_id
+       and a.status in ('settled', 'final')
+  ) then
+    raise exception using
+      errcode = 'UJ019',
+      message = 'a fee can only be reconciled on an executed attempt';
+  end if;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.fee_reconciliation_needs_execution() OWNER TO ujira_owner;
+
+--
+-- Name: fee_refunds_within_fee(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.fee_refunds_within_fee() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  fee numeric;
+  refunded numeric;
+begin
+  perform pg_advisory_xact_lock(hashtextextended('ujira/fee-refund/' || new.attempt_id::text, 0));
+  select a.fee_amount into fee
+    from ujira.payout_attempts as a
+   where a.principal_id = new.principal_id
+     and a.project_id = new.project_id
+     and a.id = new.attempt_id;
+  select coalesce(sum(r.amount), 0) into refunded
+    from ujira.fee_refunds as r
+   where r.principal_id = new.principal_id
+     and r.project_id = new.project_id
+     and r.attempt_id = new.attempt_id
+     and r.status <> 'not_owed';
+  if refunded > fee then
+    raise exception using
+      errcode = 'UJ009',
+      message = format('fee refunds of %s on an attempt that charged %s', refunded, fee);
+  end if;
+  return null;
+end
+$$;
+
+
+ALTER FUNCTION ujira.fee_refunds_within_fee() OWNER TO ujira_owner;
+
+--
 -- Name: forbid_mutation(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -916,6 +980,63 @@ $$;
 
 
 ALTER FUNCTION ujira.ledger_stamp() OWNER TO ujira_fn_ledger;
+
+--
+-- Name: leg_refund_stamp(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.leg_refund_stamp() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  select l.payout_id, l.attempt_id, l.chain, l.asset, l.scale
+    into new.payout_id, new.attempt_id, new.chain, new.asset, new.scale
+    from ujira.payout_legs as l
+   where l.principal_id = new.principal_id
+     and l.project_id = new.project_id
+     and l.id = new.payout_leg_id;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.leg_refund_stamp() OWNER TO ujira_owner;
+
+--
+-- Name: leg_refunds_within_leg(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.leg_refunds_within_leg() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  paid numeric;
+  refunded numeric;
+begin
+  perform pg_advisory_xact_lock(hashtextextended('ujira/leg-refund/' || new.payout_leg_id::text, 0));
+  select l.amount into paid
+    from ujira.payout_legs as l
+   where l.principal_id = new.principal_id
+     and l.project_id = new.project_id
+     and l.id = new.payout_leg_id;
+  select coalesce(sum(r.amount), 0) into refunded
+    from ujira.leg_refunds as r
+   where r.principal_id = new.principal_id
+     and r.project_id = new.project_id
+     and r.payout_leg_id = new.payout_leg_id;
+  if refunded > paid then
+    raise exception using
+      errcode = 'UJ008',
+      message = format('refunds of %s on a leg that paid %s', refunded, paid);
+  end if;
+  return null;
+end
+$$;
+
+
+ALTER FUNCTION ujira.leg_refunds_within_leg() OWNER TO ujira_owner;
 
 --
 -- Name: legs_match_attempt(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
@@ -1205,6 +1326,41 @@ $$;
 
 
 ALTER FUNCTION ujira.recipient_stays_erased() OWNER TO ujira_owner;
+
+--
+-- Name: record_fee_terms(bigint, text, timestamp with time zone, text, text, uuid); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_fees
+--
+
+CREATE FUNCTION ujira.record_fee_terms(p_rate_bps bigint, p_basis text, p_valid_from timestamp with time zone, p_contract_reference text, p_actor_kind text, p_actor_id uuid) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  new_id uuid := gen_random_uuid();
+begin
+  insert into ujira.fee_terms
+    (principal_id, project_id, id, rate_bps, basis, valid_from, contract_reference)
+  values (
+    ujira.current_principal_id(), ujira.current_project_id(), new_id, p_rate_bps, p_basis,
+    p_valid_from, p_contract_reference
+  );
+  -- audit_chain overwrites the sequence and both hashes.
+  insert into ujira.audit_log
+    (principal_id, project_id, action, actor_kind, actor_id, metadata, seq, prev_hash, row_hash)
+  values (
+    ujira.current_principal_id(), ujira.current_project_id(), 'fee_terms.recorded', p_actor_kind,
+    p_actor_id,
+    jsonb_build_object(
+      'target_type', 'fee_terms', 'target_id', new_id::text, 'new_value', p_rate_bps::text
+    ),
+    0, decode(repeat('00', 32), 'hex'), decode(repeat('00', 32), 'hex')
+  );
+  return new_id;
+end
+$$;
+
+
+ALTER FUNCTION ujira.record_fee_terms(p_rate_bps bigint, p_basis text, p_valid_from timestamp with time zone, p_contract_reference text, p_actor_kind text, p_actor_id uuid) OWNER TO ujira_fn_fees;
 
 --
 -- Name: refuse_personal_data_after_erasure(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
@@ -1819,6 +1975,114 @@ ALTER TABLE ONLY ujira.erasure_log FORCE ROW LEVEL SECURITY;
 ALTER TABLE ujira.erasure_log OWNER TO ujira_owner;
 
 --
+-- Name: fee_reconciliations; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.fee_reconciliations (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    payout_id uuid NOT NULL,
+    attempt_id uuid NOT NULL,
+    revision bigint NOT NULL,
+    chain text NOT NULL,
+    asset text NOT NULL,
+    scale ujira.scale NOT NULL,
+    expected_fee_amount ujira.amount NOT NULL,
+    on_chain_fee_amount ujira.amount NOT NULL,
+    received_fee_amount ujira.amount NOT NULL,
+    shortfall_amount ujira.amount NOT NULL,
+    outcome text NOT NULL,
+    resolution text DEFAULT 'none'::text NOT NULL,
+    invoice_reference text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT fee_reconciliations_expected_not_negative CHECK (((expected_fee_amount)::numeric >= (0)::numeric)),
+    CONSTRAINT fee_reconciliations_invoice_length CHECK (((char_length(invoice_reference) >= 1) AND (char_length(invoice_reference) <= 128))),
+    CONSTRAINT fee_reconciliations_invoice_when_invoiced CHECK (((resolution = 'invoiced'::text) = (invoice_reference IS NOT NULL))),
+    CONSTRAINT fee_reconciliations_matched_needs_nothing CHECK (((outcome <> 'matched'::text) OR (resolution = 'none'::text))),
+    CONSTRAINT fee_reconciliations_on_chain_not_negative CHECK (((on_chain_fee_amount)::numeric >= (0)::numeric)),
+    CONSTRAINT fee_reconciliations_outcome CHECK ((outcome = ANY (ARRAY['matched'::text, 'underpaid'::text, 'mismatch'::text]))),
+    CONSTRAINT fee_reconciliations_outcome_follows CHECK ((outcome =
+CASE
+    WHEN (((expected_fee_amount)::numeric = (on_chain_fee_amount)::numeric) AND ((on_chain_fee_amount)::numeric = (received_fee_amount)::numeric)) THEN 'matched'::text
+    WHEN ((received_fee_amount)::numeric < (expected_fee_amount)::numeric) THEN 'underpaid'::text
+    ELSE 'mismatch'::text
+END)),
+    CONSTRAINT fee_reconciliations_received_not_negative CHECK (((received_fee_amount)::numeric >= (0)::numeric)),
+    CONSTRAINT fee_reconciliations_resolution CHECK ((resolution = ANY (ARRAY['none'::text, 'invoiced'::text, 'waived'::text]))),
+    CONSTRAINT fee_reconciliations_revision_range CHECK (((revision >= 1) AND (revision <= 1000000))),
+    CONSTRAINT fee_reconciliations_shortfall_is_missing CHECK (((shortfall_amount)::numeric = GREATEST(((expected_fee_amount)::numeric - (received_fee_amount)::numeric), (0)::numeric)))
+);
+
+ALTER TABLE ONLY ujira.fee_reconciliations FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.fee_reconciliations OWNER TO ujira_owner;
+
+--
+-- Name: fee_refunds; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.fee_refunds (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    leg_refund_id uuid NOT NULL,
+    payout_id uuid NOT NULL,
+    attempt_id uuid NOT NULL,
+    chain text NOT NULL,
+    asset text NOT NULL,
+    scale ujira.scale NOT NULL,
+    amount ujira.amount NOT NULL,
+    from_address text,
+    to_address text NOT NULL,
+    status text DEFAULT 'owed'::text NOT NULL,
+    idempotency_key ujira.hash32 NOT NULL,
+    due_at timestamp with time zone NOT NULL,
+    tx_hash ujira.hash32,
+    failure_reason text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT fee_refunds_amount_not_negative CHECK (((amount)::numeric >= (0)::numeric)),
+    CONSTRAINT fee_refunds_failure_format CHECK ((failure_reason ~ '^[a-z][a-z0-9_]{0,63}$'::text)),
+    CONSTRAINT fee_refunds_from_length CHECK (((char_length(from_address) >= 1) AND (char_length(from_address) <= 128))),
+    CONSTRAINT fee_refunds_has_a_source CHECK (((status = 'not_owed'::text) OR (from_address IS NOT NULL))),
+    CONSTRAINT fee_refunds_key_is_derived CHECK (((idempotency_key)::bytea = sha256(convert_to(('ujira/fee-refund/v1'::text || (leg_refund_id)::text), 'UTF8'::name)))),
+    CONSTRAINT fee_refunds_owes_something CHECK (((status = 'not_owed'::text) OR ((amount)::numeric > (0)::numeric))),
+    CONSTRAINT fee_refunds_status CHECK ((status = ANY (ARRAY['owed'::text, 'awaiting_signatures'::text, 'submitted'::text, 'settled'::text, 'failed'::text, 'not_owed'::text]))),
+    CONSTRAINT fee_refunds_submitted_has_hash CHECK (((status <> ALL (ARRAY['submitted'::text, 'settled'::text])) OR (tx_hash IS NOT NULL))),
+    CONSTRAINT fee_refunds_to_length CHECK (((char_length(to_address) >= 1) AND (char_length(to_address) <= 128)))
+);
+
+ALTER TABLE ONLY ujira.fee_refunds FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.fee_refunds OWNER TO ujira_owner;
+
+--
+-- Name: fee_terms; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.fee_terms (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    rate_bps bigint NOT NULL,
+    basis text NOT NULL,
+    valid_from timestamp with time zone NOT NULL,
+    contract_reference text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT fee_terms_basis CHECK ((basis = ANY (ARRAY['standard'::text, 'committed_volume'::text, 'negotiated'::text, 'internal_at_cost'::text]))),
+    CONSTRAINT fee_terms_contract_reference_length CHECK (((char_length(contract_reference) >= 1) AND (char_length(contract_reference) <= 128))),
+    CONSTRAINT fee_terms_rate_range CHECK (((rate_bps >= 0) AND (rate_bps <= 100)))
+);
+
+ALTER TABLE ONLY ujira.fee_terms FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.fee_terms OWNER TO ujira_owner;
+
+--
 -- Name: funding_sources; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2019,6 +2283,35 @@ CREATE VIEW ujira.ledger_reconciliation WITH (security_invoker='true') AS
 
 
 ALTER VIEW ujira.ledger_reconciliation OWNER TO ujira_owner;
+
+--
+-- Name: leg_refunds; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.leg_refunds (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    payout_leg_id uuid NOT NULL,
+    payout_id uuid NOT NULL,
+    attempt_id uuid NOT NULL,
+    chain text NOT NULL,
+    asset text NOT NULL,
+    scale ujira.scale NOT NULL,
+    amount ujira.amount NOT NULL,
+    refund_to_address text NOT NULL,
+    tx_hash ujira.hash32 NOT NULL,
+    event_index bigint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT leg_refunds_address_length CHECK (((char_length(refund_to_address) >= 1) AND (char_length(refund_to_address) <= 128))),
+    CONSTRAINT leg_refunds_amount_positive CHECK (((amount)::numeric > (0)::numeric)),
+    CONSTRAINT leg_refunds_index_positive CHECK ((event_index >= 0))
+);
+
+ALTER TABLE ONLY ujira.leg_refunds FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.leg_refunds OWNER TO ujira_owner;
 
 --
 -- Name: managed_signers; Type: TABLE; Schema: ujira; Owner: ujira_owner
@@ -2857,6 +3150,70 @@ ALTER TABLE ONLY ujira.erasure_log
 
 
 --
+-- Name: fee_reconciliations fee_reconciliations_per_revision; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.fee_reconciliations
+    ADD CONSTRAINT fee_reconciliations_per_revision UNIQUE (principal_id, project_id, attempt_id, revision);
+
+
+--
+-- Name: fee_reconciliations fee_reconciliations_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.fee_reconciliations
+    ADD CONSTRAINT fee_reconciliations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: fee_refunds fee_refunds_once; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.fee_refunds
+    ADD CONSTRAINT fee_refunds_once UNIQUE (principal_id, project_id, idempotency_key);
+
+
+--
+-- Name: fee_refunds fee_refunds_one_per_leg_refund; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.fee_refunds
+    ADD CONSTRAINT fee_refunds_one_per_leg_refund UNIQUE (principal_id, project_id, leg_refund_id);
+
+
+--
+-- Name: fee_refunds fee_refunds_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.fee_refunds
+    ADD CONSTRAINT fee_refunds_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: fee_terms fee_terms_per_instant; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.fee_terms
+    ADD CONSTRAINT fee_terms_per_instant UNIQUE (principal_id, project_id, valid_from);
+
+
+--
+-- Name: fee_terms fee_terms_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.fee_terms
+    ADD CONSTRAINT fee_terms_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: fee_terms fee_terms_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.fee_terms
+    ADD CONSTRAINT fee_terms_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
 -- Name: funding_sources funding_sources_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2966,6 +3323,38 @@ ALTER TABLE ONLY ujira.ledger_journals
 
 ALTER TABLE ONLY ujira.ledger_journals
     ADD CONSTRAINT ledger_journals_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
+-- Name: leg_refunds leg_refunds_fee_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.leg_refunds
+    ADD CONSTRAINT leg_refunds_fee_key UNIQUE (principal_id, project_id, id, payout_id, attempt_id, chain, asset, scale);
+
+
+--
+-- Name: leg_refunds leg_refunds_once; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.leg_refunds
+    ADD CONSTRAINT leg_refunds_once UNIQUE (chain, tx_hash, event_index);
+
+
+--
+-- Name: leg_refunds leg_refunds_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.leg_refunds
+    ADD CONSTRAINT leg_refunds_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: leg_refunds leg_refunds_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.leg_refunds
+    ADD CONSTRAINT leg_refunds_tenant_key UNIQUE (principal_id, project_id, id);
 
 
 --
@@ -3412,6 +3801,34 @@ CREATE INDEX erasure_log_completed ON ujira.erasure_log USING btree (id) WHERE (
 
 
 --
+-- Name: fee_reconciliations_by_attempt_unit; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX fee_reconciliations_by_attempt_unit ON ujira.fee_reconciliations USING btree (principal_id, project_id, payout_id, attempt_id, chain, asset, scale);
+
+
+--
+-- Name: fee_reconciliations_by_payout; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX fee_reconciliations_by_payout ON ujira.fee_reconciliations USING btree (principal_id, project_id, payout_id);
+
+
+--
+-- Name: fee_refunds_by_attempt; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX fee_refunds_by_attempt ON ujira.fee_refunds USING btree (principal_id, project_id, attempt_id);
+
+
+--
+-- Name: fee_refunds_open_by_due; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX fee_refunds_open_by_due ON ujira.fee_refunds USING btree (due_at, id) WHERE (status = ANY (ARRAY['owed'::text, 'awaiting_signatures'::text, 'failed'::text]));
+
+
+--
 -- Name: funding_sweeps_by_instance; Type: INDEX; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3423,6 +3840,20 @@ CREATE INDEX funding_sweeps_by_instance ON ujira.funding_sweeps USING btree (pri
 --
 
 CREATE INDEX ledger_entries_by_journal ON ujira.ledger_entries USING btree (principal_id, project_id, journal_id);
+
+
+--
+-- Name: leg_refunds_by_attempt; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX leg_refunds_by_attempt ON ujira.leg_refunds USING btree (principal_id, project_id, payout_id, attempt_id, chain, asset, scale);
+
+
+--
+-- Name: leg_refunds_by_leg; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX leg_refunds_by_leg ON ujira.leg_refunds USING btree (principal_id, project_id, payout_leg_id);
 
 
 --
@@ -3720,6 +4151,76 @@ CREATE TRIGGER erasure_log_no_truncate BEFORE TRUNCATE ON ujira.erasure_log FOR 
 
 
 --
+-- Name: fee_reconciliations fee_reconciliations_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER fee_reconciliations_append_only BEFORE DELETE OR UPDATE ON ujira.fee_reconciliations FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: fee_reconciliations fee_reconciliations_executed_attempt; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER fee_reconciliations_executed_attempt BEFORE INSERT ON ujira.fee_reconciliations FOR EACH ROW EXECUTE FUNCTION ujira.fee_reconciliation_needs_execution();
+
+
+--
+-- Name: fee_reconciliations fee_reconciliations_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER fee_reconciliations_no_truncate BEFORE TRUNCATE ON ujira.fee_reconciliations FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: fee_refunds fee_refunds_no_delete; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER fee_refunds_no_delete BEFORE DELETE ON ujira.fee_refunds FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: fee_refunds fee_refunds_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER fee_refunds_no_truncate BEFORE TRUNCATE ON ujira.fee_refunds FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: fee_refunds fee_refunds_touch; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER fee_refunds_touch BEFORE UPDATE ON ujira.fee_refunds FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
+-- Name: fee_refunds fee_refunds_transition; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER fee_refunds_transition BEFORE UPDATE OF status ON ujira.fee_refunds FOR EACH ROW EXECUTE FUNCTION ujira.check_transition('fee_refund');
+
+
+--
+-- Name: fee_refunds fee_refunds_within_fee; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE CONSTRAINT TRIGGER fee_refunds_within_fee AFTER INSERT OR UPDATE OF amount, status ON ujira.fee_refunds DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ujira.fee_refunds_within_fee();
+
+
+--
+-- Name: fee_terms fee_terms_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER fee_terms_append_only BEFORE DELETE OR UPDATE ON ujira.fee_terms FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: fee_terms fee_terms_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER fee_terms_no_truncate BEFORE TRUNCATE ON ujira.fee_terms FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
 -- Name: funding_sweeps funding_sweeps_check_new; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3808,6 +4309,34 @@ CREATE CONSTRAINT TRIGGER ledger_journals_balanced AFTER INSERT ON ujira.ledger_
 --
 
 CREATE TRIGGER ledger_journals_no_truncate BEFORE TRUNCATE ON ujira.ledger_journals FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: leg_refunds leg_refunds_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER leg_refunds_append_only BEFORE DELETE OR UPDATE ON ujira.leg_refunds FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: leg_refunds leg_refunds_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER leg_refunds_no_truncate BEFORE TRUNCATE ON ujira.leg_refunds FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: leg_refunds leg_refunds_stamp; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER leg_refunds_stamp BEFORE INSERT ON ujira.leg_refunds FOR EACH ROW EXECUTE FUNCTION ujira.leg_refund_stamp();
+
+
+--
+-- Name: leg_refunds leg_refunds_within_leg; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE CONSTRAINT TRIGGER leg_refunds_within_leg AFTER INSERT ON ujira.leg_refunds DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ujira.leg_refunds_within_leg();
 
 
 --
@@ -4265,6 +4794,30 @@ ALTER TABLE ONLY ujira.erasure_log
 
 
 --
+-- Name: fee_reconciliations fee_reconciliations_principal_id_project_id_payout_id_atte_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.fee_reconciliations
+    ADD CONSTRAINT fee_reconciliations_principal_id_project_id_payout_id_atte_fkey FOREIGN KEY (principal_id, project_id, payout_id, attempt_id, chain, asset, scale) REFERENCES ujira.payout_attempts(principal_id, project_id, payout_id, id, chain, asset, scale);
+
+
+--
+-- Name: fee_refunds fee_refunds_principal_id_project_id_leg_refund_id_payout_i_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.fee_refunds
+    ADD CONSTRAINT fee_refunds_principal_id_project_id_leg_refund_id_payout_i_fkey FOREIGN KEY (principal_id, project_id, leg_refund_id, payout_id, attempt_id, chain, asset, scale) REFERENCES ujira.leg_refunds(principal_id, project_id, id, payout_id, attempt_id, chain, asset, scale);
+
+
+--
+-- Name: fee_terms fee_terms_principal_id_project_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.fee_terms
+    ADD CONSTRAINT fee_terms_principal_id_project_id_fkey FOREIGN KEY (principal_id, project_id) REFERENCES ujira.projects(principal_id, id);
+
+
+--
 -- Name: funding_sources funding_sources_principal_id_project_id_mandate_instance_i_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4342,6 +4895,22 @@ ALTER TABLE ONLY ujira.ledger_journals
 
 ALTER TABLE ONLY ujira.ledger_journals
     ADD CONSTRAINT ledger_journals_principal_id_project_id_reverses_journal_i_fkey FOREIGN KEY (principal_id, project_id, reverses_journal_id) REFERENCES ujira.ledger_journals(principal_id, project_id, id);
+
+
+--
+-- Name: leg_refunds leg_refunds_principal_id_project_id_payout_id_attempt_id_c_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.leg_refunds
+    ADD CONSTRAINT leg_refunds_principal_id_project_id_payout_id_attempt_id_c_fkey FOREIGN KEY (principal_id, project_id, payout_id, attempt_id, chain, asset, scale) REFERENCES ujira.payout_attempts(principal_id, project_id, payout_id, id, chain, asset, scale);
+
+
+--
+-- Name: leg_refunds leg_refunds_principal_id_project_id_payout_leg_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.leg_refunds
+    ADD CONSTRAINT leg_refunds_principal_id_project_id_payout_leg_id_fkey FOREIGN KEY (principal_id, project_id, payout_leg_id) REFERENCES ujira.payout_legs(principal_id, project_id, id);
 
 
 --
@@ -4766,6 +5335,38 @@ CREATE POLICY erasure_all ON ujira.recipients TO ujira_fn_erasure USING (true) W
 ALTER TABLE ujira.erasure_log ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: fee_reconciliations; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.fee_reconciliations ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: fee_refunds; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.fee_refunds ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: fee_terms; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.fee_terms ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: audit_log fee_terms_audit; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY fee_terms_audit ON ujira.audit_log FOR INSERT TO ujira_fn_fees WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: fee_terms fee_terms_record; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY fee_terms_record ON ujira.fee_terms FOR INSERT TO ujira_fn_fees WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: funding_sources; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4936,6 +5537,12 @@ CREATE POLICY ledger_stamp_update ON ujira.ledger_accounts FOR UPDATE TO ujira_f
 
 
 --
+-- Name: leg_refunds; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.leg_refunds ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: managed_signers; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5022,6 +5629,27 @@ CREATE POLICY owner_all ON ujira.erasure_log TO ujira_owner USING (true) WITH CH
 
 
 --
+-- Name: fee_reconciliations owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.fee_reconciliations TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: fee_refunds owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.fee_refunds TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: fee_terms owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.fee_terms TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: funding_sources owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5054,6 +5682,13 @@ CREATE POLICY owner_all ON ujira.ledger_entries TO ujira_owner USING (true) WITH
 --
 
 CREATE POLICY owner_all ON ujira.ledger_journals TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: leg_refunds owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.leg_refunds TO ujira_owner USING (true) WITH CHECK (true);
 
 
 --
@@ -5357,6 +5992,27 @@ CREATE POLICY tenant_insert ON ujira.erasure_log FOR INSERT TO ujira_app WITH CH
 
 
 --
+-- Name: fee_reconciliations tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.fee_reconciliations FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: fee_refunds tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.fee_refunds FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: fee_terms tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.fee_terms FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: funding_sources tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5389,6 +6045,13 @@ CREATE POLICY tenant_insert ON ujira.ledger_entries FOR INSERT TO ujira_app WITH
 --
 
 CREATE POLICY tenant_insert ON ujira.ledger_journals FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: leg_refunds tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.leg_refunds FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -5581,6 +6244,27 @@ CREATE POLICY tenant_read ON ujira.erasure_log FOR SELECT TO ujira_app, ujira_re
 
 
 --
+-- Name: fee_reconciliations tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.fee_reconciliations FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: fee_refunds tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.fee_refunds FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: fee_terms tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.fee_terms FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
 -- Name: funding_sources tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5613,6 +6297,13 @@ CREATE POLICY tenant_read ON ujira.ledger_entries FOR SELECT TO ujira_app, ujira
 --
 
 CREATE POLICY tenant_read ON ujira.ledger_journals FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: leg_refunds tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.leg_refunds FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
 
 
 --
@@ -5805,6 +6496,27 @@ CREATE POLICY tenant_update ON ujira.erasure_log FOR UPDATE TO ujira_app USING (
 
 
 --
+-- Name: fee_reconciliations tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.fee_reconciliations FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: fee_refunds tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.fee_refunds FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: fee_terms tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.fee_terms FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: funding_sources tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5837,6 +6549,13 @@ CREATE POLICY tenant_update ON ujira.ledger_entries FOR UPDATE TO ujira_app USIN
 --
 
 CREATE POLICY tenant_update ON ujira.ledger_journals FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: leg_refunds tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.leg_refunds FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -6005,6 +6724,7 @@ GRANT USAGE ON SCHEMA ujira TO ujira_fn_ledger;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_audit;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_erasure;
 GRANT USAGE ON SCHEMA ujira TO ujira_ops;
+GRANT USAGE ON SCHEMA ujira TO ujira_fn_fees;
 
 
 --
@@ -6206,6 +6926,7 @@ GRANT ALL ON FUNCTION ujira.current_principal_id() TO ujira_reader;
 GRANT ALL ON FUNCTION ujira.current_principal_id() TO ujira_retention;
 GRANT ALL ON FUNCTION ujira.current_principal_id() TO ujira_auth;
 GRANT ALL ON FUNCTION ujira.current_principal_id() TO ujira_indexer;
+GRANT ALL ON FUNCTION ujira.current_principal_id() TO ujira_fn_fees;
 
 
 --
@@ -6218,6 +6939,7 @@ GRANT ALL ON FUNCTION ujira.current_project_id() TO ujira_reader;
 GRANT ALL ON FUNCTION ujira.current_project_id() TO ujira_retention;
 GRANT ALL ON FUNCTION ujira.current_project_id() TO ujira_auth;
 GRANT ALL ON FUNCTION ujira.current_project_id() TO ujira_indexer;
+GRANT ALL ON FUNCTION ujira.current_project_id() TO ujira_fn_fees;
 
 
 --
@@ -6240,6 +6962,20 @@ GRANT ALL ON FUNCTION ujira.erased_subjects(after_id uuid, page_size bigint) TO 
 --
 
 REVOKE ALL ON FUNCTION ujira.fee_cap_only_lowers() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION fee_reconciliation_needs_execution(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.fee_reconciliation_needs_execution() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION fee_refunds_within_fee(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.fee_refunds_within_fee() FROM PUBLIC;
 
 
 --
@@ -6299,6 +7035,20 @@ REVOKE ALL ON FUNCTION ujira.ledger_stamp() FROM PUBLIC;
 
 
 --
+-- Name: FUNCTION leg_refund_stamp(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.leg_refund_stamp() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION leg_refunds_within_leg(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.leg_refunds_within_leg() FROM PUBLIC;
+
+
+--
 -- Name: FUNCTION legs_match_attempt(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6350,6 +7100,7 @@ GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_reader;
 GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_retention;
 GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_auth;
 GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_indexer;
+GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_fn_fees;
 
 
 --
@@ -6364,6 +7115,14 @@ REVOKE ALL ON FUNCTION ujira.receipt_is_whole() FROM PUBLIC;
 --
 
 REVOKE ALL ON FUNCTION ujira.recipient_stays_erased() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION record_fee_terms(p_rate_bps bigint, p_basis text, p_valid_from timestamp with time zone, p_contract_reference text, p_actor_kind text, p_actor_id uuid); Type: ACL; Schema: ujira; Owner: ujira_fn_fees
+--
+
+REVOKE ALL ON FUNCTION ujira.record_fee_terms(p_rate_bps bigint, p_basis text, p_valid_from timestamp with time zone, p_contract_reference text, p_actor_kind text, p_actor_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.record_fee_terms(p_rate_bps bigint, p_basis text, p_valid_from timestamp with time zone, p_contract_reference text, p_actor_kind text, p_actor_id uuid) TO ujira_app;
 
 
 --
@@ -6478,6 +7237,7 @@ GRANT SELECT,INSERT,UPDATE ON TABLE ujira.audit_heads TO ujira_fn_audit;
 
 GRANT SELECT,INSERT ON TABLE ujira.audit_log TO ujira_app;
 GRANT SELECT ON TABLE ujira.audit_log TO ujira_reader;
+GRANT INSERT ON TABLE ujira.audit_log TO ujira_fn_fees;
 
 
 --
@@ -6576,6 +7336,52 @@ GRANT SELECT,INSERT ON TABLE ujira.erasure_log TO ujira_fn_erasure;
 
 
 --
+-- Name: TABLE fee_reconciliations; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.fee_reconciliations TO ujira_app;
+GRANT SELECT ON TABLE ujira.fee_reconciliations TO ujira_reader;
+
+
+--
+-- Name: TABLE fee_refunds; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.fee_refunds TO ujira_app;
+GRANT SELECT ON TABLE ujira.fee_refunds TO ujira_reader;
+
+
+--
+-- Name: COLUMN fee_refunds.status; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(status) ON TABLE ujira.fee_refunds TO ujira_app;
+
+
+--
+-- Name: COLUMN fee_refunds.tx_hash; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(tx_hash) ON TABLE ujira.fee_refunds TO ujira_app;
+
+
+--
+-- Name: COLUMN fee_refunds.failure_reason; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(failure_reason) ON TABLE ujira.fee_refunds TO ujira_app;
+
+
+--
+-- Name: TABLE fee_terms; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT ON TABLE ujira.fee_terms TO ujira_app;
+GRANT SELECT ON TABLE ujira.fee_terms TO ujira_reader;
+GRANT INSERT ON TABLE ujira.fee_terms TO ujira_fn_fees;
+
+
+--
 -- Name: TABLE funding_sources; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6636,6 +7442,14 @@ GRANT SELECT,INSERT ON TABLE ujira.mandate_state_snapshots TO ujira_indexer;
 GRANT SELECT ON TABLE ujira.ledger_reconciliation TO ujira_app;
 GRANT SELECT ON TABLE ujira.ledger_reconciliation TO ujira_reader;
 GRANT SELECT ON TABLE ujira.ledger_reconciliation TO ujira_indexer;
+
+
+--
+-- Name: TABLE leg_refunds; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.leg_refunds TO ujira_app;
+GRANT SELECT ON TABLE ujira.leg_refunds TO ujira_reader;
 
 
 --

@@ -144,6 +144,7 @@ describe('grants on ujira', () => {
       'function ujira.authenticate_token(text)',
       'function ujira.create_principal(text,text,uuid,text)',
       ...context,
+      'function ujira.record_fee_terms(bigint,text,timestamp with time zone,text,text,uuid)',
     ]);
     expect(await executable('ujira_auth')).toEqual([
       'function ujira.authenticate_token(text)',
@@ -173,6 +174,7 @@ describe('roles', () => {
       'ujira_auth',
       'ujira_fn_audit',
       'ujira_fn_erasure',
+      'ujira_fn_fees',
       'ujira_fn_instances',
       'ujira_fn_ledger',
       'ujira_fn_principals',
@@ -190,6 +192,7 @@ describe('roles', () => {
       'ujira_owner',
       'ujira_fn_audit',
       'ujira_fn_erasure',
+      'ujira_fn_fees',
       'ujira_fn_instances',
       'ujira_fn_ledger',
       'ujira_fn_principals',
@@ -218,6 +221,10 @@ describe('roles', () => {
       { fn: 'ujira.erased_subjects(uuid,bigint)', owner: 'ujira_fn_erasure' },
       { fn: 'ujira.ledger_balanced()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.ledger_stamp()', owner: 'ujira_fn_ledger' },
+      {
+        fn: 'ujira.record_fee_terms(bigint,text,timestamp with time zone,text,text,uuid)',
+        owner: 'ujira_fn_fees',
+      },
       { fn: 'ujira.replay_erasure(uuid,uuid,uuid)', owner: 'ujira_fn_erasure' },
       { fn: 'ujira.resolve_mandate_instance(text,text)', owner: 'ujira_fn_instances' },
     ]);
@@ -248,6 +255,8 @@ describe('roles', () => {
       { grantee: 'ujira_fn_erasure', object: 'recipient_pii', privilege: 'SELECT' },
       { grantee: 'ujira_fn_erasure', object: 'recipients', privilege: 'SELECT' },
       { grantee: 'ujira_fn_erasure', object: 'recipients', privilege: 'UPDATE' },
+      { grantee: 'ujira_fn_fees', object: 'audit_log', privilege: 'INSERT' },
+      { grantee: 'ujira_fn_fees', object: 'fee_terms', privilege: 'INSERT' },
       { grantee: 'ujira_fn_instances', object: 'mandate_instances', privilege: 'SELECT' },
       { grantee: 'ujira_fn_ledger', object: 'ledger_accounts', privilege: 'SELECT' },
       { grantee: 'ujira_fn_ledger', object: 'ledger_accounts', privilege: 'UPDATE' },

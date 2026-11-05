@@ -87,6 +87,36 @@ function problemsOf(table: string): string[] {
   return fixtureProblems.filter((problem) => problem.startsWith(`ujira.${table}:`));
 }
 
+describe('the take', () => {
+  // A fee recorded here is UJIRA's take alone. Its own spend on fees and rent is never
+  // passed on, so nothing here may look like a way to recover it.
+  it('has no cost recovery anywhere, and the only fee on an attempt is the take', async () => {
+    const client = new pg.Client({ connectionString: migrated.url });
+    await client.connect();
+    try {
+      const recovery = await client.query(
+        `select table_name, column_name from information_schema.columns
+          where table_schema = 'ujira'
+            and (table_name ~ 'recover' or column_name ~ 'recover')`,
+      );
+      expect(recovery.rows).toEqual([]);
+      const onAttempts = await client.query<{ column_name: string }>(
+        `select column_name from information_schema.columns
+          where table_schema = 'ujira' and table_name = 'payout_attempts'
+            and column_name ~ 'fee'
+          order by 1`,
+      );
+      expect(onAttempts.rows.map((row) => row.column_name)).toEqual([
+        'fee_amount',
+        'fee_bps_applied',
+        'fee_terms_id',
+      ]);
+    } finally {
+      await client.end();
+    }
+  });
+});
+
 describe('catalog', () => {
   it('passes the migrated schema', async () => {
     const client = new pg.Client({ connectionString: migrated.url });
