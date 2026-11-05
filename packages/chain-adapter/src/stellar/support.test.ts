@@ -60,6 +60,7 @@ describe('the stellar entry', { timeout: 30_000 }, () => {
       'checkWalletTrust',
       'createFundingAccountFlow',
       'createMemorySigningRequestStore',
+      'createStellarEventIntake',
       'createStellarLedgerReader',
       'createStellarRpc',
       'extensionPlan',
@@ -68,10 +69,13 @@ describe('the stellar entry', { timeout: 30_000 }, () => {
       'guardWalletChange',
       'guardWalletForMandate',
       'horizonDexSource',
+      'ledgerEventOf',
       'mandateAddressOf',
       'parseForwarderRequest',
       'reflectorOracleSource',
+      'scanLedgerEvents',
       'stellarFundingView',
+      'stellarTenantTag',
       'verifyStellarWalletProof',
     ]);
   });

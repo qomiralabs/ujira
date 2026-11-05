@@ -168,9 +168,35 @@ export interface ChainAdapterRegistry {
 // ---------------------------------------------------------------------------
 // Ports the adapter is given. Implemented outside it, faked in tests.
 
+/** A contract a trusted factory announced as a mandate, from its mandate_created. */
+export interface MandateRegistration {
+  readonly network: NetworkId;
+  readonly contractId: string;
+  /** The contract the ledger recorded as the source of the event. */
+  readonly factory: string;
+  readonly tenantTag: Bytes32;
+  /** Its tag differs from the tag of the tenant that claims it. Nothing of it counts. */
+  readonly flagged: boolean;
+}
+
+/**
+ * The contracts accepted as mandates. A contract cannot prove which factory
+ * deployed it, so this is the only thing the adapter takes as proof. What the
+ * contract stores or runs can be compared with it and never replaces it.
+ */
+export interface MandateRegistry {
+  registered(
+    network: NetworkId,
+    contractId: string,
+    opts: CallOptions,
+  ): Promise<MandateRegistration | null>;
+}
+
 export interface AdapterPorts {
   /** Implemented in the db repository layer. */
   readonly store: AdapterStore;
+  /** Written only by event intake, from a trusted factory's mandate_created. */
+  readonly registry: MandateRegistry;
   /** Every key UJIRA holds signs through it; the adapter never sees key material. */
   readonly signer: SignerProvider;
   /** createSponsorshipPolicy over the database ledger, or a stand in under test. */

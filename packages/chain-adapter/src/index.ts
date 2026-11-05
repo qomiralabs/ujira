@@ -172,3 +172,17 @@ export type {
   WalletProofPurpose,
   WalletProofResult,
 } from './wallet-proof.js';
+
+export { createEventIntake } from './intake.js';
+export type {
+  EventBooking,
+  EventIntake,
+  EventIntakeOptions,
+  EventIntakeStore,
+  EventJson,
+  IgnoredReason,
+  IntakeOutcome,
+  LedgerEvent,
+  MandateTenant,
+  NewRegistration,
+} from './intake.js';

@@ -8,12 +8,23 @@ import { Keypair, xdr } from '@stellar/stellar-sdk/base';
 
 import { parseNetworksConfig } from '../config.js';
 import type { NetworksConfig } from '../config.js';
-import type { AdapterPorts, MandateRef, TenantScope, UnixSeconds, Uuid } from '../types.js';
+import type {
+  AdapterPorts,
+  MandateRef,
+  MandateRegistration,
+  TenantScope,
+  UnixSeconds,
+  Uuid,
+} from '../types.js';
 import { StellarMandateAdapter } from './mandate-adapter.js';
 import { createMemorySigningRequestStore } from './requests.js';
 import type { SigningRequestStore } from './requests.js';
 import { keypairSigner, memoryStore, recordingSponsorship } from './test-ports.js';
 import type { MemoryStore, RecordingSponsorship } from './test-ports.js';
+import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
+import { addressXdr } from './address-xdr.js';
+import { answeringRegistry } from './test-ports.js';
+import type { TestRegistry } from './test-ports.js';
 import { FIXTURE_FACTORY, FIXTURE_USDC, FakeRpc, loadReadFixture } from './test-rpc.js';
 import { accountKey } from './tx.js';
 
@@ -101,6 +112,7 @@ export interface TestSetup {
   readonly sponsorship: RecordingSponsorship;
   readonly requests: SigningRequestStore;
   readonly ports: AdapterPorts;
+  readonly registry: TestRegistry;
   readonly scope: TenantScope;
   readonly mandate: MandateRef;
   readonly principal: Keypair;
@@ -116,6 +128,10 @@ export function setup(
     readonly usdc?: string;
     readonly deny?: boolean;
     readonly submitTimeoutMs?: number;
+    /** False for a contract no trusted factory announced, with the same ledger entries. */
+    readonly registered?: boolean;
+    /** What the factory's event said, where a test needs it to differ. */
+    readonly registration?: Partial<MandateRegistration>;
     readonly nodeEnv?: string;
   } = {},
 ): TestSetup {
@@ -143,8 +159,24 @@ export function setup(
     nowSeconds,
   );
   const sponsorship = recordingSponsorship(options.deny ?? false);
+  const scope = fixture.scope as TenantScope & { principalId: Uuid; projectId: Uuid };
+  const registry = answeringRegistry(
+    options.registered === false
+      ? []
+      : [
+          {
+            network: NETWORK,
+            contractId: fixture.mandate,
+            factory: FIXTURE_FACTORY,
+            tenantTag: tenantTagOf(tenantRefOf(scope), addressXdr(fixture.mandate)),
+            flagged: false,
+            ...options.registration,
+          },
+        ],
+  );
   const ports: AdapterPorts = {
     store,
+    registry,
     signer: keypairSigner(
       NETWORK,
       new Map([
@@ -181,7 +213,8 @@ export function setup(
     sponsorship,
     requests,
     ports,
-    scope: fixture.scope as TenantScope & { principalId: Uuid; projectId: Uuid },
+    registry,
+    scope,
     mandate: {
       network: NETWORK,
       address: { network: NETWORK, value: fixture.mandate },

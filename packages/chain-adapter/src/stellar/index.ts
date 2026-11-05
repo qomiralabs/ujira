@@ -33,6 +33,13 @@ export {
   extensionPlan,
 } from './restore-policy.js';
 export type { ExtensionGroup, ExtensionPolicy, RestoredEntry } from './restore-policy.js';
+export {
+  createStellarEventIntake,
+  ledgerEventOf,
+  scanLedgerEvents,
+  stellarTenantTag,
+} from './events.js';
+export type { LedgerEventPage } from './events.js';
 export { createStellarRpc } from './rpc.js';
 export { accountBalance } from './tx.js';
 export { horizonDexSource, reflectorOracleSource } from './xlm-rate-sources.js';
@@ -40,6 +47,9 @@ export { fateOf } from './lifecycle.js';
 export type { ReconcileResult, SubmissionFate, SweepOptions } from './lifecycle.js';
 export type {
   JsonRpcOptions,
+  RpcEvent,
+  RpcEventPage,
+  RpcEventRequest,
   RpcLatestLedger,
   RpcLedgerEntry,
   RpcSendResult,

@@ -37,6 +37,7 @@ import type {
 import { accountFromSeed, addressXdr, contractAddress } from './address.js';
 import { hexOf, sha256, utf8 } from './bytes.js';
 import { MandateEngine } from './engine.js';
+import type { EngineConfig } from './types.js';
 import { MandateFactory } from './factory.js';
 import { TokenFailure } from './failures.js';
 import { FakeFaults } from './faults.js';
@@ -325,6 +326,22 @@ export class FakeNetwork {
   advance(seconds: bigint): void {
     this.ledger.advance(seconds);
     this.#close();
+  }
+
+  /**
+   * The factory's code deployed directly, as anyone can, with the factory, its
+   * fee address and a supported asset in its storage. It emits what a mandate
+   * emits, and the factory says nothing about it.
+   */
+  deployDirect(address: string, config: EngineConfig): MandateEngine {
+    return this.ledger.invoke(this.contract('direct-deployer'), 'call', () => {
+      return new MandateEngine(this.ledger, {
+        address,
+        factory: this.factory.address,
+        feeAddress: this.feeAddress,
+        config,
+      });
+    });
   }
 
   mandate(address: string): MandateEngine | undefined {

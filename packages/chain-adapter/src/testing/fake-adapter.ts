@@ -499,12 +499,12 @@ export class FakeChainAdapter implements ChainAdapter {
     return this.#traced('readMandate', () => {
       this.#reach(opts);
       this.#fresh();
-      const engine = this.#mandate(req.scope, req.mandate, false);
+      const engine = this.#mandate(req.scope, req.mandate);
       const c = engine.config();
       const s = engine.state();
       return Promise.resolve({
         mandate: req.mandate,
-        trustedFactory: this.#trusted(engine),
+        trustedFactory: true,
         tenantTagMatches: true,
         asset: 'USDC',
         config: this.#configView(c, s.policyEpoch),
@@ -541,7 +541,7 @@ export class FakeChainAdapter implements ChainAdapter {
         run = (caller) => this.#net.factory.create({ caller }, config, action.salt);
       } else {
         if (req.mandate === null) throw invalid('mandate (required)', this.network);
-        const engine = this.#mandate(req.scope, req.mandate, true);
+        const engine = this.#mandate(req.scope, req.mandate);
         run = this.#actionRun(action, engine);
         mandate = engine.address;
       }
@@ -616,7 +616,7 @@ export class FakeChainAdapter implements ChainAdapter {
   ): Promise<FundingInstructions> {
     return this.#traced('fundingInstructions', () => {
       this.#reach(opts);
-      this.#mandate(req.scope, req.mandate, true);
+      this.#mandate(req.scope, req.mandate);
       return Promise.resolve({
         mandate: req.mandate,
         address: req.mandate.address,
@@ -633,7 +633,7 @@ export class FakeChainAdapter implements ChainAdapter {
   prepareFunding(req: PrepareFundingRequest, opts: CallOptions): Promise<SigningRequest> {
     return this.#traced('prepareFunding', async () => {
       this.#reach(opts);
-      const engine = this.#mandate(req.scope, req.mandate, true);
+      const engine = this.#mandate(req.scope, req.mandate);
       const from = this.parseAddress(req.from.value).value;
       const amount = this.#units(req.amount, 'amount');
       if (amount < 1n) throw invalid('amount (not_positive)', this.network);
@@ -773,7 +773,7 @@ export class FakeChainAdapter implements ChainAdapter {
   pay(req: PayRequest, opts: CallOptions): Promise<PayStep> {
     return this.#traced(`pay ${idText(req.payoutId).slice(2, 10)}`, async () => {
       this.#reach(opts);
-      const engine = this.#mandate(req.scope, req.mandate, true);
+      const engine = this.#mandate(req.scope, req.mandate);
       this.#checkPay(req);
       for (const op of ['request', 'execute'] as const) {
         const live = await this.#store.liveSubmission({
@@ -797,7 +797,7 @@ export class FakeChainAdapter implements ChainAdapter {
   payBatch(req: PayBatchRequest, opts: CallOptions): Promise<BatchStep> {
     return this.#traced('payBatch', async () => {
       this.#reach(opts);
-      const engine = this.#mandate(req.scope, req.mandate, true);
+      const engine = this.#mandate(req.scope, req.mandate);
       if (req.items.length < 1 || req.items.length > this.capabilities().maxBatch) {
         throw invalid('items (invalid_length)', this.network);
       }
@@ -828,7 +828,7 @@ export class FakeChainAdapter implements ChainAdapter {
     return this.#traced('status', async () => {
       this.#reach(opts);
       this.#fresh();
-      const engine = this.#mandate(req.scope, req.mandate, true);
+      const engine = this.#mandate(req.scope, req.mandate);
       const view = engine.payout(req.payoutId);
       const onChain = onChainState(view);
       const now = this.#now();
@@ -867,7 +867,7 @@ export class FakeChainAdapter implements ChainAdapter {
     return this.#traced('proveDead', () => {
       this.#reach(opts);
       this.#fresh();
-      const engine = this.#mandate(req.scope, req.mandate, true);
+      const engine = this.#mandate(req.scope, req.mandate);
       return Promise.resolve(this.#deadProof(engine, req.payoutId, req.deadline));
     });
   }
@@ -876,7 +876,7 @@ export class FakeChainAdapter implements ChainAdapter {
     return this.#traced('receipt', () => {
       this.#reach(opts);
       this.#fresh();
-      this.#mandate(req.scope, req.mandate, true);
+      this.#mandate(req.scope, req.mandate);
       const found = this.#net.execution(req.payoutId);
       if (found === undefined) {
         if (this.#net.executionDropped(req.payoutId)) {
@@ -1945,7 +1945,7 @@ export class FakeChainAdapter implements ChainAdapter {
   // -------------------------------------------------------------------------
   // Shared checks
 
-  #mandate(scope: TenantScope, ref: MandateRef, mustTrust: boolean): MandateEngine {
+  #mandate(scope: TenantScope, ref: MandateRef): MandateEngine {
     if (ref.network !== this.network || ref.address.network !== this.network) {
       throw invalid('mandate.network (mismatch)', this.network);
     }
@@ -1956,14 +1956,22 @@ export class FakeChainAdapter implements ChainAdapter {
     if (engine.tenantTag !== mandateTenantTag(scope, engine.address)) {
       throw new TenantMismatchError({ network: this.network });
     }
-    if (mustTrust && !this.#trusted(engine)) {
+    if (!this.#registered(engine)) {
       throw new MandateUntrustedError({ network: this.network });
     }
     return engine;
   }
 
-  #trusted(engine: MandateEngine): boolean {
-    return this.#config().trustedFactories['1'].includes(engine.factory);
+  // A mandate counts only by a trusted factory's mandate_created, as the real
+  // adapter's registry does. What the engine says about itself proves nothing.
+  #registered(engine: MandateEngine): boolean {
+    const factories: readonly string[] = this.#config().trustedFactories['1'];
+    return this.#net.ledger.events.some(
+      (event) =>
+        event.name === 'mandate_created' &&
+        factories.includes(event.contract) &&
+        event.fields['mandate'] === engine.address,
+    );
   }
 
   async #signerAddress(signer: SignerRef, opts: CallOptions): Promise<string> {
