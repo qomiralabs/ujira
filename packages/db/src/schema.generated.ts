@@ -490,9 +490,9 @@ export interface UjiraReceiptLegs {
   asset: string;
   attempt_id: string;
   chain: string;
-  chain_tx_hash: string;
+  chain_receipt_ref: string;
   created_at: Generated<Timestamp>;
-  destination_address: string;
+  destination_masked: string;
   destination_tag: Numeric | null;
   fee_amount: Generated<Numeric>;
   leg_index: Int8;
@@ -505,17 +505,23 @@ export interface UjiraReceiptLegs {
 export interface UjiraReceipts {
   asset: string;
   attempt_id: string;
+  canonical_document: string;
   chain: string;
   chain_receipt_ref: string;
   created_at: Generated<Timestamp>;
+  document_sha256: Buffer;
   fee_amount: Generated<Numeric>;
   id: Generated<string>;
+  issued_at: Timestamp;
+  network: string;
   payout_id: string;
   principal_id: string;
   project_id: string;
+  receipt_number: string;
   revision: Int8;
   scale: number;
   settlement_amount: Numeric;
+  supersedes_sha256: Buffer | null;
 }
 
 export interface UjiraRecipientIdentities {
