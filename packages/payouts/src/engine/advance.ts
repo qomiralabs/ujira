@@ -91,16 +91,20 @@ export const ENGINE_TIMING = Object.freeze({
   finalityPollSeconds: 10,
   approvalPollSeconds: 60,
   deliveryPollSeconds: 60,
+  // A failed transfer waits for its attempt to lapse, which can take a day. Each look is
+  // a read, so there is no need to look often.
+  lapsePollSeconds: 900,
   waitPollSeconds: 300,
   // How many attempts before a payout that keeps dying is given up on.
   maxAttempts: 5,
 });
 
-interface Snapshot {
+export interface Snapshot {
   readonly payout: Payout;
   readonly attempts: readonly PayoutAttempt[];
   readonly live: PayoutAttempt | undefined;
   readonly legs: readonly PayoutLeg[];
+  readonly refusal: string | undefined;
 }
 
 export interface Prepared {
@@ -123,7 +127,8 @@ async function readSnapshot(job: TenantJob, deps: EngineDeps): Promise<Snapshot 
     const attempts = await payoutAttempts.forPayout(tx, payout.id);
     const live = attempts.find((attempt) => attempt.status !== 'dead');
     const legs = live === undefined ? [] : liveLegs(await payoutLegs.forAttempt(tx, live.id));
-    return { payout, attempts, live, legs };
+    const refusal = await payoutEngine.refusalCode(tx, payout.id);
+    return { payout, attempts, live, legs, refusal };
   });
 }
 
@@ -546,22 +551,6 @@ export async function persistStep(
 // Waited out by looking again later, without using up a try.
 const WAITS: ReadonlySet<unknown> = new Set(['funding', 'utc_day', 'resume', 'approval']);
 
-async function cancelOnChain(job: TenantJob, deps: EngineDeps, prepared: Prepared): Promise<void> {
-  const { attempt, request } = prepared;
-  await deps.cancelOnChain(
-    {
-      scope: request.scope,
-      mandateInstanceId: attempt.mandateInstanceId,
-      network: request.mandate.network,
-      payoutId: request.payoutId,
-    },
-    { signal: job.signal, correlationId: prepared.snapshot.payout.id },
-  );
-  await commit(job, deps, async (tx) => {
-    await scheduleNext(tx, job.ids, ENGINE_TIMING.finalityPollSeconds);
-  });
-}
-
 // A rail that fell over before anything was requested. The chain has not heard of these
 // legs, so the same attempt, under the same id, can go to the main method instead.
 const RESOLUTION_FAILURES: ReadonlySet<string> = new Set(['RAIL_UNAVAILABLE', 'QUOTE_UNAVAILABLE']);
@@ -632,12 +621,13 @@ async function afterRefusal(
     return;
   }
   // A leg that cannot be paid blocks the whole payout, since an execute is atomic. With
-  // other legs on it, cancel and pay the main method. Alone, it has nowhere else to go.
+  // other legs on it, this attempt is left to lapse and the main method pays. Alone, it
+  // has nowhere else to go.
   if (name === TRANSFER_FAILED && snapshot.legs.length > 1) {
     await commit(job, deps, async (tx) => {
       await payoutEngine.noteRefusal(tx, snapshot.payout.id, TRANSFER_FAILED);
+      await scheduleNext(tx, job.ids, ENGINE_TIMING.lapsePollSeconds);
     });
-    await cancelOnChain(job, deps, prepared);
     return;
   }
   // The refusal itself reached nothing, but that says nothing about what an earlier
@@ -666,6 +656,21 @@ async function afterRefusal(
   throw new RetryableJobError(name ?? error.code, { cause: error });
 }
 
+// A split whose transfer failed sits on chain with funds committed, and nothing UJIRA
+// holds may cancel it, because an agent key only ever asks for a payout. So it is not
+// executed again, and is left until its own expiry proves it dead. Only then does the
+// main method pay. An attempt that is already executing is past this, whatever was noted.
+const BEYOND_REQUEST: ReadonlySet<string> = new Set(['executing', 'settled', 'final']);
+
+export function waitingToLapse(snapshot: Snapshot): boolean {
+  return (
+    snapshot.refusal === TRANSFER_FAILED &&
+    snapshot.legs.length > 1 &&
+    snapshot.live !== undefined &&
+    !BEYOND_REQUEST.has(snapshot.live.status)
+  );
+}
+
 // What cannot land any more is proven dead before the next attempt. A live attempt past
 // its deadline with no proof stays exactly where it is, because it might still land,
 // and only a proof may free the payout.
@@ -673,6 +678,25 @@ async function submit(job: TenantJob, deps: EngineDeps, prepared: Prepared): Pro
   const { adapter, request, attempt, snapshot } = prepared;
   const options = { signal: job.signal, correlationId: snapshot.payout.id };
   try {
+    if (waitingToLapse(snapshot)) {
+      const proof = await adapter.proveDead(
+        {
+          scope: request.scope,
+          mandate: request.mandate,
+          payoutId: request.payoutId,
+          deadline: request.deadline,
+        },
+        options,
+      );
+      if (proof !== null) {
+        await persistDead(job, deps, prepared, proof);
+        return;
+      }
+      await commit(job, deps, async (tx) => {
+        await scheduleNext(tx, job.ids, ENGINE_TIMING.lapsePollSeconds);
+      });
+      return;
+    }
     if (attempt.status !== 'final' && nowOf(deps) >= attempt.deadline.getTime()) {
       const proof = await adapter.proveDead(
         {

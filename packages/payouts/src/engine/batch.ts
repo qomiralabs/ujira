@@ -31,6 +31,7 @@ import {
   endPayout,
   persistDead,
   persistStep,
+  waitingToLapse,
   type Prepared,
 } from './advance.js';
 import { packExecutes, packRequests } from './pack.js';
@@ -243,7 +244,10 @@ export function batchWork(deps: EngineDeps): TenantWork {
       });
       return;
     }
-    const toExecute = current.filter((item) => EXECUTABLE.has(item.prepared.attempt.status));
+    const toExecute = current.filter(
+      (item) =>
+        EXECUTABLE.has(item.prepared.attempt.status) && !waitingToLapse(item.prepared.snapshot),
+    );
     for (const item of current.filter((one) => !toExecute.includes(one))) {
       await commit(item.job, deps, async (tx) => {
         await handOff(tx, item, 0);

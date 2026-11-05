@@ -5,6 +5,7 @@
 // the same attempt goes to the main method. After, the chain holds a request that cannot
 // execute, so it is cancelled and a new attempt pays the main method alone.
 
+import type { ChainAdapter, ChainAdapterRegistry } from '@ujira/chain-adapter';
 import {
   payoutAttempts,
   payoutEngine,
@@ -17,7 +18,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { workerHarness, type WorkerHarness } from '../worker/testing/support.js';
 import { ENGINE_TIMING } from './advance.js';
-import type { LegShare } from './plan.js';
+import { batchWork } from './batch.js';
+import type { EngineDeps, LegShare } from './plan.js';
 import {
   engineWorld,
   Killed,
@@ -46,6 +48,27 @@ const SPLIT: readonly LegShare[] = [
 ];
 
 const delivered = [{ afterSeconds: 0, state: 'delivered', rawStatus: 'completed' }];
+
+// The mandates here give a payout a day before it lapses.
+const MANDATE_TTL = 86_400n;
+
+// Keeps each answer proveDead gives.
+function provingWatched(registry: ChainAdapterRegistry, proofs: unknown[]): ChainAdapterRegistry {
+  const watch = (real: ChainAdapter): ChainAdapter =>
+    new Proxy(real, {
+      get(on, property) {
+        const value: unknown = Reflect.get(on, property);
+        if (typeof value !== 'function') return value;
+        if (property !== 'proveDead') return (value as () => unknown).bind(on);
+        return async (...args: Parameters<ChainAdapter['proveDead']>) => {
+          const proof = await on.proveDead(...args);
+          proofs.push(proof);
+          return proof;
+        };
+      },
+    });
+  return { get: (network) => watch(registry.get(network)), list: () => registry.list().map(watch) };
+}
 
 const attemptsOf = async (payout: Payout): Promise<readonly PayoutAttempt[]> =>
   harness.db.tenant(TENANT).transaction(async (tx) => payoutAttempts.forPayout(tx, payout.id));
@@ -126,38 +149,160 @@ describe('leg fallback', () => {
     expect((await legsOf(first))[0]?.status).toBe('planned');
   });
 
-  it('TRANSFER_FAILED leads to cancel and a new single-leg attempt', async () => {
+  // A split on chain whose bank leg's destination is one the transfer to fails.
+  async function failedSplit(key: string, deps?: EngineDeps) {
     const world = await splitWorld();
-    // The bank leg's destination is one the transfer to fails, and the wallet's is not.
     const failing = await world.addAllowedMethod('bank', 'bank-destination');
     const before = await world.balanceOfRecipient();
     const total = 9n * ONE_USDC;
-    const payout = await world.payout('transfer-failed', usdc(total));
-
+    const payout = await world.payout(key, usdc(total));
     await world.run(payout);
     const [attempt] = await attemptsOf(payout);
     expect(attempt?.status).toBe('requested');
     expect(await legsOf(attempt)).toHaveLength(2);
-
     world.h.world.net.faults.transferFails(failing.value);
-    const paid = await world.drive(payout, { runs: 25 });
-    expect(paid.status).toBe('paid');
+    await world.h.advance(6n);
+    return { world, payout, attempt, before, total, deps };
+  }
 
+  const expectOnePaidOnTheMainMethod = async (
+    world: EngineWorld,
+    payout: Payout,
+    before: bigint,
+    total: bigint,
+  ): Promise<void> => {
+    expect((await world.read(payout.id)).status).toBe('paid');
     const attempts = await attemptsOf(payout);
     expect(attempts.map((one) => one.status)).toEqual(['dead', 'final']);
-    expect(attempts[0]?.deadProof).toMatchObject({ kind: 'tombstone', status: 'cancelled' });
+    expect(attempts[0]?.deadProof).toMatchObject({ kind: 'payout_lapsed' });
     expect(attempts[0]?.onChainPayoutId).not.toBe(attempts[1]?.onChainPayoutId);
     expect(world.executed(attempts[0]?.onChainPayoutId ?? '')).toBe(0);
     expect(world.executed(attempts[1]?.onChainPayoutId ?? '')).toBe(1);
-
     const legs = await legsOf(attempts[1]);
     expect(legs.map((leg) => [leg.method, leg.amount.amount])).toEqual([['stellar_wallet', total]]);
     expect((await world.balanceOfRecipient()) - before).toBe(total);
+  };
+
+  it('TRANSFER_FAILED leads to a lapse and a new single-leg attempt', async () => {
+    const { world, payout, before, total } = await failedSplit('transfer-failed');
+    await world.run(payout);
     expect(
       await harness.db
         .tenant(TENANT)
         .transaction(async (tx) => payoutEngine.refusalCode(tx, payout.id)),
     ).toBe('TRANSFER_FAILED');
+    await world.h.advance(MANDATE_TTL + 60n);
+    await world.drive(payout, { runs: 25 });
+    await expectOnePaidOnTheMainMethod(world, payout, before, total);
+  });
+
+  it('retries only after a payout_lapsed proof, and never before', async () => {
+    const { world, payout, attempt } = await failedSplit('never-before');
+    await world.run(payout);
+    const pays = world.pays.length;
+    const proofs: unknown[] = [];
+    const watching = {
+      ...world.deps,
+      adapters: provingWatched(world.deps.adapters, proofs),
+    };
+    // Past the attempt's own deadline, and on through the day, up to just short of expiry.
+    for (const step of [3_700n, 40_000n, 40_000n, 2_000n]) {
+      await world.h.advance(step);
+      await world.run(payout, { deps: watching });
+      const attempts = await attemptsOf(payout);
+      expect(attempts).toHaveLength(1);
+      expect(attempts[0]?.id).toBe(attempt?.id);
+      expect(attempts[0]?.status).toBe('requested');
+      expect(attempts[0]?.deadProof).toBeNull();
+    }
+    // It looked, and found no proof, and asked nothing else of the chain.
+    expect(proofs.length).toBeGreaterThanOrEqual(4);
+    expect(proofs.every((proof) => proof === null)).toBe(true);
+    expect(world.pays).toHaveLength(pays);
+    expect(world.executed(attempt?.onChainPayoutId ?? '')).toBe(0);
+
+    await world.h.advance(1_000n);
+    await world.drive(payout, { deps: watching, runs: 25 });
+    expect(proofs.find((proof) => proof !== null)).toMatchObject({ kind: 'payout_lapsed' });
+    expect(await attemptsOf(payout)).toHaveLength(2);
+  });
+
+  it('never cancels', async () => {
+    const { world, payout } = await failedSplit('no-cancel');
+    await world.run(payout);
+    await world.h.advance(MANDATE_TTL + 60n);
+    await world.drive(payout, { runs: 25 });
+    const cancelled = world.h.world.net.txs
+      .flatMap((tx) => tx.events)
+      .filter((event) => event.name === 'payout_cancelled');
+    expect(cancelled).toHaveLength(0);
+  });
+
+  it('a clean rerun of every step still gives one attempt on the main method', async () => {
+    const { world, payout, before, total } = await failedSplit('run-twice');
+    await world.run(payout);
+    await world.run(payout);
+    await world.h.advance(MANDATE_TTL + 60n);
+    for (let run = 0; run < 12; run += 1) {
+      await world.run(payout);
+      await world.run(payout);
+      await world.h.advance(6n);
+      if ((await world.read(payout.id)).status === 'paid') break;
+    }
+    await expectOnePaidOnTheMainMethod(world, payout, before, total);
+  });
+
+  it('a job killed at every step still gives one attempt on the main method', async () => {
+    const clean = await failedSplit('kill-measure');
+    const measured = killing(clean.world.deps, 0);
+    await clean.world.run(clean.payout, { deps: measured.deps });
+    await clean.world.h.advance(MANDATE_TTL + 60n);
+    await clean.world.drive(clean.payout, { deps: measured.deps, runs: 25 });
+    const points = measured.boundaries();
+    expect(points).toBeGreaterThan(5);
+
+    for (let point = 1; point <= points; point += 1) {
+      const { world, payout, before, total } = await failedSplit(`kill-${String(point)}`);
+      const dying = killing(world.deps, point);
+      let lapsed = false;
+      for (let run = 0; run < 25; run += 1) {
+        if ((await world.read(payout.id)).status === 'paid') break;
+        await world.run(payout, { deps: dying.deps }).catch((error: unknown) => {
+          if (!(error instanceof Killed)) throw error;
+        });
+        // A few looks before the expiry, so a death can land on one of those too.
+        if (run === 2 && !lapsed) {
+          await world.h.advance(MANDATE_TTL + 60n);
+          lapsed = true;
+        }
+        await world.h.advance(6n);
+      }
+      await expectOnePaidOnTheMainMethod(world, payout, before, total);
+    }
+  }, 280_000);
+
+  it('a batch leaves a split waiting to lapse alone', async () => {
+    const world = await splitWorld();
+    const failing = await world.addAllowedMethod('bank', 'bank-destination');
+    const { batchId, payouts } = await world.batch('waiting', [usdc(9n * ONE_USDC)]);
+    const work = batchWork(world.deps);
+    const job = {
+      context: TENANT,
+      ids: { batchId, mandateId: world.mandateId },
+      tryNumber: 1,
+      signal: new AbortController().signal,
+    };
+    await work(job);
+    await world.h.advance(6n);
+    world.h.world.net.faults.transferFails(failing.value);
+    await work(job);
+    const calls = world.batches.length;
+    const refused = payouts[0];
+    if (refused === undefined) throw new Error('no item');
+    expect((await attemptsOf(refused))[0]?.status).toBe('requested');
+    await world.h.advance(6n);
+    await work(job);
+    expect(world.batches).toHaveLength(calls);
   });
 
   it('a single leg whose transfer fails goes to a person, not round again', async () => {

@@ -495,9 +495,6 @@ export async function engineWorld(
     },
     signerFor: () => h.managedAgent.ref,
     attestationsFor: options.attestationsFor ?? nothingAttested,
-    cancelOnChain: async (req) => {
-      await act(h, m.ref, { op: 'cancel', payoutId: req.payoutId }, m.principal);
-    },
     alert: (alert) => alerts.push(alert),
     now: () => Number(net.now()) * 1_000,
     ...options.overrides,

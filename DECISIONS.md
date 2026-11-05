@@ -2,6 +2,30 @@
 
 Smaller design decisions, each with what it was choosing between. Newest first.
 
+## A split whose transfer failed waits to lapse rather than being cancelled
+
+**Problem.** An execute is atomic, so one leg whose transfer fails blocks the whole payout, and the chain holds the request with funds committed to it. The next attempt, on the recipient's main method, must wait until this one can never land. A cancel would prove that at once. The mandate lets an agent cancel its own payout, but the agent keys UJIRA holds may only ask for a payout: `AGENT_FUNCTIONS` in the signer's agent policy holds `request_payout` and `request_payouts`, and anything else stays with the principal's own wallet.
+
+**Options.**
+
+1. Let the attempt lapse. At its on-chain expiry the adapter gives a `payout_lapsed` proof, which frees a new attempt on the main method. It needs no key and no signature.
+2. Ask the principal's own wallet to cancel. No key changes, but the payout waits on a person, and something has to tell them.
+3. Add `cancel` to `AGENT_FUNCTIONS`. The fastest recovery, and it widens what a key UJIRA holds may sign. A stolen agent key could then cancel that agent's open payouts, although no funds would move. Non-custody rules this out without a person deciding it.
+
+Chose 1. Option 2 could be added later as a way for a principal to speed things up.
+
+- While it waits the job does not execute the attempt again, even if the transfer would now succeed. It only asks for the proof, about every 15 minutes, so the outcome does not depend on when a job happens to run.
+- A batch leaves such an item alone in the same way.
+- A failed transfer on a single leg is unchanged: it has no other method to go to, so it takes the bounded retries to a person.
+
+**Trade offs and risks.**
+
+- **The recipient waits up to the mandate's `payout_ttl_seconds`, and the funds stay committed until then.** Attestations can shorten that, and the test mandates use a day. A recipient on a failed split is not paid in the meantime, even if the cause clears. Nothing alerts on this wait: `refusal_code` shows `TRANSFER_FAILED` on a payout that is still live.
+- Each waiting payout costs one chain read per look.
+- Splits ship at P1, so nothing reaches this path until then.
+
+**Evidence.** `packages/payouts/src/engine/fallback.test.ts`: `retries only after a payout_lapsed proof, and never before`, `a clean rerun of every step still gives one attempt on the main method`, and `a job killed at every step still gives one attempt on the main method`.
+
 ## A new attempt rechecks the balance under the instance's row lock
 
 **Problem.** The router works out a mandate's free balance, and a job then writes an attempt against it. A job's running balance is only its own, so two jobs can promise the same funds. The queue runs one release per principal and network at a time, but that does not cover two runs after a lost job lock, which a test showed releasing 3 payouts against funds for 2. It also does not cover a new payout and a release, which are on different queues, so they can race with no lost lock at all. The mandate refuses to spend what it does not hold, so this cannot pay twice, but a money rule should not depend on the queue.
