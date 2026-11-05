@@ -23,6 +23,7 @@ const TABLES = [
   'ops.routing_config_active',
   'ops.identity_provider_events',
   'ops.email_quota_usage',
+  'ops.mandate_alerts',
   'ops.mandate_registry',
   'ops.rate_limit_buckets',
 ];

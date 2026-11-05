@@ -779,6 +779,12 @@ const cases: Record<string, () => Promise<void>> = {
   'mandateInstances.get': async () => {
     expect(await acrossA(async (tx) => mandateInstances.get(tx, b.instanceId))).toBeUndefined();
   },
+  'mandateInstances.byAddress': async () => {
+    const find = (contract: string) =>
+      acrossA(async (tx) => mandateInstances.byAddress(tx, 'stellar', contract));
+    expect((await find(a.contractAddress))?.id).toBe(a.instanceId);
+    expect(await find(b.contractAddress)).toBeUndefined();
+  },
   'mandateInstances.create': async () => {
     // Naming B's mandate is a tenant violation at the composite foreign key.
     const attempt = asA(async (tx) =>

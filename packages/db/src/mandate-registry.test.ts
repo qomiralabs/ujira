@@ -16,6 +16,7 @@ import {
   mandateEventStore,
   mandateRegistry,
   payoutBookings,
+  type MandateFlagReason,
   type NewMandateRegistration,
 } from './repositories/mandate-registry.js';
 import { chainEvents, mandateInstances, mandates } from './repositories/mandates.js';
@@ -141,17 +142,82 @@ describe('the mandate registry', () => {
   it('flags a contract for good', async () => {
     const first = registration();
     await store.register(first);
-    await store.flag(NETWORK, first.contractId);
+    await store.flag(NETWORK, first.contractId, 'tenant_tag_mismatch');
     await store.register(first);
     expect((await store.registered(NETWORK, first.contractId))?.flagged).toBe(true);
   });
 
   it('says when there was nothing to flag', async () => {
     const found = await db.unscoped(
-      async (tx) => mandateRegistry.flag(tx, NETWORK, `C${randomUUID()}`),
+      async (tx) => mandateRegistry.flag(tx, NETWORK, `C${randomUUID()}`, 'public_test_attester'),
       'worker',
     );
     expect(found).toBe(false);
+  });
+
+  const alertsOf = async (contractId: string) => {
+    const all = await db.unscoped(async (tx) => mandateRegistry.alertsAfter(tx, 0n, 100), 'worker');
+    return all.filter((alert) => alert.contractId === contractId).map((alert) => alert.reason);
+  };
+
+  it('raises an alert with a flag, once per reason however often it is flagged', async () => {
+    const first = registration();
+    await store.register(first);
+    await store.flag(NETWORK, first.contractId, 'public_test_attester');
+    await store.flag(NETWORK, first.contractId, 'public_test_attester');
+    expect(await alertsOf(first.contractId)).toEqual(['public_test_attester']);
+    await store.flag(NETWORK, first.contractId, 'tenant_tag_mismatch');
+    expect(await alertsOf(first.contractId)).toEqual([
+      'public_test_attester',
+      'tenant_tag_mismatch',
+    ]);
+  });
+
+  it('commits a flag and its alert together or not at all', async () => {
+    const first = registration();
+    await store.register(first);
+    const rolledBack = db.unscoped(async (tx) => {
+      await mandateRegistry.flag(tx, NETWORK, first.contractId, 'public_test_attester');
+      throw new Error('after the flag');
+    }, 'worker');
+    await expect(rolledBack).rejects.toThrow('after the flag');
+    expect((await store.registered(NETWORK, first.contractId))?.flagged).toBe(false);
+    expect(await alertsOf(first.contractId)).toEqual([]);
+  });
+
+  it('does not flag when the alert cannot be raised', async () => {
+    const first = registration();
+    await store.register(first);
+    const unknown = 'no_such_reason' as MandateFlagReason;
+    expect(await codeOf(store.flag(NETWORK, first.contractId, unknown))).toBe('23514');
+    expect((await store.registered(NETWORK, first.contractId))?.flagged).toBe(false);
+  });
+
+  it('keeps raising an alert for the two argument form the last release calls', async () => {
+    const first = registration();
+    await store.register(first);
+    await db.unscoped(
+      async (tx) => sql`select ops.flag_mandate(${NETWORK}, ${first.contractId})`.execute(tx),
+      'worker',
+    );
+    expect((await store.registered(NETWORK, first.contractId))?.flagged).toBe(true);
+    expect(await alertsOf(first.contractId)).toEqual(['tenant_tag_mismatch']);
+  });
+
+  it('reads alerts from where the reader stopped, and only the indexer can', async () => {
+    const first = registration();
+    await store.register(first);
+    await store.flag(NETWORK, first.contractId, 'public_test_attester');
+    const read = (after: bigint) =>
+      db.unscoped(async (tx) => mandateRegistry.alertsAfter(tx, after, 100), 'worker');
+    const found = (await read(0n)).find((alert) => alert.contractId === first.contractId);
+    expect(found).toMatchObject({ network: NETWORK, reason: 'public_test_attester' });
+    expect(found?.raisedAt).toBeInstanceOf(Date);
+    const ids = (await read(found?.id ?? 0n)).map((alert) => alert.id);
+    expect(ids).not.toContain(found?.id);
+    expect(await codeOf(db.unscoped(async (tx) => mandateRegistry.alertsAfter(tx, 0n, 10)))).toBe(
+      '42501',
+    );
   });
 
   it('refuses a tag or a transaction of the wrong length', async () => {
@@ -171,7 +237,11 @@ describe('the mandate registry', () => {
       await codeOf(db.unscoped(async (tx) => mandateRegistry.register(tx, registration()))),
     ).toBe('42501');
     expect(
-      await codeOf(db.unscoped(async (tx) => mandateRegistry.flag(tx, NETWORK, first.contractId))),
+      await codeOf(
+        db.unscoped(async (tx) =>
+          mandateRegistry.flag(tx, NETWORK, first.contractId, 'public_test_attester'),
+        ),
+      ),
     ).toBe('42501');
   });
 
@@ -181,6 +251,8 @@ describe('the mandate registry', () => {
         codeOf(db.unscoped(async (tx) => statement.execute(tx), role));
       expect(await run(sql`select * from ops.mandate_registry`), role).toBe('42501');
       expect(await run(sql`update ops.mandate_registry set flagged_at = null`), role).toBe('42501');
+      expect(await run(sql`select * from ops.mandate_alerts`), role).toBe('42501');
+      expect(await run(sql`delete from ops.mandate_alerts`), role).toBe('42501');
     }
   });
 });

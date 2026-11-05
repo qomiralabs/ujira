@@ -61,6 +61,7 @@ describe('the stellar entry', { timeout: 30_000 }, () => {
       'createFundingAccountFlow',
       'createMemorySigningRequestStore',
       'createStellarEventIntake',
+      'createStellarEventSource',
       'createStellarLedgerReader',
       'createStellarRpc',
       'extensionPlan',

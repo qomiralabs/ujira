@@ -4,6 +4,38 @@
 export * from './worker/index.js';
 export * from './engine/index.js';
 export {
+  FEE_OUTCOMES,
+  FeeNotUnderpaidError,
+  FeeReconciliationNotFoundError,
+  FeeReportForeignRowError,
+  FeeResolutionConflictError,
+  InvalidFeePeriodError,
+  checkFeeAddressBalance,
+  reconcileFee,
+  resolveUnderpaidFee,
+  runFeeReconciliation,
+  underpaidFeeReport,
+} from './fee-reconcile.js';
+export type {
+  FeeAddressLedger,
+  FeeAddressMovement,
+  FeeAlerts,
+  FeeBalanceCheck,
+  FeeDivergenceAlert,
+  FeeMismatchAlert,
+  FeeOutcome,
+  FeePage,
+  FeePageRequest,
+  FeePeriod,
+  FeeReconcileDeps,
+  FeeReconcileSummary,
+  FeeReconciliation,
+  FeeReconciliationRow,
+  FeeReconciliationStore,
+  FeeResolution,
+  UnderpaidFeeReport,
+} from './fee-reconcile.js';
+export {
   FEE_ESTIMATE_OPS,
   FEE_ESTIMATE_WINDOW_DAYS,
   FeeEstimateInputError,
@@ -51,3 +83,14 @@ export {
   withFee,
 } from './fee-builder.js';
 export type { AppliedFee, FeeBasis, FeeTerms, FeeTermsSource } from './fee-builder.js';
+export { isTransferFailed, onTransferFailed, zeroFeeRequest } from './fee-fallback.js';
+export type {
+  CancelSigner,
+  FeeFallbackAdapter,
+  FeeFallbackDeps,
+  FeeFallbackOutcome,
+  FeeFallbackStore,
+  FeeTransferFailure,
+  ResendIdentity,
+  ZeroFeeResend,
+} from './fee-fallback.js';

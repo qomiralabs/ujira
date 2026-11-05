@@ -16,5 +16,5 @@ export { runServer } from './run.js';
 export type { RunOptions } from './run.js';
 export { SERVER_NAME, SERVER_VERSION, createMcpServer } from './server.js';
 export type { McpServerOptions } from './server.js';
-export { TOOLS } from './tools.js';
-export type { ToolDefinition } from './tools.js';
+export { TOOLS, inputSchemaOf, parseToolInput } from './tools.js';
+export type { ParsedToolInput, ToolDefinition, ToolInputSchema } from './tools.js';
