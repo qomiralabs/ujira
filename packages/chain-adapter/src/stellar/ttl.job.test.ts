@@ -276,11 +276,9 @@ describe('ttl.job.test.ts', () => {
         },
       },
     });
-    expect(TTL_KEEP_ALIVE_TASK.name).toBe('chain_adapter.ttl_keep_alive');
-    const payload = { ...SCOPE, network: NETWORK, mandate: TARGET.mandate };
-    expect(TTL_KEEP_ALIVE_TASK.jobKey(payload)).toBe(
-      `ttl:${SCOPE.principalId}:${SCOPE.projectId}:${NETWORK}:${TARGET.mandate}`,
-    );
+    expect(TTL_KEEP_ALIVE_TASK.name).toBe('ttl:keep_alive');
+    const payload = { ...SCOPE, network: NETWORK, mandateRef: TARGET.mandate };
+    expect(TTL_KEEP_ALIVE_TASK.jobKey(payload)).toBe(`ttl:${NETWORK}:${TARGET.mandate}`);
     await task(payload);
     expect(loads).toEqual([
       {
@@ -299,7 +297,7 @@ describe('ttl.job.test.ts', () => {
     });
     await expect(lying(payload)).rejects.toBeInstanceOf(InvalidInputError);
     expect(ledger.calls).toHaveLength(1);
-    for (const bad of [{}, { ...payload, mandate: 'GABC' }, { ...payload, extra: 1 }, null]) {
+    for (const bad of [{}, { ...payload, mandateRef: 'GABC' }, { ...payload, extra: 1 }, null]) {
       await expect(task(bad)).rejects.toBeInstanceOf(InvalidInputError);
     }
   });

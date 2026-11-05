@@ -7,8 +7,9 @@ export default defineProject({
   test: {
     name: '@ujira/payouts',
     include: ['src/**/*.test.ts', 'spikes/**/*.test.ts'],
-    // The spike tests start a Postgres container and real worker pools.
+    // The worker's tests start a Postgres container and real worker pools.
     hookTimeout: 180000,
     testTimeout: 60000,
+    globalSetup: ['../db/src/testing/global-setup.ts'],
   },
 });
