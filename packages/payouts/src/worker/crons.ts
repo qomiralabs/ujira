@@ -7,10 +7,12 @@
 import { chainOf, type NetworkId } from '@ujira/chain-adapter';
 import { cronTargets, mandateInstances, workerPools, type Database } from '@ujira/db';
 import type { Task } from 'graphile-worker';
+import { z } from 'zod';
 
+import { JobPayloadError } from './errors.js';
 import type { Alert } from './handlers.js';
 import { STALE_AFTER_SECONDS, SUBMISSION_SWEEP, SWEEP_PAGE_SIZE } from './settings.js';
-import { enqueueTask, MANDATE_RECONCILE, TTL_KEEP_ALIVE } from './tasks.js';
+import { enqueueTask, MANDATE_RECONCILE, SYSTEM_TASKS, TTL_KEEP_ALIVE } from './tasks.js';
 
 export interface SweepDeps {
   readonly db: Database;
@@ -64,6 +66,50 @@ export function submissionSweep(sweepers: readonly SubmissionSweeper[]): Task {
     );
     const failed = results.find((result) => result.status === 'rejected');
     if (failed !== undefined) throw failed.reason;
+  };
+}
+
+// One network's scan of the chain's events. Takes a page from a stored cursor and
+// moves the cursor after it, so a run that dies only reads that page again.
+export interface NetworkScan {
+  readonly network: NetworkId;
+  readonly scan: {
+    step(opts: {
+      readonly signal: AbortSignal;
+      readonly correlationId: string;
+    }): Promise<{ readonly events: number }>;
+  };
+}
+
+// A run catches up by a bounded amount, so one network far behind cannot hold a worker
+// slot for long. The next minute's run goes on from the cursor.
+const MAX_SCAN_PAGES = 20;
+
+// Each network has its own cron line, and so its own queue. A scan that has to read back
+// over a page changes no rows, but two at once could step the cursor backwards.
+export function indexerScanCron(network: NetworkId): string {
+  const name = `${SYSTEM_TASKS.indexerScan}:${network}`;
+  // The parser allows no colons in an id, though it does in a queue.
+  const id = name.replaceAll(':', '_');
+  return (
+    `* * * * * ${SYSTEM_TASKS.indexerScan} ` +
+    `?id=${id}&queue=${name}&jobKey=${name}&max=3 ${JSON.stringify({ network })}`
+  );
+}
+
+const SCAN_PAYLOAD = z.object({ network: z.string().min(1).max(64) });
+
+export function indexerScan(scans: readonly NetworkScan[]): Task {
+  return async (payload, helpers) => {
+    const parsed = SCAN_PAYLOAD.safeParse(payload);
+    const scan = scans.find(({ network }) => network === parsed.data?.network)?.scan;
+    if (scan === undefined) throw new JobPayloadError(SYSTEM_TASKS.indexerScan);
+    const correlationId = `${SYSTEM_TASKS.indexerScan}:${helpers.job.id}`;
+    for (let page = 0; page < MAX_SCAN_PAGES; page += 1) {
+      if (helpers.abortSignal.aborted) return;
+      const { events } = await scan.step({ signal: helpers.abortSignal, correlationId });
+      if (events === 0) return;
+    }
   };
 }
 
