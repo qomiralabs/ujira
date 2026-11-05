@@ -6,11 +6,12 @@
 // everything else: authentication, validation, the deadline, response
 // checks, errors and logs. Handlers stay small and cannot skip a step.
 //
-// There are four ways in:
+// There are five ways in:
 // - contractRoute: a read route already described in @ujira/api-schema;
 //   its path, schemas and query rules come from there.
 // - defineTenantRoute: any other route that acts for a tenant.
 // - definePublicRoute: a route with no tenant, which must say why.
+// - defineEmbedRoute: a route the widget calls with an embed token.
 // - defineWebhookRoute: a provider's signed delivery, handed over as the
 //   exact bytes, because parsing first would verify something else.
 
@@ -20,6 +21,7 @@ import { z } from 'zod';
 
 import { API_SCOPES } from './auth.js';
 import type { ApiScope, CallOptions, Tenant } from './auth.js';
+import type { EmbedCaller } from './embed-auth.js';
 import { ApiError, RouteRegistryError } from './errors.js';
 import type { RequestLog } from './log.js';
 import type { RateLimitGroup } from './rate-limit.js';
@@ -34,11 +36,21 @@ export interface RequestContext {
   /** Pass to every chain adapter call, so the request id travels with it. */
   readonly call: CallOptions;
   readonly log: RequestLog;
+  /** The Origin header as sent, or null. */
+  readonly origin: string | null;
+  /** The API key that made this call, on a tenant route. */
+  readonly credentialId?: string;
+  /** Who the embed token lets in, on an embed route. */
+  readonly embed?: EmbedCaller;
 }
 
 export interface TenantRequestContext extends RequestContext {
   /** From the credential only. Hand it to every repository and adapter call. */
   readonly tenant: Tenant;
+}
+
+export interface EmbedRequestContext extends TenantRequestContext {
+  readonly embed: EmbedCaller;
 }
 
 export interface RouteInput<P, Q, B> {
@@ -52,7 +64,13 @@ export type QueryParse =
   | { readonly success: false; readonly code: ProblemCode; readonly errors: readonly FieldError[] };
 
 export type Access =
-  | { readonly kind: 'public'; readonly reason: string }
+  | {
+      readonly kind: 'public';
+      readonly reason: string;
+      /** A browser may read the answer, once the handler has accepted its origin. */
+      readonly browser?: boolean;
+    }
+  | { readonly kind: 'embed' }
   | {
       readonly kind: 'tenant';
       readonly scope: ApiScope;
@@ -114,6 +132,10 @@ export function routeAccessProblems(routes: readonly Route[]): string[] {
     } else if (access?.kind === 'public') {
       if (access.reason.trim().length < 10) {
         problems.push(`route ${route.id} must say why it needs no key`);
+      }
+    } else if (access?.kind === 'embed') {
+      if (!route.path.startsWith('/v1/embed/')) {
+        problems.push(`route ${route.id} takes an embed token outside /v1/embed/`);
       }
     } else {
       problems.push(`route ${route.id} declares no access`);
@@ -188,6 +210,8 @@ function errorStatuses(
   // A path id that does not parse cannot name anything.
   if (hasParams) codes.push('NOT_FOUND');
   if (access.kind === 'tenant') codes.push('TOKEN_INVALID', 'INSUFFICIENT_SCOPE', 'RATE_LIMITED');
+  if (access.kind === 'embed')
+    codes.push('EMBED_TOKEN_INVALID', 'ORIGIN_NOT_ALLOWED', 'RATE_LIMITED');
   if (hasBody) codes.push('INVALID_REQUEST', 'PAYLOAD_TOO_LARGE', 'UNSUPPORTED_MEDIA_TYPE');
   return [...new Set(statusesOf(codes))].sort((a, b) => a - b);
 }
@@ -298,15 +322,43 @@ export function definePublicRoute<
 >(
   spec: RouteSpec<P, Q, B, R> & {
     readonly reason: string;
+    /** A browser may read the answer, once the handler has accepted its origin. */
+    readonly browser?: boolean;
     readonly handler: (input: Input<P, Q, B>, context: RequestContext) => Promise<z.input<R>>;
   },
 ): Route {
   if (spec.reason.trim().length < 10) {
     throw new RouteRegistryError(`public route ${spec.id} must say why it needs no key`);
   }
-  return build(spec, { kind: 'public', reason: spec.reason }, (input, context) =>
-    spec.handler(input as Input<P, Q, B>, context),
-  );
+  const access: Access = {
+    kind: 'public',
+    reason: spec.reason,
+    ...(spec.browser === true ? { browser: true } : {}),
+  };
+  return build(spec, access, (input, context) => spec.handler(input as Input<P, Q, B>, context));
+}
+
+/**
+ * A route the widget calls. Only an embed token gets in, from an origin its session
+ * allows, and the handler must keep it to its own recipient.
+ */
+export function defineEmbedRoute<
+  R extends z.ZodType,
+  P extends z.ZodObject = NoInput,
+  Q extends z.ZodType = NoInput,
+  B extends z.ZodType = z.ZodUndefined,
+>(
+  spec: RouteSpec<P, Q, B, R> & {
+    readonly path: `/v1/embed/${string}`;
+    readonly handler: (input: Input<P, Q, B>, context: EmbedRequestContext) => Promise<z.input<R>>;
+  },
+): Route {
+  return build(spec, { kind: 'embed' }, (input, context, tenant) => {
+    // The pipeline authenticates first, so a gap here is its bug, and it fails closed.
+    const { embed } = context;
+    if (tenant === null || embed === undefined) return Promise.reject(new ApiError('INTERNAL'));
+    return spec.handler(input as Input<P, Q, B>, { ...context, tenant, embed });
+  });
 }
 
 const HEADER_NAME = /^[a-z0-9-]{1,64}$/;

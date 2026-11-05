@@ -33,6 +33,8 @@ export interface NewEmbedSession {
   readonly allowedOrigins: readonly string[];
   readonly createdByToken: string | null;
   readonly expiresAt: Date;
+  // An invite is exchanged for a token, once, and neither stands in for the other.
+  readonly kind?: 'token' | 'invite';
 }
 
 export interface EmbedSession {
@@ -89,6 +91,7 @@ export const embedSessions = {
         allowed_origins: [...input.allowedOrigins],
         created_by_token: input.createdByToken,
         expires_at: input.expiresAt,
+        kind: input.kind ?? 'token',
       })
       .returning(embedSessionColumns)
       .executeTakeFirstOrThrow();

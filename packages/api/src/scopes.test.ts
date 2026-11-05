@@ -41,7 +41,7 @@ describe('every route in the registry', () => {
       expect(routeAccessProblems([route])).toEqual([]);
       if (route.access.kind === 'tenant') {
         expect(API_SCOPES).toContain(route.access.scope);
-      } else {
+      } else if (route.access.kind === 'public') {
         expect(route.access.reason.trim().length).toBeGreaterThanOrEqual(10);
       }
     },

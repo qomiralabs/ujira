@@ -8,6 +8,8 @@
 import type { WalletProofFlow } from '@ujira/identity';
 
 import type { Route } from '../route.js';
+import { EMBED_NOT_CONFIGURED, embedRoutes } from './embed.js';
+import type { EmbedDependencies } from './embed.js';
 import { healthRoute } from './health.js';
 import { SELF_WEBHOOK_NOT_CONFIGURED, selfWebhookRoute } from './self-webhook.js';
 import type { SelfWebhookHandler } from './self-webhook.js';
@@ -21,6 +23,8 @@ import {
 export interface RouteDependencies {
   readonly selfWebhook: SelfWebhookHandler;
   readonly walletProof: WalletProofFlow;
+  /** Refuses everything when left out, until a database is configured. */
+  readonly embed?: EmbedDependencies;
 }
 
 export function v1Routes(deps: RouteDependencies): readonly Route[] {
@@ -29,6 +33,7 @@ export function v1Routes(deps: RouteDependencies): readonly Route[] {
     selfWebhookRoute(deps.selfWebhook),
     walletChallengeRoute(deps.walletProof),
     walletProofRoute(deps.walletProof),
+    ...embedRoutes(deps.embed ?? EMBED_NOT_CONFIGURED),
   ]);
 }
 

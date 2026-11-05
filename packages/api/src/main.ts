@@ -9,14 +9,21 @@ import { apiAccessFromEnv } from './access.js';
 import { createApp } from './app.js';
 import { loadApiConfig } from './config.js';
 import { stdoutLogger } from './log.js';
-import { V1_ROUTES } from './routes/index.js';
+import { SELF_WEBHOOK_NOT_CONFIGURED } from './routes/self-webhook.js';
+import { v1Routes } from './routes/index.js';
+import { WALLET_PROOF_NOT_CONFIGURED } from './routes/wallet-proofs.js';
 import { startServer } from './serve.js';
 
 const config = loadApiConfig(process.env);
 const access = apiAccessFromEnv(config, process.env, stdoutLogger);
 const app = createApp({
-  routes: V1_ROUTES,
+  routes: v1Routes({
+    selfWebhook: SELF_WEBHOOK_NOT_CONFIGURED,
+    walletProof: WALLET_PROOF_NOT_CONFIGURED,
+    embed: access.embed,
+  }),
   authenticate: access.authenticate,
+  authenticateEmbed: access.authenticateEmbed,
   rateLimit: access.rateLimit,
   logger: stdoutLogger,
   requestTimeoutMs: config.requestTimeoutMs,
