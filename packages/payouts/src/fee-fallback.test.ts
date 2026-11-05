@@ -4,9 +4,10 @@
 /*
  * Contract for the zero fee fallback (fee-fallback.ts), against the fake chain.
  *
- * - The fee address really cannot receive: the attempt is cancelled, and a new attempt
- *   with no fee goes out only once the old one is proven dead. The recipient is paid
- *   once and the mandate is charged the total only.
+ * - The fee address really cannot receive: UJIRA records the decision and sends nothing,
+ *   because no key it holds may cancel. A new attempt with no fee goes out only once the
+ *   old one has lapsed, proven at final. The recipient is paid once and the mandate is
+ *   charged the total only.
  * - A failing leg, a fee address that can receive and a fee of 0 stay on the leg path.
  * - One invoice item per payout and one alert per network until it is fixed, however
  *   many reruns and payouts there are.
@@ -21,7 +22,6 @@ import type {
   PayRequest,
   PayoutId,
   ReceivabilityReason,
-  SigningRequest,
   TenantScope,
 } from '@ujira/chain-adapter';
 import {
@@ -35,14 +35,17 @@ import {
 import type { TokenAmount } from '@ujira/core';
 
 import { isTransferFailed, onTransferFailed, zeroFeeRequest } from './index.js';
-import type { CancelSigner, FeeFallbackStore, ZeroFeeResend } from './index.js';
+import type { FeeFallbackStore, ZeroFeeResend } from './index.js';
 
 const OPTS = { correlationId: 'fee-fallback' };
 const TOTAL = 1_000_000n;
 const FEE = 5_000n;
 const FUNDS = 10_000_000n;
+// The fake mandate's payout time to live, and a moment past it.
+const PAST_THE_TTL = 86_401n;
 
 type Harness = ReturnType<typeof fakeAdapterHarness>;
+type World = Awaited<ReturnType<typeof setup>>;
 
 interface InvoiceItem {
   readonly scope: TenantScope;
@@ -54,22 +57,24 @@ interface InvoiceItem {
 function memoryStore(identityOf: (resend: ZeroFeeResend) => Promise<PayRequest>) {
   const decided = new Set<string>();
   const resent = new Map<string, PayRequest>();
+  const proofs: ZeroFeeResend['proof'][] = [];
   const items = new Map<string, InvoiceItem>();
   const alarms = new Set<NetworkId>();
   const alerts: { network: NetworkId; reason: ReceivabilityReason }[] = [];
   const keyOf = (scope: TenantScope, id: string) => `${scope.principalId}/${scope.projectId}/${id}`;
   const store: FeeFallbackStore = {
-    decideCancel: (scope, payoutId) => {
+    decideResend: (scope, payoutId) => {
       decided.add(keyOf(scope, payoutId));
       return Promise.resolve();
     },
-    cancelDecided: (scope, payoutId) => Promise.resolve(decided.has(keyOf(scope, payoutId))),
+    resendDecided: (scope, payoutId) => Promise.resolve(decided.has(keyOf(scope, payoutId))),
     resendWithoutFee: async (resend) => {
       const key = keyOf(resend.scope, resend.failed.payoutId);
       const existing = resent.get(key);
       if (existing !== undefined) return existing;
       const request = await identityOf(resend);
       resent.set(key, request);
+      proofs.push(resend.proof);
       const item = keyOf(resend.scope, resend.payout);
       if (!items.has(item)) {
         items.set(item, { scope: resend.scope, payout: resend.payout, fee: resend.unpaidFee });
@@ -88,18 +93,12 @@ function memoryStore(identityOf: (resend: ZeroFeeResend) => Promise<PayRequest>)
       return Promise.resolve();
     },
   };
-  return { store, items, alerts, decided };
+  return { store, items, alerts, decided, proofs };
 }
 
-/** Signs as the key UJIRA holds does on the fake chain. */
-const heldKey: CancelSigner = {
-  sign: (request: SigningRequest) =>
-    Promise.resolve(request.kind === 'stellar_transaction' ? request.xdr : null),
-};
-
-async function setup() {
+async function setup(fund: bigint = FUNDS) {
   const h = fakeAdapterHarness();
-  const m = await deployMandate(h, { maxFeeBps: 50, fund: FUNDS });
+  const m = await deployMandate(h, { maxFeeBps: 50, fund });
   const memory = memoryStore(async (resend) => {
     const label = `resend:${resend.failed.payoutId}`;
     const fresh = await payRequest(h, m, label, { total: resend.failed.total.amount });
@@ -110,7 +109,7 @@ async function setup() {
       attestations: [],
     });
   });
-  const deps = { adapter: h.adapter, store: memory.store, signer: heldKey };
+  const deps = { adapter: h.adapter, store: memory.store };
   return { h, m, deps, ...memory };
 }
 
@@ -133,17 +132,14 @@ function fixFeeAddress(h: Harness): void {
   net.activateRecipient(net.feeAddress);
 }
 
-async function failedPayment(
-  w: Awaited<ReturnType<typeof setup>>,
-  label: string,
-): Promise<PayRequest> {
+async function failedPayment(w: World, label: string): Promise<PayRequest> {
   const failed = await payRequest(w.h, w.m, label, { total: TOTAL, fee: FEE });
   const refusal = await refusalOf(drive(w.h.adapter, failed));
   expect(isTransferFailed(refusal)).toBe(true);
   return failed;
 }
 
-async function onChainOf(w: Awaited<ReturnType<typeof setup>>, request: PayRequest) {
+async function onChainOf(w: World, request: PayRequest) {
   const status = await w.h.adapter.status(
     {
       scope: request.scope,
@@ -161,23 +157,37 @@ function resendOf(outcome: Awaited<ReturnType<typeof onTransferFailed>>): PayReq
   return outcome.request;
 }
 
+/** A failed payment taken to the point where its attempt has lapsed, ready for the resend. */
+async function lapsed(w: World, label: string, payout = `p-${label}`) {
+  const failed = await failedPayment(w, label);
+  const input = { payout, failed, ...OPTS };
+  expect(await onTransferFailed(input, w.deps)).toEqual({ kind: 'awaiting_lapse' });
+  await w.h.advance(PAST_THE_TTL);
+  return { failed, input };
+}
+
 describe('fee-fallback', () => {
-  it('fee transfer failure cancels and re-requests with fee 0', async () => {
+  it('fee transfer failure lets the attempt lapse and re-requests with fee 0', async () => {
     const w = await setup();
     const { h, m, deps } = w;
     breakFeeAddress(h);
     const failed = await failedPayment(w, 'a');
+    const input = { payout: 'p-a', failed, ...OPTS };
 
-    const outcome = await onTransferFailed({ payout: 'p-a', failed, ...OPTS }, deps);
+    expect(await onTransferFailed(input, deps)).toEqual({ kind: 'awaiting_lapse' });
+    expect(await onChainOf(w, failed)).toBe('approved');
+    expect(w.items.size).toBe(0);
 
-    const request = resendOf(outcome);
-    expect(await onChainOf(w, failed)).toBe('cancelled');
+    await h.advance(PAST_THE_TTL);
+    const request = resendOf(await onTransferFailed(input, deps));
+
     expect(request.fee.amount).toBe(0n);
     expect(request.total).toEqual(failed.total);
     expect(request.attempt).toBe(failed.attempt + 1);
     expect(request.payoutId).not.toBe(failed.payoutId);
     expect(request.legs[0]?.legKey).not.toBe(failed.legs[0]?.legKey);
     expect(request.legs[0]?.amount).toEqual(failed.legs[0]?.amount);
+    expect(w.proofs).toEqual([expect.objectContaining({ kind: 'payout_lapsed' })]);
 
     const before = await h.balance(m.ref.address);
     const recipient = m.recipients[0]?.address;
@@ -187,6 +197,29 @@ describe('fee-fallback', () => {
     expect(await h.balance(recipient)).toBe(paidBefore + TOTAL);
     expect(await h.balance(m.ref.address)).toBe(before - TOTAL);
     expect(await h.balance({ network: h.adapter.network, value: h.world.net.feeAddress })).toBe(0n);
+  });
+
+  it('never tries to cancel, since no key UJIRA holds may', async () => {
+    const w = await setup();
+    const prepare = vi.spyOn(w.h.adapter, 'prepareMandateAction');
+    const submit = vi.spyOn(w.h.adapter, 'submitSigned');
+    breakFeeAddress(w.h);
+    const { input } = await lapsed(w, 'no-cancel');
+    prepare.mockClear();
+    submit.mockClear();
+
+    resendOf(await onTransferFailed(input, w.deps));
+
+    expect(prepare).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('cannot pay the old attempt once it has lapsed, whatever happens to the address', async () => {
+    const w = await setup();
+    breakFeeAddress(w.h);
+    const { failed } = await lapsed(w, 'late');
+    fixFeeAddress(w.h);
+    expect(await refusalOf(drive(w.h.adapter, failed))).toMatchObject({ code: 'MANDATE_RULE' });
   });
 
   it('leg transfer failure uses the normal leg fallback', async () => {
@@ -209,8 +242,7 @@ describe('fee-fallback', () => {
   it('one invoice item per payout', async () => {
     const w = await setup();
     breakFeeAddress(w.h);
-    const failed = await failedPayment(w, 'once');
-    const input = { payout: 'p-once', failed, ...OPTS };
+    const { failed, input } = await lapsed(w, 'once', 'p-once');
 
     const first = resendOf(await onTransferFailed(input, w.deps));
     const again = resendOf(await onTransferFailed(input, w.deps));
@@ -221,13 +253,28 @@ describe('fee-fallback', () => {
     ]);
   });
 
+  it('records nothing to invoice while the attempt could still land', async () => {
+    const w = await setup();
+    breakFeeAddress(w.h);
+    const failed = await failedPayment(w, 'waiting');
+    const input = { payout: 'p-waiting', failed, ...OPTS };
+    await onTransferFailed(input, w.deps);
+    await onTransferFailed(input, w.deps);
+    expect(w.items.size).toBe(0);
+  });
+
   it('keeps invoice items apart per payout', async () => {
     const w = await setup();
     breakFeeAddress(w.h);
     const one = await failedPayment(w, 'one');
     const two = await failedPayment(w, 'two');
-    await onTransferFailed({ payout: 'p-one', failed: one, ...OPTS }, w.deps);
-    await onTransferFailed({ payout: 'p-two', failed: two, ...OPTS }, w.deps);
+    const inputs = [
+      { payout: 'p-one', failed: one, ...OPTS },
+      { payout: 'p-two', failed: two, ...OPTS },
+    ];
+    for (const input of inputs) await onTransferFailed(input, w.deps);
+    await w.h.advance(PAST_THE_TTL);
+    for (const input of inputs) await onTransferFailed(input, w.deps);
     expect([...w.items.values()].map((item) => item.payout)).toEqual(['p-one', 'p-two']);
   });
 
@@ -285,17 +332,18 @@ describe('fee-fallback', () => {
     const { h } = w;
     breakFeeAddress(h);
     const failed = await failedPayment(w, 'landed');
+    const input = { payout: 'p', failed, ...OPTS };
+    expect(await onTransferFailed(input, w.deps)).toEqual({ kind: 'awaiting_lapse' });
+
     fixFeeAddress(h);
     expect((await drive(h.adapter, failed)).at(-1)?.kind).toBe('final');
     breakFeeAddress(h);
 
-    expect(await onTransferFailed({ payout: 'p', failed, ...OPTS }, w.deps)).toEqual({
-      kind: 'already_landed',
-    });
+    expect(await onTransferFailed(input, w.deps)).toEqual({ kind: 'already_landed' });
     expect(w.items.size).toBe(0);
   });
 
-  it('does not bring back a payout the principal cancelled', async () => {
+  it('does not bring back a payout the principal cancelled before the decision', async () => {
     const w = await setup();
     const { h, m } = w;
     breakFeeAddress(h);
@@ -307,6 +355,22 @@ describe('fee-fallback', () => {
     expect(outcome).toMatchObject({ kind: 'attempt_dead', proof: { status: 'cancelled' } });
     expect(w.items.size).toBe(0);
     expect(w.decided.size).toBe(0);
+  });
+
+  it('does not bring back a payout the principal cancelled during the wait', async () => {
+    const w = await setup();
+    const { h, m } = w;
+    breakFeeAddress(h);
+    const failed = await failedPayment(w, 'changed-mind');
+    const input = { payout: 'p', failed, ...OPTS };
+    expect(await onTransferFailed(input, w.deps)).toEqual({ kind: 'awaiting_lapse' });
+    await act(h, m.ref, { op: 'cancel', payoutId: failed.payoutId }, m.principal);
+
+    expect(await onTransferFailed(input, w.deps)).toMatchObject({
+      kind: 'attempt_dead',
+      proof: { status: 'cancelled' },
+    });
+    expect(w.items.size).toBe(0);
   });
 
   it('reports an attempt that is over when the address can receive', async () => {
@@ -327,14 +391,12 @@ describe('fee-fallback', () => {
     const w = await setup();
     const { h } = w;
     breakFeeAddress(h);
-    const failed = await failedPayment(w, 'killed');
+    const { input } = await lapsed(w, 'killed');
     const killed = new Error('worker killed');
     const spy = vi.spyOn(w.store, 'resendWithoutFee').mockRejectedValueOnce(killed);
-    const input = { payout: 'p', failed, ...OPTS };
 
     await expect(onTransferFailed(input, w.deps)).rejects.toBe(killed);
     spy.mockRestore();
-    expect(await onChainOf(w, failed)).toBe('cancelled');
     expect(w.items.size).toBe(0);
 
     fixFeeAddress(h);
@@ -343,67 +405,26 @@ describe('fee-fallback', () => {
     expect(w.items.size).toBe(1);
   });
 
-  it('a job killed before the cancel lands sends it on the rerun', async () => {
+  it('keeps waiting until the proof is final, however often it is asked', async () => {
     const w = await setup();
     breakFeeAddress(w.h);
-    const failed = await failedPayment(w, 'before-cancel');
-    const killed = new Error('worker killed');
-    const spy = vi.spyOn(w.h.adapter, 'submitSigned').mockRejectedValueOnce(killed);
-    const input = { payout: 'p', failed, ...OPTS };
+    const { input } = await lapsed(w, 'slow');
+    const prove = vi.spyOn(w.h.adapter, 'proveDead').mockResolvedValueOnce(null);
 
-    await expect(onTransferFailed(input, w.deps)).rejects.toBe(killed);
-    spy.mockRestore();
-    expect(await onChainOf(w, failed)).toBe('approved');
-
-    resendOf(await onTransferFailed(input, w.deps));
-    expect(await onChainOf(w, failed)).toBe('cancelled');
-  });
-
-  it('waits for the cancel to be final, and does not send it twice', async () => {
-    const w = await setup();
-    breakFeeAddress(w.h);
-    const failed = await failedPayment(w, 'slow');
-    const input = { payout: 'p', failed, ...OPTS };
-    const prove = vi.spyOn(w.h.adapter, 'proveDead');
-    // The first read is before the decision, the second after the cancel.
-    prove.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
-
-    expect(await onTransferFailed(input, w.deps)).toEqual({ kind: 'cancel_pending' });
+    expect(await onTransferFailed(input, w.deps)).toEqual({ kind: 'awaiting_lapse' });
     expect(w.items.size).toBe(0);
 
-    prove.mockResolvedValueOnce(null);
-    const submit = vi.spyOn(w.h.adapter, 'submitSigned');
-    expect(await onTransferFailed(input, w.deps)).toEqual({ kind: 'cancel_pending' });
-    expect(submit).not.toHaveBeenCalled();
-
-    resendOf(await onTransferFailed(input, w.deps));
-    expect(submit).not.toHaveBeenCalled();
-    expect(w.items.size).toBe(1);
-  });
-
-  it('asks the wallet when only the wallet can cancel, then finishes on the rerun', async () => {
-    const w = await setup();
-    breakFeeAddress(w.h);
-    const failed = await failedPayment(w, 'wallet');
-    const input = { payout: 'p', failed, ...OPTS };
-    const unheld = { ...w.deps, signer: { sign: () => Promise.resolve(null) } };
-
-    const outcome = await onTransferFailed(input, unheld);
-    expect(outcome).toMatchObject({ kind: 'signature_required' });
-    expect(await onChainOf(w, failed)).toBe('approved');
-    expect(w.items.size).toBe(0);
-
+    prove.mockRestore();
     resendOf(await onTransferFailed(input, w.deps));
     expect(w.items.size).toBe(1);
   });
 
-  it('leaves it to the approver when a rejection beat the cancel', async () => {
+  it('leaves it to the approver when a rejection comes during the wait', async () => {
     const w = await setup();
     breakFeeAddress(w.h);
     const failed = await failedPayment(w, 'rejected');
-    await w.store.decideCancel(failed.scope, failed.payoutId, {
-      signal: AbortSignal.timeout(1000),
-    });
+    const input = { payout: 'p', failed, ...OPTS };
+    expect(await onTransferFailed(input, w.deps)).toEqual({ kind: 'awaiting_lapse' });
     const proof = {
       kind: 'tombstone',
       network: w.h.adapter.network,
@@ -412,10 +433,7 @@ describe('fee-fallback', () => {
     } as const;
     vi.spyOn(w.h.adapter, 'proveDead').mockResolvedValueOnce(proof);
 
-    expect(await onTransferFailed({ payout: 'p', failed, ...OPTS }, w.deps)).toEqual({
-      kind: 'attempt_dead',
-      proof,
-    });
+    expect(await onTransferFailed(input, w.deps)).toEqual({ kind: 'attempt_dead', proof });
     expect(w.items.size).toBe(0);
   });
 
@@ -440,6 +458,24 @@ describe('fee-fallback', () => {
     const status = vi.spyOn(w.h.adapter, 'status');
     await onTransferFailed({ payout: 'p', failed, ...OPTS }, { ...w.deps, timeoutMs: 5_000 });
     expect(status.mock.calls[0]?.[1].signal).toBeInstanceOf(AbortSignal);
+  });
+});
+
+describe('a lapsed attempt still holds its funds', () => {
+  // Pinned because it limits the fallback: only a cancel gives a reservation back, a
+  // lapse does not, and no key UJIRA holds may cancel.
+  it('so a mandate with nothing spare cannot pay the resend until someone cancels', async () => {
+    const w = await setup(TOTAL + FEE);
+    const { h, m } = w;
+    breakFeeAddress(h);
+    const { failed, input } = await lapsed(w, 'tight');
+    const request = resendOf(await onTransferFailed(input, w.deps));
+
+    const refused = await refusalOf(drive(h.adapter, request));
+    expect(refused).toMatchObject({ code: 'MANDATE_RULE', specName: 'INSUFFICIENT_FUNDS' });
+
+    await act(h, m.ref, { op: 'cancel', payoutId: failed.payoutId }, m.principal);
+    expect((await drive(h.adapter, request)).at(-1)?.kind).toBe('final');
   });
 });
 
