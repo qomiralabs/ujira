@@ -107,7 +107,7 @@ export { pinnedKeys, verifyPinnedAddresses } from './key-ref.js';
 export type { PinnedKey } from './key-ref.js';
 export { NETWORK_IDS, chainOf, isNetworkId } from './networks.js';
 export type { NetworkId, StellarNetworkId } from './networks.js';
-export { railKindOf, type RailKind, RAIL_IDS, isRailId } from './rails.js';
+export { BATCH_LIMITS, railKindOf, type RailKind, RAIL_IDS, isRailId } from './rails.js';
 export { RECEIPT_HASH_FORMATS, formatReceiptRef, parseReceiptRef } from './receipt-ref.js';
 export type { ReceiptRefParts } from './receipt-ref.js';
 export { createChainAdapterRegistry } from './registry.js';

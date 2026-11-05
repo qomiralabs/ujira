@@ -84,6 +84,17 @@ export const payoutEngine = {
     return result.numUpdatedRows === 1n;
   },
 
+  // A refusal the payout has not ended on, such as an execute that goes on to its own
+  // retries. Kept so it can be seen while they run.
+  noteRefusal: async (tx: Tx, payoutId: string, code: string): Promise<boolean> => {
+    const result = await tx
+      .updateTable('ujira.payouts')
+      .set({ refusal_code: code })
+      .where('id', '=', payoutId)
+      .executeTakeFirst();
+    return result.numUpdatedRows === 1n;
+  },
+
   // Why a payout ended, if it did.
   refusalCode: async (tx: Tx, payoutId: string): Promise<string | undefined> => {
     const row = await tx

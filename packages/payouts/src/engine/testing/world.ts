@@ -29,6 +29,7 @@ import { tokenAmount, type Money, type TokenAmount } from '@ujira/core';
 import {
   mandateInstances,
   mandates,
+  payoutBatches,
   payoutMethods,
   payouts,
   recipients,
@@ -189,6 +190,12 @@ export interface EngineWorld {
   // Each call the adapter's quote received, on the deps' own adapter.
   readonly quotes: unknown[];
   readonly pays: unknown[];
+  readonly batches: unknown[];
+  batch(
+    key: string,
+    amounts: readonly TokenAmount[],
+    options?: { readonly secondRecipientAt?: number },
+  ): Promise<{ readonly batchId: string; readonly payouts: readonly Payout[] }>;
   addMethod(method: PayoutMinimumMethod, recipient?: 0 | 1): Promise<string>;
   payout(key: string, requested: Money | TokenAmount, extra?: Partial<NewPayout>): Promise<Payout>;
   // One job, as a pool would run it.
@@ -321,9 +328,13 @@ export function killing(
       get(on, property) {
         const value: unknown = Reflect.get(on, property);
         if (typeof value !== 'function') return value;
-        if (property !== 'pay') return (value as () => unknown).bind(on);
-        return async (...args: Parameters<ChainAdapter['pay']>) => {
-          const step = await on.pay(...args);
+        if (property !== 'pay' && property !== 'payBatch') {
+          return (value as () => unknown).bind(on);
+        }
+        return async (...args: readonly unknown[]) => {
+          const step: unknown = await (value as (...a: unknown[]) => Promise<unknown>).apply(on, [
+            ...args,
+          ]);
           boundary();
           return step;
         };
@@ -348,14 +359,16 @@ const nothingAttested: EngineDeps['attestationsFor'] = () =>
 
 function spying(
   adapter: ChainAdapter,
-  calls: { readonly quotes: unknown[]; readonly pays: unknown[] },
+  calls: { readonly quotes: unknown[]; readonly pays: unknown[]; readonly batches: unknown[] },
 ): ChainAdapter {
   return new Proxy(adapter, {
     get(target, property) {
       const value: unknown = Reflect.get(target, property);
       if (typeof value !== 'function') return value;
-      if (property === 'quote' || property === 'pay') {
-        const seen = property === 'quote' ? calls.quotes : calls.pays;
+      const seen = { quote: calls.quotes, pay: calls.pays, payBatch: calls.batches }[
+        property as string
+      ];
+      if (seen !== undefined) {
         return (...args: readonly unknown[]): unknown => {
           seen.push(args[0]);
           return (value as (...a: readonly unknown[]) => unknown).apply(target, [...args]);
@@ -446,7 +459,8 @@ export async function engineWorld(
 
   const quotes: unknown[] = [];
   const pays: unknown[] = [];
-  const wrapped = spying(h.adapter, { quotes, pays });
+  const batches: unknown[] = [];
+  const wrapped = spying(h.adapter, { quotes, pays, batches });
   const enabled = new Map([[NETWORK, wrapped]]);
   const adapters: ChainAdapterRegistry = {
     get: (network) => {
@@ -490,6 +504,27 @@ export async function engineWorld(
     alerts,
     quotes,
     pays,
+    batches,
+    batch: async (key, amounts, batch = {}) =>
+      harness.db.tenant(TENANT).transaction(async (tx) => {
+        const created = await payoutBatches.create(tx, {
+          idempotencyKey: `batch-${key}-${salt}`,
+          items: amounts.map((requested, index) => ({
+            idempotencyKey: `${key}-${salt}-${String(index)}`,
+            recipientId:
+              index === batch.secondRecipientAt ? rows.secondRecipientId : rows.recipientId,
+            mandateId: rows.mandateId,
+            method: 'stellar_wallet',
+            requested,
+          })),
+        });
+        return {
+          batchId: created.batch.id,
+          payouts: created.items.flatMap((item) =>
+            item.outcome === 'refused' ? [] : [item.payout],
+          ),
+        };
+      }),
     addMethod: async (method, recipient = 0) => {
       const holder = recipient === 0 ? rows.recipientId : rows.secondRecipientId;
       const destination = m.recipients[recipient];

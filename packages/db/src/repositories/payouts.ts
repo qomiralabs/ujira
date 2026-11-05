@@ -536,6 +536,25 @@ export const payoutBatches = {
     };
   },
 
+  // The payouts of one batch on one mandate.
+  items: async (
+    db: Tx,
+    batchId: string,
+    mandateId: string,
+    page: PageRequest,
+  ): Promise<Page<Payout>> => {
+    const limit = checkedLimit(page.limit);
+    let query = db
+      .selectFrom('ujira.payouts')
+      .select(payoutColumns)
+      .where('batch_id', '=', batchId)
+      .where('mandate_id', '=', mandateId)
+      .orderBy('id')
+      .limit(limit + 1);
+    if (page.after !== undefined) query = query.where('id', '>', page.after);
+    return pageOf((await query.execute()).map(toPayout), limit, (payout) => payout.id);
+  },
+
   get: async (db: Tx, id: string): Promise<PayoutBatch | undefined> => {
     const row = await db
       .selectFrom('ujira.payout_batches')

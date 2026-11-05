@@ -1273,6 +1273,15 @@ const cases: Record<string, () => Promise<void>> = {
   'payoutEngine.markUnavailable': async () => {
     expect(await asA(async (tx) => payoutEngine.markUnavailable(tx, b.payoutId))).toBe(false);
   },
+  'payoutEngine.noteRefusal': async () => {
+    expect(await asA(async (tx) => payoutEngine.noteRefusal(tx, b.payoutId, 'NOPE'))).toBe(false);
+  },
+  'payoutBatches.items': async () => {
+    const page = await asA(async (tx) =>
+      payoutBatches.items(tx, b.batchId, b.mandateId, { limit: 10 }),
+    );
+    expect(page.items).toEqual([]);
+  },
   'payoutEngine.refusalCode': async () => {
     expect(await asA(async (tx) => payoutEngine.refusalCode(tx, b.payoutId))).toBeUndefined();
   },

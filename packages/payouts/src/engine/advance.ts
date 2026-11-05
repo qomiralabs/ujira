@@ -99,7 +99,7 @@ interface Snapshot {
   readonly legs: readonly PayoutLeg[];
 }
 
-interface Prepared {
+export interface Prepared {
   readonly snapshot: Snapshot;
   readonly attempt: PayoutAttempt;
   readonly adapter: ChainAdapter;
@@ -188,7 +188,7 @@ async function walkLeg(
 
 // A lost race rolls this transaction back and ends the run, because the job that won
 // is the one that schedules what comes next.
-async function commit(
+export async function commit(
   job: TenantJob,
   deps: EngineDeps,
   work: (tx: TenantTx) => Promise<void>,
@@ -200,7 +200,7 @@ async function commit(
   }
 }
 
-async function endPayout(
+export async function endPayout(
   job: TenantJob,
   deps: EngineDeps,
   from: PayoutStatusValue,
@@ -389,7 +389,7 @@ async function prepare(
 
 const LEG_CANCELLABLE: ReadonlySet<string> = new Set(['planned', 'submitted']);
 
-async function persistDead(
+export async function persistDead(
   job: TenantJob,
   deps: EngineDeps,
   prepared: Prepared,
@@ -476,18 +476,21 @@ async function persistFinal(
   await scheduleNext(tx, job.ids, ENGINE_TIMING.deliveryPollSeconds);
 }
 
-async function persistStep(
+export async function persistStep(
   job: TenantJob,
   deps: EngineDeps,
   prepared: Prepared,
   step: Exclude<PayStep, { readonly kind: 'dead' }>,
+  // A batch keeps an item it has just requested, to execute it in company.
+  options: { readonly schedule?: boolean } = {},
 ): Promise<void> {
+  const schedule = options.schedule ?? true;
   const { attempt, snapshot, adapter, request } = prepared;
   const { payout, legs } = snapshot;
   const target = targetOf(step);
   if (target === null) {
     await commit(job, deps, async (tx) => {
-      await scheduleNext(tx, job.ids, nextPollOf(step));
+      if (schedule) await scheduleNext(tx, job.ids, nextPollOf(step));
     });
     return;
   }
@@ -515,7 +518,7 @@ async function persistStep(
     const at = await walkPayout(tx, payout.id, payout.status as PayoutStatusValue, target.payout);
     for (const leg of legs) await walkLeg(tx, leg, target.leg, txHash);
     if (delivery === undefined) {
-      await scheduleNext(tx, job.ids, nextPollOf(step));
+      if (schedule) await scheduleNext(tx, job.ids, nextPollOf(step));
       return;
     }
     const delivered = new Map(delivery.legs.map((leg) => [leg.legKey, legStatusOf(leg.state)]));
@@ -635,7 +638,10 @@ async function submit(job: TenantJob, deps: EngineDeps, prepared: Prepared): Pro
   }
 }
 
-async function advanceQuote(job: TenantJob, deps: EngineDeps): Promise<Prepared | undefined> {
+export async function advanceQuote(
+  job: TenantJob,
+  deps: EngineDeps,
+): Promise<Prepared | undefined> {
   const snapshot = await readSnapshot(job, deps);
   if (snapshot === undefined || TERMINAL_PAYOUT.has(snapshot.payout.status)) return undefined;
   if (snapshot.payout.status === 'needs_attention') return undefined;

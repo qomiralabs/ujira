@@ -15,6 +15,12 @@ export const RAIL_IDS = Object.freeze([
 
 const KNOWN: ReadonlySet<unknown> = new Set<unknown>(RAIL_IDS);
 
+/**
+ * What one call to the mandate can carry, from the vendored spec. A test compares
+ * these with the spec file, so a change there cannot drift past this.
+ */
+export const BATCH_LIMITS = Object.freeze({ maxBatch: 10, maxBatchTransfers: 18 });
+
 /** What a recipient's stored method says it is, whatever the chain calls the rail. */
 export type RailKind = 'wallet' | 'anchor';
 

@@ -51,7 +51,8 @@ export const PAYOUT_ADVANCE: TenantTask = {
 export const BATCH_ADVANCE: TenantTask = {
   name: 'batch:advance',
   ids: ['batchId', 'mandateId'],
-  jobKey: (ids) => `batch:${need(ids, 'batchId')}`,
+  // One job for each mandate a batch names, since each waits in its mandate's queue.
+  jobKey: (ids) => `batch:${need(ids, 'batchId')}:${need(ids, 'mandateId')}`,
   queueName: payoutQueue,
 };
 
