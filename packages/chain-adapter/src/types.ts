@@ -333,6 +333,12 @@ export interface AdapterStore {
     txHash: string,
     patch: SubmissionPatch,
   ): Promise<void>;
+  /** One tenant's record by hash, in any state. Another tenant's row reads as null. */
+  findSubmission(
+    scope: TenantScope,
+    network: NetworkId,
+    txHash: string,
+  ): Promise<SubmissionRecord | null>;
   liveSubmission(key: {
     readonly scope: TenantScope;
     readonly network: NetworkId;
@@ -654,6 +660,8 @@ export type SigningRequest =
       readonly sponsored: boolean;
       readonly summary: SigningSummary;
       readonly requestId: string;
+      /** Set when this replaces a request the network refused for resources. */
+      readonly reason?: 'RESIMULATED';
     }
   | {
       readonly kind: 'stellar_auth_entry';
@@ -663,6 +671,8 @@ export type SigningRequest =
       readonly expirationLedger: number;
       readonly summary: SigningSummary;
       readonly requestId: string;
+      /** Set when this replaces a request the network refused for resources. */
+      readonly reason?: 'RESIMULATED';
     };
 
 export interface SignedSubmission {

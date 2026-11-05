@@ -30,6 +30,7 @@ export {
   RailRejectedError,
   RailTimeoutError,
   RailUnavailableError,
+  RateUnavailableError,
   ReorgedError,
   RpcLaggingError,
   RpcRateLimitedError,
@@ -138,5 +139,15 @@ export type {
   BatchSimulationPort,
 } from './bisect.js';
 export { tenantRefOf, tenantTagOf } from './tenant-ref.js';
+export { createXlmRateReader, deviationBps } from './stellar/xlm-rate.js';
+export type {
+  XlmRate,
+  XlmRateAlerts,
+  XlmRateObservation,
+  XlmRateReader,
+  XlmRateReaderOptions,
+  XlmRateSource,
+  XlmRateSourceName,
+} from './stellar/xlm-rate.js';
 export { CHAIN_ADAPTER_INTERFACE_VERSION } from './types.js';
 export type * from './types.js';
