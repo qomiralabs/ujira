@@ -88,7 +88,7 @@ beforeEach(async () => {
       tx,
       newAttempt(fixture, payout.id, {
         total: usdc(TOTAL),
-        legs: [newLeg(fixture, FIRST_LEG), newLeg(fixture, SECOND_LEG)],
+        legs: [newLeg(fixture, FIRST_LEG, 0), newLeg(fixture, SECOND_LEG, 1)],
       }),
     );
     return { payoutId: payout.id, attemptId: attempt.id };
