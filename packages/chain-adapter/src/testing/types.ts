@@ -115,6 +115,13 @@ export interface EngineConfigView extends EngineConfig {
   readonly proposedPrincipal: string | null;
   readonly recoveryEpoch: number;
   readonly agentEpoch: number;
+  readonly approverEpoch: number;
+}
+
+/** An approval counts only while its approver still holds this epoch. */
+export interface EngineApproval {
+  readonly approver: string;
+  readonly epoch: number;
 }
 
 export interface EnginePayoutRecord {
@@ -129,7 +136,7 @@ export interface EnginePayoutRecord {
   readonly createdAt: bigint;
   readonly expiresAt: bigint;
   readonly policyEpoch: bigint;
-  readonly approvals: readonly string[];
+  readonly approvals: readonly EngineApproval[];
 }
 
 export interface EngineTombstone {
