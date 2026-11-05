@@ -18,6 +18,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 import { McpApiError } from './client.js';
 import type { ApiClient } from './client.js';
+import { UnsafeToolError, toolProblems } from './safety.js';
 import { TOOLS, inputSchemaOf, parseToolInput } from './tools.js';
 import type { ToolDefinition } from './tools.js';
 
@@ -37,6 +38,8 @@ function failure(text: string): CallToolResult {
 
 export function createMcpServer(options: McpServerOptions): McpServer {
   const tools = options.tools ?? TOOLS;
+  const problems = toolProblems(tools);
+  if (problems.length > 0) throw new UnsafeToolError(problems);
   const mcp = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     { capabilities: { tools: {} } },

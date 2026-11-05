@@ -17,6 +17,8 @@ export interface ToolDefinition {
   readonly route: RouteId;
   /** The one scope the API key needs for this tool. */
   readonly scope: string;
+  /** Only a tool marked here may change anything, or hold a scope that can. */
+  readonly write?: true;
   /** Inputs the route takes that this tool does not offer, and refuses. */
   readonly hiddenInputs?: readonly string[];
 }
