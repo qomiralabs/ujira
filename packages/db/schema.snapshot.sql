@@ -4986,6 +4986,14 @@ ALTER TABLE ONLY ujira.mandates
 
 
 --
+-- Name: payout_attempts payout_attempts_fee_terms; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.payout_attempts
+    ADD CONSTRAINT payout_attempts_fee_terms FOREIGN KEY (principal_id, project_id, fee_terms_id) REFERENCES ujira.fee_terms(principal_id, project_id, id);
+
+
+--
 -- Name: payout_attempts payout_attempts_principal_id_project_id_mandate_instance_i_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
