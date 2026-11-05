@@ -379,7 +379,7 @@ describe('funding-account.test.ts', () => {
       expect(error).toBeInstanceOf(FundingInputError);
     });
 
-    it('funds nothing from an instance whose network is not known', async () => {
+    it('funds nothing from an instance on a network this build does not know', async () => {
       const w = world();
       const scope = tenant();
       const unknown = w.instance(scope, on(null));
