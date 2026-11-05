@@ -18,12 +18,22 @@ import { OPENAPI_COMPONENTS, PROBLEM_CODES, ROUTES, parseQuery } from '@ujira/ap
 import type { FieldError, ProblemCode, RouteId, RouteQuery } from '@ujira/api-schema';
 import { z } from 'zod';
 
+import { API_SCOPES } from './auth.js';
 import type { ApiScope, CallOptions, Tenant } from './auth.js';
 import { ApiError, RouteRegistryError } from './errors.js';
 import type { RequestLog } from './log.js';
+import type { AddressLimitGroup, RateLimitGroup } from './rate-limit.js';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 export type SuccessStatus = 200 | 201 | 202;
+export type DownloadContentType = 'text/csv; charset=utf-8' | 'application/pdf';
+
+/** What a download route's handler returns. The name goes in a header, so it stays plain. */
+export const FileDownload = z.strictObject({
+  filename: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+  body: z.union([z.string(), z.custom<Uint8Array>((value) => value instanceof Uint8Array)]),
+});
+export type FileDownload = z.infer<typeof FileDownload>;
 
 export interface RequestContext {
   readonly requestId: string;
@@ -50,8 +60,18 @@ export type QueryParse =
   | { readonly success: false; readonly code: ProblemCode; readonly errors: readonly FieldError[] };
 
 export type Access =
-  | { readonly kind: 'public'; readonly reason: string }
-  | { readonly kind: 'tenant'; readonly scope: ApiScope };
+  | {
+      readonly kind: 'public';
+      readonly reason: string;
+      /** Limits by client address, since there is no key to limit by. */
+      readonly addressLimit?: AddressLimitGroup;
+    }
+  | {
+      readonly kind: 'tenant';
+      readonly scope: ApiScope;
+      /** A tighter limit on top of the ones every tenant route has. */
+      readonly rateLimit?: RateLimitGroup;
+    };
 
 /** A route as the pipeline sees it, with its types erased. */
 export interface Route {
@@ -70,6 +90,8 @@ export interface Route {
     readonly status: SuccessStatus;
     readonly name: string;
     readonly schema: z.ZodType;
+    /** Set when the answer is a file and not JSON. */
+    readonly download?: { readonly contentType: DownloadContentType };
   };
   /** Statuses this route can answer with besides its success status. */
   readonly errorStatuses: readonly number[];
@@ -87,6 +109,32 @@ export interface WebhookInput {
   readonly rawBody: Uint8Array;
   /** Only the headers the route declared, by lower case name. */
   readonly headers: Readonly<Record<string, string | undefined>>;
+}
+
+const KNOWN_SCOPES: ReadonlySet<string> = new Set(API_SCOPES);
+
+/**
+ * Everything wrong with how these routes declare who may call them. The
+ * definers require all of it, but a route can be built as a plain object, and a
+ * route with no scope must not get as far as serving.
+ */
+export function routeAccessProblems(routes: readonly Route[]): string[] {
+  const problems: string[] = [];
+  for (const route of routes) {
+    const access = route.access as Access | undefined;
+    if (access?.kind === 'tenant') {
+      if (!KNOWN_SCOPES.has(access.scope)) {
+        problems.push(`route ${route.id} has no scope from the closed list`);
+      }
+    } else if (access?.kind === 'public') {
+      if (access.reason.trim().length < 10) {
+        problems.push(`route ${route.id} must say why it needs no key`);
+      }
+    } else {
+      problems.push(`route ${route.id} declares no access`);
+    }
+  }
+  return problems;
 }
 
 const NoInput = z.strictObject({});
@@ -155,6 +203,7 @@ function errorStatuses(
   // A path id that does not parse cannot name anything.
   if (hasParams) codes.push('NOT_FOUND');
   if (access.kind === 'tenant') codes.push('TOKEN_INVALID', 'INSUFFICIENT_SCOPE', 'RATE_LIMITED');
+  if (access.kind === 'public' && access.addressLimit !== undefined) codes.push('RATE_LIMITED');
   if (hasBody) codes.push('INVALID_REQUEST', 'PAYLOAD_TOO_LARGE', 'UNSUPPORTED_MEDIA_TYPE');
   return [...new Set(statusesOf(codes))].sort((a, b) => a - b);
 }
@@ -180,6 +229,7 @@ interface RouteSpec<
     /** The OpenAPI component name of the success body. */
     readonly name: string;
     readonly schema: R;
+    readonly download?: { readonly contentType: DownloadContentType };
   };
   /** Codes the handler itself throws, such as NOT_FOUND. */
   readonly errors?: readonly ProblemCode[];
@@ -219,6 +269,7 @@ function build<
       status: spec.response.status ?? 200,
       name: spec.response.name,
       schema: spec.response.schema,
+      ...(spec.response.download === undefined ? {} : { download: spec.response.download }),
     }),
     errorStatuses: errorStatuses(
       access,
@@ -239,12 +290,62 @@ export function defineTenantRoute<
 >(
   spec: RouteSpec<P, Q, B, R> & {
     readonly scope: ApiScope;
+    readonly rateLimit?: RateLimitGroup;
     readonly handler: (input: Input<P, Q, B>, context: TenantRequestContext) => Promise<z.input<R>>;
   },
 ): Route {
-  return build(spec, { kind: 'tenant', scope: spec.scope }, (input, context, tenant) =>
+  const access: Access = {
+    kind: 'tenant',
+    scope: spec.scope,
+    ...(spec.rateLimit === undefined ? {} : { rateLimit: spec.rateLimit }),
+  };
+  return build(spec, access, (input, context, tenant) =>
     asTenant(context, tenant, (scoped) => spec.handler(input as Input<P, Q, B>, scoped)),
   );
+}
+
+/**
+ * A GET that answers with a file for the tenant of the calling key. The tenant
+ * check on JSON bodies cannot read a file, so whatever builds the file has to
+ * refuse another tenant's data itself.
+ */
+export function defineDownloadRoute<
+  P extends z.ZodObject = NoInput,
+  Q extends z.ZodType = NoInput,
+>(spec: {
+  readonly id: string;
+  readonly path: `/v1/${string}`;
+  readonly summary: string;
+  readonly scope: ApiScope;
+  readonly contentType: DownloadContentType;
+  readonly params?: P;
+  readonly query?: Q;
+  readonly errors?: readonly ProblemCode[];
+  readonly handler: (
+    input: RouteInput<z.output<P>, z.output<Q>, undefined>,
+    context: TenantRequestContext,
+  ) => Promise<FileDownload>;
+}): Route {
+  return defineTenantRoute<typeof FileDownload, P, Q>({
+    id: spec.id,
+    method: 'GET',
+    path: spec.path,
+    summary: spec.summary,
+    scope: spec.scope,
+    ...(spec.params === undefined ? {} : { params: spec.params }),
+    ...(spec.query === undefined ? {} : { query: spec.query }),
+    ...(spec.errors === undefined ? {} : { errors: spec.errors }),
+    response: {
+      name: 'FileDownload',
+      schema: FileDownload,
+      download: { contentType: spec.contentType },
+    },
+    handler: spec.handler,
+  });
+}
+
+function publicAccess(reason: string, addressLimit: AddressLimitGroup | undefined): Access {
+  return { kind: 'public', reason, ...(addressLimit === undefined ? {} : { addressLimit }) };
 }
 
 /**
@@ -259,13 +360,14 @@ export function definePublicRoute<
 >(
   spec: RouteSpec<P, Q, B, R> & {
     readonly reason: string;
+    readonly addressLimit?: AddressLimitGroup;
     readonly handler: (input: Input<P, Q, B>, context: RequestContext) => Promise<z.input<R>>;
   },
 ): Route {
   if (spec.reason.trim().length < 10) {
     throw new RouteRegistryError(`public route ${spec.id} must say why it needs no key`);
   }
-  return build(spec, { kind: 'public', reason: spec.reason }, (input, context) =>
+  return build(spec, publicAccess(spec.reason, spec.addressLimit), (input, context) =>
     spec.handler(input as Input<P, Q, B>, context),
   );
 }
@@ -285,6 +387,7 @@ export function defineWebhookRoute<R extends z.ZodType>(spec: {
   readonly reason: string;
   /** The headers the signature check needs, by lower case name. */
   readonly headers: readonly string[];
+  readonly addressLimit?: AddressLimitGroup;
   readonly response: { readonly name: string; readonly schema: R };
   readonly errors?: readonly ProblemCode[];
   readonly handler: (input: WebhookInput, context: RequestContext) => Promise<z.input<R>>;
@@ -304,7 +407,7 @@ export function defineWebhookRoute<R extends z.ZodType>(spec: {
       response: spec.response,
       ...(spec.errors === undefined ? {} : { errors: spec.errors }),
     },
-    { kind: 'public', reason: spec.reason },
+    publicAccess(spec.reason, spec.addressLimit),
     (input, context) => spec.handler(input.body as WebhookInput, context),
     Object.freeze({ headers: Object.freeze([...spec.headers]) }),
   );

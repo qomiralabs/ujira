@@ -100,6 +100,7 @@ function retrying(rpc: StellarRpc): StellarRpc {
     }
   };
   return {
+    getEvents: (request, opts) => again(() => rpc.getEvents(request, opts)),
     getLatestLedger: (opts) => again(() => rpc.getLatestLedger(opts)),
     getLedgerEntries: (keys, opts) => again(() => rpc.getLedgerEntries(keys, opts)),
     simulateTransaction: (tx, opts) => again(() => rpc.simulateTransaction(tx, opts)),
@@ -125,6 +126,7 @@ function recording(rpc: StellarRpc, log: Recorded[]): StellarRpc {
     return result;
   };
   return {
+    getEvents: (request, opts) => rpc.getEvents(request, opts),
     getLatestLedger: (opts) => keep('getLatestLedger', {}, rpc.getLatestLedger(opts)),
     getLedgerEntries: async (keys, opts) => {
       const result = await rpc.getLedgerEntries(keys, opts);
@@ -221,6 +223,18 @@ function harness() {
   const sponsorship = recordingSponsorship();
   const ports: AdapterPorts = {
     store,
+    // The deployed record stands in for the indexer, which is not part of this test.
+    registry: {
+      registered: (network, contractId) =>
+        Promise.resolve({
+          network,
+          contractId,
+          factory: FACTORY,
+          tenantTag: tenantTagOf(tenantRefOf(scope), addressXdr(contractId)),
+          flagged: false,
+        }),
+      claimedAt: () => Promise.resolve(null),
+    },
     signer: keypairSigner(
       NETWORK,
       new Map([

@@ -9,6 +9,8 @@ import type { WalletProofFlow } from '@ujira/identity';
 
 import type { Route } from '../route.js';
 import { healthRoute } from './health.js';
+import { RECEIPTS_NOT_CONFIGURED, receiptRoutes } from './receipts.js';
+import type { ReceiptReads } from './receipts.js';
 import { SELF_WEBHOOK_NOT_CONFIGURED, selfWebhookRoute } from './self-webhook.js';
 import type { SelfWebhookHandler } from './self-webhook.js';
 import {
@@ -21,6 +23,8 @@ import {
 export interface RouteDependencies {
   readonly selfWebhook: SelfWebhookHandler;
   readonly walletProof: WalletProofFlow;
+  /** Answers 503 when left out, until the receipts tables are in. */
+  readonly receipts?: ReceiptReads;
 }
 
 export function v1Routes(deps: RouteDependencies): readonly Route[] {
@@ -29,6 +33,7 @@ export function v1Routes(deps: RouteDependencies): readonly Route[] {
     selfWebhookRoute(deps.selfWebhook),
     walletChallengeRoute(deps.walletProof),
     walletProofRoute(deps.walletProof),
+    ...receiptRoutes(deps.receipts ?? RECEIPTS_NOT_CONFIGURED),
   ]);
 }
 

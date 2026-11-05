@@ -28,9 +28,10 @@ import {
   SignedPayloadMismatchError,
   isChainAdapterError,
 } from '../errors.js';
+import type { FundingAccountOptions, FundingAccountRecord } from '../funding-account.js';
 import { NETWORK_IDS } from '../networks.js';
 import type { StellarNetworkId } from '../networks.js';
-import type { ChainAddress, TenantScope } from '../types.js';
+import type { TenantScope } from '../types.js';
 
 /** Shown beside the mandate address, which an exchange cannot send to. */
 export const CONTRACT_ADDRESS_LABEL = 'Stellar contract address, fund from your wallet';
@@ -293,6 +294,7 @@ export function readForwarderAccount(
 }
 
 export type ForwarderFault =
+  | 'account_missing'
   | 'wrong_account'
   | 'master_weight'
   | 'thresholds'
@@ -336,16 +338,7 @@ export function forwarderFaults(
 }
 
 /** One forwarding account as stored. Tenant on the row. */
-export interface ForwarderRecord {
-  readonly principalId: string;
-  readonly projectId: string;
-  readonly network: StellarNetworkId;
-  readonly address: string;
-  readonly sponsor: string;
-  readonly sponsorTxHash: string;
-  readonly status: 'active' | 'rejected';
-  readonly faults: readonly ForwarderFault[];
-}
+export type ForwarderRecord = FundingAccountRecord;
 
 export interface ForwarderPorts {
   /** Reads the LedgerEntry XDR of the account and its trustline; null where there is none. */
@@ -393,7 +386,7 @@ export interface ConfirmForwarderRequest extends ForwarderExpectation {
 
 async function readWithDeadline(
   read: z.infer<typeof confirmSchema>,
-  ports: ForwarderPorts,
+  ports: Pick<ForwarderPorts, 'reader'>,
 ): Promise<{ readonly account: string | null; readonly trustline: string | null }> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -454,18 +447,28 @@ export async function confirmForwarder(
   return row;
 }
 
+/**
+ * Reads a recorded account again and says what is wrong with it now, recording
+ * nothing. An account the chain no longer holds is a fault here, unlike at
+ * creation, because it was there and has gone.
+ */
+export async function checkForwarder(
+  req: ConfirmForwarderRequest,
+  ports: Pick<ForwarderPorts, 'reader'>,
+): Promise<readonly ForwarderFault[]> {
+  const read = parsed(confirmSchema, req, 'request');
+  const entries = await readWithDeadline(read, ports);
+  if (entries.account === null) return ['account_missing'];
+  return forwarderFaults(readForwarderAccount(entries.account, entries.trustline), read);
+}
+
 const viewSchema = z.strictObject({
   network: networkSchema,
   mandate: z.string().refine(isContractAddress),
   forwarder: accountSchema.nullable(),
 });
 
-export interface StellarFundingView {
-  /** What to give an exchange or on-ramp. Null until a forwarding account exists. */
-  readonly exchangeDeposit: ChainAddress | null;
-  /** The mandate itself, only ever for funding from a wallet. */
-  readonly walletFunding: { readonly address: ChainAddress; readonly label: string };
-}
+export type StellarFundingView = FundingAccountOptions;
 
 /**
  * The addresses to show a principal. An exchange cannot send to a contract,

@@ -6,12 +6,19 @@ import { describe, expect, it } from 'vitest';
 import { createApp } from './app.js';
 import { refuseAllCredentials } from './auth.js';
 import { memoryLogger } from './log.js';
+import { allowEveryAddress, allowEveryRequest } from './rate-limit.js';
 import { V1_ROUTES } from './routes/index.js';
 
 describe('health', () => {
   it('GET /v1/health returns 200', async () => {
     const logger = memoryLogger();
-    const app = createApp({ routes: V1_ROUTES, authenticate: refuseAllCredentials, logger });
+    const app = createApp({
+      routes: V1_ROUTES,
+      authenticate: refuseAllCredentials,
+      rateLimit: allowEveryRequest,
+      addressRateLimit: allowEveryAddress,
+      logger,
+    });
 
     const response = await app.request('/v1/health');
 
@@ -38,6 +45,8 @@ describe('health', () => {
     const app = createApp({
       routes: V1_ROUTES,
       authenticate: refuseAllCredentials,
+      rateLimit: allowEveryRequest,
+      addressRateLimit: allowEveryAddress,
       logger: memoryLogger(),
     });
     const response = await app.request('/v1/health', {
