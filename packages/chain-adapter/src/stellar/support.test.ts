@@ -64,6 +64,7 @@ describe('the stellar entry', { timeout: 30_000 }, () => {
       'createStellarEventSource',
       'createStellarLedgerReader',
       'createStellarRpc',
+      'createStellarSweepChain',
       'extensionPlan',
       'fateOf',
       'fewestSignatures',

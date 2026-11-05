@@ -221,6 +221,113 @@ describe('funding accounts', () => {
   });
 });
 
+describe('reading a funding account again', () => {
+  async function recorded(tenant: ProjectContext, faults: readonly string[] = []) {
+    const saved = await as(tenant, async (tx) =>
+      fundingAccounts.record(tx, newAccount({ faults })),
+    );
+    return saved?.id ?? '';
+  }
+  const current = async (tenant: ProjectContext) =>
+    as(tenant, async (tx) => fundingAccounts.forNetwork(tx, NETWORK));
+
+  it('reads as changed once a later read finds something else', async () => {
+    const tenant = await newTenant();
+    const accountId = await recorded(tenant);
+    expect((await current(tenant))?.status).toBe('active');
+    await as(tenant, async (tx) =>
+      fundingAccounts.recordCheck(tx, { accountId, faults: ['extra_signer'] }),
+    );
+    expect(await current(tenant)).toMatchObject({ status: 'changed', faults: ['extra_signer'] });
+  });
+
+  it('keeps what was found at creation, and every later finding', async () => {
+    const tenant = await newTenant();
+    const accountId = await recorded(tenant);
+    await as(tenant, async (tx) =>
+      fundingAccounts.recordCheck(tx, { accountId, faults: ['extra_signer'] }),
+    );
+    await as(tenant, async (tx) => fundingAccounts.recordCheck(tx, { accountId, faults: [] }));
+    const row = await admin.query<{ status: string; faults: string[] }>(
+      'select status, faults from ujira.funding_accounts where id = $1',
+      [accountId],
+    );
+    expect(row.rows[0]).toEqual({ status: 'active', faults: [] });
+    const checks = await admin.query<{ faults: string[] }>(
+      'select faults from ujira.funding_account_checks where funding_account_id = $1 order by checked_at',
+      [accountId],
+    );
+    expect(checks.rows.map((check) => check.faults)).toEqual([['extra_signer'], []]);
+  });
+
+  it('goes back to active when the latest read finds the shape it verified', async () => {
+    const tenant = await newTenant();
+    const accountId = await recorded(tenant);
+    await as(tenant, async (tx) =>
+      fundingAccounts.recordCheck(tx, { accountId, faults: ['extra_signer'] }),
+    );
+    await as(tenant, async (tx) => fundingAccounts.recordCheck(tx, { accountId, faults: [] }));
+    expect(await current(tenant)).toMatchObject({ status: 'active', faults: [] });
+  });
+
+  it('reads the latest of findings written in one transaction', async () => {
+    const tenant = await newTenant();
+    const accountId = await recorded(tenant);
+    await as(tenant, async (tx) => {
+      await fundingAccounts.recordCheck(tx, { accountId, faults: [] });
+      await fundingAccounts.recordCheck(tx, { accountId, faults: ['thresholds'] });
+    });
+    expect((await current(tenant))?.faults).toEqual(['thresholds']);
+  });
+
+  it('does not read an account rejected at creation back into use', async () => {
+    const tenant = await newTenant();
+    const accountId = await recorded(tenant, ['extra_signer']);
+    await as(tenant, async (tx) => fundingAccounts.recordCheck(tx, { accountId, faults: [] }));
+    expect(await current(tenant)).toMatchObject({ status: 'rejected', faults: ['extra_signer'] });
+  });
+
+  it('makes no new funding source from a changed account', async () => {
+    const tenant = await newTenant();
+    const accountId = await recorded(tenant);
+    await as(tenant, async (tx) =>
+      fundingAccounts.recordCheck(tx, { accountId, faults: ['extra_signer'] }),
+    );
+    const instance = await newInstance(tenant);
+    expect(
+      await as(tenant, async (tx) =>
+        fundingAccounts.attach(tx, { accountId, mandateInstanceId: instance }),
+      ),
+    ).toBeUndefined();
+    await as(tenant, async (tx) => fundingAccounts.recordCheck(tx, { accountId, faults: [] }));
+    const source = await as(tenant, async (tx) =>
+      fundingAccounts.attach(tx, { accountId, mandateInstanceId: instance }),
+    );
+    expect(source?.mandateInstanceId).toBe(instance);
+  });
+
+  it('gives the app no way to change or remove a finding', async () => {
+    const tenant = await newTenant();
+    const accountId = await recorded(tenant);
+    await as(tenant, async (tx) => fundingAccounts.recordCheck(tx, { accountId, faults: [] }));
+    const change = as(tenant, async (tx) =>
+      tx
+        .updateTable('ujira.funding_account_checks')
+        .set({ faults: ['forged'] })
+        .where('funding_account_id', '=', accountId)
+        .execute(),
+    );
+    expect(await codeOf(change)).toBe('42501');
+    const remove = as(tenant, async (tx) =>
+      tx
+        .deleteFrom('ujira.funding_account_checks')
+        .where('funding_account_id', '=', accountId)
+        .execute(),
+    );
+    expect(await codeOf(remove)).toBe('42501');
+  });
+});
+
 describe('attaching an account to a mandate instance', () => {
   it('makes a stellar_funding_account source carrying the sponsoring transaction', async () => {
     const tenant = await newTenant();

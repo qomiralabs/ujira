@@ -3,10 +3,12 @@
 
 import { Keypair, SorobanDataBuilder, TransactionBuilder, xdr } from '@stellar/stellar-sdk/base';
 import type { Transaction } from '@stellar/stellar-sdk/base';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { ExecutorUnfundedError, SubmissionUnknownError } from '../errors.js';
+import { createSponsorshipPolicy } from '../sponsorship/policy.js';
 import { FakeAdapterStore } from '../testing/fake-store.js';
+import { createMemorySponsorshipLedger } from '../testing/sponsorship-ledger.js';
 import type { ExecutorLease, SubmissionRecord, UnixSeconds } from '../types.js';
 import { ExecutorSession, sendAndRecord } from './executor.js';
 import type { ExecutorContext } from './executor.js';
@@ -77,6 +79,87 @@ function resultXdr(feeCharged: bigint): string {
     ext: xdr.TransactionResultExt.v0(),
   }).toXdr('base64');
 }
+
+describe('what a waited send costs', { timeout: 30_000 }, () => {
+  const data = new SorobanDataBuilder().setResourceFee(100n).build().toXdr('base64');
+
+  async function sendOne(ctx: ExecutorContext, t: TestSetup): Promise<string> {
+    return ExecutorSession.run(ctx, OPTS, async (session) => {
+      const tx = footprintTx(
+        { kind: 'restore' },
+        {
+          network: NETWORK,
+          source: session.address,
+          sequence: session.sequence,
+          maxTime: NOW + 100n,
+          sorobanData: data,
+        },
+      );
+      const record = { scope: t.scope, op: 'restore' as const, mandate: null, correlationId: 'c' };
+      return (await session.send(tx, record, OPTS, true)).hash;
+    });
+  }
+
+  it('books one row when a send is reconciled again afterwards', async () => {
+    const t = setup();
+    const ledger = createMemorySponsorshipLedger();
+    const policy = createSponsorshipPolicy({
+      ledger,
+      config: t.ports.config,
+      clock: t.ports.clock,
+      alerts: { lowBalance: () => undefined },
+      sponsorBalance: () => Promise.resolve(10_000_000_000_000n),
+    });
+    const ctx = context(t, { ports: { ...t.ports, sponsorship: policy } });
+    t.rpc.getTransaction = () =>
+      Promise.resolve({ status: 'SUCCESS', ledger: 9, resultXdr: resultXdr(321n) });
+    const hash = await sendOne(ctx, t);
+    expect(ledger.rows).toHaveLength(1);
+    expect(ledger.rows[0]).toMatchObject({ intent: 'executor', actualFeeStroops: 321n });
+    const stored = [...t.store.submissions.values()].find((s) => s.txHash === hash);
+    if (stored === undefined) throw new Error('no record');
+    await reconcileSubmission(ctx, stored, OPTS);
+    expect(ledger.rows).toHaveLength(1);
+  });
+
+  it.each([
+    ['no result', undefined],
+    ['a result it cannot read', 'garbage'],
+  ])('reports a landed send with %s, whose cost would go uncounted', async (_label, result) => {
+    const t = setup();
+    const book = vi.spyOn(t.ports.sponsorship, 'book');
+    const divergence = vi.spyOn(t.ports.alerts, 'divergence');
+    t.rpc.getTransaction = () =>
+      Promise.resolve({
+        status: 'SUCCESS',
+        ledger: 9,
+        ...(result === undefined ? {} : { resultXdr: result }),
+      });
+    await sendOne(context(t), t);
+    expect(book).not.toHaveBeenCalled();
+    expect(divergence).toHaveBeenCalledWith({
+      network: NETWORK,
+      kind: 'balance',
+      detail: 'executor_fee_unreadable',
+      correlationId: 'c',
+    });
+  });
+
+  it('reports the same when reconciling finds the fee unreadable', async () => {
+    const t = setup();
+    const divergence = vi.spyOn(t.ports.alerts, 'divergence');
+    const r = record({ correlationId: 'found-later' });
+    await t.store.recordSubmission(r);
+    t.rpc.getTransaction = () => Promise.resolve({ status: 'SUCCESS', ledger: 9 });
+    await reconcileSubmission(context(t), r, OPTS);
+    expect(divergence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: 'executor_fee_unreadable',
+        correlationId: 'found-later',
+      }),
+    );
+  });
+});
 
 describe('executor leases', { timeout: 30_000 }, () => {
   it('10 parallel jobs use 10 distinct leases', async () => {

@@ -24,7 +24,9 @@ export interface FundingAccountRecord {
   readonly address: string;
   readonly sponsor: string;
   readonly sponsorTxHash: string;
-  readonly status: 'active' | 'rejected';
+  // Rejected was wrong from the start, and is final until a person acts. Changed was
+  // verified at creation and does not match now, and can go back by being read again.
+  readonly status: 'active' | 'rejected' | 'changed';
   // Text, because a row can outlive the build that wrote it. A code this build
   // does not know still reads as a rejected account.
   readonly faults: readonly string[];
@@ -55,6 +57,8 @@ export interface PrepareFundingAccount {
 export interface FundingAccountStore {
   forPrincipal(scope: TenantScope, network: NetworkId): Promise<FundingAccountRecord | null>;
   record(row: FundingAccountRecord): Promise<void>;
+  /** Keeps what a later read found beside what was found at creation. */
+  recordCheck(row: FundingAccountRecord): Promise<void>;
 }
 
 /** The flow over one network. */
@@ -68,6 +72,12 @@ export interface FundingAccountFlow {
     req: { readonly scope: TenantScope; readonly requestId: string },
     opts: CallOptions,
   ): Promise<FundingAccountRecord>;
+  /**
+   * Reads this project's account from the chain again, and records and flags a
+   * change. Null when it has none. An account rejected at creation is returned as
+   * it is, since a later good read does not undo that.
+   */
+  recheck(scope: TenantScope, opts: CallOptions): Promise<FundingAccountRecord | null>;
   /** This project's account on this network, in whatever state it is, or null. */
   account(scope: TenantScope): Promise<FundingAccountRecord | null>;
   /**

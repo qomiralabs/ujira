@@ -282,6 +282,15 @@ export interface UjiraEmbedSessions {
   token_prefix: string;
 }
 
+export interface UjiraFundingAccountChecks {
+  checked_at: Generated<Timestamp>;
+  faults: Generated<string[]>;
+  funding_account_id: string;
+  id: Generated<string>;
+  principal_id: string;
+  project_id: string;
+}
+
 export interface UjiraFundingAccounts {
   address: string;
   created_at: Generated<Timestamp>;
@@ -318,6 +327,7 @@ export interface UjiraFundingSources {
 export interface UjiraFundingSweeps {
   amount: Numeric;
   asset: string;
+  auth_expires_ledger: Int8 | null;
   chain: string;
   created_at: Generated<Timestamp>;
   deposit_operation_id: string;
@@ -621,6 +631,7 @@ export interface Schema {
   'ujira.deposits': UjiraDeposits;
   'ujira.destination_verifications': UjiraDestinationVerifications;
   'ujira.embed_sessions': UjiraEmbedSessions;
+  'ujira.funding_account_checks': UjiraFundingAccountChecks;
   'ujira.funding_account_sources': UjiraFundingAccountSources;
   'ujira.funding_accounts': UjiraFundingAccounts;
   'ujira.funding_sources': UjiraFundingSources;

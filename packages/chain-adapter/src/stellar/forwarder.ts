@@ -294,6 +294,7 @@ export function readForwarderAccount(
 }
 
 export type ForwarderFault =
+  | 'account_missing'
   | 'wrong_account'
   | 'master_weight'
   | 'thresholds'
@@ -385,7 +386,7 @@ export interface ConfirmForwarderRequest extends ForwarderExpectation {
 
 async function readWithDeadline(
   read: z.infer<typeof confirmSchema>,
-  ports: ForwarderPorts,
+  ports: Pick<ForwarderPorts, 'reader'>,
 ): Promise<{ readonly account: string | null; readonly trustline: string | null }> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -444,6 +445,21 @@ export async function confirmForwarder(
     ports.flags.flag({ principalId, projectId, network: read.network, faults });
   }
   return row;
+}
+
+/**
+ * Reads a recorded account again and says what is wrong with it now, recording
+ * nothing. An account the chain no longer holds is a fault here, unlike at
+ * creation, because it was there and has gone.
+ */
+export async function checkForwarder(
+  req: ConfirmForwarderRequest,
+  ports: Pick<ForwarderPorts, 'reader'>,
+): Promise<readonly ForwarderFault[]> {
+  const read = parsed(confirmSchema, req, 'request');
+  const entries = await readWithDeadline(read, ports);
+  if (entries.account === null) return ['account_missing'];
+  return forwarderFaults(readForwarderAccount(entries.account, entries.trustline), read);
 }
 
 const viewSchema = z.strictObject({

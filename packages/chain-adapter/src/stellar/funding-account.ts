@@ -33,6 +33,7 @@ import type {
 import { reservationIdOf } from '../sponsorship/policy.js';
 import type {
   AdapterPorts,
+  CallOptions,
   NativeAmount,
   SubmissionRef,
   TenantScope,
@@ -43,12 +44,13 @@ import type { StellarNetworkId } from '../networks.js';
 import { sendAndRecord } from './executor.js';
 import {
   buildForwarderCreation,
+  checkForwarder,
   checkForwarderCreation,
   confirmForwarder,
   parseForwarderRequest,
   stellarFundingView,
 } from './forwarder.js';
-import type { ForwarderFault } from './forwarder.js';
+import type { ForwarderAsset, ForwarderFault, ForwarderPorts } from './forwarder.js';
 import { FUNDING_ACCOUNT_RESERVES_STROOPS } from './lifecycle.js';
 import type { SigningRequestStore, StoredSigningRequest } from './requests.js';
 import type { RpcLedgerEntry, StellarRpc } from './rpc.js';
@@ -149,6 +151,22 @@ export function createFundingAccountFlow(options: FundingAccountFlowOptions): Fu
     const known = await accounts.forPrincipal(scope, network);
     return known?.projectId === scope.projectId ? known : null;
   };
+
+  const readerFor = (opts: CallOptions, asset: ForwarderAsset): ForwarderPorts['reader'] => ({
+    async readEntries(entry, signal) {
+      const accountId = accountKey(entry.address);
+      const lineId = trustlineKey(entry.address, new Asset(asset.code, asset.issuer));
+      const { entries } = await rpc.getLedgerEntries([accountId, lineId], {
+        signal,
+        correlationId: opts.correlationId,
+      });
+      const pick = (key: string): string | null => {
+        const found = entries.find((e) => e.key === key);
+        return found === undefined ? null : ledgerEntryOf(found);
+      };
+      return { account: pick(accountId), trustline: pick(lineId) };
+    },
+  });
 
   return {
     async prepare(req, opts) {
@@ -331,25 +349,7 @@ export function createFundingAccountFlow(options: FundingAccountFlowOptions): Fu
           sponsorTxHash: hash,
           timeoutMs: options.submitTimeoutMs,
         },
-        {
-          reader: {
-            async readEntries(entry, signal) {
-              const accountId = accountKey(entry.address);
-              const lineId = trustlineKey(entry.address, new Asset(asset.code, asset.issuer));
-              const { entries } = await rpc.getLedgerEntries([accountId, lineId], {
-                signal,
-                correlationId: opts.correlationId,
-              });
-              const pick = (key: string): string | null => {
-                const found = entries.find((e) => e.key === key);
-                return found === undefined ? null : ledgerEntryOf(found);
-              };
-              return { account: pick(accountId), trustline: pick(lineId) };
-            },
-          },
-          store: accounts,
-          flags,
-        },
+        { reader: readerFor(opts, asset), store: accounts, flags },
       );
       // Reserves are locked rather than burned, but the budget is for what the
       // sponsor gives up, so they are booked with the fee.
@@ -358,6 +358,39 @@ export function createFundingAccountFlow(options: FundingAccountFlowOptions): Fu
         reservationId,
         actualFee: stroops(network, request.fee),
       });
+      return row;
+    },
+
+    async recheck(scope, opts) {
+      const own = await ownAccount(scope);
+      if (own === null || own.status === 'rejected') return own;
+      const asset = usdc();
+      const faults = await checkForwarder(
+        {
+          scope,
+          network,
+          sponsor: own.sponsor,
+          forwarder: own.address,
+          asset,
+          sponsorTxHash: own.sponsorTxHash,
+          timeoutMs: options.submitTimeoutMs,
+        },
+        { reader: readerFor(opts, asset) },
+      );
+      const status = faults.length === 0 ? 'active' : 'changed';
+      if (status === own.status && faults.join() === own.faults.join()) return own;
+      const row: FundingAccountRecord = { ...own, status, faults };
+      // Raised before the write. If a crash falls between them the next read raises
+      // it again, where the other order could lose it for good.
+      if (faults.length > 0) {
+        flags.flag({
+          principalId: own.principalId,
+          projectId: own.projectId,
+          network,
+          faults,
+        });
+      }
+      await accounts.recordCheck(row);
       return row;
     },
 
