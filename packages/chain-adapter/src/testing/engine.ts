@@ -32,6 +32,7 @@ import {
   attesterWellFormed,
   feeCap,
   isRoleCode,
+  isZeroAddress,
   joinConflicts,
   keyHeldBy,
   limitsValid,
@@ -67,6 +68,7 @@ import type {
 import { FakeToken } from './token.js';
 import type {
   EngineAllowEntry,
+  EngineApproval,
   EngineConfig,
   EngineConfigView,
   EngineDailyUsage,
@@ -87,6 +89,10 @@ interface AgentSeat {
   readonly account: string;
   /** The agent_epoch value the agent was added under. */
   readonly epoch: number;
+  // What this agent's open payouts reserve. Nothing limits how many it can have open,
+  // so removing an agent subtracts these rather than looping over its payouts.
+  pending: bigint;
+  committed: bigint;
 }
 
 interface PayoutRecord {
@@ -101,7 +107,7 @@ interface PayoutRecord {
   readonly createdAt: bigint;
   readonly expiresAt: bigint;
   readonly policyEpoch: bigint;
-  readonly approvals: string[];
+  approvals: EngineApproval[];
 }
 
 interface Tombstone {
@@ -121,12 +127,15 @@ interface MandateState {
   maxFeeBps: number;
   agents: AgentSeat[];
   approvers: string[];
+  /** The approver_epoch value each current approver was added under. */
+  approverEpochs: Map<string, number>;
   approvalsRequired: number;
   guardians: string[];
   executors: string[];
   recovery: string[];
   recoveryThreshold: number;
   agentEpoch: number;
+  approverEpoch: number;
   recoveryEpoch: number;
   spent: bigint;
   pending: bigint;
@@ -225,14 +234,16 @@ export class MandateEngine implements LedgerContract {
       maxFeeBps: c.maxFeeBps,
       // Agents named at creation hold epoch 0; every later addition takes a
       // higher value, so no payout queued before it can match it.
-      agents: c.agents.map((account) => ({ account, epoch: 0 })),
+      agents: c.agents.map((account) => ({ account, epoch: 0, pending: 0n, committed: 0n })),
       approvers: [...c.approvers],
+      approverEpochs: new Map(c.approvers.map((account) => [account, 0])),
       approvalsRequired: c.approvalsRequired,
       guardians: [...c.guardians],
       executors: [...c.executors],
       recovery: [...c.recovery],
       recoveryThreshold: c.recoveryThreshold,
       agentEpoch: 0,
+      approverEpoch: 0,
       recoveryEpoch: 0,
       spent: 0n,
       pending: 0n,
@@ -317,13 +328,16 @@ export class MandateEngine implements LedgerContract {
       if (this.#ledger.now >= p.expiresAt) throw refusal('PAYOUT_LAPSED');
       if (!this.#agentStillSame(p)) throw refusal('AGENT_REMOVED');
       const required = this.#s.approvalsRequired;
-      const already = p.approvals.includes(approver);
+      const epoch = this.#s.approverEpochs.get(approver) ?? 0;
+      // One from an earlier epoch is not a repeat: it no longer counts, so the
+      // approver may approve again, and the new approval replaces it.
+      const already = p.approvals.some((a) => a.approver === approver && a.epoch === epoch);
       // A repeat is refused only while it could still matter; once the live
       // count meets a lowered requirement the call completes the payout, so
       // a payout never gets stuck.
       if (already && this.#liveApprovals(p) < required) throw refusal('ALREADY_APPROVED');
       if (!already) {
-        p.approvals.push(approver);
+        p.approvals = [...p.approvals.filter((a) => a.approver !== approver), { approver, epoch }];
         this.#emit('payout_approval_added', {
           payout_id: id,
           approver,
@@ -335,6 +349,11 @@ export class MandateEngine implements LedgerContract {
         p.status = 'APPROVED';
         this.#s.pending -= charged(p);
         this.#s.committed += charged(p);
+        const seat = this.#seatOf(p);
+        if (seat !== undefined) {
+          seat.pending -= charged(p);
+          seat.committed += charged(p);
+        }
         this.#emit('payout_approved', { payout_id: id });
       }
       return p.status;
@@ -351,7 +370,7 @@ export class MandateEngine implements LedgerContract {
       this.#notRevoked();
       const p = this.#pendingPayout(id);
       this.#s.payouts.set(id, { payoutId: id, status: 'REJECTED' });
-      this.#s.pending -= charged(p);
+      this.#releasePayout(p);
       this.#emit('payout_rejected', { payout_id: id, by });
     });
   }
@@ -534,6 +553,7 @@ export class MandateEngine implements LedgerContract {
       this.#notRevoked();
       const s = this.#s;
       if (!isRoleCode(code) || this.#members(code).includes(who)) throw refusal('CONFIG_INVALID');
+      if (isZeroAddress(who)) throw refusal('CONFIG_INVALID');
       if (joinConflicts(code, who, this.#sets(), s.principal, this.feeAddress)) {
         throw refusal('ROLE_CONFLICT');
       }
@@ -576,6 +596,7 @@ export class MandateEngine implements LedgerContract {
       if (code === ROLE.RECOVERY && size > 1 && size - 1 < s.recoveryThreshold) {
         throw refusal('CONFIG_INVALID');
       }
+      if (code === ROLE.AGENT) this.#releaseAgent(who);
       this.#remove(code, who);
       this.#emit('role_removed', { role: code, account: who });
       if (code === ROLE.APPROVER && size === 1) {
@@ -665,6 +686,7 @@ export class MandateEngine implements LedgerContract {
     this.#call(inv, () => {
       const current = this.#authorizePrincipal(inv);
       const s = this.#s;
+      if (isZeroAddress(next)) throw refusal('CONFIG_INVALID');
       if (this.#holdsPrincipalConflict(next) || next === this.feeAddress) {
         throw refusal('ROLE_CONFLICT');
       }
@@ -725,7 +747,7 @@ export class MandateEngine implements LedgerContract {
       this.#recoveryMember(by);
       this.#notRevoked();
       const s = this.#s;
-      if (!this.#isAgent(out) || (into !== null && this.#isAgent(into))) {
+      if (!this.#isAgent(out) || (into !== null && (this.#isAgent(into) || isZeroAddress(into)))) {
         throw refusal('CONFIG_INVALID');
       }
       if (
@@ -742,6 +764,7 @@ export class MandateEngine implements LedgerContract {
         throw refusal('ROLE_CONFLICT');
       }
       return this.#vote(by, RECOVERY_ACTION.ROTATE_AGENT, out, into, () => {
+        this.#releaseAgent(out);
         this.#remove(ROLE.AGENT, out);
         this.#emit('role_removed', { role: ROLE.AGENT, account: out });
         if (into !== null) {
@@ -783,6 +806,7 @@ export class MandateEngine implements LedgerContract {
         proposedPrincipal: s.proposedPrincipal,
         recoveryEpoch: s.recoveryEpoch,
         agentEpoch: s.agentEpoch,
+        approverEpoch: s.approverEpoch,
       };
     });
   }
@@ -814,7 +838,7 @@ export class MandateEngine implements LedgerContract {
       const record: EnginePayoutRecord = {
         ...entry,
         legs: copyLegs(entry.legs),
-        approvals: [...entry.approvals],
+        approvals: entry.approvals.map((a) => ({ ...a })),
       };
       return record;
     });
@@ -972,9 +996,12 @@ export class MandateEngine implements LedgerContract {
       case ROLE.AGENT:
         // The counter goes up first and the agent stores the new value.
         s.agentEpoch += 1;
-        s.agents.push({ account, epoch: s.agentEpoch });
+        s.agents.push({ account, epoch: s.agentEpoch, pending: 0n, committed: 0n });
         return;
       case ROLE.APPROVER:
+        // The same again: an approver added back holds a value no earlier approval has.
+        s.approverEpoch += 1;
+        s.approverEpochs.set(account, s.approverEpoch);
         s.approvers.push(account);
         return;
       case ROLE.GUARDIAN:
@@ -997,6 +1024,7 @@ export class MandateEngine implements LedgerContract {
         s.agents = s.agents.filter((a) => a.account !== account);
         return;
       case ROLE.APPROVER:
+        s.approverEpochs.delete(account);
         s.approvers = s.approvers.filter((a) => a !== account);
         return;
       case ROLE.GUARDIAN:
@@ -1054,12 +1082,41 @@ export class MandateEngine implements LedgerContract {
   // -------------------------------------------------------------------------
   // Payout internals
 
+  /** The seat that queued this payout, or undefined once that agent was removed. */
+  #seatOf(p: PayoutRecord): AgentSeat | undefined {
+    return this.#s.agents.find((a) => a.account === p.agent && a.epoch === p.agentEpoch);
+  }
+
   #agentStillSame(p: PayoutRecord): boolean {
-    return this.#s.agents.some((a) => a.account === p.agent && a.epoch === p.agentEpoch);
+    return this.#seatOf(p) !== undefined;
   }
 
   #liveApprovals(p: PayoutRecord): number {
-    return p.approvals.filter((a) => this.#s.approvers.includes(a)).length;
+    return p.approvals.filter((a) => this.#s.approverEpochs.get(a.approver) === a.epoch).length;
+  }
+
+  // A leaked key must not go on holding the balance after the key is gone, and these
+  // payouts can never execute, so what they reserve comes back at once.
+  #releaseAgent(account: string): void {
+    const s = this.#s;
+    const seat = s.agents.find((a) => a.account === account);
+    if (seat === undefined) return;
+    s.pending -= seat.pending;
+    s.committed -= seat.committed;
+  }
+
+  /** A payout leaving by reject or cancel, unless removing its agent already released it. */
+  #releasePayout(p: PayoutRecord): void {
+    const s = this.#s;
+    const seat = this.#seatOf(p);
+    if (seat === undefined) return;
+    if (p.status === 'PENDING') {
+      s.pending -= charged(p);
+      seat.pending -= charged(p);
+    } else {
+      s.committed -= charged(p);
+      seat.committed -= charged(p);
+    }
   }
 
   #pendingPayout(id: string): PayoutRecord {
@@ -1110,7 +1167,8 @@ export class MandateEngine implements LedgerContract {
     if (r.total > this.#headroom(r.recipientRef)) throw refusal('DAILY_CAP_EXCEEDED');
     if (charge > this.#free()) throw refusal('INSUFFICIENT_FUNDS');
 
-    const agentEpoch = s.agents.find((a) => a.account === agent)?.epoch ?? 0;
+    const seat = s.agents.find((a) => a.account === agent);
+    const agentEpoch = seat?.epoch ?? 0;
     const status: OpenStatus = charge >= s.limits.approvalThreshold ? 'PENDING' : 'APPROVED';
     s.payouts.set(r.payoutId, {
       payoutId: r.payoutId,
@@ -1126,8 +1184,13 @@ export class MandateEngine implements LedgerContract {
       policyEpoch: s.policyEpoch,
       approvals: [],
     });
-    if (status === 'PENDING') s.pending += charge;
-    else s.committed += charge;
+    if (status === 'PENDING') {
+      s.pending += charge;
+      if (seat !== undefined) seat.pending += charge;
+    } else {
+      s.committed += charge;
+      if (seat !== undefined) seat.committed += charge;
+    }
     this.#emit('payout_requested', {
       payout_id: r.payoutId,
       agent,
@@ -1146,6 +1209,9 @@ export class MandateEngine implements LedgerContract {
   #checkLegs(r: CheckedRequest): void {
     if (r.legs.length < 1 || r.legs.length > MAX_LEGS) throw refusal('LEGS_INVALID');
     if (r.legs.some((leg) => leg.amount < 1n)) throw refusal('LEGS_INVALID');
+    if (r.legs.some((leg) => this.#unpayable(leg.destination.address))) {
+      throw refusal('LEGS_INVALID');
+    }
     if (r.legs.some((leg) => leg.destination.address === this.feeAddress)) {
       throw refusal('LEGS_INVALID');
     }
@@ -1161,6 +1227,21 @@ export class MandateEngine implements LedgerContract {
       running += leg.amount;
     }
     if (running !== r.total) throw refusal('LEGS_SUM_MISMATCH');
+  }
+
+  /**
+   * An address money sent to can never pay out: the mandate, its factory, the asset's
+   * own contract, or one nobody holds the key to. The asset's issuer burns a transfer
+   * too, but checking it here would mean asking the asset on every leg, so onboarding
+   * and the attester refuse that one.
+   */
+  #unpayable(address: string): boolean {
+    return (
+      address === this.address ||
+      address === this.factory ||
+      address === this.asset ||
+      isZeroAddress(address)
+    );
   }
 
   #checkAttestation(
@@ -1213,8 +1294,7 @@ export class MandateEngine implements LedgerContract {
       throw refusal('UNAUTHORIZED');
     }
     s.payouts.set(id, { payoutId: id, status: 'CANCELLED' });
-    if (entry.status === 'PENDING') s.pending -= charged(entry);
-    else s.committed -= charged(entry);
+    this.#releasePayout(entry);
     this.#emit('payout_cancelled', { payout_id: id, by, reason });
   }
 
@@ -1252,6 +1332,8 @@ export class MandateEngine implements LedgerContract {
     s.payouts.set(p.payoutId, { payoutId: p.payoutId, status: 'EXECUTED' });
     s.committed -= charge;
     s.spent += charge;
+    const seat = this.#seatOf(p);
+    if (seat !== undefined) seat.committed -= charge;
     s.daily.set(p.recipientRef, { day, used: used + p.total });
     this.#emit('payout_executed', {
       payout_id: p.payoutId,
@@ -1307,9 +1389,8 @@ export class MandateEngine implements LedgerContract {
       this.#notRevoked();
       if (this.recipientMode === 'ATTESTED') throw refusal('WRONG_RECIPIENT_MODE');
       this.#batchLength(list.length);
-      if (list.some((e) => e.destination.address === this.feeAddress)) {
-        throw refusal('CONFIG_INVALID');
-      }
+      const refused = (address: string) => this.#unpayable(address) || address === this.feeAddress;
+      if (list.some((e) => refused(e.destination.address))) throw refusal('CONFIG_INVALID');
       // Counting duplicates within the call: the second of two equal
       // entries finds the first already applied.
       const next = new Set(this.#s.allowlist);

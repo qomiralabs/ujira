@@ -14,6 +14,9 @@ import { amountOf, at, isObject } from './json.js';
 import type { Json, JsonObject } from './json.js';
 
 const TERMINAL: ReadonlySet<string> = new Set(['EXECUTED', 'REJECTED', 'CANCELLED']);
+const OPEN: ReadonlySet<string> = new Set(['PENDING', 'APPROVED']);
+const ROLE_AGENT = 1;
+const ROLE_APPROVER = 2;
 
 export class InvariantViolation extends Error {
   override readonly name = 'InvariantViolation';
@@ -55,6 +58,8 @@ export class Checker {
   #assetIntervened = false;
   /** Every payout ID a payout_requested event has named. */
   readonly #requested = new Set<string>();
+  /** Open payouts whose agent was removed, so what they reserve has been released. */
+  readonly #released = new Set<string>();
 
   constructor(setupState: Json) {
     this.#prev = canon(setupState);
@@ -86,10 +91,11 @@ export class Checker {
       // The sums are only known when every payout requested so far has its
       // record in the state.
       const payouts = at(cur, 'payouts');
+      this.#noteReleases(events, payouts);
       const allRecorded = [...this.#requested].every(
         (id) => isObject(payouts) && Object.hasOwn(payouts, id),
       );
-      if (allRecorded) i10(m, payouts);
+      if (allRecorded) i10(m, payouts, this.#released);
       i3Records(payouts);
       i6Records(at(prev, 'payouts'), payouts);
       if (prev !== null && isCall && ok) i5(step, events, prev, cur);
@@ -97,6 +103,19 @@ export class Checker {
     if (prev !== null) this.#events(events, prev);
     if (cur !== null) this.#i8Status(at(cur, 'payouts'));
     this.#prev = cur;
+  }
+
+  /** Removing an agent releases its open payouts, which stay on record until they end. */
+  #noteReleases(events: readonly Json[], payouts: Json): void {
+    for (const e of events) {
+      const f = at(e, 'fields');
+      if (at(e, 'name') !== 'role_removed' || at(f, 'role') !== ROLE_AGENT) continue;
+      for (const [id, rec] of entries(payouts)) {
+        if (at(rec, 'agent') === at(f, 'account') && OPEN.has(text(at(rec, 'status')))) {
+          this.#released.add(id);
+        }
+      }
+    }
   }
 
   /** I3 and I4 at execution, I6 on reuse and repeated execution, I8 on approvals. */
@@ -146,6 +165,13 @@ export class Checker {
           this.#approvals.set(id, given);
           break;
         }
+        case 'role_removed':
+          // Taking an approver away withdraws its approvals, so if it comes back and
+          // approves again that is not the same approval given twice.
+          if (at(f, 'role') === ROLE_APPROVER) {
+            for (const given of this.#approvals.values()) given.delete(text(at(f, 'account')));
+          }
+          break;
         case 'payout_approved':
           this.#hasApprovals(id);
           break;
@@ -324,8 +350,11 @@ function i7(before: Json, after: Json): void {
   }
 }
 
-/** I10: pending and committed are the charges of the PENDING and APPROVED payouts. */
-function i10(m: Json, payouts: Json): void {
+/**
+ * I10: pending and committed are the charges of the PENDING and APPROVED payouts,
+ * leaving out those of an agent removed since their request.
+ */
+function i10(m: Json, payouts: Json, released: ReadonlySet<string>): void {
   const p = amountOf(at(m, 'pending'));
   const c = amountOf(at(m, 'committed'));
   if (p === undefined || c === undefined) return;
@@ -340,9 +369,10 @@ function i10(m: Json, payouts: Json): void {
   if (at(m, 'revoked') !== false) return;
   let wantP = 0n;
   let wantC = 0n;
-  for (const [, rec] of entries(payouts)) {
+  for (const [id, rec] of entries(payouts)) {
     const status = at(rec, 'status');
     if (status !== 'PENDING' && status !== 'APPROVED') continue;
+    if (released.has(id)) continue;
     const ch = charged(rec);
     // A record without its amounts makes the sum unknowable.
     if (ch === undefined) return;
