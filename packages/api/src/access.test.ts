@@ -25,6 +25,7 @@ const DATABASE_ENV = {
   UJIRA_DB_TLS: 'off',
   UJIRA_DB_APP_URL: 'postgresql://app:pw@127.0.0.1:1/ujira',
   UJIRA_DB_WORKER_URL: 'postgresql://worker:pw@127.0.0.1:1/ujira',
+  UJIRA_DB_INDEXER_URL: 'postgresql://indexer:pw@127.0.0.1:1/ujira',
   UJIRA_DB_READER_URL: 'postgresql://reader:pw@127.0.0.1:1/ujira',
   UJIRA_DB_MIGRATION_URL: 'postgresql://migrator:pw@127.0.0.1:1/ujira',
 };

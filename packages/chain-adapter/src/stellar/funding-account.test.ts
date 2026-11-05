@@ -84,14 +84,14 @@ function world(
   const rows = new Map<string, ForwarderRecord>();
   const checks: ForwarderRecord[] = [];
   const accounts: FundingAccountStore = {
-    forPrincipal: (scope, network) =>
-      Promise.resolve(rows.get(`${scope.principalId}|${network}`) ?? null),
+    forProject: (scope, network) =>
+      Promise.resolve(rows.get(`${scope.principalId}|${scope.projectId}|${network}`) ?? null),
     record: (row) => {
-      rows.set(`${row.principalId}|${row.network}`, row);
+      rows.set(`${row.principalId}|${row.projectId}|${row.network}`, row);
       return Promise.resolve();
     },
     recordCheck: (row) => {
-      rows.set(`${row.principalId}|${row.network}`, row);
+      rows.set(`${row.principalId}|${row.projectId}|${row.network}`, row);
       checks.push(row);
       return Promise.resolve();
     },
@@ -334,7 +334,8 @@ describe('funding-account.test.ts', { timeout: 30_000 }, () => {
     expect(err).toBeInstanceOf(SponsorDeniedError);
     expect(w.t.rpc.sent).toHaveLength(sent);
     expect(w.signed).toHaveLength(signed);
-    // In another project of the same principal the answer is the same.
+    // In another project of the same principal the sponsor's limit still holds, since
+    // what it budgets is reserves per principal, and this principal's limit is one.
     const sameprincipal = { ...w.t.scope, projectId: stranger(9).projectId };
     const again = Keypair.random();
     const other = await w.flow.prepare(
@@ -866,7 +867,7 @@ describe('funding-account.test.ts', { timeout: 30_000 }, () => {
     }
 
     function holding(w: World, row: ForwarderRecord): void {
-      w.rows.set(`${row.principalId}|${row.network}`, row);
+      w.rows.set(`${row.principalId}|${row.projectId}|${row.network}`, row);
     }
 
     it('never offers the mandate as the exchange address when there is no account', async () => {
@@ -897,13 +898,23 @@ describe('funding-account.test.ts', { timeout: 30_000 }, () => {
       expect(view.exchangeDeposit).toBeNull();
     });
 
-    it("does not give one project another project's account, but refuses it a second", async () => {
+    it("does not give one project another project's account, and lets it make its own", async () => {
       const w = world();
       const elsewhere = rowFor(w, { projectId: stranger(9).projectId });
       holding(w, elsewhere);
       expect(await w.flow.account(w.t.scope)).toBeNull();
       const view = await w.flow.fundingOptions({ scope: w.t.scope, mandate: MANDATE });
       expect(view.exchangeDeposit).toBeNull();
+      const request = await w.flow.prepare(
+        { scope: w.t.scope, publicKey: Keypair.random().publicKey(), ...VERIFIED },
+        OPTS,
+      );
+      expect(request.kind).toBe('stellar_transaction');
+    });
+
+    it('still refuses a project a second account of its own', async () => {
+      const w = world();
+      holding(w, rowFor(w));
       await expect(
         w.flow.prepare(
           { scope: w.t.scope, publicKey: Keypair.random().publicKey(), ...VERIFIED },
