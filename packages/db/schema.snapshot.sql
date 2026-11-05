@@ -2691,6 +2691,7 @@ CREATE TABLE ujira.mandate_instances (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     attester_public_key bytea,
     country_policy_hash ujira.hash32,
+    balance_checked_at timestamp with time zone,
     CONSTRAINT mandate_instances_address_length CHECK (((char_length(contract_address) >= 1) AND (char_length(contract_address) <= 128))),
     CONSTRAINT mandate_instances_attester_key_length CHECK ((octet_length(attester_public_key) = 32)),
     CONSTRAINT mandate_instances_spec_length CHECK (((char_length(spec_version) >= 1) AND (char_length(spec_version) <= 32)))
@@ -7886,6 +7887,13 @@ GRANT SELECT(project_id) ON TABLE ujira.mandate_instances TO ujira_scheduler;
 --
 
 GRANT SELECT(id) ON TABLE ujira.mandate_instances TO ujira_scheduler;
+
+
+--
+-- Name: COLUMN mandate_instances.balance_checked_at; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(balance_checked_at) ON TABLE ujira.mandate_instances TO ujira_app;
 
 
 --

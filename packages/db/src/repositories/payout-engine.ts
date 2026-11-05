@@ -130,6 +130,17 @@ export const payoutEngine = {
     }));
   },
 
+  // Holds the instance's row until the transaction ends, which is what serializes new
+  // promises on its balance. False for another tenant's instance.
+  lockBalance: async (tx: Tx, mandateInstanceId: string): Promise<boolean> => {
+    const result = await tx
+      .updateTable('ujira.mandate_instances')
+      .set({ balance_checked_at: sql<Date>`now()` })
+      .where('id', '=', mandateInstanceId)
+      .executeTakeFirst();
+    return result.numUpdatedRows === 1n;
+  },
+
   // Raw units routed on this instance and not yet requested on chain, fee included.
   // The chain's free balance cannot show these yet, and counting them here is what
   // stops one balance being promised twice. An attempt of a payout that has ended

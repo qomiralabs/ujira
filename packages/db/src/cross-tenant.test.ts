@@ -1302,6 +1302,9 @@ const cases: Record<string, () => Promise<void>> = {
     };
     expect(await asA(async (tx) => payoutAttempts.replaceLegs(tx, theirs, [leg]))).toBe(false);
   },
+  'payoutEngine.lockBalance': async () => {
+    expect(await asA(async (tx) => payoutEngine.lockBalance(tx, b.instanceId))).toBe(false);
+  },
   'payoutEngine.refusalCode': async () => {
     expect(await asA(async (tx) => payoutEngine.refusalCode(tx, b.payoutId))).toBeUndefined();
   },

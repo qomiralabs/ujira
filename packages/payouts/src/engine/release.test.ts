@@ -215,6 +215,68 @@ describe('releasing held payouts', () => {
     expect(await attemptsOf(newest)).toHaveLength(0);
   });
 
+  it('two truly concurrent releases against funds for 2 release exactly 2 and leave the third held', async () => {
+    const world = await emptyWorld();
+    const payouts = [
+      await held(world, 'concurrent-a'),
+      await held(world, 'concurrent-b'),
+      await held(world, 'concurrent-c'),
+    ];
+    // Enough for two with their fees, and not the third. This is what a lost job lock
+    // looks like: the queue's one at a time promise does not hold.
+    await world.h.fund(world.m.ref.address, 5n * ONE_USDC);
+    await Promise.all([
+      releaseHeld(world.deps, TENANT, NETWORK, noSignal()),
+      releaseHeld(world.deps, TENANT, NETWORK, noSignal()),
+    ]);
+    const attempts = await Promise.all(payouts.map(attemptsOf));
+    expect(attempts.flat()).toHaveLength(2);
+    for (const one of attempts) expect(one.length).toBeLessThanOrEqual(1);
+    const states = await Promise.all(payouts.map(async (payout) => world.read(payout.id)));
+    expect(states.filter((state) => state.status === 'routed')).toHaveLength(2);
+    expect(states.filter((state) => state.statusReason === 'awaiting_funding')).toHaveLength(1);
+  });
+
+  it('a new payout routed while a release runs cannot take the same funds', async () => {
+    const world = await emptyWorld();
+    const waiting = await held(world, 'racing-held');
+    // Each job has its own queue, so nothing keeps these two apart even on a good day.
+    await world.h.fund(world.m.ref.address, 3n * ONE_USDC);
+    const fresh = await world.payout('racing-fresh', usdc(2n * ONE_USDC));
+    // Neither goes on until both have read that nothing is promised, which forces the
+    // race rather than hoping for it.
+    let arrived = 0;
+    let open: () => void = () => undefined;
+    const both = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const racing = {
+      ...world.deps,
+      routing: {
+        ...world.deps.routing,
+        mandates: {
+          ...world.deps.routing.mandates,
+          unrequested: async (
+            ...args: Parameters<typeof world.deps.routing.mandates.unrequested>
+          ) => {
+            const read = await world.deps.routing.mandates.unrequested(...args);
+            arrived += 1;
+            if (arrived >= 2) open();
+            await both;
+            return read;
+          },
+        },
+      },
+    };
+    const results = await Promise.allSettled([
+      releaseHeld(racing, TENANT, NETWORK, noSignal()),
+      world.run(fresh, { deps: racing }),
+    ]);
+    for (const result of results) expect(result.status).toBe('fulfilled');
+    const attempts = await Promise.all([attemptsOf(waiting), attemptsOf(fresh)]);
+    expect(attempts.flat()).toHaveLength(1);
+  });
+
   it('the sweep never calls the router', async () => {
     const world = await emptyWorld();
     const payout = await held(world, 'sweep');

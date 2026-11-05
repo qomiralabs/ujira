@@ -2,6 +2,32 @@
 
 Smaller design decisions, each with what it was choosing between. Newest first.
 
+## A new attempt rechecks the balance under the instance's row lock
+
+**Problem.** The router works out a mandate's free balance, and a job then writes an attempt against it. A job's running balance is only its own, so two jobs can promise the same funds. The queue runs one release per principal and network at a time, but that does not cover two runs after a lost job lock, which a test showed releasing 3 payouts against funds for 2. It also does not cover a new payout and a release, which are on different queues, so they can race with no lost lock at all. The mandate refuses to spend what it does not hold, so this cannot pay twice, but a money rule should not depend on the queue.
+
+**Options.**
+
+1. Keep relying on the queue. Nothing to build, and the rule breaks in exactly the cases above.
+2. A lock in the release job only. It closes the case that was seen, and leaves a new payout free to take funds a release has just promised.
+3. Lock the mandate instance's row in every transaction that creates an attempt, then recheck there: chain free balance less what is routed and not yet requested must cover this attempt.
+4. Serialize on a Postgres advisory lock, which needs no new right. It has no row to point at, and its key space is shared with anything else that takes one.
+
+Chose 3. The balance belongs to one instance, so that row and no wider one is what is locked. A route that comes up short rolls back: a release leaves the payout held, and a new payout's job retries, routes again and is held.
+
+- The app login had no update right on `mandate_instances`, and a row lock takes one. So it gets update on one new column, `balance_checked_at`, and nothing else on that table. The lock is an update of that column, which does not block the foreign key checks of other attempts.
+- The sum of what is promised is read first and the chain second. A request landing between the two is counted twice, which only holds a payout back until the next run. The other order would miss it.
+
+**Trade offs and risks.**
+
+- A chain read happens inside a transaction, holding a pooled connection and the row lock, bounded at 5 seconds. Everything else that reaches a network stays outside. Reading the chain before taking the lock avoids that, but then a request landing in between is counted not at all, and closing that gap needs timestamps on attempts compared with the chain read, which is harder to get right than the cost is worth at one queue per mandate.
+- New attempts on one instance are serial, at the speed of that read. Each mandate's payouts already run one at a time on its queue, so this adds little there; it does mean a release and a mandate's payout job wait for each other.
+- A waiter can hit the transaction's lock timeout under contention. That fails the job, and the queue retries it.
+- A lagging RPC node can still report too much free balance. The node check in the adapter bounds the lag, and the mandate stays the final word on what it spends.
+- Under a lost job lock, which two payouts are released depends on timing, so oldest first holds only when the queue runs releases one at a time.
+
+**Evidence.** `packages/payouts/src/engine/release.test.ts > two truly concurrent releases against funds for 2 release exactly 2 and leave the third held`, and `> a new payout routed while a release runs cannot take the same funds`, which forces the race with a barrier.
+
 ## Two logins run the migrations
 
 **Problem.** The migrator login is `noinherit` and holds no server wide rights, on purpose. It could not run the migrations from zero: creating a schema and administering roles need more than it will ever hold, and a concurrent index build could not take the owner's rights at all. Measured on an empty database, connected as `ujira_migrator`: `permission denied for schema public` for the migrations table, `permission denied for database` for `create schema`, and `permission denied to alter role` in seven migrations. CI missed all of it because it migrated as a superuser.

@@ -4,7 +4,8 @@
 // Everything decided before an attempt exists: what to ask the router, what the
 // minimums say about its answer, and what the attempt will carry. All of it can reach
 // a network, so none of it runs inside a transaction. Recording the plan is one short
-// transaction at the end, which is what every rerun finds.
+// transaction at the end, which is what every rerun finds, and which makes the one chain
+// read that has to be inside: the balance, under the instance's row lock.
 
 import type {
   AttestationInput,
@@ -485,17 +486,59 @@ export async function attemptPlan(
   };
 }
 
-// In one transaction: the holds gone, the payout routed, its total set and the attempt
-// with its legs. Of two jobs that reach here, the second finds no holds, or the live
-// attempt the first wrote, and rolls back.
+// The funds this route counted on were promised to someone else first. Nothing was
+// recorded, and routing again will say what to do now.
+export class BalanceChanged extends Error {
+  override readonly name = 'BalanceChanged';
+}
+
+// Bounds the row lock, which every other route on this mandate instance is waiting for.
+const BALANCE_READ_MS = 5_000;
+
+// The running balance a job keeps is only its own, so the rule is checked here, where
+// jobs meet. In this order, because of what can happen between the reads: a request that
+// lands after the sum is taken is counted twice, which only ever holds a payout back.
+// The other way round it would be counted not at all.
+async function recheckBalance(
+  tx: TenantTx,
+  deps: EngineDeps,
+  context: ProjectContext,
+  route: RoutedOutcome,
+  signal: AbortSignal,
+): Promise<void> {
+  const locked = await payoutEngine.lockBalance(tx, route.mandateInstanceId);
+  if (!locked) throw new Error('a route names no mandate instance of this tenant');
+  const promised = await payoutEngine.unrequestedOn(tx, route.mandateInstanceId);
+  let free: bigint;
+  try {
+    const snapshot = await deps.adapters.get(route.network).readMandate(
+      { scope: scopeOf(context), mandate: route.mandate },
+      {
+        signal: AbortSignal.any([signal, AbortSignal.timeout(BALANCE_READ_MS)]),
+        correlationId: route.mandateInstanceId,
+      },
+    );
+    free = snapshot.state.free.amount;
+  } catch (error) {
+    throw classified(error) ?? error;
+  }
+  if (free - promised < route.charged.amount) throw new BalanceChanged();
+}
+
+// In one transaction: the balance checked, the holds gone, the payout routed, its total
+// set and the attempt with its legs. Of two jobs that reach here, the second finds no
+// holds, or the live attempt the first wrote, or too little left, and rolls back.
 export async function recordAttempt(
   tx: TenantTx,
+  deps: EngineDeps,
   context: ProjectContext,
   payout: Payout,
   plan: AttemptPlan,
   total: TokenAmount,
   key: string,
+  signal: AbortSignal,
 ): Promise<PayoutAttempt> {
+  await recheckBalance(tx, deps, context, plan.route, signal);
   if (payout.statusReason === 'awaiting_funding') {
     if ((await fundingHolds.release(tx, payout.id)) === 0) throw new LostRace();
   }

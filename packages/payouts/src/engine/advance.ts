@@ -61,6 +61,7 @@ import { enqueueTask, PAYOUT_ADVANCE, type TaskIds } from '../worker/tasks.js';
 import { bytes32Of, legKeyOf, taskRefOf } from './ids.js';
 import {
   attemptPlan,
+  BalanceChanged,
   belowMinimum,
   plannedLegs,
   TRANSFER_FAILED,
@@ -257,10 +258,23 @@ async function record(
   const attempt = await attemptPlan(deps, job.context, plan, route, key, job.signal);
   try {
     await deps.db.tenant(job.context).transaction(async (tx) => {
-      await recordAttempt(tx, job.context, payout, attempt, plan.request.total, key);
+      await recordAttempt(
+        tx,
+        deps,
+        job.context,
+        payout,
+        attempt,
+        plan.request.total,
+        key,
+        job.signal,
+      );
     });
     return true;
   } catch (error) {
+    // Another job got to the funds first. Route again, which will hold it if need be.
+    if (error instanceof BalanceChanged) {
+      throw new RetryableJobError('BALANCE_CHANGED', { cause: error });
+    }
     // Another job made the attempt first, and it is the one that counts.
     if (error instanceof LiveAttemptError || error instanceof LostRace) return false;
     throw error;

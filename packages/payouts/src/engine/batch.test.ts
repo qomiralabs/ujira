@@ -146,26 +146,41 @@ describe('batch advance', () => {
 
     // Enough for two with their fees, and not the third.
     await world.h.fund(world.m.ref.address, 5n * ONE_USDC);
+    // Two at once, as after a lost job lock, must still promise the funds only once.
+    await Promise.all([
+      releaseHeld(world.deps, TENANT, NETWORK, new AbortController().signal),
+      releaseHeld(world.deps, TENANT, NETWORK, new AbortController().signal),
+    ]);
+    const attempts = await Promise.all(payouts.map(attemptsOf));
+    expect(attempts.flat()).toHaveLength(2);
+    for (const one of attempts) expect(one.length).toBeLessThanOrEqual(1);
+    const paid = payouts.filter((_payout, index) => attempts[index]?.length === 1);
+    for (const payout of paid) expect((await world.drive(payout)).status).toBe('paid');
+  });
+
+  it('held items release oldest first when the queue runs them one after the other', async () => {
+    const world = await engineWorld(harness, { fund: 0n });
+    const { batchId } = await world.batch('held-order', [
+      usdc(2n * ONE_USDC),
+      usdc(2n * ONE_USDC),
+      usdc(2n * ONE_USDC),
+    ]);
+    await runBatch(world, batchId);
+    await world.h.fund(world.m.ref.address, 5n * ONE_USDC);
     // One after the other, as the queue runs them.
     const order = await harness.db
       .tenant(TENANT)
       .transaction(async (tx) => fundingHolds.oldestOnNetwork(tx, NETWORK, 10));
-    const [oldest, next, newest] = order
-      .map((hold) => payouts.find((payout) => payout.id === hold.payoutId))
-      .filter((payout) => payout !== undefined);
+    const mine = order.filter((hold) => hold.mandateInstanceId === world.instanceId);
+    const [oldest, next, newest] = mine.map((hold) => hold.payoutId);
     if (oldest === undefined || next === undefined || newest === undefined) {
       throw new Error('items');
     }
     const first = await releaseHeld(world.deps, TENANT, NETWORK, new AbortController().signal);
     const second = await releaseHeld(world.deps, TENANT, NETWORK, new AbortController().signal);
-    expect(first.released).toEqual([oldest.id, next.id]);
-    expect(first.waiting).toContain(newest.id);
+    expect(first.released).toEqual([oldest, next]);
+    expect(first.waiting).toContain(newest);
     expect(second.released).toHaveLength(0);
-    expect(await attemptsOf(oldest)).toHaveLength(1);
-    expect(await attemptsOf(next)).toHaveLength(1);
-    expect(await attemptsOf(newest)).toHaveLength(0);
-    expect((await world.drive(oldest)).status).toBe('paid');
-    expect((await world.drive(next)).status).toBe('paid');
   });
 
   it('pays nothing twice, at every point a batch job can die', async () => {

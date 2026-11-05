@@ -446,6 +446,7 @@ export interface UjiraMandateInstanceRoles {
 export interface UjiraMandateInstances {
   asset: string;
   attester_public_key: Buffer | null;
+  balance_checked_at: Timestamp | null;
   chain: string;
   contract_address: string;
   country_policy_hash: Buffer | null;

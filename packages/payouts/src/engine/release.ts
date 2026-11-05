@@ -39,6 +39,7 @@ import { SWEEP_PAGE_SIZE } from '../worker/settings.js';
 import { enqueueTask, RELEASE_HELD, PAYOUT_ADVANCE } from '../worker/tasks.js';
 import {
   attemptPlan,
+  BalanceChanged,
   legsMeetMinimums,
   LostRace,
   recordAttempt,
@@ -136,7 +137,7 @@ export function holdStore(
       const attempt = await attemptPlan(deps, context, plan, route, key, signal);
       try {
         await deps.db.tenant(context).transaction(async (tx) => {
-          await recordAttempt(tx, context, payout, attempt, plan.request.total, key);
+          await recordAttempt(tx, deps, context, payout, attempt, plan.request.total, key, signal);
           await enqueueTask(tx, PAYOUT_ADVANCE, {
             payoutId,
             mandateId: payout.mandateId,
@@ -144,6 +145,8 @@ export function holdStore(
         });
         return true;
       } catch (error) {
+        // Held still, for the next deposit or sweep.
+        if (error instanceof BalanceChanged) return false;
         if (error instanceof LostRace || error instanceof LiveAttemptError) return false;
         throw error;
       }
