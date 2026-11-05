@@ -19,6 +19,7 @@ import { routing, routingRepositories } from './repositories/routing.js';
 import { entryPoints } from './repositories/entry-points.js';
 import { managedSigners } from './repositories/signers.js';
 import { ledger, ledgerRepositories } from './repositories/ledger.js';
+import { approvals, legRepositories, payoutLegs } from './repositories/payout-legs.js';
 import {
   chainEvents,
   deposits,
@@ -84,6 +85,7 @@ interface Tenant {
   readonly batchId: string;
   readonly attemptId: string;
   readonly heldPayoutId: string;
+  readonly legId: string;
 }
 
 const REPOSITORIES = {
@@ -94,6 +96,7 @@ const REPOSITORIES = {
   ...auditRepositories,
   ...payoutRepositories,
   ...routingRepositories,
+  ...legRepositories,
 };
 
 let database: TestDatabase;
@@ -215,6 +218,7 @@ async function tenant(name: string): Promise<Tenant> {
       accountId: accounts[0]?.id ?? '',
     };
   });
+  const destinationAddress = `G${randomUUID()}`;
   const { recipientId, identityId, methodId } = await db.tenant(first).transaction(async (tx) => {
     const recipient = await recipients.create(tx, {
       recipientRef: randomBytes(32),
@@ -236,14 +240,14 @@ async function tenant(name: string): Promise<Tenant> {
       method: 'stellar_wallet',
       rail: 'wallet',
       chain: 'stellar',
-      destinationAddress: `G${randomUUID()}`,
+      destinationAddress,
       destinationTag: null,
       details: null,
     });
     await audit.record(tx, { action: 'project.created', actor: { kind: 'system' } });
     return { recipientId: recipient.id, identityId: identity.id, methodId: method.id };
   });
-  const { payoutId, batchId, attemptId, heldPayoutId } = await db
+  const { payoutId, batchId, attemptId, heldPayoutId, legId } = await db
     .tenant(first)
     .transaction(async (tx) => {
       const payoutInput = {
@@ -267,6 +271,22 @@ async function tenant(name: string): Promise<Tenant> {
         network: 'stellar:testnet',
         total: tokenAmount(50_000_000n, 'USDC', 'stellar'),
         deadline: new Date(Date.now() + 3_600_000),
+        legs: [
+          {
+            payoutMethodId: methodId,
+            method: 'stellar_wallet',
+            destinationAddress,
+            amount: 50_000_000n,
+          },
+        ],
+      });
+      const [leg] = await payoutLegs.forAttempt(tx, attempt.id);
+      await approvals.record(tx, {
+        attemptId: attempt.id,
+        approver: `G${name}`,
+        decision: 'approved',
+        signedMessageHash: randomBytes(32),
+        signature: randomBytes(64),
       });
       await fundingHolds.hold(tx, held.payout.id, [
         {
@@ -285,6 +305,7 @@ async function tenant(name: string): Promise<Tenant> {
         batchId: batch.id,
         attemptId: attempt.id,
         heldPayoutId: held.payout.id,
+        legId: leg?.id ?? '',
       };
     });
   return {
@@ -313,6 +334,7 @@ async function tenant(name: string): Promise<Tenant> {
     batchId,
     attemptId,
     heldPayoutId,
+    legId,
   };
 }
 
@@ -959,9 +981,45 @@ const cases: Record<string, () => Promise<void>> = {
         network: 'stellar:testnet',
         total: tokenAmount(50_000_000n, 'USDC', 'stellar'),
         deadline: new Date(Date.now() + 3_600_000),
+        legs: [
+          {
+            payoutMethodId: b.methodId,
+            method: 'stellar_wallet',
+            destinationAddress: 'GB',
+            amount: 50_000_000n,
+          },
+        ],
       }),
     );
     expect(await codeOf(attempt)).toBe('UJ014');
+  },
+  'payoutLegs.forAttempt': async () => {
+    expect(await acrossA(async (tx) => payoutLegs.forAttempt(tx, b.attemptId))).toEqual([]);
+    expect(await acrossA(async (tx) => payoutLegs.forAttempt(tx, a.attemptId))).toHaveLength(1);
+  },
+  'payoutLegs.transition': async () => {
+    expect(
+      await asA(async (tx) =>
+        payoutLegs.transition(tx, b.legId, { from: 'planned', to: 'submitted' }),
+      ),
+    ).toBeUndefined();
+    expect(await statusOf('ujira.payout_legs', b.legId)).toBe('planned');
+  },
+  'approvals.record': async () => {
+    const attempt = asA(async (tx) =>
+      approvals.record(tx, {
+        attemptId: b.attemptId,
+        approver: 'GINTRUDER',
+        decision: 'approved',
+        signedMessageHash: randomBytes(32),
+        signature: randomBytes(64),
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'approvals.forAttempt': async () => {
+    expect(await acrossA(async (tx) => approvals.forAttempt(tx, b.attemptId))).toEqual([]);
+    expect(await acrossA(async (tx) => approvals.forAttempt(tx, a.attemptId))).toHaveLength(1);
   },
   'payoutAttempts.get': async () => {
     expect(await acrossA(async (tx) => payoutAttempts.get(tx, b.attemptId))).toBeUndefined();

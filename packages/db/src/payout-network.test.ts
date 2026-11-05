@@ -13,6 +13,7 @@ import { fundingHolds, payoutAttempts, payouts } from './repositories/payouts.js
 import { databaseAsServiceRoles } from './testing/databases.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
 import {
+  newAttempt,
   newPayout,
   ONE_USDC,
   payoutFixture,
@@ -108,13 +109,7 @@ describe('a funding hold', () => {
 
 describe('an attempt', () => {
   function attempt(network: string) {
-    return {
-      payoutId,
-      mandateInstanceId: fixture.instanceId,
-      network,
-      total: usdc(5n * ONE_USDC),
-      deadline: new Date(Date.now() + 3_600_000),
-    };
+    return newAttempt(fixture, payoutId, { network });
   }
 
   it('records its network, and keeps the chain in its unit', async () => {
