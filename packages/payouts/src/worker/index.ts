@@ -73,3 +73,10 @@ export {
   type TaskIds,
   type TenantTask,
 } from './tasks.js';
+export {
+  MISSING_STORES,
+  productionParts,
+  workerHandlers,
+  WorkerStoresMissingError,
+  type WorkerParts,
+} from './wiring.js';

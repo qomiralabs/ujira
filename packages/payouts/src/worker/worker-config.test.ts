@@ -192,13 +192,28 @@ describe('the task list', () => {
       'indexer:scan',
       'submissions:reconcile',
       'ttl:keep_alive',
+      'payouts:release_held',
+      'payouts:cancel_lapsed',
+      'payouts:release_sweep',
+      'payouts:cancel_lapsed_sweep',
+      'receipt:issue',
     ]);
     expect(
       unwiredTasks({
         submissionSweepers: [],
         ttlKeepAlive: { run: work, networks: [] },
       }),
-    ).toEqual(['payout:advance', 'batch:advance', 'mandate:reconcile', 'indexer:scan']);
+    ).toEqual([
+      'payout:advance',
+      'batch:advance',
+      'mandate:reconcile',
+      'indexer:scan',
+      'payouts:release_held',
+      'payouts:cancel_lapsed',
+      'payouts:release_sweep',
+      'payouts:cancel_lapsed_sweep',
+      'receipt:issue',
+    ]);
   });
 
   it('takes tasks from other packages, with their cron lines', () => {

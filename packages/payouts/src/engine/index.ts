@@ -53,3 +53,4 @@ export { onChainPayoutId, legKeyOf, taskRefOf } from './ids.js';
 export { databaseDestinations, databaseMandates } from './routing.js';
 export { enqueueRelease, releaseHeld, releaseWork, sweepHolds } from './release.js';
 export type { AttestationRequest, EngineDeps, LegShare } from './plan.js';
+export { databasePaidPayout } from './paid-payout.js';

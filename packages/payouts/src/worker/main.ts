@@ -8,6 +8,7 @@
 // A first signal lets running jobs finish within the grace. A second gives up.
 
 import { describeRefusal, startWorkerProcess } from './process.js';
+import { productionParts, workerHandlers } from './wiring.js';
 
 function refuse(error: unknown): never {
   process.stderr.write(`worker: ${describeRefusal(error)}\n`);
@@ -15,7 +16,10 @@ function refuse(error: unknown): never {
 }
 
 try {
-  const worker = await startWorkerProcess(process.env);
+  // Refuses, naming each store it lacks, until a deployment has every part it runs on.
+  const worker = await startWorkerProcess(process.env, {
+    handlers: workerHandlers(productionParts()),
+  });
   let stopping = false;
   const stop = (): void => {
     if (stopping) process.exit(1);

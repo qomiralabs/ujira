@@ -12,6 +12,7 @@
 import { EventEmitter } from 'node:events';
 
 import { workerPools, type Database } from '@ujira/db';
+import { RECEIPT_ISSUE_TASK } from '@ujira/receipts';
 import { run, type Logger, type Task, type TaskList, type WorkerEvents } from 'graphile-worker';
 
 import type { NetworkId } from '@ujira/chain-adapter';
@@ -37,12 +38,14 @@ import {
 import { DEFAULT_CONCURRENCY, HEARTBEAT_EVERY_MS, workerPreset } from './settings.js';
 import {
   BATCH_ADVANCE,
+  CANCEL_LAPSED,
   MANDATE_RECONCILE,
   PAYOUT_ADVANCE,
+  RELEASE_HELD,
   SYSTEM_TASKS,
   TENANT_TASKS,
-  TTL_KEEP_ALIVE,
   type TenantTask,
+  TTL_KEEP_ALIVE,
 } from './tasks.js';
 
 export interface WorkerHandlers {
@@ -172,6 +175,13 @@ export function unwiredTasks(handlers: WorkerHandlers): readonly string[] {
     [SYSTEM_TASKS.indexerScan, handlers.indexerScans !== undefined],
     [SYSTEM_TASKS.submissionSweep, handlers.submissionSweepers !== undefined],
     [TTL_KEEP_ALIVE.name, handlers.ttlKeepAlive !== undefined],
+    ...[RELEASE_HELD, CANCEL_LAPSED].map((task): readonly [string, boolean] => [
+      task.name,
+      handlers.tenantTasks?.some((wired) => wired.task.name === task.name) === true,
+    ]),
+    ...[SYSTEM_TASKS.releaseSweep, SYSTEM_TASKS.lapsedSweep, RECEIPT_ISSUE_TASK].map(
+      (name): readonly [string, boolean] => [name, handlers.plugins?.[name] !== undefined],
+    ),
   ];
   return expected.filter(([, wired]) => !wired).map(([name]) => name);
 }
