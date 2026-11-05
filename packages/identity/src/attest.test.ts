@@ -3,6 +3,7 @@
 
 import type { UnixSeconds } from '@ujira/chain-adapter';
 import {
+  MandatePendingError,
   DestinationInvalidError,
   RpcTimeoutError,
   SignerDeniedError,
@@ -199,6 +200,18 @@ describe('a look-alike mandate', () => {
       detail: 'MANDATE_UNTRUSTED',
     });
     expect(w.log.rows(w.scope)).toEqual([]);
+    expect(w.attester.signed).toEqual([]);
+  });
+});
+
+describe('a mandate UJIRA has just created', () => {
+  // The instance is recorded before the creation is submitted, so for a while it is
+  // claimed and not yet read from its factory's event. That is a wait, so the payout
+  // is held and tried again rather than refused for good.
+  it('is held until its factory event is read, and nothing is signed', async () => {
+    const w = attestationWorld();
+    w.chain.readFailure = new MandatePendingError({ network: 'stellar:testnet' });
+    expect(await w.attest()).toMatchObject({ attested: false, reason: 'PROVIDER_UNAVAILABLE' });
     expect(w.attester.signed).toEqual([]);
   });
 });

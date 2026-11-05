@@ -22,6 +22,7 @@ export {
   InvalidInputError,
   LiquidityUnavailableError,
   MandateRuleError,
+  MandatePendingError,
   MandateUntrustedError,
   MemoOnContractCallError,
   QuoteExpiredError,
@@ -179,6 +180,7 @@ export type {
   EventIntake,
   EventIntakeOptions,
   EventIntakeStore,
+  MandateFlagReason,
   EventJson,
   IgnoredReason,
   IntakeOutcome,
@@ -189,3 +191,12 @@ export type {
 
 export { sweepDepositOf } from './deposit-event.js';
 export type { SweepDepositEvent } from './deposit-event.js';
+
+export { createEventScan, eventStream } from './event-scan.js';
+export type {
+  CursorStore,
+  EventPage,
+  EventScanOptions,
+  EventSource,
+  ScanResult,
+} from './event-scan.js';

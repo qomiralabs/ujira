@@ -64,6 +64,8 @@ export {
   payoutBookings,
   type IntakeBooking,
   type IntakeTenant,
+  type MandateAlert,
+  type MandateFlagReason,
   type MandateRegistryRow,
   type NewMandateRegistration,
   type PayoutBooking,
@@ -130,6 +132,7 @@ export {
   type WalletChallengeRow,
 } from './repositories/identity-evidence.js';
 export {
+  chainCursors,
   emailQuota,
   executors,
   identityProviderEvents,

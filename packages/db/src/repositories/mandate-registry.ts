@@ -28,6 +28,16 @@ export interface MandateRegistryRow {
   readonly flagged: boolean;
 }
 
+export type MandateFlagReason = 'tenant_tag_mismatch' | 'public_test_attester';
+
+export interface MandateAlert {
+  readonly id: bigint;
+  readonly network: string;
+  readonly contractId: string;
+  readonly reason: MandateFlagReason;
+  readonly raisedAt: Date;
+}
+
 export interface NewMandateRegistration {
   readonly network: string;
   readonly contractId: string;
@@ -77,12 +87,39 @@ export const mandateRegistry = {
     return result.rows[0]?.added === true;
   },
 
-  // True when the contract is registered. Nothing lifts a flag.
-  flag: async (db: Tx, network: string, contractId: string): Promise<boolean> => {
+  // True when the contract is registered. Nothing lifts a flag. The function raises
+  // the alert for its reason as well, so one cannot commit without the other.
+  flag: async (
+    db: Tx,
+    network: string,
+    contractId: string,
+    reason: MandateFlagReason,
+  ): Promise<boolean> => {
     const result = await sql<{ found: boolean }>`
-      select ops.flag_mandate(${network}, ${contractId}) as found
+      select ops.flag_mandate(${network}, ${contractId}, ${reason}) as found
     `.execute(db);
     return result.rows[0]?.found === true;
+  },
+
+  // Oldest first, from the last one a reader has handled. Zero reads from the start.
+  alertsAfter: async (db: Tx, afterId: bigint, limit: number): Promise<readonly MandateAlert[]> => {
+    const result = await sql<{
+      id: string;
+      network: string;
+      contract_id: string;
+      reason: MandateFlagReason;
+      raised_at: Date;
+    }>`
+      select id, network, contract_id, reason, raised_at
+        from ops.mandate_alerts_after(${afterId.toString()}::bigint, ${checkedLimit(limit)})
+    `.execute(db);
+    return result.rows.map((row) => ({
+      id: BigInt(row.id),
+      network: row.network,
+      contractId: row.contract_id,
+      reason: row.reason,
+      raisedAt: row.raised_at,
+    }));
   },
 };
 
@@ -219,8 +256,8 @@ export function mandateEventStore(db: Database, chainOf: (network: string) => st
       (await worker((tx) => mandateRegistry.find(tx, network, contractId))) ?? null,
     register: (registration: NewMandateRegistration) =>
       worker((tx) => mandateRegistry.register(tx, registration)),
-    flag: async (network: string, contractId: string): Promise<void> => {
-      await worker((tx) => mandateRegistry.flag(tx, network, contractId));
+    flag: async (network: string, contractId: string, reason: MandateFlagReason): Promise<void> => {
+      await worker((tx) => mandateRegistry.flag(tx, network, contractId, reason));
     },
     tenantOf: async (network: string, contractId: string): Promise<IntakeTenant | null> => {
       const found = await worker((tx) =>

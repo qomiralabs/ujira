@@ -449,6 +449,15 @@ importers:
         specifier: 4.10.2
         version: 4.10.2
 
+  packages/indexer:
+    dependencies:
+      '@ujira/chain-adapter':
+        specifier: workspace:*
+        version: link:../chain-adapter
+      '@ujira/db':
+        specifier: workspace:*
+        version: link:../db
+
   packages/mandates:
     dependencies:
       '@ujira/chain-adapter':
