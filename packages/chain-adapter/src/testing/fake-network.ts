@@ -26,6 +26,14 @@ import type {
   UnixSeconds,
 } from '../types.js';
 
+import { TRUSTLINE_AUTHORIZED } from '../stellar/account-rules.js';
+import type { StellarAccountEntry, StellarTrustlineEntry } from '../stellar/account-rules.js';
+import type {
+  StellarLedgerEntry,
+  StellarLedgerKey,
+  StellarLedgerReader,
+} from '../stellar/check-destination.js';
+
 import { accountFromSeed, addressXdr, contractAddress } from './address.js';
 import { hexOf, sha256, utf8 } from './bytes.js';
 import { MandateEngine } from './engine.js';
@@ -147,6 +155,18 @@ export class FakeNetwork {
   /** Signing requests by ID, standing in for the signing requests table. */
   readonly requests = new Map<string, StoredRequest>();
   readonly #accounts = new Map<string, TestAccount>();
+  readonly #ledgerAccounts = new Map<string, StellarAccountEntry | null>();
+  readonly #ledgerTrustlines = new Map<string, StellarTrustlineEntry | null>();
+
+  /**
+   * The read a real network answers with one getLedgerEntries call. Every
+   * address has an account and an authorized trustline until a test says
+   * otherwise, so a test states only the case it is about.
+   */
+  readonly ledgerReader: StellarLedgerReader = {
+    getLedgerEntries: (_network, keys) =>
+      Promise.resolve(keys.map((key) => this.#ledgerEntry(key))),
+  };
   readonly #genesis: ClosedLedger;
   readonly #ledgers: ClosedLedger[] = [];
   readonly #txs = new Map<string, FakeTx>();
@@ -197,6 +217,51 @@ export class FakeNetwork {
     this.networkConfig = own;
     this.#genesis = { seq: 1n, closedAt: this.ledger.now, restore: null };
     this.#ledgers.push(this.#genesis);
+  }
+
+  /** Sets what the ledger holds for an account. Null makes it absent. */
+  setLedgerAccount(address: string, entry: StellarAccountEntry | null): void {
+    this.#ledgerAccounts.set(address, entry);
+  }
+
+  /** Sets what the ledger holds for an account's trustline. Null makes it absent. */
+  setLedgerTrustline(address: string, entry: StellarTrustlineEntry | null): void {
+    this.#ledgerTrustlines.set(address, entry);
+  }
+
+  /** What an activation leaves behind: the account and the trustline, back to the defaults. */
+  activateRecipient(address: string): void {
+    this.#ledgerAccounts.delete(address);
+    this.#ledgerTrustlines.delete(address);
+  }
+
+  #ledgerEntry(key: StellarLedgerKey): StellarLedgerEntry | null {
+    if (key.kind === 'account') {
+      const set = this.#ledgerAccounts.get(key.accountId);
+      if (set === null) return null;
+      return {
+        kind: 'account',
+        ...(set ?? {
+          accountId: key.accountId,
+          masterWeight: 1,
+          thresholds: { low: 0, medium: 0, high: 0 },
+          signers: [],
+        }),
+      };
+    }
+    const set = this.#ledgerTrustlines.get(key.accountId);
+    if (set === null) return null;
+    return {
+      kind: 'trustline',
+      ...(set ?? {
+        accountId: key.accountId,
+        asset: key.asset,
+        balance: this.token.balance(key.accountId),
+        limit: 2n ** 63n - 1n,
+        buyingLiabilities: 0n,
+        flags: TRUSTLINE_AUTHORIZED,
+      }),
+    };
   }
 
   /** A deterministic test account for `name` on this network. */
