@@ -26,6 +26,14 @@ import type { RateLimitGroup } from './rate-limit.js';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 export type SuccessStatus = 200 | 201 | 202;
+export type DownloadContentType = 'text/csv; charset=utf-8' | 'application/pdf';
+
+/** What a download route's handler returns. The name goes in a header, so it stays plain. */
+export const FileDownload = z.strictObject({
+  filename: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+  body: z.union([z.string(), z.custom<Uint8Array>((value) => value instanceof Uint8Array)]),
+});
+export type FileDownload = z.infer<typeof FileDownload>;
 
 export interface RequestContext {
   readonly requestId: string;
@@ -77,6 +85,8 @@ export interface Route {
     readonly status: SuccessStatus;
     readonly name: string;
     readonly schema: z.ZodType;
+    /** Set when the answer is a file and not JSON. */
+    readonly download?: { readonly contentType: DownloadContentType };
   };
   /** Statuses this route can answer with besides its success status. */
   readonly errorStatuses: readonly number[];
@@ -213,6 +223,7 @@ interface RouteSpec<
     /** The OpenAPI component name of the success body. */
     readonly name: string;
     readonly schema: R;
+    readonly download?: { readonly contentType: DownloadContentType };
   };
   /** Codes the handler itself throws, such as NOT_FOUND. */
   readonly errors?: readonly ProblemCode[];
@@ -252,6 +263,7 @@ function build<
       status: spec.response.status ?? 200,
       name: spec.response.name,
       schema: spec.response.schema,
+      ...(spec.response.download === undefined ? {} : { download: spec.response.download }),
     }),
     errorStatuses: errorStatuses(
       access,
@@ -284,6 +296,46 @@ export function defineTenantRoute<
   return build(spec, access, (input, context, tenant) =>
     asTenant(context, tenant, (scoped) => spec.handler(input as Input<P, Q, B>, scoped)),
   );
+}
+
+/**
+ * A GET that answers with a file for the tenant of the calling key. The tenant
+ * check on JSON bodies cannot read a file, so whatever builds the file has to
+ * refuse another tenant's data itself.
+ */
+export function defineDownloadRoute<
+  P extends z.ZodObject = NoInput,
+  Q extends z.ZodType = NoInput,
+>(spec: {
+  readonly id: string;
+  readonly path: `/v1/${string}`;
+  readonly summary: string;
+  readonly scope: ApiScope;
+  readonly contentType: DownloadContentType;
+  readonly params?: P;
+  readonly query?: Q;
+  readonly errors?: readonly ProblemCode[];
+  readonly handler: (
+    input: RouteInput<z.output<P>, z.output<Q>, undefined>,
+    context: TenantRequestContext,
+  ) => Promise<FileDownload>;
+}): Route {
+  return defineTenantRoute<typeof FileDownload, P, Q>({
+    id: spec.id,
+    method: 'GET',
+    path: spec.path,
+    summary: spec.summary,
+    scope: spec.scope,
+    ...(spec.params === undefined ? {} : { params: spec.params }),
+    ...(spec.query === undefined ? {} : { query: spec.query }),
+    ...(spec.errors === undefined ? {} : { errors: spec.errors }),
+    response: {
+      name: 'FileDownload',
+      schema: FileDownload,
+      download: { contentType: spec.contentType },
+    },
+    handler: spec.handler,
+  });
 }
 
 /**
