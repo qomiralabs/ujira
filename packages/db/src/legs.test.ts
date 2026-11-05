@@ -119,7 +119,9 @@ describe('legs sum to their attempt', () => {
       await admin.query('begin');
       await admin.query('set local role ujira_owner');
       await admin.query(
-        `update ujira.payout_attempts set total_amount = total_amount + 1 where id = $1`,
+        `update ujira.payout_attempts
+            set total_amount = total_amount + 1, charged_amount = charged_amount + 1
+          where id = $1`,
         [attempt.id],
       );
       expect(await codeOf(admin.query('commit'))).toBe('UJ005');

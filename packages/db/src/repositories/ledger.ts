@@ -23,7 +23,7 @@ const CURRENT_PROJECT = sql<string>`ujira.current_project_id()`;
 
 // balance, pending, committed and spent are the figures the contract reports.
 // external is the other side of money entering or leaving it.
-export type LedgerAccountKind = 'balance' | 'pending' | 'committed' | 'spent' | 'external';
+export type LedgerAccountKind = 'balance' | 'pending' | 'committed' | 'spent' | 'external' | 'fee';
 
 export interface LedgerAccount {
   readonly id: string;
@@ -66,7 +66,8 @@ export interface Reconciliation {
   readonly mandateInstanceId: string;
   readonly ledger: bigint;
   readonly state: Omit<MandateState, 'mandateInstanceId' | 'ledger'>;
-  readonly books: Omit<MandateState, 'mandateInstanceId' | 'ledger'>;
+  // The contract's spent counts the fee too, so it is compared to books spent plus fee.
+  readonly books: Omit<MandateState, 'mandateInstanceId' | 'ledger'> & { readonly fee: bigint };
   // False is a disagreement between the ledger and the contract.
   readonly matches: boolean;
 }
@@ -77,6 +78,7 @@ const KINDS: readonly LedgerAccountKind[] = [
   'committed',
   'spent',
   'external',
+  'fee',
 ];
 
 function accountKind(value: string): LedgerAccountKind {
@@ -338,6 +340,7 @@ export const ledger = {
         pending: big(row.ledger_pending),
         committed: big(row.ledger_committed),
         spent: big(row.ledger_spent),
+        fee: big(row.ledger_fee),
       },
       matches: row.matches === true,
     };

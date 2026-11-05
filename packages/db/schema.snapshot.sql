@@ -628,6 +628,33 @@ $$;
 ALTER FUNCTION ujira.erased_subjects(after_id uuid, page_size bigint) OWNER TO ujira_fn_erasure;
 
 --
+-- Name: fee_cap_only_lowers(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.fee_cap_only_lowers() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if old.max_fee_bps is not null
+     and (new.max_fee_bps is null or new.max_fee_bps > old.max_fee_bps) then
+    raise exception using
+      errcode = 'UJ007',
+      message = 'a fee cap can only go down';
+  end if;
+  if old.fee_address is not null and new.fee_address is distinct from old.fee_address then
+    raise exception using
+      errcode = 'UJ007',
+      message = 'a fee address cannot change';
+  end if;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.fee_cap_only_lowers() OWNER TO ujira_owner;
+
+--
 -- Name: forbid_mutation(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1871,7 +1898,7 @@ CREATE TABLE ujira.ledger_accounts (
     balance ujira.amount DEFAULT 0 NOT NULL,
     last_seq bigint DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT ledger_accounts_kind CHECK ((kind = ANY (ARRAY['balance'::text, 'pending'::text, 'committed'::text, 'spent'::text, 'external'::text])))
+    CONSTRAINT ledger_accounts_kind CHECK ((kind = ANY (ARRAY['balance'::text, 'pending'::text, 'committed'::text, 'spent'::text, 'external'::text, 'fee'::text])))
 );
 
 ALTER TABLE ONLY ujira.ledger_accounts FORCE ROW LEVEL SECURITY;
@@ -1967,7 +1994,8 @@ CREATE VIEW ujira.ledger_reconciliation WITH (security_invoker='true') AS
             sum((a_1.balance)::numeric) FILTER (WHERE (a_1.kind = 'balance'::text)) AS balance,
             sum((a_1.balance)::numeric) FILTER (WHERE (a_1.kind = 'pending'::text)) AS pending,
             sum((a_1.balance)::numeric) FILTER (WHERE (a_1.kind = 'committed'::text)) AS committed,
-            sum((a_1.balance)::numeric) FILTER (WHERE (a_1.kind = 'spent'::text)) AS spent
+            sum((a_1.balance)::numeric) FILTER (WHERE (a_1.kind = 'spent'::text)) AS spent,
+            sum((a_1.balance)::numeric) FILTER (WHERE (a_1.kind = 'fee'::text)) AS fee
            FROM ujira.ledger_accounts a_1
           GROUP BY a_1.mandate_instance_id
         )
@@ -1984,7 +2012,8 @@ CREATE VIEW ujira.ledger_reconciliation WITH (security_invoker='true') AS
     COALESCE(a.committed, (0)::numeric) AS ledger_committed,
     l.spent AS state_spent,
     COALESCE(a.spent, (0)::numeric) AS ledger_spent,
-    (((l.balance)::numeric = COALESCE(a.balance, (0)::numeric)) AND ((l.pending)::numeric = COALESCE(a.pending, (0)::numeric)) AND ((l.committed)::numeric = COALESCE(a.committed, (0)::numeric)) AND ((l.spent)::numeric = COALESCE(a.spent, (0)::numeric))) AS matches
+    (((l.balance)::numeric = COALESCE(a.balance, (0)::numeric)) AND ((l.pending)::numeric = COALESCE(a.pending, (0)::numeric)) AND ((l.committed)::numeric = COALESCE(a.committed, (0)::numeric)) AND ((l.spent)::numeric = (COALESCE(a.spent, (0)::numeric) + COALESCE(a.fee, (0)::numeric)))) AS matches,
+    COALESCE(a.fee, (0)::numeric) AS ledger_fee
    FROM (latest l
      LEFT JOIN accounts a ON ((a.mandate_instance_id = l.mandate_instance_id)));
 
@@ -2057,8 +2086,12 @@ CREATE TABLE ujira.mandate_instances (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     attester_public_key bytea,
     country_policy_hash ujira.hash32,
+    max_fee_bps bigint,
+    fee_address text,
     CONSTRAINT mandate_instances_address_length CHECK (((char_length(contract_address) >= 1) AND (char_length(contract_address) <= 128))),
     CONSTRAINT mandate_instances_attester_key_length CHECK ((octet_length(attester_public_key) = 32)),
+    CONSTRAINT mandate_instances_fee_address_length CHECK (((char_length(fee_address) >= 1) AND (char_length(fee_address) <= 128))),
+    CONSTRAINT mandate_instances_max_fee_bps_range CHECK (((max_fee_bps >= 0) AND (max_fee_bps <= 100))),
     CONSTRAINT mandate_instances_spec_length CHECK (((char_length(spec_version) >= 1) AND (char_length(spec_version) <= 32)))
 );
 
@@ -2112,8 +2145,18 @@ CREATE TABLE ujira.payout_attempts (
     status text DEFAULT 'created'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    fee_amount ujira.amount DEFAULT 0 NOT NULL,
+    fee_bps_applied bigint DEFAULT 0 NOT NULL,
+    fee_terms_id uuid,
+    charged_amount ujira.amount,
     CONSTRAINT payout_attempts_chain_id_length CHECK (((char_length(on_chain_payout_id) >= 1) AND (char_length(on_chain_payout_id) <= 128))),
+    CONSTRAINT payout_attempts_charged_is_total_plus_fee CHECK (((charged_amount IS NULL) OR ((charged_amount)::numeric = ((total_amount)::numeric + (fee_amount)::numeric)))),
+    CONSTRAINT payout_attempts_charged_positive CHECK (((charged_amount IS NULL) OR ((charged_amount)::numeric > (0)::numeric))),
     CONSTRAINT payout_attempts_dead_has_proof CHECK (((status = 'dead'::text) = (dead_proof IS NOT NULL))),
+    CONSTRAINT payout_attempts_fee_bps_range CHECK (((fee_bps_applied >= 0) AND (fee_bps_applied <= 100))),
+    CONSTRAINT payout_attempts_fee_has_terms CHECK ((((fee_amount)::numeric = (0)::numeric) OR (fee_terms_id IS NOT NULL))),
+    CONSTRAINT payout_attempts_fee_not_negative CHECK (((fee_amount)::numeric >= (0)::numeric)),
+    CONSTRAINT payout_attempts_fee_within_cap CHECK (((fee_amount)::numeric <= ((div((total_amount)::numeric, (10000)::numeric) * (fee_bps_applied)::numeric) + div((mod((total_amount)::numeric, (10000)::numeric) * (fee_bps_applied)::numeric), (10000)::numeric)))),
     CONSTRAINT payout_attempts_network_on_chain CHECK ((split_part((network)::text, ':'::text, 1) = chain)),
     CONSTRAINT payout_attempts_number_range CHECK (((attempt_number >= 1) AND (attempt_number <= 1000000))),
     CONSTRAINT payout_attempts_proof_object CHECK (((dead_proof IS NULL) OR (jsonb_typeof(dead_proof) = 'object'::text))),
@@ -2434,6 +2477,11 @@ CREATE TABLE ujira.receipts (
     document_sha256 ujira.hash32 NOT NULL,
     supersedes_sha256 ujira.hash32,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    take_rate_amount ujira.amount DEFAULT 0 NOT NULL,
+    take_rate_bps bigint DEFAULT 0 NOT NULL,
+    take_rate_refunded_amount ujira.amount DEFAULT 0 NOT NULL,
+    charged_amount ujira.amount,
+    CONSTRAINT receipts_charged_is_settlement_plus_take CHECK (((charged_amount IS NULL) OR ((charged_amount)::numeric = ((settlement_amount)::numeric + (take_rate_amount)::numeric)))),
     CONSTRAINT receipts_document_present CHECK ((char_length(canonical_document) > 0)),
     CONSTRAINT receipts_fee_not_negative CHECK (((fee_amount)::numeric >= (0)::numeric)),
     CONSTRAINT receipts_network_on_chain CHECK ((split_part((network)::text, ':'::text, 1) = chain)),
@@ -2441,7 +2489,10 @@ CREATE TABLE ujira.receipts (
     CONSTRAINT receipts_ref_length CHECK (((char_length(chain_receipt_ref) >= 1) AND (char_length(chain_receipt_ref) <= 512))),
     CONSTRAINT receipts_revision_range CHECK (((revision >= 1) AND (revision <= 1000000))),
     CONSTRAINT receipts_settlement_positive CHECK (((settlement_amount)::numeric > (0)::numeric)),
-    CONSTRAINT receipts_supersedes_after_first CHECK (((revision = 1) = (supersedes_sha256 IS NULL)))
+    CONSTRAINT receipts_supersedes_after_first CHECK (((revision = 1) = (supersedes_sha256 IS NULL))),
+    CONSTRAINT receipts_take_rate_bps_range CHECK (((take_rate_bps >= 0) AND (take_rate_bps <= 100))),
+    CONSTRAINT receipts_take_rate_not_negative CHECK (((take_rate_amount)::numeric >= (0)::numeric)),
+    CONSTRAINT receipts_take_rate_refund_within CHECK ((((take_rate_refunded_amount)::numeric >= (0)::numeric) AND ((take_rate_refunded_amount)::numeric <= (take_rate_amount)::numeric)))
 );
 
 ALTER TABLE ONLY ujira.receipts FORCE ROW LEVEL SECURITY;
@@ -3788,6 +3839,13 @@ CREATE TRIGGER mandate_instance_roles_touch BEFORE UPDATE ON ujira.mandate_insta
 
 
 --
+-- Name: mandate_instances mandate_instances_fee_cap_only_lowers; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER mandate_instances_fee_cap_only_lowers BEFORE UPDATE OF max_fee_bps, fee_address ON ujira.mandate_instances FOR EACH ROW EXECUTE FUNCTION ujira.fee_cap_only_lowers();
+
+
+--
 -- Name: mandate_state_snapshots mandate_state_snapshots_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4718,6 +4776,13 @@ ALTER TABLE ujira.funding_sources ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE ujira.funding_sweeps ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: mandate_instances indexer_fee_cap; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY indexer_fee_cap ON ujira.mandate_instances FOR UPDATE TO ujira_indexer USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
 
 --
 -- Name: chain_events indexer_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
@@ -6171,6 +6236,13 @@ GRANT ALL ON FUNCTION ujira.erased_subjects(after_id uuid, page_size bigint) TO 
 
 
 --
+-- Name: FUNCTION fee_cap_only_lowers(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.fee_cap_only_lowers() FROM PUBLIC;
+
+
+--
 -- Name: FUNCTION forbid_mutation(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6591,6 +6663,20 @@ GRANT SELECT,INSERT ON TABLE ujira.mandate_instances TO ujira_app;
 GRANT SELECT ON TABLE ujira.mandate_instances TO ujira_reader;
 GRANT SELECT ON TABLE ujira.mandate_instances TO ujira_fn_instances;
 GRANT SELECT ON TABLE ujira.mandate_instances TO ujira_indexer;
+
+
+--
+-- Name: COLUMN mandate_instances.max_fee_bps; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(max_fee_bps) ON TABLE ujira.mandate_instances TO ujira_indexer;
+
+
+--
+-- Name: COLUMN mandate_instances.fee_address; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(fee_address) ON TABLE ujira.mandate_instances TO ujira_indexer;
 
 
 --

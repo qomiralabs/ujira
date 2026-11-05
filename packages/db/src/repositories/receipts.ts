@@ -69,6 +69,13 @@ export interface NewReceipt {
   readonly settlement: TokenAmount;
   // The sum of the legs' fees, in the settlement's unit.
   readonly fee: bigint;
+  // UJIRA's take, a line of its own and never folded into a leg's fee. None when left
+  // out. Charged is worked out from it.
+  readonly takeRate?: {
+    readonly amount: bigint;
+    readonly bps: number;
+    readonly refunded?: bigint;
+  };
   // The canonical text, exactly as it was hashed.
   readonly document: string;
   // Lower case hex, as the receipt model writes it.
@@ -98,6 +105,13 @@ export interface Receipt {
   readonly chainReceiptRef: string;
   readonly settlement: TokenAmount;
   readonly fee: TokenAmount;
+  readonly takeRate: {
+    readonly amount: TokenAmount;
+    readonly bps: number;
+    readonly refunded: TokenAmount;
+  };
+  // Settlement plus take rate, which is what left the mandate.
+  readonly charged: TokenAmount;
   readonly document: string;
   readonly documentSha256: string;
   readonly supersedesSha256: string | null;
@@ -124,6 +138,10 @@ const receiptColumns = [
   'scale',
   'settlement_amount',
   'fee_amount',
+  'take_rate_amount',
+  'take_rate_bps',
+  'take_rate_refunded_amount',
+  'charged_amount',
   'canonical_document',
   'document_sha256',
   'supersedes_sha256',
@@ -144,6 +162,10 @@ function toReceipt(row: {
   scale: number;
   settlement_amount: string;
   fee_amount: string;
+  take_rate_amount: string;
+  take_rate_bps: string;
+  take_rate_refunded_amount: string;
+  charged_amount: string | null;
   canonical_document: string;
   document_sha256: Buffer;
   supersedes_sha256: Buffer | null;
@@ -162,6 +184,14 @@ function toReceipt(row: {
     chainReceiptRef: row.chain_receipt_ref,
     settlement: tokenFromRow({ amount: row.settlement_amount, ...unit }),
     fee: tokenFromRow({ amount: row.fee_amount, ...unit }),
+    takeRate: {
+      amount: tokenFromRow({ amount: row.take_rate_amount, ...unit }),
+      // Checked to be 0 to 100, so this is exact.
+      bps: Number(row.take_rate_bps),
+      refunded: tokenFromRow({ amount: row.take_rate_refunded_amount, ...unit }),
+    },
+    // Null only on a row from before this column, which has no take rate either.
+    charged: tokenFromRow({ amount: row.charged_amount ?? row.settlement_amount, ...unit }),
     document: row.canonical_document,
     documentSha256: row.document_sha256.toString('hex'),
     supersedesSha256: row.supersedes_sha256?.toString('hex') ?? null,
@@ -226,6 +256,10 @@ export const receipts = {
         scale: input.settlement.scale,
         settlement_amount: amountParam(input.settlement),
         fee_amount: input.fee.toString(),
+        take_rate_amount: (input.takeRate?.amount ?? 0n).toString(),
+        take_rate_bps: input.takeRate?.bps ?? 0,
+        take_rate_refunded_amount: (input.takeRate?.refunded ?? 0n).toString(),
+        charged_amount: (input.settlement.amount + (input.takeRate?.amount ?? 0n)).toString(),
         canonical_document: input.document,
         document_sha256: Buffer.from(input.documentSha256, 'hex'),
         supersedes_sha256:

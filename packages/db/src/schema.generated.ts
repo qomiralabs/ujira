@@ -273,6 +273,7 @@ export interface UjiraLedgerReconciliation {
   ledger: Int8 | null;
   ledger_balance: Numeric | null;
   ledger_committed: Numeric | null;
+  ledger_fee: Numeric | null;
   ledger_pending: Numeric | null;
   ledger_spent: Numeric | null;
   mandate_instance_id: string | null;
@@ -318,8 +319,10 @@ export interface UjiraMandateInstances {
   contract_address: string;
   country_policy_hash: Buffer | null;
   created_at: Generated<Timestamp>;
+  fee_address: string | null;
   id: Generated<string>;
   mandate_id: string;
+  max_fee_bps: Int8 | null;
   principal_id: string;
   project_id: string;
   scale: number;
@@ -360,9 +363,13 @@ export interface UjiraPayoutAttempts {
   asset: string;
   attempt_number: Int8;
   chain: string;
+  charged_amount: Numeric | null;
   created_at: Generated<Timestamp>;
   dead_proof: Json | null;
   deadline: Timestamp;
+  fee_amount: Generated<Numeric>;
+  fee_bps_applied: Generated<Int8>;
+  fee_terms_id: string | null;
   id: Generated<string>;
   mandate_instance_id: string;
   network: string;
@@ -529,6 +536,7 @@ export interface UjiraReceipts {
   canonical_document: string;
   chain: string;
   chain_receipt_ref: string;
+  charged_amount: Numeric | null;
   created_at: Generated<Timestamp>;
   document_sha256: Buffer;
   fee_amount: Generated<Numeric>;
@@ -543,6 +551,9 @@ export interface UjiraReceipts {
   scale: number;
   settlement_amount: Numeric;
   supersedes_sha256: Buffer | null;
+  take_rate_amount: Generated<Numeric>;
+  take_rate_bps: Generated<Int8>;
+  take_rate_refunded_amount: Generated<Numeric>;
 }
 
 export interface UjiraRecipientIdentities {

@@ -130,6 +130,10 @@ export interface MandateInstance {
   // 32 bytes of ed25519; null in allowlist mode.
   readonly attesterPublicKey: Buffer | null;
   readonly countryPolicyHash: Buffer | null;
+  // Null until the instance reports them. Then the cap only goes down, and the
+  // address never changes.
+  readonly maxFeeBps: number | null;
+  readonly feeAddress: string | null;
 }
 
 export interface NewMandateInstance {
@@ -141,6 +145,8 @@ export interface NewMandateInstance {
   readonly scale: number;
   readonly attesterPublicKey?: Buffer | null;
   readonly countryPolicyHash?: Buffer | null;
+  readonly maxFeeBps?: number | null;
+  readonly feeAddress?: string | null;
 }
 
 const instanceColumns = [
@@ -154,6 +160,8 @@ const instanceColumns = [
   'created_at',
   'attester_public_key',
   'country_policy_hash',
+  'max_fee_bps',
+  'fee_address',
 ] as const;
 
 function toInstance(row: {
@@ -167,6 +175,8 @@ function toInstance(row: {
   created_at: Date;
   attester_public_key: Buffer | null;
   country_policy_hash: Buffer | null;
+  max_fee_bps: string | null;
+  fee_address: string | null;
 }): MandateInstance {
   return {
     id: row.id,
@@ -179,6 +189,9 @@ function toInstance(row: {
     createdAt: row.created_at,
     attesterPublicKey: row.attester_public_key,
     countryPolicyHash: row.country_policy_hash,
+    // Checked to be 0 to 100, so this is exact.
+    maxFeeBps: row.max_fee_bps === null ? null : Number(row.max_fee_bps),
+    feeAddress: row.fee_address,
   };
 }
 
@@ -219,10 +232,28 @@ export const mandateInstances = {
         scale: input.scale,
         attester_public_key: input.attesterPublicKey ?? null,
         country_policy_hash: input.countryPolicyHash ?? null,
+        max_fee_bps: input.maxFeeBps ?? null,
+        fee_address: input.feeAddress ?? null,
       })
       .returning(instanceColumns)
       .executeTakeFirstOrThrow();
     return toInstance(row);
+  },
+
+  // Mirrors what the contract reports, so only the indexer's login can call it. A higher
+  // cap or a different address is refused with UJ007. False when the instance is not
+  // visible here.
+  setFeeCap: async (
+    db: Tx,
+    id: string,
+    input: { readonly maxFeeBps: number; readonly feeAddress: string },
+  ): Promise<boolean> => {
+    const result = await db
+      .updateTable('ujira.mandate_instances')
+      .set({ max_fee_bps: input.maxFeeBps, fee_address: input.feeAddress })
+      .where('id', '=', id)
+      .executeTakeFirst();
+    return result.numUpdatedRows > 0n;
   },
 };
 

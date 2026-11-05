@@ -637,6 +637,15 @@ const cases: Record<string, () => Promise<void>> = {
     );
     expect(await codeOf(attempt)).toBe('23503');
   },
+  'mandateInstances.setFeeCap': async () => {
+    const set = async (instanceId: string): Promise<boolean> =>
+      indexing(a.first, async (tx) =>
+        mandateInstances.setFeeCap(tx, instanceId, { maxFeeBps: 1, feeAddress: 'GTAKEN' }),
+      );
+    // Its own instance first, so the false below means out of sight, not out of reach.
+    expect(await set(a.instanceId)).toBe(true);
+    expect(await set(b.instanceId)).toBe(false);
+  },
   'fundingSweeps.list': async () => {
     const page = await acrossA(async (tx) => fundingSweeps.list(tx, { limit: 100 }));
     expect(page.items.map((sweep) => sweep.id)).not.toContain(b.sweepId);

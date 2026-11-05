@@ -77,7 +77,7 @@ describe('reconciliation', () => {
       mandateInstanceId: fixture.instanceId,
       ledger: 10n,
       state: { balance: 70n, pending: 0n, committed: 30n, spent: 0n },
-      books: { balance: 70n, pending: 0n, committed: 30n, spent: 0n },
+      books: { balance: 70n, pending: 0n, committed: 30n, spent: 0n, fee: 0n },
       matches: true,
     });
   });

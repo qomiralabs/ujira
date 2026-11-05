@@ -567,6 +567,13 @@ export interface NewPayoutAttempt {
   // Must be on the total's chain, or the database refuses it.
   readonly network: NetworkId;
   readonly total: TokenAmount;
+  // The take rate, paid on chain on top of the total. Charged is worked out from it.
+  // None when left out. Above zero it must name the terms it came from.
+  readonly fee?: {
+    readonly amount: bigint;
+    readonly bps: number;
+    readonly termsId: string | null;
+  };
   readonly deadline: Date;
   readonly onChainPayoutId?: string | null;
   // In leg order. They must sum to the total, or the commit is refused (UJ005).
@@ -580,6 +587,11 @@ export interface PayoutAttempt {
   readonly network: NetworkId;
   readonly mandateInstanceId: string;
   readonly total: TokenAmount;
+  readonly fee: TokenAmount;
+  readonly feeBps: number;
+  readonly feeTermsId: string | null;
+  // Total plus fee, which is what leaves the mandate.
+  readonly charged: TokenAmount;
   readonly onChainPayoutId: string | null;
   readonly deadline: Date;
   readonly deadProof: unknown;
@@ -595,6 +607,10 @@ const attemptColumns = [
   'network',
   'mandate_instance_id',
   'total_amount',
+  'fee_amount',
+  'fee_bps_applied',
+  'fee_terms_id',
+  'charged_amount',
   'asset',
   'scale',
   'on_chain_payout_id',
@@ -612,6 +628,10 @@ function toAttempt(row: {
   network: string;
   mandate_instance_id: string;
   total_amount: string;
+  fee_amount: string;
+  fee_bps_applied: string;
+  fee_terms_id: string | null;
+  charged_amount: string | null;
   asset: string;
   scale: number;
   on_chain_payout_id: string | null;
@@ -620,6 +640,7 @@ function toAttempt(row: {
   status: string;
   created_at: Date;
 }): PayoutAttempt {
+  const unit = { asset: row.asset, chain: row.chain, scale: row.scale };
   return {
     id: row.id,
     payoutId: row.payout_id,
@@ -627,12 +648,13 @@ function toAttempt(row: {
     attemptNumber: Number(row.attempt_number),
     network: row.network,
     mandateInstanceId: row.mandate_instance_id,
-    total: tokenFromRow({
-      amount: row.total_amount,
-      asset: row.asset,
-      chain: row.chain,
-      scale: row.scale,
-    }),
+    total: tokenFromRow({ amount: row.total_amount, ...unit }),
+    fee: tokenFromRow({ amount: row.fee_amount, ...unit }),
+    // Checked to be 0 to 100, so this is exact.
+    feeBps: Number(row.fee_bps_applied),
+    feeTermsId: row.fee_terms_id,
+    // Null only on a row from before this column, which has no fee either.
+    charged: tokenFromRow({ amount: row.charged_amount ?? row.total_amount, ...unit }),
     onChainPayoutId: row.on_chain_payout_id,
     deadline: row.deadline,
     deadProof: row.dead_proof,
@@ -668,6 +690,10 @@ export const payoutAttempts = {
         network: input.network,
         mandate_instance_id: input.mandateInstanceId,
         total_amount: amountParam(input.total),
+        fee_amount: (input.fee?.amount ?? 0n).toString(),
+        fee_bps_applied: input.fee?.bps ?? 0,
+        fee_terms_id: input.fee?.termsId ?? null,
+        charged_amount: (input.total.amount + (input.fee?.amount ?? 0n)).toString(),
         asset: input.total.asset,
         scale: input.total.scale,
         on_chain_payout_id: input.onChainPayoutId ?? null,

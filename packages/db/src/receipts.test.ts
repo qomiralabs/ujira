@@ -377,3 +377,69 @@ describe('what a receipt lists', () => {
     }
   });
 });
+
+describe('the take rate', () => {
+  const TAKE = { amount: 500n, bps: 50 };
+
+  it('charged = settlement + take rate and refunded never above take rate', async () => {
+    const { receipt: written } = await record({ takeRate: TAKE });
+    expect(written.takeRate).toEqual({ amount: usdc(500n), bps: 50, refunded: usdc(0n) });
+    expect(written.charged).toEqual(usdc(TOTAL + 500n));
+
+    const admin = new pg.Client({ connectionString: database.url });
+    await admin.connect();
+    try {
+      // Receipts refuse any update, so triggers are off and only the checks can answer.
+      await admin.query('begin');
+      await admin.query('set local session_replication_role = replica');
+      for (const assignment of [
+        `charged_amount = settlement_amount + take_rate_amount + 1`,
+        `charged_amount = settlement_amount + take_rate_amount - 1`,
+        `take_rate_refunded_amount = take_rate_amount + 1`,
+        `take_rate_refunded_amount = -1`,
+        `take_rate_bps = 101`,
+      ]) {
+        await admin.query('savepoint attempt');
+        expect(
+          await codeOf(
+            admin.query(`update ujira.receipts set ${assignment} where id = $1`, [written.id]),
+          ),
+          assignment,
+        ).toBe('23514');
+        await admin.query('rollback to savepoint attempt');
+      }
+      await admin.query('rollback');
+    } finally {
+      await admin.end();
+    }
+  });
+
+  it('a correction can record all of it refunded', async () => {
+    const first = await record({ takeRate: TAKE });
+    const corrected = await record({
+      ...receiptFields(payoutId, 2, first.receipt.documentSha256),
+      revision: 2,
+      takeRate: { ...TAKE, refunded: 500n },
+    });
+    expect(corrected.receipt.takeRate.refunded).toEqual(usdc(500n));
+  });
+
+  it('refuses a refund above the take rate from the repository', async () => {
+    expect(await codeOf(record({ takeRate: { ...TAKE, refunded: 501n } }))).toBe('23514');
+  });
+
+  it('is its own line, never folded into a leg fee', async () => {
+    const { receipt: written } = await record({ takeRate: TAKE });
+    expect(written.fee).toEqual(usdc(30n));
+    const legs = await db
+      .tenant(fixture.tenant)
+      .transaction(async (tx) => receipts.legs(tx, written.id));
+    expect(legs.reduce((sum, leg) => sum + leg.fee.amount, 0n)).toBe(30n);
+  });
+
+  it('a receipt that names no take rate has none', async () => {
+    const { receipt: written } = await record();
+    expect(written.takeRate).toEqual({ amount: usdc(0n), bps: 0, refunded: usdc(0n) });
+    expect(written.charged).toEqual(usdc(TOTAL));
+  });
+});
