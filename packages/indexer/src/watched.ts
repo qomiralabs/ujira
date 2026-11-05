@@ -56,7 +56,7 @@ export function dbWatchedAddresses(
   async function forwardingAccount(address: string): Promise<WatchedMandate | null> {
     const account = await db.unscoped(
       (tx) => entryPoints.resolveFundingAddress(tx, network, address),
-      'worker',
+      'indexer',
     );
     if (account === undefined) return null;
     if (account.status !== 'active') return refuse(address, 'account_rejected');
@@ -83,7 +83,7 @@ export function dbWatchedAddresses(
     if (asked.network !== network) return null;
     const instance = await db.unscoped(
       (tx) => entryPoints.resolveMandateInstance(tx, chainOf(network), asked.value),
-      'worker',
+      'indexer',
     );
     if (instance === undefined) return forwardingAccount(asked.value);
     if (!isTokenAsset(instance.asset)) return refuse(asked.value, 'unknown_asset');

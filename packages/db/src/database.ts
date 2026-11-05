@@ -30,7 +30,7 @@ import { beginWithTenant, type TenantContext } from './tenant.js';
 import type { Schema } from './schema.generated.js';
 import { toUnavailable } from './unavailable.js';
 
-export type DatabaseRole = 'app' | 'worker' | 'reader' | 'migration';
+export type DatabaseRole = 'app' | 'worker' | 'reader' | 'migration' | 'indexer';
 
 // One pg connection, wrapped for kysely. Exported for its own tests only. Every statement passes the session
 // state guard first: a leaked `SET` would outlive the transaction on a
@@ -137,7 +137,7 @@ export interface Database {
   // write in it.
   readonly unscoped: <T>(
     work: (db: Kysely<Schema>) => Promise<T>,
-    role?: 'app' | 'worker',
+    role?: 'app' | 'worker' | 'indexer',
   ) => Promise<T>;
   readonly close: () => Promise<void>;
 }
@@ -228,6 +228,7 @@ export function createDatabase(config: DatabaseConfig, hooks: DatabaseHooks = {}
     worker: poolFor(config.worker, config, onLost),
     reader: poolFor(config.reader, config, onLost),
     migration: poolFor(config.migration, config, onLost),
+    indexer: poolFor(config.indexer, config, onLost),
   };
   const allClosed = Object.values(pools).map((pool) => ({
     pool,

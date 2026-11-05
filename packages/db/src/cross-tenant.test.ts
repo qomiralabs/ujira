@@ -472,7 +472,7 @@ async function indexing<T>(
   context: ProjectContext,
   work: (tx: Kysely<Schema>) => Promise<T>,
 ): Promise<T> {
-  return db.withTenant('worker', { ...context, scope: 'project' }, work);
+  return db.withTenant('indexer', { ...context, scope: 'project' }, work);
 }
 
 async function codeOf(promise: Promise<unknown>): Promise<string | undefined> {

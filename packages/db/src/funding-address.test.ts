@@ -87,7 +87,7 @@ async function attach(tenant: ProjectContext, accountId: string, mandateInstance
 }
 
 const resolve = (address: string, network = NETWORK) =>
-  db.unscoped(async (tx) => entryPoints.resolveFundingAddress(tx, network, address), 'worker');
+  db.unscoped(async (tx) => entryPoints.resolveFundingAddress(tx, network, address), 'indexer');
 
 beforeAll(async () => {
   database = await createTestDatabase(adminUrl, import.meta.url);
@@ -202,7 +202,7 @@ describe('what the indexer can reach', () => {
 
   it('cannot read the tables themselves', async () => {
     const read = (statement: ReturnType<typeof sql>) =>
-      codeOf(db.unscoped(async (tx) => statement.execute(tx), 'worker'));
+      codeOf(db.unscoped(async (tx) => statement.execute(tx), 'indexer'));
     expect(await read(sql`select * from ujira.funding_accounts`)).toBe('42501');
     expect(await read(sql`select * from ujira.funding_account_sources`)).toBe('42501');
   });
