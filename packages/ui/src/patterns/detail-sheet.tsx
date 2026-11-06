@@ -53,6 +53,12 @@ export function DetailSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         pending={pending}
+        // Focus lands on the sheet, not its first button: the footer is often
+        // a money action, and a stray Enter must not approve a payout.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          if (event.currentTarget instanceof HTMLElement) event.currentTarget.focus();
+        }}
         onCloseAutoFocus={(event) => {
           const target = returnFocus.current;
           if (target?.isConnected === true) {

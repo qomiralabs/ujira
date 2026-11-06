@@ -45,7 +45,7 @@ function PayoutsWithSheet({ initiallyOpen }: { initiallyOpen?: string }) {
           </Button>
         }
       >
-        <div className="flex flex-col gap-3 text-body-s text-text-secondary">
+        <div className="flex flex-col items-start gap-3 text-body-s text-text-secondary">
           <StatusBadge status="pending_approval" />
           <p>The timeline, the receipt and the mandate rule that allowed it go here.</p>
         </div>

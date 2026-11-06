@@ -76,6 +76,13 @@ describe('DetailSheet', { timeout: 30_000 }, () => {
     expect(document.activeElement).toBe(row);
   });
 
+  it('puts focus on the sheet, never on its money action', () => {
+    render(<RowAndSheet />);
+    fireEvent.click(screen.getByRole('button', { name: 'Amara Okafor' }));
+    const sheet = screen.getByRole('dialog', { name: 'Amara Okafor' });
+    expect(document.activeElement).toBe(sheet);
+  });
+
   it('stays open on Escape while a money action is pending', () => {
     render(<RowAndSheet pending />);
     fireEvent.click(screen.getByRole('button', { name: 'Amara Okafor' }));
