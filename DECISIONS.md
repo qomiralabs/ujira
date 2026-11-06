@@ -2,6 +2,30 @@
 
 Smaller design decisions, each with what it was choosing between. Newest first.
 
+## The dashboard reaches the API through one client, and builds against a typed fake
+
+**Problem.** The API keys screen is the first dashboard screen that reads and writes data. Every later screen will do the same, so how it talks to the API sets the pattern. The key routes are not merged yet, there is no list route, and member sessions and the second factor are still to come.
+
+**Options.**
+
+1. Each screen calls `fetch` itself and checks what it gets.
+2. One client in `apps/dashboard/src/data/client.ts` that every screen goes through, tested against a fake of the API that keeps its rules.
+
+**Decision.** Option 2.
+
+- The client sends the session cookie and the project from the URL, checks every success body against a zod schema, and turns a problem body into an `ApiProblem` to branch on by code. It reads codes leniently, because the API adds codes over time.
+- It never logs, caches or quotes a body. A new key's whole text arrives in one answer, so nothing that could hold it is kept.
+- The fake (`src/data/fake-api.ts`) answers the key and step up routes with the API's rules. Component tests pass it to the client; Playwright serves it with `page.route`, so the browser makes real requests and the screen reads real answers. It is chosen over a service worker because the key schemas live in `packages/api`, not in the shared read contract the existing mock handlers serve.
+- A change asks for the code only when the API answers `STEP_UP_REQUIRED`, then runs once more. The API decides how fresh a second factor must be, not the screen.
+- Rotation keeps the old key for 24 hours. Revoking covers a key that must stop now.
+
+**Trade offs and risks.**
+
+- `GET /v1/api-keys`, `lastUsedAt` on its items, `POST /v1/session/step-up` and the `Ujira-Project` header are what the screen expects, not yet what the API serves. They are written down in the pull request so the API can match them or the screen can follow.
+- The key schemas are copied from the API. When they move into the shared contract, the screen should import them from there.
+
+**Evidence.** `apps/dashboard/src/data/*.test.ts`, `src/developers/api-keys-screen.test.tsx`, `src/developers/api-keys.leak.test.ts` and `e2e/api-keys.spec.ts`.
+
 ## Who hears of a flagged mandate, and what its deposits do
 
 **Problem.** Intake flags a mandate whose tag does not match its tenant, or whose attester key is one anyone can rebuild, and records why in `ops.mandate_alerts`. From then on it reads none of the mandate's events. Nobody read the alerts, so the mirror went quiet with nobody told.
