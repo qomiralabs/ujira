@@ -2,6 +2,152 @@
 
 Smaller design decisions, each with what it was choosing between. Newest first.
 
+## Only the chain makes a mandate instance active
+
+**Problem.** Eligibility refuses to pay under an instance that is not active, and nothing moved one there. Whatever does has to be something an API call cannot fake, because an active instance is one UJIRA will attest payouts under.
+
+**Options.**
+
+1. The mandate creation flow marks the instance active when its deploy transaction lands. It runs on the API's login and believes its own submission.
+2. The event intake does it, when it reads a trusted factory's `mandate_created` for the contract under the claiming tenant's recomputed tag, and follows the mandate's own `paused`, `resumed` and `revoked` after that.
+
+**Decision.** Option 2. Intake is already the one writer of the mandate registry, with the checks that make a contract a mandate.
+
+- Each move starts only from set states (`INSTANCE_MOVES` in `packages/chain-adapter`), so a replay, or an event read out of turn, changes nothing, and nothing brings a revoked instance back.
+- Only a newly booked event moves an instance, so reading a range again cannot undo a later move.
+- A contract claimed after its creation was read becomes active on its next event.
+- Only the indexer's login may change `mandate_instances.status`, and only under the instance's tenant. No login the API holds may, which the database enforces.
+
+**Trade offs and risks.**
+
+- A mandate claimed after its creation, with no event since, stays `deploying` until it has one.
+- Expiry has no event, so it is not mirrored. The attester reads it from the chain on every attestation, which refuses an expired mandate.
+- A failed deploy is not marked `deploy_failed` yet. A failed deploy has no creation event, so it stays `deploying`, which pays no one either.
+
+**Evidence.** `packages/chain-adapter/src/intake.test.ts`, "the instance that claims a mandate", and `packages/db/src/instance-lifecycle.test.ts` against Postgres.
+
+## What the identity store reads where the tables are silent
+
+**Problem.** The identity service's records carry facts the tables did not hold: whether a mandate instance is active, whether it takes attestations, which network a payout method is paid on, the project's identity settings, and the tenant of an identity row a provider's callback names by id alone.
+
+**Options.**
+
+1. Add a column for each fact and have the services that own them write it.
+2. Derive what the existing rows already imply, and add columns only for what nothing implies.
+
+**Decision.** Option 2.
+
+- `mandate_instances.status` is new: `deploying` until something marks it `active`, so an instance nobody vouched for pays no one. The store reads deploying and a failed deploy as `pending`.
+- The recipient mode comes from the attester key, which is set exactly when a mandate takes attestations. A mandate in `both` mode reads as `attested`. Eligibility treats the two the same, and the attester reads the mode from the chain itself.
+- A method's network is the deployment's per chain, given to the store. A method records only its chain, because an address reads the same on every network of it.
+- `projects.identity_settings` is new, an object or null for the defaults.
+- `ujira.recipient_identity_scope(id)` answers whose an identity row is, for one exact id, owned by a role of its own.
+- Anchor methods read as absent until methods record their anchor, so nothing is paid through an anchor on a guess.
+- A suspended or erased recipient reads as inactive.
+
+**Trade offs and risks.** Something has to move an instance to `active` before it can pay, and no login the API holds may: that is the chain's to say, through the indexer (#609).
+
+**Evidence.** The shared cases in `packages/identity/src/testing/contract.ts` run against memory and against Postgres (`packages/db/src/identity-store.test.ts`).
+
+## A revoked or expired mandate drops its compliance mark with no notice
+
+**Problem.** A mandate revoked or expired while marked noncompliant is no longer listed among the principal's live instances, so no recheck ever looks at it again. Its mark never cleared, and its parked jobs stayed `blocked_by_policy` for good, behind a policy nobody could fix any more.
+
+**Options.**
+
+1. Clear the mark through `applyMark`, as a recheck would. It is one path, but it sends the principal a "compliant" notice for a mandate that did not become compliant, and it resumes jobs onto a mandate that cannot pay them.
+2. Keep the mark as history, and mark the instance as retired. The record stays in one place, but every reader of marks has to learn to skip retired ones, and a forgotten reader would treat a dead mandate as still blocked.
+3. Drop the mark with no notice, and close the parked jobs with the reason. The history stays in the notices, which are append only and still hold the "noncompliant" one.
+
+We chose option 3.
+
+- A closed job keeps its row, as `closed` with `mandate_revoked` or `mandate_expired`, so the payouts it belongs to can be reported with that reason.
+- The close out takes the same lock as marking and parking. A job being parked as the revocation arrives is either parked first and closed by it, or finds no mark and is not parked, and its submission then meets the chain's own refusal.
+- The principal is checked again without the retired mandate, because its budget no longer counts toward the line. Another mandate that only failed because of the total then clears in the normal way, with its notice and its resumed jobs.
+- The retired instance is left out of that check even if the list of live instances has not caught up, so it can never be marked again.
+
+**Evidence.** `packages/mandates/src/compliance.test.ts` (`a retired mandate`) and `packages/db/src/compliance-store.test.ts` (`closing out a retired mandate`), the second against real Postgres with parks racing the revocation.
+
+## A rotated operations guardian is still the guardian
+
+**Problem.** Reconciliation knew only the operations guardian's current address. After a rotation every existing mandate still holds the old one, so it was reported as having no guardian, and an opt out the principal never made was recorded for good, which left every later instance of that mandate without the default protection.
+
+**Options.**
+
+1. Recognise only the current address, and rotate by asking every principal to update their mandates first. Nothing in UJIRA's hands decides when that is done.
+2. Name the past addresses in the network configuration, and treat any of them as the operations guardian.
+
+**Decision.** Option 2.
+
+- `retiredOperationsGuardians` in a network section lists every address the guardian had before. The configuration refuses one that is the current address, listed twice, or a key UJIRA signs with.
+- Reconciliation reports `present` when the current address is on chain, `outdated` when only a past one is, and `absent`, recording the opt out, only when none is.
+- Removing a past address is the principal removing the guardian, unless the guardians left afterwards still include one of UJIRA's addresses, which is the principal moving to the current one.
+- New mandates get only the current address.
+- `outdated` tells the principal to move. UJIRA cannot change a mandate's roles, so moving is theirs: add the current address, then remove the old one.
+
+**Trade offs and risks.** An address leaves the list only when no mandate holds it any more, or its removal would be read as an opt out again. Opt outs live only in memory so far, so there were none recorded to check before this ships; when they are stored, any recorded during a rotation window need checking against this list.
+
+**Evidence.** `packages/mandates/src/guardian-removal.test.ts`, the cases under "after the operations guardian address is rotated".
+
+## Which database logins exist, and which have a connection
+
+**Problem.** The migrations create seven login roles, and `packages/db` had a connection for only some of them. The indexer wrote tenant rows through the worker's pool, which in tests logged in as `ujira_indexer`, while the worker's own login holds no rights on tenant tables. A deploy could not tell which logins to provision, or which URL each process needs.
+
+**Options.**
+
+1. Keep one worker pool and log it in as the indexer where the indexer runs. One URL fewer, but the worker's jobs would then hold the indexer's write rights on tenant tables, and the two could not be separated again without a deploy.
+2. A connection per login the code uses today, and a login with no connection yet only where a role needs one. Each process holds only the rights its work needs.
+3. A connection for all seven now. Pools nothing uses would spend the connection budget, and their URLs would be secrets held for no reason.
+
+**Decision.** Option 2. Every environment, local, staging and production, has the same seven logins, each with its own password from the secret manager, and none is shared between services.
+
+| Login             | Used by                                                               | Connection in `packages/db` |
+| ----------------- | --------------------------------------------------------------------- | --------------------------- |
+| `ujira_app`       | The API, for tenant reads and writes                                  | `UJIRA_DB_APP_URL`          |
+| `ujira_reader`    | Reads across a principal's projects                                   | `UJIRA_DB_READER_URL`       |
+| `ujira_worker`    | The job runner, which listens and holds no tenant rights              | `UJIRA_DB_WORKER_URL`       |
+| `ujira_indexer`   | The chain event indexer, which writes the on chain mirror per tenant  | `UJIRA_DB_INDEXER_URL`      |
+| `ujira_migrator`  | The migrations, beside the bootstrap login                            | `UJIRA_DB_MIGRATION_URL`    |
+| `ujira_ops`       | Operations jobs that hold no customer data, such as the fee estimates | None yet                    |
+| `ujira_retention` | The retention job                                                     | None yet                    |
+| `ujira_auth`      | Authentication                                                        | None yet                    |
+
+A login with no connection gets one when the first code that runs as it arrives, in that change, counted in the same budget.
+
+**Trade offs and risks.**
+
+- The indexer adds two connections to the default budget, 19 of the 30 reserved.
+- Until the worker roles land, the test databases have no `ujira_worker`, so the test worker pool logs in as `ujira_ops`, which also holds no tenant rights. Nothing in the tests writes tenant rows through it.
+- The indexer may use the transaction pooler because it listens for nothing. If it ever needs LISTEN, it joins the session only roles.
+
+**Evidence.** `packages/db/src/indexer-connection.test.ts` connects through the new pool and finds `ujira_indexer`, and the worker pool is not that login. `config.test.ts` counts the pool in the budget, and `env-template.test.ts` checks `.env.example` documents both new variables.
+
+## A migration run that waits for the lock tries again, rather than blocking
+
+**Problem.** Several instances migrating at boot pass `lockMode: 'wait'`, and both the migration tool and the per-file runner waited by blocking in `pg_advisory_lock`. A concurrent index build waits for every transaction open while it runs, and a statement blocked on that lock is one. So the run holding the lock waited for the run waiting for it.
+
+- With the tool's lock, Postgres saw the cycle and killed one with `40P01`.
+- With the per-file runner, the lock is held on the bootstrap login's connection and the build runs on the migrator's. Postgres saw no cycle, and both waited forever.
+
+This blocked running more than one instance.
+
+**Options.**
+
+1. Try for the lock, and sleep between tries with nothing open. Nothing the build waits for is left running, and a single run behaves as before.
+2. Take the lock with a timeout and retry. Each wait is still a statement the build waits on, so this only shortens the deadlock.
+3. Forbid concurrent index builds when more than one instance migrates. This gives up the only way to add an index to a live table without blocking writes.
+4. Migrate from one deploy step, never at boot. Right for some deployments, and still a rule nothing enforces.
+
+Chose 1, in both places. A run told to fail still fails at once, with the same message. A run told to wait tries every 250 ms, for as long as it takes, as the blocking wait did.
+
+**Trade offs and risks.**
+
+- A waiting run starts up to 250 ms after the lock frees, and a crowd of instances each try four times a second while they wait.
+- No order among waiters, which the blocking wait had only by chance.
+- A try that finds the lock taken opens and closes a connection each time. The tool takes its lock before it touches anything, so a try leaves nothing behind.
+
+**Evidence.** `packages/db/src/migrate-wait.test.ts` runs real migrators at once against one Postgres, with a concurrent index build in the folder, through both entry points. Before this change the tool's path deadlocked and the per-file path hung.
+
 ## Two logins run the migrations
 
 **Problem.** The migrator login is `noinherit` and holds no server wide rights, on purpose. It could not run the migrations from zero: creating a schema and administering roles need more than it will ever hold, and a concurrent index build could not take the owner's rights at all. Measured on an empty database, connected as `ujira_migrator`: `permission denied for schema public` for the migrations table, `permission denied for database` for `create schema`, and `permission denied to alter role` in seven migrations. CI missed all of it because it migrated as a superuser.

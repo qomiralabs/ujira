@@ -163,6 +163,7 @@ describe('grants on ujira', () => {
       'function ujira.authenticate_token(text)',
       'function ujira.create_principal(text,text,uuid,text)',
       ...context,
+      'function ujira.recipient_identity_scope(uuid)',
     ]);
     expect(await executable('ujira_auth')).toEqual([
       'function ujira.authenticate_token(text)',
@@ -172,6 +173,7 @@ describe('grants on ujira', () => {
     expect(await executable('ujira_indexer')).toEqual([
       ...context,
       'function ujira.resolve_funding_address(text,text)',
+      'function ujira.resolve_mandate_address(text,text)',
       'function ujira.resolve_mandate_instance(text,text)',
     ]);
   });
@@ -192,6 +194,7 @@ describe('roles', () => {
       'ujira_app',
       'ujira_auth',
       'ujira_fn_audit',
+      'ujira_fn_identities',
       'ujira_fn_instances',
       'ujira_fn_ledger',
       'ujira_fn_principals',
@@ -208,6 +211,7 @@ describe('roles', () => {
     const nologin = new Set([
       'ujira_owner',
       'ujira_fn_audit',
+      'ujira_fn_identities',
       'ujira_fn_instances',
       'ujira_fn_ledger',
       'ujira_fn_principals',
@@ -237,7 +241,9 @@ describe('roles', () => {
       { fn: 'ujira.create_principal(text,text,uuid,text)', owner: 'ujira_fn_principals' },
       { fn: 'ujira.ledger_balanced()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.ledger_stamp()', owner: 'ujira_fn_ledger' },
+      { fn: 'ujira.recipient_identity_scope(uuid)', owner: 'ujira_fn_identities' },
       { fn: 'ujira.resolve_funding_address(text,text)', owner: 'ujira_fn_instances' },
+      { fn: 'ujira.resolve_mandate_address(text,text)', owner: 'ujira_fn_instances' },
       { fn: 'ujira.resolve_mandate_instance(text,text)', owner: 'ujira_fn_instances' },
     ]);
     // Each holds only what its one function needs, and never CREATE.

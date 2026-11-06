@@ -44,6 +44,8 @@ export const AUDIT_ACTIONS = Object.freeze([
   'project.routing_settings_changed',
   'project.payout_minimums_changed',
   'project.cashout_bearer_changed',
+  // Written by the fee terms functions in the database, with the terms they record.
+  'fee_terms.recorded',
 ] as const);
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

@@ -67,7 +67,7 @@ export {
   readProviderDepositInstruction,
 } from './destination.js';
 export type { BindableDestination, DestinationInput, DestinationMemoType } from './destination.js';
-export { operationsGuardianOf } from './guardian.js';
+export { operationsGuardianOf, operationsGuardiansOf } from './guardian.js';
 export { isUnpayableAddress, settlementAddressesOf } from './unpayable.js';
 export {
   SIGNER_DOWN,
@@ -176,12 +176,13 @@ export type {
   WalletProofResult,
 } from './wallet-proof.js';
 
-export { createEventIntake } from './intake.js';
+export { INSTANCE_MOVES, createEventIntake } from './intake.js';
 export type {
   EventBooking,
   EventIntake,
   EventIntakeOptions,
   EventIntakeStore,
+  InstanceMove,
   MandateFlagReason,
   EventJson,
   IgnoredReason,

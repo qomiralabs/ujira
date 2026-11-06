@@ -189,6 +189,9 @@ importers:
       '@types/node':
         specifier: 24.19.2
         version: 24.19.2
+      '@ujira/chain-adapter':
+        specifier: workspace:*
+        version: link:packages/chain-adapter
       '@vitest/coverage-v8':
         specifier: 5.0.5
         version: 5.0.5(vitest@5.0.5)
@@ -376,9 +379,15 @@ importers:
 
   packages/db:
     dependencies:
+      '@ujira/chain-adapter':
+        specifier: workspace:*
+        version: link:../chain-adapter
       '@ujira/core':
         specifier: workspace:*
         version: link:../core
+      '@ujira/identity':
+        specifier: workspace:*
+        version: link:../identity
       kysely:
         specifier: 0.29.6
         version: 0.29.6
@@ -395,6 +404,9 @@ importers:
       '@ujira/api-schema':
         specifier: workspace:*
         version: link:../api-schema
+      '@ujira/mandates':
+        specifier: workspace:*
+        version: link:../mandates
       fast-check:
         specifier: 4.10.2
         version: 4.10.2
@@ -475,6 +487,10 @@ importers:
       '@ujira/db':
         specifier: workspace:*
         version: link:../db
+    devDependencies:
+      '@ujira/funding':
+        specifier: workspace:*
+        version: link:../funding
 
   packages/mandates:
     dependencies:

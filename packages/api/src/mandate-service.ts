@@ -15,7 +15,13 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 
-import { DEFAULT_LOW_BALANCE, fromWireMoney, toWireMoney, toWireToken } from '@ujira/api-schema';
+import {
+  DEFAULT_LOW_BALANCE,
+  OperationsGuardianStatus as WireGuardianStatus,
+  fromWireMoney,
+  toWireMoney,
+  toWireToken,
+} from '@ujira/api-schema';
 import type {
   CreateMandateRequest,
   MandateDetail,
@@ -85,7 +91,7 @@ export const InstancePlan = z.strictObject({
   ),
   principal: z.string(),
   approvalsRequired: z.number().int(),
-  operationsGuardian: z.enum(['present', 'absent']),
+  operationsGuardian: WireGuardianStatus,
   warnings: z.array(z.enum(['single_key_principal', 'unverified_principal'])),
 });
 export type InstancePlan = z.infer<typeof InstancePlan>;

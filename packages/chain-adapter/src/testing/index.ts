@@ -8,6 +8,8 @@
 // Stellar envelopes for any account a test names. Test code only; nothing
 // here reaches a network.
 
+export { createMemoryAccountLedger } from './account-ledger.js';
+export type { MemoryAccountLedger } from './account-ledger.js';
 export {
   accountAddress,
   accountFromSeed,

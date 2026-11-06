@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 
 import type { Database, ProjectContext } from './database.js';
 import type { Schema } from './schema.generated.js';
+import { compliance, complianceRepositories } from './repositories/compliance.js';
 import { audit, auditRepositories } from './repositories/audit.js';
 import { entryPoints } from './repositories/entry-points.js';
 import { fundingAccountRepositories, fundingAccounts } from './repositories/funding-accounts.js';
@@ -123,6 +124,7 @@ interface Tenant {
 }
 
 const REPOSITORIES = {
+  ...complianceRepositories,
   ...tenancyRepositories,
   ...mandateRepositories,
   ...fundingAccountRepositories,
@@ -514,7 +516,7 @@ async function indexing<T>(
   context: ProjectContext,
   work: (tx: Kysely<Schema>) => Promise<T>,
 ): Promise<T> {
-  return db.withTenant('worker', { ...context, scope: 'project' }, work);
+  return db.withTenant('indexer', { ...context, scope: 'project' }, work);
 }
 
 async function codeOf(promise: Promise<unknown>): Promise<string | undefined> {
@@ -557,6 +559,41 @@ const acrossA = async <T>(work: (tx: Kysely<Schema>) => Promise<T>): Promise<T> 
 
 // One case per repository method, each run as tenant A.
 const cases: Record<string, () => Promise<void>> = {
+  'compliance.mark': async () => {
+    expect(await acrossA(async (tx) => compliance.mark(tx, b.instanceId))).toBeUndefined();
+  },
+  'compliance.applyMark': async () => {
+    const notice = { to: 'compliant' as const, at: new Date(), fixes: [] };
+    expect(await asA(async (tx) => compliance.applyMark(tx, b.instanceId, null, notice))).toBe(
+      false,
+    );
+    await expect(
+      asA(async (tx) =>
+        compliance.applyMark(
+          tx,
+          b.instanceId,
+          { reason: 'principal_key_risk', since: new Date() },
+          { ...notice, to: 'noncompliant' },
+        ),
+      ),
+    ).rejects.toMatchObject({ code: '23503' });
+  },
+  'compliance.parkIfNoncompliant': async () => {
+    expect(await asA(async (tx) => compliance.parkIfNoncompliant(tx, b.instanceId, 'job'))).toBe(
+      false,
+    );
+  },
+  'compliance.closeOut': async () => {
+    expect(
+      await asA(async (tx) => compliance.closeOut(tx, b.instanceId, 'mandate_revoked')),
+    ).toEqual([]);
+  },
+  'compliance.parkedJobs': async () => {
+    expect(await acrossA(async (tx) => compliance.parkedJobs(tx, b.instanceId))).toEqual([]);
+  },
+  'compliance.notices': async () => {
+    expect(await acrossA(async (tx) => compliance.notices(tx, b.instanceId))).toEqual([]);
+  },
   'principals.current': async () => {
     const found = await asA(async (tx) => principals.current(tx));
     expect(found?.id).toBe(a.first.principalId);
@@ -1118,8 +1155,9 @@ const cases: Record<string, () => Promise<void>> = {
   'fundingAccounts.forNetwork': async () => {
     const seen = await asA(async (tx) => fundingAccounts.forNetwork(tx, 'stellar:testnet'));
     expect(seen?.id).toBe(a.fundingAccountId);
+    // Accounts are one per project, so a read across projects has no one answer.
     const across = await acrossA(async (tx) => fundingAccounts.forNetwork(tx, 'stellar:testnet'));
-    expect(across?.id).toBe(a.fundingAccountId);
+    expect(across).toBeUndefined();
   },
   'fundingAccounts.record': async () => {
     const saved = await asA(async (tx) =>
@@ -1838,6 +1876,67 @@ const cases: Record<string, () => Promise<void>> = {
     const before = await asA(async (tx) => payoutMinimums.list(tx));
     expect(before.map((row) => row.setBy)).not.toContain(b.ownerUserId);
     expect(before.map((row) => row.setBy)).toContain(a.ownerUserId);
+  },
+  'mandateInstances.move': async () => {
+    expect(
+      await db.withTenant('indexer', { ...a.first, scope: 'project' }, async (tx) =>
+        mandateInstances.move(tx, b.instanceId, 'created'),
+      ),
+    ).toBe(false);
+    expect(await statusOf('ujira.mandate_instances', b.instanceId)).toBe('deploying');
+  },
+  'projects.identitySettings': async () => {
+    await db
+      .tenant(b.first)
+      .transaction(async (tx) =>
+        projects.setIdentitySettings(tx, { recipientRequirement: 'none' }),
+      );
+    expect(await asA(async (tx) => projects.identitySettings(tx))).not.toEqual({
+      recipientRequirement: 'none',
+    });
+  },
+  'projects.setIdentitySettings': async () => {
+    expect(
+      await asA(async (tx) =>
+        projects.setIdentitySettings(tx, { recipientRequirement: 'principal_attested' }),
+      ),
+    ).toBe(true);
+    const theirs = await admin.query<{ identity_settings: unknown }>(
+      'select identity_settings from ujira.projects where id = $1',
+      [b.first.projectId],
+    );
+    expect(theirs.rows[0]?.identity_settings).not.toEqual({
+      recipientRequirement: 'principal_attested',
+    });
+  },
+  'payoutLegs.forAttestation': async () => {
+    expect(
+      await acrossA(async (tx) => payoutLegs.forAttestation(tx, b.attemptId, 0)),
+    ).toBeUndefined();
+    expect(
+      await acrossA(async (tx) => payoutLegs.forAttestation(tx, a.attemptId, 0)),
+    ).toBeDefined();
+  },
+  'recipientIdentities.create': async () => {
+    const attempt = asA(async (tx) =>
+      recipientIdentities.create(tx, {
+        id: randomUUID(),
+        recipientId: b.recipientId,
+        provider: 'principal',
+        providerAccount: null,
+        state: 'pending',
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'recipientIdentities.scopeOf': async () => {
+    // It answers for any id, because a provider's callback carries no tenant. All it
+    // gives away is whose the row is, which the provider was told when it was made.
+    expect(await asA(async (tx) => recipientIdentities.scopeOf(tx, b.identityId))).toEqual({
+      principalId: b.first.principalId,
+      projectId: b.first.projectId,
+    });
+    expect(await asA(async (tx) => recipientIdentities.scopeOf(tx, randomUUID()))).toBeUndefined();
   },
   'payoutMinimums.set': async () => {
     const attempt = asA(async (tx) =>

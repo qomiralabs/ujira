@@ -7,10 +7,12 @@
 
 export {
   BLOCKED_BY_POLICY,
+  RETIRED_REASONS,
   WATCHED_MANDATE_EVENTS,
   createMemoryComplianceStore,
   guardSubmission,
   onMandateEvent,
+  onMandateRetired,
   recheckPrincipal,
   servableInstances,
 } from './compliance.js';
@@ -21,6 +23,8 @@ export type {
   InstanceKey,
   MemoryComplianceStore,
   NoncompliantMark,
+  RetiredOutcome,
+  RetiredReason,
   SubmissionDecision,
 } from './compliance.js';
 export { instanceIdOf, planMandateCreation } from './create-mandate.js';
@@ -54,6 +58,7 @@ export {
 export type { MandatePolicyErrorCode, PrincipalKeyFix } from './errors.js';
 export {
   createMemoryGuardianOptOutStore,
+  knownGuardians,
   onRoleRemoved,
   reconcileOperationsGuardian,
 } from './operations-guardian.js';

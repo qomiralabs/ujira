@@ -109,7 +109,7 @@ beforeAll(async () => {
       scale: 7,
     });
   });
-  await db.withTenant('worker', { ...tenant, scope: 'project' }, async (tx) => {
+  await db.withTenant('indexer', { ...tenant, scope: 'project' }, async (tx) => {
     const { id } = await chainEvents.record(tx, {
       mandateInstanceId: instance.id,
       chain: 'stellar',

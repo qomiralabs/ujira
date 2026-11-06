@@ -1548,6 +1548,22 @@ $$;
 ALTER FUNCTION ujira.project_scope_all() OWNER TO ujira_owner;
 
 --
+-- Name: recipient_identity_scope(uuid); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_identities
+--
+
+CREATE FUNCTION ujira.recipient_identity_scope(target_id uuid) RETURNS TABLE(principal_id uuid, project_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select i.principal_id, i.project_id
+    from ujira.recipient_identities as i
+   where i.id = target_id
+$$;
+
+
+ALTER FUNCTION ujira.recipient_identity_scope(target_id uuid) OWNER TO ujira_fn_identities;
+
+--
 -- Name: resolve_funding_address(text, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_instances
 --
 
@@ -1569,7 +1585,7 @@ CREATE FUNCTION ujira.resolve_funding_address(target_network text, target_addres
        where s.principal_id = a.principal_id
          and s.project_id = a.project_id
          and s.funding_account_id = a.id
-         and i.chain = split_part(a.network, ':', 1)
+         and i.network = a.network
     ) as attached on true
    where a.network = target_network
      and a.address = target_address
@@ -1578,6 +1594,23 @@ $$;
 
 
 ALTER FUNCTION ujira.resolve_funding_address(target_network text, target_address text) OWNER TO ujira_fn_instances;
+
+--
+-- Name: resolve_mandate_address(text, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_instances
+--
+
+CREATE FUNCTION ujira.resolve_mandate_address(target_network text, target_address text) RETURNS TABLE(principal_id uuid, project_id uuid, mandate_instance_id uuid, asset text, scale smallint)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select i.principal_id, i.project_id, i.id, i.asset, i.scale::smallint
+    from ujira.mandate_instances as i
+   where i.network = target_network
+     and i.contract_address = target_address
+$$;
+
+
+ALTER FUNCTION ujira.resolve_mandate_address(target_network text, target_address text) OWNER TO ujira_fn_instances;
 
 --
 -- Name: resolve_mandate_instance(text, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_instances
@@ -2122,7 +2155,7 @@ CREATE TABLE ujira.audit_log (
     occurred_at timestamp with time zone DEFAULT now() NOT NULL,
     prev_hash ujira.hash32 NOT NULL,
     row_hash ujira.hash32 NOT NULL,
-    CONSTRAINT audit_log_action_known CHECK ((action = ANY (ARRAY['session.signed_in'::text, 'session.signed_out'::text, 'session.stepped_up'::text, 'member.invited'::text, 'member.added'::text, 'member.removed'::text, 'member.role_changed'::text, 'api_key.created'::text, 'api_key.rotated'::text, 'api_key.revoked'::text, 'webhook.endpoint_created'::text, 'webhook.endpoint_updated'::text, 'webhook.endpoint_deleted'::text, 'webhook.secret_rotated'::text, 'export.requested'::text, 'export.downloaded'::text, 'identity.verification_started'::text, 'identity.verification_completed'::text, 'identity.verification_revoked'::text, 'identity.pii_viewed'::text, 'principal.reporting_time_zone_changed'::text, 'project.routing_settings_changed'::text, 'project.payout_minimums_changed'::text, 'project.cashout_bearer_changed'::text]))),
+    CONSTRAINT audit_log_action_known CHECK ((action = ANY (ARRAY['session.signed_in'::text, 'session.signed_out'::text, 'session.stepped_up'::text, 'member.invited'::text, 'member.added'::text, 'member.removed'::text, 'member.role_changed'::text, 'api_key.created'::text, 'api_key.rotated'::text, 'api_key.revoked'::text, 'webhook.endpoint_created'::text, 'webhook.endpoint_updated'::text, 'webhook.endpoint_deleted'::text, 'webhook.secret_rotated'::text, 'export.requested'::text, 'export.downloaded'::text, 'identity.verification_started'::text, 'identity.verification_completed'::text, 'identity.verification_revoked'::text, 'identity.pii_viewed'::text, 'principal.reporting_time_zone_changed'::text, 'project.routing_settings_changed'::text, 'project.payout_minimums_changed'::text, 'project.cashout_bearer_changed'::text, 'fee_terms.recorded'::text]))),
     CONSTRAINT audit_log_actor_kind CHECK ((actor_kind = ANY (ARRAY['member'::text, 'token'::text, 'system'::text]))),
     CONSTRAINT audit_log_actor_whole CHECK (((actor_kind = 'system'::text) = (actor_id IS NULL)))
 );
@@ -2182,6 +2215,73 @@ CREATE TABLE ujira.chains (
 
 
 ALTER TABLE ujira.chains OWNER TO ujira_owner;
+
+--
+-- Name: compliance_marks; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.compliance_marks (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    mandate_instance_id uuid NOT NULL,
+    reason text NOT NULL,
+    since timestamp with time zone NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT compliance_marks_reason CHECK ((reason = 'principal_key_risk'::text))
+);
+
+ALTER TABLE ONLY ujira.compliance_marks FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.compliance_marks OWNER TO ujira_owner;
+
+--
+-- Name: compliance_notices; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.compliance_notices (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    mandate_instance_id uuid NOT NULL,
+    transition text NOT NULL,
+    noticed_at timestamp with time zone NOT NULL,
+    fixes jsonb DEFAULT '[]'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT compliance_notices_fixes_array CHECK ((jsonb_typeof(fixes) = 'array'::text)),
+    CONSTRAINT compliance_notices_transition CHECK ((transition = ANY (ARRAY['noncompliant'::text, 'compliant'::text])))
+);
+
+ALTER TABLE ONLY ujira.compliance_notices FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.compliance_notices OWNER TO ujira_owner;
+
+--
+-- Name: compliance_parked_jobs; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.compliance_parked_jobs (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    mandate_instance_id uuid NOT NULL,
+    job_id text NOT NULL,
+    status text DEFAULT 'parked'::text NOT NULL,
+    parked_at timestamp with time zone DEFAULT now() NOT NULL,
+    resumed_at timestamp with time zone,
+    closed_at timestamp with time zone,
+    close_reason text,
+    CONSTRAINT compliance_parked_jobs_close_reason CHECK ((close_reason = ANY (ARRAY['mandate_revoked'::text, 'mandate_expired'::text]))),
+    CONSTRAINT compliance_parked_jobs_closed_when CHECK (((status = 'closed'::text) = ((closed_at IS NOT NULL) AND (close_reason IS NOT NULL)))),
+    CONSTRAINT compliance_parked_jobs_job_id_length CHECK (((char_length(job_id) >= 1) AND (char_length(job_id) <= 200))),
+    CONSTRAINT compliance_parked_jobs_resumed_when CHECK (((status = 'resumed'::text) = (resumed_at IS NOT NULL))),
+    CONSTRAINT compliance_parked_jobs_status CHECK ((status = ANY (ARRAY['parked'::text, 'resumed'::text, 'closed'::text])))
+);
+
+ALTER TABLE ONLY ujira.compliance_parked_jobs FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.compliance_parked_jobs OWNER TO ujira_owner;
 
 --
 -- Name: currencies; Type: TABLE; Schema: ujira; Owner: ujira_owner
@@ -2685,10 +2785,12 @@ CREATE TABLE ujira.mandate_instances (
     attester_public_key bytea,
     country_policy_hash ujira.hash32,
     network ujira.network_id NOT NULL,
+    status text DEFAULT 'deploying'::text NOT NULL,
     CONSTRAINT mandate_instances_address_length CHECK (((char_length(contract_address) >= 1) AND (char_length(contract_address) <= 128))),
     CONSTRAINT mandate_instances_attester_key_length CHECK ((octet_length(attester_public_key) = 32)),
     CONSTRAINT mandate_instances_network_on_chain CHECK (((network IS NULL) OR (split_part((network)::text, ':'::text, 1) = chain))),
-    CONSTRAINT mandate_instances_spec_length CHECK (((char_length(spec_version) >= 1) AND (char_length(spec_version) <= 32)))
+    CONSTRAINT mandate_instances_spec_length CHECK (((char_length(spec_version) >= 1) AND (char_length(spec_version) <= 32))),
+    CONSTRAINT mandate_instances_status CHECK ((status = ANY (ARRAY['deploying'::text, 'active'::text, 'paused'::text, 'revoked'::text, 'expired'::text, 'deploy_failed'::text])))
 );
 
 ALTER TABLE ONLY ujira.mandate_instances FORCE ROW LEVEL SECURITY;
@@ -3101,9 +3203,11 @@ CREATE TABLE ujira.projects (
     chain_fallback text DEFAULT 'off'::text NOT NULL,
     funding_hold_max_seconds bigint DEFAULT 1209600 NOT NULL,
     cashout_cost_bearer text DEFAULT 'recipient'::text NOT NULL,
+    identity_settings jsonb,
     CONSTRAINT projects_cashout_cost_bearer CHECK ((cashout_cost_bearer = ANY (ARRAY['recipient'::text, 'principal'::text]))),
     CONSTRAINT projects_chain_fallback CHECK ((chain_fallback = ANY (ARRAY['off'::text, 'verified_methods'::text]))),
     CONSTRAINT projects_funding_hold_range CHECK (((funding_hold_max_seconds >= 3600) AND (funding_hold_max_seconds <= 2592000))),
+    CONSTRAINT projects_identity_settings_object CHECK (((identity_settings IS NULL) OR (jsonb_typeof(identity_settings) = 'object'::text))),
     CONSTRAINT projects_name_length CHECK (((char_length(name) >= 1) AND (char_length(name) <= 200)))
 );
 
@@ -3587,6 +3691,30 @@ ALTER TABLE ONLY ujira.chains
 
 
 --
+-- Name: compliance_marks compliance_marks_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.compliance_marks
+    ADD CONSTRAINT compliance_marks_pkey PRIMARY KEY (principal_id, project_id, mandate_instance_id);
+
+
+--
+-- Name: compliance_notices compliance_notices_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.compliance_notices
+    ADD CONSTRAINT compliance_notices_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: compliance_parked_jobs compliance_parked_jobs_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.compliance_parked_jobs
+    ADD CONSTRAINT compliance_parked_jobs_pkey PRIMARY KEY (principal_id, project_id, mandate_instance_id, job_id);
+
+
+--
 -- Name: currencies currencies_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3728,14 +3856,6 @@ ALTER TABLE ONLY ujira.funding_account_sources
 
 ALTER TABLE ONLY ujira.funding_accounts
     ADD CONSTRAINT funding_accounts_address_once UNIQUE (network, address);
-
-
---
--- Name: funding_accounts funding_accounts_one_per_principal; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
---
-
-ALTER TABLE ONLY ujira.funding_accounts
-    ADD CONSTRAINT funding_accounts_one_per_principal UNIQUE (principal_id, network);
 
 
 --
@@ -4422,6 +4542,20 @@ CREATE INDEX chain_events_by_instance ON ujira.chain_events USING btree (princip
 
 
 --
+-- Name: compliance_notices_by_instance; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX compliance_notices_by_instance ON ujira.compliance_notices USING btree (principal_id, project_id, mandate_instance_id, created_at);
+
+
+--
+-- Name: compliance_parked_jobs_waiting; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX compliance_parked_jobs_waiting ON ujira.compliance_parked_jobs USING btree (principal_id, project_id, mandate_instance_id) WHERE (status = 'parked'::text);
+
+
+--
 -- Name: deposits_by_instance; Type: INDEX; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4454,6 +4588,20 @@ CREATE INDEX funding_account_checks_latest ON ujira.funding_account_checks USING
 --
 
 CREATE INDEX funding_account_sources_by_account ON ujira.funding_account_sources USING btree (principal_id, project_id, funding_account_id);
+
+
+--
+-- Name: funding_account_sources_one_per_account; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE UNIQUE INDEX funding_account_sources_one_per_account ON ujira.funding_account_sources USING btree (funding_account_id);
+
+
+--
+-- Name: funding_accounts_one_per_project; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE UNIQUE INDEX funding_accounts_one_per_project ON ujira.funding_accounts USING btree (principal_id, project_id, network);
 
 
 --
@@ -4776,6 +4924,20 @@ CREATE TRIGGER chain_events_append_only BEFORE DELETE OR UPDATE ON ujira.chain_e
 --
 
 CREATE TRIGGER chain_events_no_truncate BEFORE TRUNCATE ON ujira.chain_events FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: compliance_notices compliance_notices_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER compliance_notices_append_only BEFORE DELETE OR UPDATE ON ujira.compliance_notices FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: compliance_notices compliance_notices_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER compliance_notices_no_truncate BEFORE TRUNCATE ON ujira.compliance_notices FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
 
 
 --
@@ -5342,6 +5504,30 @@ ALTER TABLE ONLY ujira.audit_log
 
 ALTER TABLE ONLY ujira.chain_events
     ADD CONSTRAINT chain_events_principal_id_project_id_mandate_instance_id_c_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id, chain) REFERENCES ujira.mandate_instances(principal_id, project_id, id, chain);
+
+
+--
+-- Name: compliance_marks compliance_marks_principal_id_project_id_mandate_instance__fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.compliance_marks
+    ADD CONSTRAINT compliance_marks_principal_id_project_id_mandate_instance__fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id) REFERENCES ujira.mandate_instances(principal_id, project_id, id);
+
+
+--
+-- Name: compliance_notices compliance_notices_principal_id_project_id_mandate_instanc_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.compliance_notices
+    ADD CONSTRAINT compliance_notices_principal_id_project_id_mandate_instanc_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id) REFERENCES ujira.mandate_instances(principal_id, project_id, id);
+
+
+--
+-- Name: compliance_parked_jobs compliance_parked_jobs_principal_id_project_id_mandate_ins_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.compliance_parked_jobs
+    ADD CONSTRAINT compliance_parked_jobs_principal_id_project_id_mandate_ins_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id) REFERENCES ujira.mandate_instances(principal_id, project_id, id);
 
 
 --
@@ -5991,6 +6177,24 @@ CREATE POLICY authenticate ON ujira.api_tokens FOR SELECT TO ujira_fn_tokens USI
 ALTER TABLE ujira.chain_events ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: compliance_marks; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.compliance_marks ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: compliance_notices; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.compliance_notices ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: compliance_parked_jobs; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.compliance_parked_jobs ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: principal_members create_principal; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6066,6 +6270,13 @@ ALTER TABLE ujira.funding_sweeps ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ujira.idempotency_keys ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: recipient_identities identity_scope; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY identity_scope ON ujira.recipient_identities FOR SELECT TO ujira_fn_identities USING (true);
+
+
+--
 -- Name: chain_events indexer_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6119,6 +6330,13 @@ CREATE POLICY indexer_insert ON ujira.mandate_state_snapshots FOR INSERT TO ujir
 --
 
 CREATE POLICY indexer_insert ON ujira.payout_bookings FOR INSERT TO ujira_indexer WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: mandate_instances indexer_lifecycle; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY indexer_lifecycle ON ujira.mandate_instances FOR UPDATE TO ujira_indexer USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -6339,6 +6557,27 @@ CREATE POLICY owner_all ON ujira.audit_log TO ujira_owner USING (true) WITH CHEC
 --
 
 CREATE POLICY owner_all ON ujira.chain_events TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: compliance_marks owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.compliance_marks TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: compliance_notices owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.compliance_notices TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: compliance_parked_jobs owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.compliance_parked_jobs TO ujira_owner USING (true) WITH CHECK (true);
 
 
 --
@@ -6762,6 +7001,13 @@ CREATE POLICY sweep ON ujira.api_token_expiry_warnings FOR SELECT TO ujira_fn_to
 
 
 --
+-- Name: compliance_marks tenant_delete; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_delete ON ujira.compliance_marks FOR DELETE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: payout_funding_holds tenant_delete; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6815,6 +7061,27 @@ CREATE POLICY tenant_insert ON ujira.audit_log FOR INSERT TO ujira_app WITH CHEC
 --
 
 CREATE POLICY tenant_insert ON ujira.chain_events FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: compliance_marks tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.compliance_marks FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: compliance_notices tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.compliance_notices FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: compliance_parked_jobs tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.compliance_parked_jobs FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -7126,6 +7393,27 @@ CREATE POLICY tenant_read ON ujira.chain_events FOR SELECT TO ujira_app, ujira_r
 
 
 --
+-- Name: compliance_marks tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.compliance_marks FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: compliance_notices tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.compliance_notices FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: compliance_parked_jobs tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.compliance_parked_jobs FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
 -- Name: deposits tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -7434,6 +7722,27 @@ CREATE POLICY tenant_update ON ujira.chain_events FOR UPDATE TO ujira_app USING 
 
 
 --
+-- Name: compliance_marks tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.compliance_marks FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: compliance_notices tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.compliance_notices FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: compliance_parked_jobs tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.compliance_parked_jobs FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: deposits tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -7737,6 +8046,7 @@ GRANT USAGE ON SCHEMA ujira TO ujira_signer_attester;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_instances;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_ledger;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_audit;
+GRANT USAGE ON SCHEMA ujira TO ujira_fn_identities;
 
 
 --
@@ -8196,11 +8506,27 @@ GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_indexer;
 
 
 --
+-- Name: FUNCTION recipient_identity_scope(target_id uuid); Type: ACL; Schema: ujira; Owner: ujira_fn_identities
+--
+
+REVOKE ALL ON FUNCTION ujira.recipient_identity_scope(target_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.recipient_identity_scope(target_id uuid) TO ujira_app;
+
+
+--
 -- Name: FUNCTION resolve_funding_address(target_network text, target_address text); Type: ACL; Schema: ujira; Owner: ujira_fn_instances
 --
 
 REVOKE ALL ON FUNCTION ujira.resolve_funding_address(target_network text, target_address text) FROM PUBLIC;
 GRANT ALL ON FUNCTION ujira.resolve_funding_address(target_network text, target_address text) TO ujira_indexer;
+
+
+--
+-- Name: FUNCTION resolve_mandate_address(target_network text, target_address text); Type: ACL; Schema: ujira; Owner: ujira_fn_instances
+--
+
+REVOKE ALL ON FUNCTION ujira.resolve_mandate_address(target_network text, target_address text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.resolve_mandate_address(target_network text, target_address text) TO ujira_indexer;
 
 
 --
@@ -8439,6 +8765,65 @@ GRANT SELECT ON TABLE ujira.chains TO ujira_indexer;
 
 
 --
+-- Name: TABLE compliance_marks; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,DELETE ON TABLE ujira.compliance_marks TO ujira_app;
+GRANT SELECT ON TABLE ujira.compliance_marks TO ujira_reader;
+
+
+--
+-- Name: TABLE compliance_notices; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.compliance_notices TO ujira_app;
+GRANT SELECT ON TABLE ujira.compliance_notices TO ujira_reader;
+
+
+--
+-- Name: TABLE compliance_parked_jobs; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.compliance_parked_jobs TO ujira_app;
+GRANT SELECT ON TABLE ujira.compliance_parked_jobs TO ujira_reader;
+
+
+--
+-- Name: COLUMN compliance_parked_jobs.status; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(status) ON TABLE ujira.compliance_parked_jobs TO ujira_app;
+
+
+--
+-- Name: COLUMN compliance_parked_jobs.parked_at; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(parked_at) ON TABLE ujira.compliance_parked_jobs TO ujira_app;
+
+
+--
+-- Name: COLUMN compliance_parked_jobs.resumed_at; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(resumed_at) ON TABLE ujira.compliance_parked_jobs TO ujira_app;
+
+
+--
+-- Name: COLUMN compliance_parked_jobs.closed_at; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(closed_at) ON TABLE ujira.compliance_parked_jobs TO ujira_app;
+
+
+--
+-- Name: COLUMN compliance_parked_jobs.close_reason; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(close_reason) ON TABLE ujira.compliance_parked_jobs TO ujira_app;
+
+
+--
 -- Name: TABLE currencies; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -8627,6 +9012,13 @@ GRANT SELECT,INSERT ON TABLE ujira.mandate_instances TO ujira_app;
 GRANT SELECT ON TABLE ujira.mandate_instances TO ujira_reader;
 GRANT SELECT ON TABLE ujira.mandate_instances TO ujira_fn_instances;
 GRANT SELECT ON TABLE ujira.mandate_instances TO ujira_indexer;
+
+
+--
+-- Name: COLUMN mandate_instances.status; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(status) ON TABLE ujira.mandate_instances TO ujira_indexer;
 
 
 --
@@ -8857,6 +9249,27 @@ GRANT INSERT ON TABLE ujira.projects TO ujira_fn_principals;
 
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.recipient_identities TO ujira_app;
 GRANT SELECT ON TABLE ujira.recipient_identities TO ujira_reader;
+
+
+--
+-- Name: COLUMN recipient_identities.principal_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(principal_id) ON TABLE ujira.recipient_identities TO ujira_fn_identities;
+
+
+--
+-- Name: COLUMN recipient_identities.project_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(project_id) ON TABLE ujira.recipient_identities TO ujira_fn_identities;
+
+
+--
+-- Name: COLUMN recipient_identities.id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(id) ON TABLE ujira.recipient_identities TO ujira_fn_identities;
 
 
 --

@@ -8,12 +8,13 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
 import { sql, type Kysely } from 'kysely';
+import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
 import type { Database, ProjectContext } from './database.js';
 import { entryPoints } from './repositories/entry-points.js';
 import { fundingAccounts } from './repositories/funding-accounts.js';
-import { mandateInstances, mandates } from './repositories/mandates.js';
+import { fundingSources, mandateInstances, mandates } from './repositories/mandates.js';
 import type { Schema } from './schema.generated.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
@@ -86,7 +87,7 @@ async function attach(tenant: ProjectContext, accountId: string, mandateInstance
 }
 
 const resolve = (address: string, network = NETWORK) =>
-  db.unscoped(async (tx) => entryPoints.resolveFundingAddress(tx, network, address), 'worker');
+  db.unscoped(async (tx) => entryPoints.resolveFundingAddress(tx, network, address), 'indexer');
 
 beforeAll(async () => {
   database = await createTestDatabase(adminUrl, import.meta.url);
@@ -136,11 +137,80 @@ describe('resolving a forwarding account', () => {
     const second = await newInstance(tenant);
     const account = await newAccount(tenant);
     await attach(tenant, account.id, first.id);
-    await attach(tenant, account.id, second.id);
+    // Attaching refuses this today, and the function still has to tell the truth
+    // about it, because the guard in the scan depends on it if the rule is lifted.
+    const extra = await as(tenant, async (tx) =>
+      fundingSources.create(tx, {
+        mandateInstanceId: second.id,
+        kind: 'stellar_funding_account',
+        config: { sponsoredReserves: true, sponsorTxHash: randomBytes(32) },
+      }),
+    );
+    const owner = new pg.Client({ connectionString: database.url });
+    await owner.connect();
+    try {
+      await owner.query('drop index if exists ujira.funding_account_sources_one_per_account');
+      await owner.query(
+        `insert into ujira.funding_account_sources
+           (principal_id, project_id, funding_account_id, funding_source_id, mandate_instance_id)
+         values ($1, $2, $3, $4, $5)`,
+        [tenant.principalId, tenant.projectId, account.id, extra.id, second.id],
+      );
+    } finally {
+      await owner.end();
+    }
     const found = await resolve(account.address);
     expect(found?.instances.map((instance) => instance.mandateInstanceId).sort()).toEqual(
       [first.id, second.id].sort(),
     );
+  });
+
+  // The link table refuses this, so it is written around that check, as the owner.
+  // Keeping networks apart must not rest on one check, since the answer decides
+  // where a deposit is swept.
+  it('never lists an instance on another network, even one linked around the checks', async () => {
+    const tenant = await newTenant();
+    const testnet = await newInstance(tenant);
+    const pubnet = await as(tenant, async (tx) => {
+      const mandate = await mandates.create(tx, { name: `mandate ${randomUUID()}` });
+      return mandateInstances.create(tx, {
+        network: 'stellar:pubnet',
+        mandateId: mandate.id,
+        chain: 'stellar',
+        contractAddress: `C${randomUUID()}`,
+        specVersion: '1',
+        asset: 'USDC',
+        scale: 7,
+      });
+    });
+    const account = await newAccount(tenant);
+    const source = await as(tenant, async (tx) =>
+      fundingSources.create(tx, {
+        mandateInstanceId: pubnet.id,
+        kind: 'stellar_funding_account',
+        config: { sponsoredReserves: true, sponsorTxHash: randomBytes(32) },
+      }),
+    );
+    const owner = new pg.Client({ connectionString: database.url });
+    await owner.connect();
+    try {
+      await owner.query(
+        'alter table ujira.funding_account_sources disable trigger funding_account_sources_check_new',
+      );
+      await owner.query(
+        `insert into ujira.funding_account_sources
+           (principal_id, project_id, funding_account_id, funding_source_id, mandate_instance_id)
+         values ($1, $2, $3, $4, $5)`,
+        [tenant.principalId, tenant.projectId, account.id, source.id, pubnet.id],
+      );
+    } finally {
+      await owner.query(
+        'alter table ujira.funding_account_sources enable trigger funding_account_sources_check_new',
+      );
+      await owner.end();
+    }
+    expect(testnet.network).toBe(NETWORK);
+    expect(await resolve(account.address)).toMatchObject({ status: 'active', instances: [] });
   });
 
   it('says when an account was rejected', async () => {
@@ -180,7 +250,7 @@ describe('what the indexer can reach', () => {
 
   it('cannot read the tables themselves', async () => {
     const read = (statement: ReturnType<typeof sql>) =>
-      codeOf(db.unscoped(async (tx) => statement.execute(tx), 'worker'));
+      codeOf(db.unscoped(async (tx) => statement.execute(tx), 'indexer'));
     expect(await read(sql`select * from ujira.funding_accounts`)).toBe('42501');
     expect(await read(sql`select * from ujira.funding_account_sources`)).toBe('42501');
   });

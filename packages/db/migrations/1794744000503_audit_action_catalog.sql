@@ -46,7 +46,8 @@ alter table ujira.audit_log
       'principal.reporting_time_zone_changed',
       'project.routing_settings_changed',
       'project.payout_minimums_changed',
-      'project.cashout_bearer_changed'
+      'project.cashout_bearer_changed',
+      'fee_terms.recorded'
     )
   ) not valid;
 

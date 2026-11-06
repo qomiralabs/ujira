@@ -40,9 +40,9 @@ function registrationOf(network: NetworkId, row: MandateRegistryRow): MandateReg
 /** A position belongs to the chain's stream, so it runs with no tenant, as the indexer. */
 export function dbCursorStore(db: Pick<Database, 'unscoped'>): CursorStore {
   return {
-    read: (stream) => db.unscoped((tx) => chainCursors.read(tx, stream), 'worker'),
+    read: (stream) => db.unscoped((tx) => chainCursors.read(tx, stream), 'indexer'),
     advance: (stream, cursor) =>
-      db.unscoped((tx) => chainCursors.advance(tx, stream, cursor), 'worker'),
+      db.unscoped((tx) => chainCursors.advance(tx, stream, cursor), 'indexer'),
   };
 }
 
@@ -65,6 +65,11 @@ export function dbIntakeStore(db: Database): EventIntakeStore {
         mandateInstanceId: tenant.mandateInstanceId,
       };
     },
+    moveInstance: (tenant, move) =>
+      store.moveInstance(
+        { scope: tenant.scope, mandateInstanceId: tenant.mandateInstanceId },
+        move,
+      ),
     book: (booking) =>
       store.book({
         ...booking,

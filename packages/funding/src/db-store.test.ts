@@ -12,7 +12,11 @@ import type { Database, FundingAccount } from '@ujira/db';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDbFundingAccountStores } from './db-store.js';
-import { FundingAccountConflictError } from './errors.js';
+import { FundingAccountConflictError, FundingAccountInUseError } from './errors.js';
+
+const inUse = vi.hoisted(() => ({
+  FundingAccountInUse: class FundingAccountInUse extends Error {},
+}));
 
 const repo = vi.hoisted(() => ({
   forNetwork: vi.fn(),
@@ -23,6 +27,7 @@ const repo = vi.hoisted(() => ({
 }));
 
 vi.mock('@ujira/db', () => ({
+  FundingAccountInUse: inUse.FundingAccountInUse,
   fundingAccounts: {
     forNetwork: repo.forNetwork,
     record: repo.record,
@@ -90,22 +95,20 @@ beforeEach(() => {
 });
 
 describe('db-store.test.ts', () => {
-  describe('accounts.forPrincipal', () => {
-    it('reads across the principal on the app connection, and maps the row', async () => {
+  describe('accounts.forProject', () => {
+    it("reads under the project's own session, and maps the row", async () => {
       const { db, opened } = database();
       repo.forNetwork.mockResolvedValue(row);
-      const found = await createDbFundingAccountStores(db).accounts.forPrincipal(scope, NETWORK);
+      const found = await createDbFundingAccountStores(db).accounts.forProject(scope, NETWORK);
       expect(found).toEqual(record);
-      expect(opened).toEqual([{ session: 'principal', context: scope, role: 'app' }]);
+      expect(opened).toEqual([{ session: 'tenant', context: scope }]);
       expect(repo.forNetwork).toHaveBeenCalledWith('tx', NETWORK);
     });
 
     it('answers null where there is no account', async () => {
       const { db } = database();
       repo.forNetwork.mockResolvedValue(undefined);
-      expect(
-        await createDbFundingAccountStores(db).accounts.forPrincipal(scope, NETWORK),
-      ).toBeNull();
+      expect(await createDbFundingAccountStores(db).accounts.forProject(scope, NETWORK)).toBeNull();
     });
   });
 
@@ -238,6 +241,21 @@ describe('db-store.test.ts', () => {
         accountId: row.id,
         mandateInstanceId: instance,
       });
+    });
+
+    it('says the account funds another mandate, and passes anything else on', async () => {
+      const { db } = database();
+      repo.forNetwork.mockResolvedValue(row);
+      repo.getInstance.mockResolvedValue({ id: instance, chain: 'stellar' });
+      repo.attach.mockRejectedValueOnce(new inUse.FundingAccountInUse());
+      await expect(createDbFundingAccountStores(db).sources.attach(scope, input)).rejects.toThrow(
+        FundingAccountInUseError,
+      );
+      const other = new Error('connection lost');
+      repo.attach.mockRejectedValueOnce(other);
+      await expect(createDbFundingAccountStores(db).sources.attach(scope, input)).rejects.toBe(
+        other,
+      );
     });
 
     it('answers null with no account in this project', async () => {

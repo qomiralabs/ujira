@@ -99,8 +99,12 @@ const instanceSummaryFields = {
 
 export const MandateInstanceSummary = z.strictObject(instanceSummaryFields);
 
-/** Whether UJIRA's pause-only operations guardian holds that role on an instance. */
-export const OperationsGuardianStatus = z.enum(['present', 'absent']);
+/**
+ * Whether UJIRA's pause-only operations guardian holds that role on an instance.
+ * `outdated` is an address the guardian had before a rotation: UJIRA cannot change
+ * a mandate's roles, so the principal adds the current one and removes the old.
+ */
+export const OperationsGuardianStatus = z.enum(['present', 'outdated', 'absent']);
 
 /** Shown at any budget, so a single key principal knows the risk before the rule applies. */
 export const PrincipalKeyWarning = z.enum(['single_key_principal', 'unverified_principal']);
