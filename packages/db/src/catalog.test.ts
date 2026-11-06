@@ -139,6 +139,8 @@ describe('catalog', () => {
         'bucket_key',
         'tokens',
         'refilled_at',
+        'capacity',
+        'refill_per_second',
       ]);
     } finally {
       await client.end();

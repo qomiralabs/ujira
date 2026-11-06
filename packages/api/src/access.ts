@@ -10,7 +10,7 @@
 
 import { randomBytes } from 'node:crypto';
 
-import { createDatabase, loadDatabaseConfig } from '@ujira/db';
+import { createDatabase, loadDatabaseConfig, rateLimits } from '@ujira/db';
 import type { DatabaseEnvironment } from '@ujira/db';
 
 import { refuseAllCredentials } from './auth.js';
@@ -21,6 +21,7 @@ import type { ApiConfig, DeploymentEnvironment } from './config.js';
 import { ApiConfigError } from './errors.js';
 import type { Logger } from './log.js';
 import { databaseBucketStore, databaseEmbedStore, databaseTokenStore } from './postgres-stores.js';
+import { startRateLimitPruning } from './rate-limit-pruning.js';
 import {
   allowEveryAddress,
   allowEveryRequest,
@@ -98,6 +99,10 @@ export function apiAccessFromEnv(
     });
   }
   const db = createDatabase(loadDatabaseConfig(env));
+  const pruning = startRateLimitPruning({
+    prune: (maxRows) => db.unscoped((tx) => rateLimits.pruneRefilled(tx, maxRows)),
+    logger,
+  });
   const environment = KEY_ENVIRONMENT[config.environment];
   const store = databaseEmbedStore(db);
   const buckets = databaseBucketStore(db);
@@ -112,6 +117,9 @@ export function apiAccessFromEnv(
     }),
     rateLimit: createRateLimit(buckets),
     addressRateLimit: createAddressRateLimit(buckets, hmacKey),
-    close: () => db.close(),
+    close: async () => {
+      await pruning.stop();
+      await db.close();
+    },
   };
 }

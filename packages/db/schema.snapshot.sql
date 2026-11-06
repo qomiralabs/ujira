@@ -379,6 +379,44 @@ $$;
 ALTER FUNCTION ops.mandate_alerts_after(after_id bigint, max_rows integer) OWNER TO ujira_ops;
 
 --
+-- Name: prune_rate_limit_buckets(integer); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.prune_rate_limit_buckets(max_rows integer) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  removed integer;
+begin
+  if max_rows is null or max_rows not between 1 and 10000 then
+    raise exception using
+      errcode = '22023',
+      message = 'from 1 to 10000 buckets at a time';
+  end if;
+  with full_now as (
+    select b.bucket_key
+      from ops.rate_limit_buckets as b
+     where b.capacity is not null
+       and b.tokens
+           + greatest(extract(epoch from clock_timestamp() - b.refilled_at), 0)
+             * b.refill_per_second
+           >= b.capacity
+     limit max_rows
+     for update skip locked
+  )
+  delete from ops.rate_limit_buckets as b
+   using full_now
+   where b.bucket_key = full_now.bucket_key;
+  get diagnostics removed = row_count;
+  return removed;
+end
+$$;
+
+
+ALTER FUNCTION ops.prune_rate_limit_buckets(max_rows integer) OWNER TO ujira_ops;
+
+--
 -- Name: record_identity_provider_event(text, text, text, bytea); Type: FUNCTION; Schema: ops; Owner: ujira_ops
 --
 
@@ -497,15 +535,18 @@ begin
         errcode = '22023',
         message = 'a bucket holds at least 1 token and refills at least 1 per second';
     end if;
-    insert into ops.rate_limit_buckets as b (bucket_key, tokens, refilled_at)
-      values (wanted.key_text, wanted.capacity, clock_timestamp())
+    insert into ops.rate_limit_buckets as b
+        (bucket_key, tokens, refilled_at, capacity, refill_per_second)
+      values (wanted.key_text, wanted.capacity, clock_timestamp(), wanted.capacity, wanted.refill)
       on conflict (bucket_key) do update
         set tokens = least(
               wanted.capacity,
               b.tokens
                 + greatest(extract(epoch from clock_timestamp() - b.refilled_at), 0) * wanted.refill
             ),
-            refilled_at = greatest(clock_timestamp(), b.refilled_at)
+            refilled_at = greatest(clock_timestamp(), b.refilled_at),
+            capacity = wanted.capacity,
+            refill_per_second = wanted.refill
       returning b.tokens into available;
     all_allowed := all_allowed and available >= 1;
   end loop;
@@ -1796,6 +1837,8 @@ CREATE UNLOGGED TABLE ops.rate_limit_buckets (
     bucket_key text NOT NULL,
     tokens numeric(18,6) NOT NULL,
     refilled_at timestamp with time zone NOT NULL,
+    capacity integer,
+    refill_per_second integer,
     CONSTRAINT rate_limit_buckets_key_format CHECK ((bucket_key ~ '^[a-z_]{1,32}:[0-9a-f]{64}$'::text)),
     CONSTRAINT rate_limit_buckets_tokens_not_negative CHECK ((tokens >= (0)::numeric))
 );
@@ -7430,6 +7473,14 @@ GRANT ALL ON FUNCTION ops.mandate_alerts_after(after_id bigint, max_rows integer
 
 
 --
+-- Name: FUNCTION prune_rate_limit_buckets(max_rows integer); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.prune_rate_limit_buckets(max_rows integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.prune_rate_limit_buckets(max_rows integer) TO ujira_app;
+
+
+--
 -- Name: FUNCTION record_identity_provider_event(p_provider text, p_provider_account text, p_event_key text, p_raw_sha256 bytea); Type: ACL; Schema: ops; Owner: ujira_ops
 --
 
@@ -7828,7 +7879,7 @@ GRANT SELECT,INSERT,UPDATE ON TABLE ops.mandate_registry TO ujira_ops;
 -- Name: TABLE rate_limit_buckets; Type: ACL; Schema: ops; Owner: ujira_owner
 --
 
-GRANT SELECT,INSERT,UPDATE ON TABLE ops.rate_limit_buckets TO ujira_ops;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE ops.rate_limit_buckets TO ujira_ops;
 
 
 --

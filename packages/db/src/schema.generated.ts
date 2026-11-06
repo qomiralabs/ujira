@@ -101,6 +101,8 @@ export interface OpsMandateRegistry {
 
 export interface OpsRateLimitBuckets {
   bucket_key: string;
+  capacity: Int8 | null;
+  refill_per_second: Int8 | null;
   refilled_at: Timestamp;
   tokens: Numeric;
 }

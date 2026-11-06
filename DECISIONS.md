@@ -2,6 +2,26 @@
 
 Smaller design decisions, each with what it was choosing between. Newest first.
 
+## Who clears rate limit buckets that have refilled
+
+**Problem.** `ops.rate_limit_buckets` gained a row per bucket key and nothing removed any. With the limit by client address, the number of keys is in a caller's hands, one IPv6 /64 after another.
+
+**Options.**
+
+1. A job on the queue. The queue (#90) and the worker's login are not on development yet.
+2. The API itself, which writes the buckets and is always running, on an interval.
+
+**Decision.** Option 2, until the queue lands.
+
+- A bucket now keeps the capacity and refill it was last taken under, written by `ops.take_rate_limit_tokens`, so whether it is full is exact for every rule. A missing bucket starts full, so deleting a full one changes nothing a caller can see.
+- `ops.prune_rate_limit_buckets(max_rows)` deletes up to 10000 full buckets, skipping any a request holds, so it never waits on the limit. The lock re-reads the row, so one taken from since it was found is kept.
+- Each API instance runs a pass every minute, at most 10 batches of 1000, each batch its own transaction. A failed pass is logged by class name, and the next one tries again.
+- A bucket written before this keeps no rule until its next request, and is kept until then.
+
+**Trade offs and risks.** Several instances prune at once; skipped locks keep them apart and each delete is exact. When the queue lands, the pass can move there, and the worker's login needs execute on the function.
+
+**Evidence.** `packages/db/src/rate-limit-pruning.db.test.ts` and `packages/api/src/rate-limit-pruning.test.ts`.
+
 ## Who hears of a flagged mandate, and what its deposits do
 
 **Problem.** Intake flags a mandate whose tag does not match its tenant, or whose attester key is one anyone can rebuild, and records why in `ops.mandate_alerts`. From then on it reads none of the mandate's events. Nobody read the alerts, so the mirror went quiet with nobody told.
