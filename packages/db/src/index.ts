@@ -51,6 +51,8 @@ export {
   type ToUsd,
 } from './payout-minimum.js';
 export {
+  ALLOWED_BY_VALUES,
+  ALLOWED_STATUS_VALUES,
   ATTEMPT_STATUS_VALUES,
   fundingHolds,
   IdempotencyConflictError,
@@ -63,6 +65,8 @@ export {
   payoutMinimums,
   payouts,
   RequestedAmountModeError,
+  TransitionFactError,
+  type AllowedBy,
   type AttemptStatusValue,
   type BatchItemResult,
   type CashoutCostBearer,
@@ -92,6 +96,18 @@ export {
   type PayoutLeg,
   type RecordedApproval,
 } from './repositories/payout-legs.js';
+export {
+  PayoutPositionError,
+  payoutViewRepositories,
+  payoutViews,
+  type PayoutAmountBound,
+  type PayoutAttemptSummary,
+  type PayoutListFilter,
+  type PayoutListing,
+  type PayoutListPage,
+  type PayoutPosition,
+  type PayoutView,
+} from './repositories/payout-views.js';
 export {
   managedSigners,
   signingKeys,

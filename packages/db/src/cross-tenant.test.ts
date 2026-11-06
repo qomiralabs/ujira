@@ -19,6 +19,7 @@ import { entryPoints } from './repositories/entry-points.js';
 import { fundingAccountRepositories, fundingAccounts } from './repositories/funding-accounts.js';
 import { idempotencyKeys, idempotencyRepositories } from './repositories/idempotency.js';
 import { approvals, legRepositories, payoutLegs } from './repositories/payout-legs.js';
+import { payoutViewRepositories, payoutViews } from './repositories/payout-views.js';
 import { managedSigners } from './repositories/signers.js';
 import { ledger, ledgerRepositories } from './repositories/ledger.js';
 import {
@@ -124,6 +125,7 @@ const REPOSITORIES = {
   ...mandateTermsRepositories,
   ...payoutRepositories,
   ...legRepositories,
+  ...payoutViewRepositories,
   payoutBookings,
 };
 
@@ -870,6 +872,11 @@ const cases: Record<string, () => Promise<void>> = {
   'mandateInstances.get': async () => {
     expect(await acrossA(async (tx) => mandateInstances.get(tx, b.instanceId))).toBeUndefined();
   },
+  'mandateInstances.forMandate': async () => {
+    expect(await acrossA(async (tx) => mandateInstances.forMandate(tx, b.mandateId))).toEqual([]);
+    const own = await acrossA(async (tx) => mandateInstances.forMandate(tx, a.mandateId));
+    expect(own.map((instance) => instance.id)).toContain(a.instanceId);
+  },
   'mandateInstances.byAddress': async () => {
     const find = (contract: string) =>
       acrossA(async (tx) => mandateInstances.byAddress(tx, 'stellar', contract));
@@ -1502,6 +1509,17 @@ const cases: Record<string, () => Promise<void>> = {
     expect(await acrossA(async (tx) => payouts.get(tx, b.payoutId))).toBeUndefined();
     expect(await acrossA(async (tx) => payouts.get(tx, a.payoutId))).toBeDefined();
   },
+  'payouts.findByKey': async () => {
+    const keys = await admin.query<{ id: string; idempotency_key: string }>(
+      'select id, idempotency_key from ujira.payouts where id = any($1::uuid[])',
+      [[a.payoutId, b.payoutId]],
+    );
+    const keyOf = (id: string) => keys.rows.find((row) => row.id === id)?.idempotency_key ?? '';
+    expect(await acrossA(async (tx) => payouts.findByKey(tx, keyOf(b.payoutId)))).toBeUndefined();
+    expect((await acrossA(async (tx) => payouts.findByKey(tx, keyOf(a.payoutId))))?.id).toBe(
+      a.payoutId,
+    );
+  },
   'payouts.list': async () => {
     const page = await acrossA(async (tx) => payouts.list(tx, { limit: 100 }));
     const ids = page.items.map((payout) => payout.id);
@@ -1515,6 +1533,23 @@ const cases: Record<string, () => Promise<void>> = {
       ),
     ).toBeUndefined();
     expect(await statusOf('ujira.payouts', b.payoutId)).toBe('received');
+  },
+  'payoutViews.page': async () => {
+    const page = await acrossA(async (tx) => payoutViews.page(tx, {}, { limit: 100 }));
+    const ids = page.items.map((listing) => listing.payout.id);
+    expect(ids).toContain(a.payoutId);
+    expect(ids).not.toContain(b.payoutId);
+    // Naming the other tenant's mandate finds nothing, rather than its payouts.
+    const named = await acrossA(async (tx) =>
+      payoutViews.page(tx, { mandateIds: [b.mandateId] }, { limit: 100 }),
+    );
+    expect(named.items).toEqual([]);
+  },
+  'payoutViews.get': async () => {
+    expect(await acrossA(async (tx) => payoutViews.get(tx, b.payoutId))).toBeUndefined();
+    expect((await acrossA(async (tx) => payoutViews.get(tx, a.payoutId)))?.payout.id).toBe(
+      a.payoutId,
+    );
   },
   'payoutBatches.create': async () => {
     const created = await asA(async (tx) =>

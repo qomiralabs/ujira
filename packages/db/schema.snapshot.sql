@@ -1421,6 +1421,47 @@ $$;
 ALTER FUNCTION ujira.payout_network_matches() OWNER TO ujira_owner;
 
 --
+-- Name: payout_step_times(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.payout_step_times() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if tg_op = 'INSERT' then
+    new.approved_at := null;
+    new.settled_at := null;
+    new.delivered_at := null;
+    return new;
+  end if;
+  if new.status is not distinct from old.status then
+    new.approved_at := old.approved_at;
+    new.settled_at := old.settled_at;
+    new.delivered_at := old.delivered_at;
+    return new;
+  end if;
+  case new.status
+    when 'approved' then
+      new.approved_at := now();
+    when 'settling' then
+      new.approved_at := coalesce(old.approved_at, now());
+      new.settled_at := now();
+    when 'paid' then
+      new.delivered_at := now();
+    when 'received', 'routed' then
+      new.approved_at := null;
+    else
+      null;
+  end case;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.payout_step_times() OWNER TO ujira_owner;
+
+--
 -- Name: project_scope_all(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2845,6 +2886,16 @@ END) STORED NOT NULL,
     status_reason text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    task_id text,
+    blocked_by text,
+    allowed_by text,
+    approved_at timestamp with time zone,
+    settled_at timestamp with time zone,
+    delivered_at timestamp with time zone,
+    CONSTRAINT payouts_allowed_by_value CHECK ((allowed_by = ANY (ARRAY['allowlist_auto'::text, 'allowlist_approved'::text, 'attestation_auto'::text, 'attestation_approved'::text, 'allowlist_and_attestation_auto'::text, 'allowlist_and_attestation_approved'::text]))),
+    CONSTRAINT payouts_allowed_by_when CHECK (((allowed_by IS NOT NULL) = (status = ANY (ARRAY['approved'::text, 'settling'::text, 'delivering'::text, 'partly_paid'::text, 'paid'::text, 'needs_attention'::text])))),
+    CONSTRAINT payouts_blocked_by_format CHECK ((blocked_by ~ '^[A-Z][A-Z0-9_]{1,63}$'::text)),
+    CONSTRAINT payouts_blocked_by_when CHECK (((blocked_by IS NOT NULL) = (status = 'blocked'::text))),
     CONSTRAINT payouts_cashout_cost_bearer CHECK ((cashout_cost_bearer = ANY (ARRAY['recipient'::text, 'principal'::text]))),
     CONSTRAINT payouts_key_length CHECK (((char_length(idempotency_key) >= 1) AND (char_length(idempotency_key) <= 255))),
     CONSTRAINT payouts_method CHECK ((method = ANY (ARRAY['stellar_wallet'::text, 'bank'::text, 'mobile_money'::text, 'cash_pickup'::text]))),
@@ -2852,6 +2903,7 @@ END) STORED NOT NULL,
     CONSTRAINT payouts_requested_unit CHECK ((((cashout_cost_bearer = 'recipient'::text) AND (num_nonnulls(requested_asset, requested_chain, requested_token_scale) = 3) AND (num_nonnulls(requested_currency, requested_currency_scale) = 0)) OR ((cashout_cost_bearer = 'principal'::text) AND (num_nonnulls(requested_asset, requested_chain, requested_token_scale) = 0) AND (num_nonnulls(requested_currency, requested_currency_scale) = 2)))),
     CONSTRAINT payouts_status CHECK ((status = ANY (ARRAY['received'::text, 'routed'::text, 'submitting'::text, 'pending_approval'::text, 'approved'::text, 'settling'::text, 'delivering'::text, 'partly_paid'::text, 'paid'::text, 'needs_attention'::text, 'blocked'::text, 'rejected'::text, 'cancelled'::text, 'failed'::text]))),
     CONSTRAINT payouts_status_reason CHECK (((status_reason IS NULL) OR ((status_reason = ANY (ARRAY['awaiting_funding'::text, 'network_unavailable'::text])) AND (status = 'received'::text)) OR ((status_reason = 'funding_hold_expired'::text) AND (status = 'failed'::text)))),
+    CONSTRAINT payouts_task_id_length CHECK (((char_length(task_id) >= 1) AND (char_length(task_id) <= 255))),
     CONSTRAINT payouts_total_positive CHECK (((total_amount)::numeric > (0)::numeric)),
     CONSTRAINT payouts_total_whole CHECK ((num_nonnulls(total_amount, total_asset, total_chain, total_scale) = ANY (ARRAY[0, 4])))
 );
@@ -4270,6 +4322,13 @@ CREATE INDEX payouts_by_status ON ujira.payouts USING btree (principal_id, proje
 
 
 --
+-- Name: payouts_newest_first; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX payouts_newest_first ON ujira.payouts USING btree (principal_id, project_id, created_at DESC, id DESC);
+
+
+--
 -- Name: recipient_identities_one_per_provider; Type: INDEX; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4792,6 +4851,13 @@ CREATE TRIGGER payouts_no_delete BEFORE DELETE ON ujira.payouts FOR EACH ROW EXE
 --
 
 CREATE TRIGGER payouts_no_truncate BEFORE TRUNCATE ON ujira.payouts FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: payouts payouts_step_times; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER payouts_step_times BEFORE INSERT OR UPDATE ON ujira.payouts FOR EACH ROW EXECUTE FUNCTION ujira.payout_step_times();
 
 
 --
@@ -7561,6 +7627,13 @@ REVOKE ALL ON FUNCTION ujira.payout_network_matches() FROM PUBLIC;
 
 
 --
+-- Name: FUNCTION payout_step_times(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.payout_step_times() FROM PUBLIC;
+
+
+--
 -- Name: FUNCTION project_scope_all(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -8116,6 +8189,20 @@ GRANT UPDATE(status) ON TABLE ujira.payouts TO ujira_app;
 --
 
 GRANT UPDATE(status_reason) ON TABLE ujira.payouts TO ujira_app;
+
+
+--
+-- Name: COLUMN payouts.blocked_by; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(blocked_by) ON TABLE ujira.payouts TO ujira_app;
+
+
+--
+-- Name: COLUMN payouts.allowed_by; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(allowed_by) ON TABLE ujira.payouts TO ujira_app;
 
 
 --

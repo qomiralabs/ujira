@@ -216,6 +216,19 @@ export const mandateInstances = {
     return row === undefined ? undefined : toInstance(row);
   },
 
+  // Every instance of one mandate, oldest first. A mandate has one per network it
+  // is deployed on, so this is a handful at most.
+  forMandate: async (db: Tx, mandateId: string): Promise<readonly MandateInstance[]> => {
+    const rows = await db
+      .selectFrom('ujira.mandate_instances')
+      .select(instanceColumns)
+      .where('mandate_id', '=', mandateId)
+      .orderBy('created_at')
+      .orderBy('id')
+      .execute();
+    return rows.map(toInstance);
+  },
+
   // This tenant's instance at a contract. Another tenant's stays out of sight, so
   // this cannot tell anyone that an address is taken.
   byAddress: async (

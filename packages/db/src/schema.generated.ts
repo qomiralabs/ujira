@@ -635,9 +635,13 @@ export interface UjiraPayoutMethods {
 }
 
 export interface UjiraPayouts {
+  allowed_by: string | null;
+  approved_at: Timestamp | null;
   batch_id: string | null;
+  blocked_by: string | null;
   cashout_cost_bearer: string;
   created_at: Generated<Timestamp>;
+  delivered_at: Timestamp | null;
   id: Generated<string>;
   idempotency_key: string;
   mandate_id: string;
@@ -653,8 +657,10 @@ export interface UjiraPayouts {
   requested_currency: string | null;
   requested_currency_scale: number | null;
   requested_token_scale: number | null;
+  settled_at: Timestamp | null;
   status: Generated<string>;
   status_reason: string | null;
+  task_id: string | null;
   total_amount: Numeric | null;
   total_asset: string | null;
   total_chain: string | null;
