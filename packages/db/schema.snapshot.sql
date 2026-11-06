@@ -6421,6 +6421,13 @@ CREATE POLICY indexer_insert ON ujira.payout_bookings FOR INSERT TO ujira_indexe
 
 
 --
+-- Name: mandate_instances indexer_lifecycle; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY indexer_lifecycle ON ujira.mandate_instances FOR UPDATE TO ujira_indexer USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: chain_events indexer_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -9058,6 +9065,13 @@ GRANT SELECT,INSERT ON TABLE ujira.mandate_instances TO ujira_app;
 GRANT SELECT ON TABLE ujira.mandate_instances TO ujira_reader;
 GRANT SELECT ON TABLE ujira.mandate_instances TO ujira_fn_instances;
 GRANT SELECT ON TABLE ujira.mandate_instances TO ujira_indexer;
+
+
+--
+-- Name: COLUMN mandate_instances.status; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(status) ON TABLE ujira.mandate_instances TO ujira_indexer;
 
 
 --

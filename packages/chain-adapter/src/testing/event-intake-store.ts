@@ -9,10 +9,12 @@
 import type {
   EventBooking,
   EventIntakeStore,
+  InstanceMove,
   MandateFlagReason,
   MandateTenant,
   NewRegistration,
 } from '../intake.js';
+import { INSTANCE_MOVES } from '../intake.js';
 import type { NetworkId } from '../networks.js';
 import type { MandateRegistration, MandateRegistry, TenantScope, UnixSeconds } from '../types.js';
 
@@ -31,6 +33,9 @@ export class MemoryEventIntakeStore implements EventIntakeStore, MandateRegistry
   readonly #events = new Map<string, EventBooking>();
   readonly #payouts = new Map<string, EventBooking[]>();
   readonly #alerts = new Map<string, MandateAlert>();
+  readonly #statuses = new Map<string, string>();
+  /** Each move that changed an instance, in order. */
+  readonly moves: { readonly mandateInstanceId: string; readonly move: InstanceMove }[] = [];
 
   /** A tenant claims a contract, as its mandate instance row does. */
   claim(
@@ -40,6 +45,15 @@ export class MemoryEventIntakeStore implements EventIntakeStore, MandateRegistry
     claimedAt = 0n as UnixSeconds,
   ): void {
     this.#tenants.set(key(network, contractId), { ...tenant, claimedAt });
+    // A claimed instance starts as the database starts it.
+    if (!this.#statuses.has(tenant.mandateInstanceId)) {
+      this.#statuses.set(tenant.mandateInstanceId, 'deploying');
+    }
+  }
+
+  /** Where a claimed instance is in its life, or undefined when nothing claims it. */
+  statusOf(mandateInstanceId: string): string | undefined {
+    return this.#statuses.get(mandateInstanceId);
   }
 
   /** Every stored event, oldest first. */
@@ -108,6 +122,15 @@ export class MemoryEventIntakeStore implements EventIntakeStore, MandateRegistry
         ? null
         : { scope: tenant.scope, mandateInstanceId: tenant.mandateInstanceId },
     );
+  }
+
+  moveInstance(tenant: MandateTenant, move: InstanceMove): Promise<boolean> {
+    const { from, to } = INSTANCE_MOVES[move];
+    const current = this.#statuses.get(tenant.mandateInstanceId);
+    if (current === undefined || !from.includes(current)) return Promise.resolve(false);
+    this.#statuses.set(tenant.mandateInstanceId, to);
+    this.moves.push({ mandateInstanceId: tenant.mandateInstanceId, move });
+    return Promise.resolve(true);
   }
 
   book(booking: EventBooking): Promise<boolean> {
