@@ -15,6 +15,7 @@ import { SignerDeniedError, SignerUnavailableError } from '@ujira/chain-adapter'
 import type { NetworkId, SignerProvider, SignerRef, Uuid } from '@ujira/chain-adapter';
 import { readFileSync } from 'node:fs';
 
+import { CUSTODY_VECTORS } from '@ujira/mandates';
 import { describe, expect, it, vi } from 'vitest';
 
 import { guardAgentSigner } from './custody.js';
@@ -146,5 +147,20 @@ describe('the agent service without its seats', () => {
     const source = readFileSync(new URL('./boot.ts', import.meta.url), 'utf8');
     expect(source).toContain('stores.agentSeats ?? seatsNotConfigured');
     expect(source).toContain("role === 'agent'");
+  });
+});
+
+describe('the shared custody cases', () => {
+  // The same cases the mandates package's rule is held to.
+  it.each(CUSTODY_VECTORS)('seats %j are allowed: $allowed', async ({ seats, allowed }) => {
+    const store = memorySeats();
+    for (const mode of seats) store.seat(TENANT, AGENT, mode);
+    const signer = guardAgentSigner(backend().provider, {
+      seats: store,
+      logger: memorySignerLogger(),
+    });
+    const signing = signer.sign(agentRef(), PAYLOAD, OPTS);
+    if (allowed) await expect(signing).resolves.toEqual({ signature: 'signed' });
+    else await expect(signing).rejects.toBeInstanceOf(SignerDeniedError);
   });
 });
