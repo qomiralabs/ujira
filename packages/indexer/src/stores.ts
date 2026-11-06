@@ -65,6 +65,11 @@ export function dbIntakeStore(db: Database): EventIntakeStore {
         mandateInstanceId: tenant.mandateInstanceId,
       };
     },
+    moveInstance: (tenant, move) =>
+      store.moveInstance(
+        { scope: tenant.scope, mandateInstanceId: tenant.mandateInstanceId },
+        move,
+      ),
     book: (booking) =>
       store.book({
         ...booking,
