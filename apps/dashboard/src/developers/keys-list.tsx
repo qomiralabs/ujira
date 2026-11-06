@@ -313,24 +313,3 @@ export function KeysList({ keys, now, onAction }: KeysListProps) {
     />
   );
 }
-
-/** The list while it loads, in the shared table's own skeleton. */
-export function KeysListSkeleton() {
-  return (
-    <div>
-      <p role="status" className="sr-only">
-        Loading API keys
-      </p>
-      <DataTable
-        caption="Loading API keys"
-        data={[]}
-        columns={columnsFor(() => undefined)}
-        getRowId={(row) => row.key.id}
-        rowLabel={(row) => keyLabel(row.key)}
-        renderCard={() => null}
-        minWidth="66rem"
-        loading
-      />
-    </div>
-  );
-}

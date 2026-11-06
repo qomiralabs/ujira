@@ -26,7 +26,8 @@ import { PageHeader } from '../patterns/page-header';
 import { NAV_ITEMS } from '../shell/nav';
 import { PLACEHOLDERS } from '../shell/placeholders';
 import { keyLabel, overlapEnds } from './key-status';
-import { KeysList, KeysListSkeleton, type KeyAction } from './keys-list';
+import { API_KEYS_INTRO, KeysListSkeleton } from './api-keys-skeleton';
+import { KeysList, type KeyAction } from './keys-list';
 import { RevealKeyDialog, type RevealedKey } from './reveal-key-dialog';
 import { StepUpCancelled, StepUpProvider, useStepUp } from './step-up';
 import { useApiKeys } from './use-api-keys';
@@ -77,29 +78,7 @@ function SectionHeading({ headingRef }: { headingRef?: Ref<HTMLHeadingElement> }
       >
         API keys
       </h2>
-      <p className="text-body-s text-text-secondary">
-        Each key lets your own software or an agent use the UJIRA API for this project, within the
-        permissions you give it. The whole key is shown once, when it is made.
-      </p>
-    </div>
-  );
-}
-
-/** The page before the project in the URL can be read, at the size it will have. */
-export function ApiKeysScreenSkeleton() {
-  return (
-    <div className="flex flex-col gap-8">
-      <Header
-        action={
-          <Button variant="primary" icon={<Plus aria-hidden="true" strokeWidth={1.5} />} disabled>
-            Create API key
-          </Button>
-        }
-      />
-      <section className="flex flex-col gap-4">
-        <SectionHeading />
-        <KeysListSkeleton />
-      </section>
+      <p className="text-body-s text-text-secondary">{API_KEYS_INTRO}</p>
     </div>
   );
 }
