@@ -297,3 +297,4 @@ export {
   type NewComplianceNotice,
   type ParkedJob,
 } from './repositories/compliance.js';
+export { withWorkerInstallGrant } from './worker-install.js';

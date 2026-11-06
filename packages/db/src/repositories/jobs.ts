@@ -331,6 +331,17 @@ export const workerPools = {
     await sql`delete from ujira_jobs.worker_heartbeats where worker_id = ${poolId}`.execute(tx);
   },
 
+  // Every pool holding a lock on a job or a queue, however recently it beat.
+  lockHolders: async (tx: Tx): Promise<readonly string[]> => {
+    const result = await sql<{ pool: string }>`
+      select locked_by as pool from graphile_worker._private_jobs where locked_by is not null
+      union
+      select locked_by from graphile_worker._private_job_queues where locked_by is not null
+      order by 1
+    `.execute(tx);
+    return result.rows.map((row) => row.pool);
+  },
+
   // Frees the locks of pools that stopped beating, and returns those pools. A lock
   // younger than the limit is left alone even with no heartbeat, because a pool
   // that has only just started may hold a lock before its first beat lands.
