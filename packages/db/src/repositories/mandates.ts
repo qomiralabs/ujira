@@ -145,6 +145,8 @@ export interface NewMandateInstance {
   readonly scale: number;
   readonly attesterPublicKey?: Buffer | null;
   readonly countryPolicyHash?: Buffer | null;
+  // From the config the contract was created with. Fixed once known.
+  readonly recipientMode?: 'allowlist' | 'attested' | 'both' | null;
 }
 
 const instanceColumns = [
@@ -244,10 +246,28 @@ export const mandateInstances = {
         scale: input.scale,
         attester_public_key: input.attesterPublicKey ?? null,
         country_policy_hash: input.countryPolicyHash ?? null,
+        recipient_mode: input.recipientMode ?? null,
       })
       .returning(instanceColumns)
       .executeTakeFirstOrThrow();
     return toInstance(row);
+  },
+
+  // For an instance recorded before its mode was known, such as one claimed after the
+  // chain was read. False when it was already set, to this or any other value: the
+  // contract never changes it, and neither does this.
+  setRecipientMode: async (
+    db: Tx,
+    id: string,
+    mode: 'allowlist' | 'attested' | 'both',
+  ): Promise<boolean> => {
+    const result = await db
+      .updateTable('ujira.mandate_instances')
+      .set({ recipient_mode: mode })
+      .where('id', '=', id)
+      .where('recipient_mode', 'is', null)
+      .executeTakeFirst();
+    return result.numUpdatedRows > 0n;
   },
 };
 
