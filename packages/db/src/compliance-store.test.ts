@@ -296,3 +296,93 @@ describe('isolation', () => {
     expect((await stateOf(fixture)).notices).toEqual([]);
   });
 });
+
+describe('closing out a retired mandate', () => {
+  it('closes its parked jobs with the reason, and drops the mark with no notice', async () => {
+    const fixture = await payoutFixture(db);
+    const key = keyOf(fixture);
+    await markIt(key);
+    await store.parkIfNoncompliant(key, 'job-1', OPTS);
+    await store.parkIfNoncompliant(key, 'job-2', OPTS);
+
+    expect(await store.closeOut(key, 'mandate_revoked', OPTS)).toEqual(['job-1', 'job-2']);
+
+    const { mark, parked, notices } = await stateOf(fixture);
+    expect(mark).toBeUndefined();
+    expect(parked.map((p) => [p.jobId, p.status, p.closeReason])).toEqual([
+      ['job-1', 'closed', 'mandate_revoked'],
+      ['job-2', 'closed', 'mandate_revoked'],
+    ]);
+    expect(parked.every((p) => p.closedAt !== null && p.resumedAt === null)).toBe(true);
+    expect(notices.map((n) => n.to)).toEqual(['noncompliant']);
+  });
+
+  it('closes nothing twice, and leaves resumed jobs as they were', async () => {
+    const fixture = await payoutFixture(db);
+    const key = keyOf(fixture);
+    await markIt(key);
+    await store.parkIfNoncompliant(key, 'job-1', OPTS);
+    await clearIt(key);
+    await markIt(key);
+    await store.parkIfNoncompliant(key, 'job-2', OPTS);
+
+    expect(await store.closeOut(key, 'mandate_expired', OPTS)).toEqual(['job-2']);
+    expect(await store.closeOut(key, 'mandate_expired', OPTS)).toEqual([]);
+
+    const { parked } = await stateOf(fixture);
+    expect(parked.map((p) => [p.jobId, p.status])).toEqual([
+      ['job-1', 'resumed'],
+      ['job-2', 'closed'],
+    ]);
+  });
+
+  it('leaves no job parked however parks and a revocation race', async () => {
+    const fixture = await payoutFixture(db);
+    const key = keyOf(fixture);
+    for (let round = 0; round < 30; round += 1) {
+      await markIt(key);
+      const jobs = Array.from({ length: 4 }, () => `job-${randomUUID()}`);
+      await Promise.all([
+        ...jobs.map((job) => store.parkIfNoncompliant(key, job, OPTS)),
+        store.closeOut(key, 'mandate_revoked', OPTS),
+      ]);
+      const { mark, parked } = await stateOf(fixture);
+      expect(mark).toBeUndefined();
+      expect(parked.filter((p) => p.status === 'parked')).toEqual([]);
+    }
+  });
+
+  it('holds a closed job to its reason and time, by the table itself', async () => {
+    const fixture = await payoutFixture(db);
+    const key = keyOf(fixture);
+    await markIt(key);
+    await store.parkIfNoncompliant(key, 'job-1', OPTS);
+    for (const change of [
+      `status = 'closed'`,
+      `status = 'closed', closed_at = now()`,
+      `status = 'closed', closed_at = now(), close_reason = 'because'`,
+    ]) {
+      await expect(
+        admin.query(
+          `update ujira.compliance_parked_jobs set ${change} where mandate_instance_id = $1`,
+          [fixture.instanceId],
+        ),
+      ).rejects.toMatchObject({ code: '23514' });
+    }
+  });
+
+  it('cannot close out another tenant', async () => {
+    const owner = await payoutFixture(db);
+    const other = await payoutFixture(db);
+    const ownerKey = keyOf(owner);
+    await markIt(ownerKey);
+    await store.parkIfNoncompliant(ownerKey, 'job-1', OPTS);
+
+    const stolen = { ...keyOf(other), instanceId: owner.instanceId };
+    expect(await store.closeOut(stolen, 'mandate_revoked', OPTS)).toEqual([]);
+
+    const { mark, parked } = await stateOf(owner);
+    expect(mark).toBeDefined();
+    expect(parked.map((p) => p.status)).toEqual(['parked']);
+  });
+});
