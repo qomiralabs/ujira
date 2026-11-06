@@ -10,6 +10,11 @@ export default defineConfig({
   test: {
     name: '@ujira/indexer',
     include: ['src/**/*.test.ts'],
+    hookTimeout: 180_000,
+    testTimeout: 60_000,
+    // The attribution test follows a deposit through a real database, so this needs
+    // docker, and fails rather than skips without it.
+    globalSetup: ['../db/src/testing/global-setup.ts'],
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,tsx,mts,cts}'],

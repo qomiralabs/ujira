@@ -56,14 +56,15 @@ export function dbWatchedAddresses(
   async function forwardingAccount(address: string): Promise<WatchedMandate | null> {
     const account = await db.unscoped(
       (tx) => entryPoints.resolveFundingAddress(tx, network, address),
-      'worker',
+      'indexer',
     );
     if (account === undefined) return null;
     if (account.status !== 'active') return refuse(address, 'account_rejected');
     const [only, ...others] = account.instances;
     if (only === undefined) return refuse(address, 'no_mandate');
     // Which of several a deposit is for cannot be told from the transfer. Picking one
-    // could sweep a principal's money into the wrong mandate.
+    // could sweep a principal's money into the wrong mandate. The key on the account
+    // should make this impossible, and this decides where money goes, so it stays.
     if (others.length > 0) return refuse(address, 'several_mandates');
     if (!isTokenAsset(only.asset)) return refuse(address, 'unknown_asset');
     return {
@@ -83,7 +84,7 @@ export function dbWatchedAddresses(
     if (asked.network !== network) return null;
     const instance = await db.unscoped(
       (tx) => entryPoints.resolveMandateInstance(tx, chainOf(network), asked.value),
-      'worker',
+      'indexer',
     );
     if (instance === undefined) return forwardingAccount(asked.value);
     if (!isTokenAsset(instance.asset)) return refuse(asked.value, 'unknown_asset');

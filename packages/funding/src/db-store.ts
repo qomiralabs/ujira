@@ -6,10 +6,14 @@
 
 import { isNetworkId } from '@ujira/chain-adapter';
 import type { FundingAccountRecord, FundingAccountStore, NetworkId } from '@ujira/chain-adapter';
-import { fundingAccounts, fundingSweeps, mandateInstances } from '@ujira/db';
+import { FundingAccountInUse, fundingAccounts, fundingSweeps, mandateInstances } from '@ujira/db';
 import type { Database, FundingAccount } from '@ujira/db';
 
-import { FundingAccountConflictError, SweepStateError } from './errors.js';
+import {
+  FundingAccountConflictError,
+  FundingAccountInUseError,
+  SweepStateError,
+} from './errors.js';
 import type { FundingSourceStore } from './funding-account.js';
 import type { SweepStore } from './sweep.js';
 
@@ -75,18 +79,17 @@ function toRecord(
   };
 }
 
-export function createDbFundingAccountStores(db: Pick<Database, 'tenant' | 'principal'>): {
+export function createDbFundingAccountStores(db: Pick<Database, 'tenant'>): {
   readonly accounts: FundingAccountStore;
   readonly sources: FundingSourceStore;
 } {
   return {
     accounts: {
-      // Read across the principal's projects, since reserves are budgeted per
-      // principal. Through the app's connection rather than the reader's, because
-      // a reader that lags could miss the row a retried confirmation just wrote.
-      async forPrincipal(scope, network) {
+      // Through the app's connection rather than the reader's, because a reader
+      // that lags could miss the row a retried confirmation just wrote.
+      async forProject(scope, network) {
         const row = await db
-          .principal(scope, 'app')
+          .tenant(scope)
           .transaction(async (tx) => fundingAccounts.forNetwork(tx, network));
         return row === undefined ? null : toRecord(scope.principalId, network, row);
       },
@@ -134,15 +137,20 @@ export function createDbFundingAccountStores(db: Pick<Database, 'tenant' | 'prin
       // The repository compares the instance's network with the account's, and the
       // table refuses a mismatch whoever writes it.
       async attach(scope, { network, mandateInstanceId }) {
-        return db.tenant(scope).transaction(async (tx) => {
-          const account = await fundingAccounts.forNetwork(tx, network);
-          if (account === undefined) return null;
-          const source = await fundingAccounts.attach(tx, {
-            accountId: account.id,
-            mandateInstanceId,
+        try {
+          return await db.tenant(scope).transaction(async (tx) => {
+            const account = await fundingAccounts.forNetwork(tx, network);
+            if (account === undefined) return null;
+            const source = await fundingAccounts.attach(tx, {
+              accountId: account.id,
+              mandateInstanceId,
+            });
+            return source?.id ?? null;
           });
-          return source?.id ?? null;
-        });
+        } catch (error) {
+          if (error instanceof FundingAccountInUse) throw new FundingAccountInUseError();
+          throw error;
+        }
       },
     },
   };

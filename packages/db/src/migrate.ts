@@ -279,9 +279,35 @@ export type MigrationDirection = 'up' | 'down';
 // What a run does when another run already holds the lock. `fail` is the
 // tool's default and this package's: a second run stops at once with
 // "Another migration is already running", which is measured in
-// migrate.test.ts. `wait` blocks until the lock frees, which is what a
+// migrate.test.ts. `wait` keeps trying until the lock frees, which is what a
 // deployment that migrates from several instances at boot would need.
 export type LockMode = 'fail' | 'wait';
+
+// How long a waiting run sleeps between tries for the lock.
+const LOCK_RETRY_MS = 250;
+
+// A run that waits never blocks inside a statement for the lock. A concurrent index
+// build waits for every transaction open while it runs, and a statement waiting for the
+// lock is one, so the run holding the lock would wait for the run waiting for it. Two
+// would deadlock, and where the lock is held on another connection than the build, nothing
+// would ever notice and they would wait forever. So it tries, and sleeps with nothing open
+// between tries.
+async function untilFree<T>(
+  attempt: () => Promise<T>,
+  busy: (error: unknown) => boolean,
+): Promise<T> {
+  for (;;) {
+    try {
+      return await attempt();
+    } catch (error) {
+      if (!busy(error)) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
+  }
+}
+
+const lockTaken = (error: unknown): boolean =>
+  error instanceof Error && error.message.startsWith('Another migration is already running');
 
 export interface MigrateOptions {
   readonly databaseUrl: string;
@@ -329,8 +355,9 @@ export async function runMigrations(options: MigrateOptions): Promise<MigrationR
     // Measured: with this at its default, a second concurrent run throws
     // rather than queueing. Loud is right for a migration run by hand or by
     // one deploy step; a deployment that migrates from every instance at
-    // boot would pass 'wait'.
-    advisoryLockMode: options.lockMode ?? 'fail',
+    // boot would pass 'wait', which is done below by trying again, never by
+    // the tool's own wait, which blocks in a statement.
+    advisoryLockMode: 'fail',
     logger: {
       debug: quiet,
       info: (message: string) => {
@@ -345,7 +372,12 @@ export async function runMigrations(options: MigrateOptions): Promise<MigrationR
     },
     ...(count === undefined ? {} : { count }),
   };
-  const applied = await runner(runnerOptions);
+  // The tool takes its lock before it touches anything, so a try that finds it taken has
+  // done nothing to undo.
+  const applied =
+    options.lockMode === 'wait'
+      ? await untilFree(() => runner(runnerOptions), lockTaken)
+      : await runner(runnerOptions);
   return { names: applied.map((migration) => migration.name) };
 }
 
@@ -405,15 +437,13 @@ export async function runMigrationsByFile(options: TwoLoginMigrateOptions): Prom
     ...(options.lockMode === undefined ? {} : { lockMode: options.lockMode }),
   };
   return withConnection(options.bootstrapUrl, async (client) => {
-    const lock =
-      options.lockMode === 'wait'
-        ? await client.query<{ got: boolean }>('select pg_advisory_lock($1) is not null as got', [
-            RUN_LOCK_KEY,
-          ])
-        : await client.query<{ got: boolean }>('select pg_try_advisory_lock($1) as got', [
-            RUN_LOCK_KEY,
-          ]);
-    if (lock.rows[0]?.got !== true) throw new Error('Another migration is already running');
+    const take = async (): Promise<void> => {
+      const lock = await client.query<{ got: boolean }>('select pg_try_advisory_lock($1) as got', [
+        RUN_LOCK_KEY,
+      ]);
+      if (lock.rows[0]?.got !== true) throw new Error('Another migration is already running');
+    };
+    await (options.lockMode === 'wait' ? untilFree(take, lockTaken) : take());
 
     const files = (await readdir(dir)).filter((name) => name.endsWith('.sql')).sort();
     const applied = await appliedNames(client);

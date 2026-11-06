@@ -17,10 +17,9 @@ import {
 import { databaseAsServiceRoles } from './testing/databases.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
 import {
+  newAttempt,
   newPayout,
-  ONE_USDC,
   payoutFixture,
-  usdc,
   type PayoutFixture,
 } from './testing/payout-fixture.js';
 
@@ -49,21 +48,12 @@ async function codeOf(promise: Promise<unknown>): Promise<string | undefined> {
   }
 }
 
-function attempt(overrides: Partial<NewPayoutAttempt> = {}): NewPayoutAttempt {
-  return {
-    payoutId,
-    mandateInstanceId: fixture.instanceId,
-    network: 'stellar:testnet',
-    total: usdc(5n * ONE_USDC),
-    deadline: new Date(Date.now() + 3_600_000),
-    ...overrides,
-  };
-}
-
 async function create(overrides: Partial<NewPayoutAttempt> = {}) {
   return db
     .tenant(fixture.tenant)
-    .transaction(async (tx) => payoutAttempts.create(tx, attempt(overrides)));
+    .transaction(async (tx) =>
+      payoutAttempts.create(tx, newAttempt(fixture, overrides.payoutId ?? payoutId, overrides)),
+    );
 }
 
 beforeAll(async () => {

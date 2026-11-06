@@ -151,13 +151,16 @@ describe('the mandate registry', () => {
   it('says when there was nothing to flag', async () => {
     const found = await db.unscoped(
       async (tx) => mandateRegistry.flag(tx, NETWORK, `C${randomUUID()}`, 'public_test_attester'),
-      'worker',
+      'indexer',
     );
     expect(found).toBe(false);
   });
 
   const alertsOf = async (contractId: string) => {
-    const all = await db.unscoped(async (tx) => mandateRegistry.alertsAfter(tx, 0n, 100), 'worker');
+    const all = await db.unscoped(
+      async (tx) => mandateRegistry.alertsAfter(tx, 0n, 100),
+      'indexer',
+    );
     return all.filter((alert) => alert.contractId === contractId).map((alert) => alert.reason);
   };
 
@@ -180,7 +183,7 @@ describe('the mandate registry', () => {
     const rolledBack = db.unscoped(async (tx) => {
       await mandateRegistry.flag(tx, NETWORK, first.contractId, 'public_test_attester');
       throw new Error('after the flag');
-    }, 'worker');
+    }, 'indexer');
     await expect(rolledBack).rejects.toThrow('after the flag');
     expect((await store.registered(NETWORK, first.contractId))?.flagged).toBe(false);
     expect(await alertsOf(first.contractId)).toEqual([]);
@@ -199,7 +202,7 @@ describe('the mandate registry', () => {
     await store.register(first);
     await db.unscoped(
       async (tx) => sql`select ops.flag_mandate(${NETWORK}, ${first.contractId})`.execute(tx),
-      'worker',
+      'indexer',
     );
     expect((await store.registered(NETWORK, first.contractId))?.flagged).toBe(true);
     expect(await alertsOf(first.contractId)).toEqual(['tenant_tag_mismatch']);
@@ -210,7 +213,7 @@ describe('the mandate registry', () => {
     await store.register(first);
     await store.flag(NETWORK, first.contractId, 'public_test_attester');
     const read = (after: bigint) =>
-      db.unscoped(async (tx) => mandateRegistry.alertsAfter(tx, after, 100), 'worker');
+      db.unscoped(async (tx) => mandateRegistry.alertsAfter(tx, after, 100), 'indexer');
     const found = (await read(0n)).find((alert) => alert.contractId === first.contractId);
     expect(found).toMatchObject({ network: NETWORK, reason: 'public_test_attester' });
     expect(found?.raisedAt).toBeInstanceOf(Date);
@@ -247,7 +250,7 @@ describe('the mandate registry', () => {
   });
 
   it('cannot be read or written directly by the indexer or the app', async () => {
-    for (const role of ['worker', 'app'] as const) {
+    for (const role of ['indexer', 'app'] as const) {
       const run = (statement: RawBuilder<unknown>) =>
         codeOf(db.unscoped(async (tx) => statement.execute(tx), role));
       expect(await run(sql`select * from ops.mandate_registry`), role).toBe('42501');
@@ -334,7 +337,7 @@ describe('payout bookings', () => {
     const second = await newInstance(tenant);
     const payoutId = randomBytes(32);
     const code = await codeOf(
-      db.withTenant('worker', { ...tenant, scope: 'project' }, async (tx) => {
+      db.withTenant('indexer', { ...tenant, scope: 'project' }, async (tx) => {
         const event = await chainEvents.record(tx, {
           mandateInstanceId: first.id,
           chain: 'stellar',
