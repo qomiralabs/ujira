@@ -132,7 +132,7 @@ async function apply(payoutId: string, move: Step, now: Observed): Promise<void>
             tx,
             newAttempt(fixture, payoutId, {
               total: usdc(total),
-              legs: move.split.map((amount) => newLeg(fixture, amount)),
+              legs: move.split.map((amount, index) => newLeg(fixture, amount, index)),
             }),
           );
           return;

@@ -18,8 +18,11 @@ export interface PayoutFixture {
   readonly tenant: CreatedPrincipal;
   readonly memberId: string;
   readonly recipientId: string;
+  // The first of methods, which is all that most tests need.
   readonly methodId: string;
   readonly destinationAddress: string;
+  // One per possible leg of an attempt.
+  readonly methods: readonly { readonly id: string; readonly destinationAddress: string }[];
   readonly mandateId: string;
   readonly instanceId: string;
 }
@@ -30,6 +33,9 @@ export function usdc(amount: bigint): TokenAmount {
 }
 
 export const ONE_USDC = 10_000_000n;
+
+// One more than an attempt may have, so a test can try a fifth.
+const METHODS = 5;
 
 // The network every fixture instance is on.
 export const TESTNET = 'stellar:testnet';
@@ -54,20 +60,27 @@ export async function payoutFixture(db: Database): Promise<PayoutFixture> {
       asset: 'USDC',
       scale: 7,
     });
-    const destinationAddress = `G${randomUUID()}`;
-    const method = await payoutMethods.create(tx, {
-      recipientId: recipient.id,
-      method: 'stellar_wallet',
-      rail: 'wallet',
-      chain: 'stellar',
-      destinationAddress,
-      destinationTag: null,
-      details: null,
-    });
+    const methods: { id: string; destinationAddress: string }[] = [];
+    for (let leg = 0; leg < METHODS; leg += 1) {
+      const destinationAddress = `G${randomUUID()}`;
+      const method = await payoutMethods.create(tx, {
+        recipientId: recipient.id,
+        method: 'stellar_wallet',
+        rail: 'wallet',
+        chain: 'stellar',
+        destinationAddress,
+        destinationTag: null,
+        details: null,
+      });
+      methods.push({ id: method.id, destinationAddress });
+    }
+    const [first] = methods;
+    if (first === undefined) throw new Error('the fixture has no methods');
     return {
       recipientId: recipient.id,
-      methodId: method.id,
-      destinationAddress,
+      methodId: first.id,
+      destinationAddress: first.destinationAddress,
+      methods,
       mandateId: mandate.id,
       instanceId: instance.id,
     };
@@ -75,11 +88,14 @@ export async function payoutFixture(db: Database): Promise<PayoutFixture> {
   return { tenant, memberId, ...rows };
 }
 
-export function newLeg(fixture: PayoutFixture, amount: bigint): NewPayoutLeg {
+// Each leg of an attempt needs its own index, and so its own method and destination.
+export function newLeg(fixture: PayoutFixture, amount: bigint, index = 0): NewPayoutLeg {
+  const method = fixture.methods[index];
+  if (method === undefined) throw new Error('the fixture has no method for this leg');
   return {
-    payoutMethodId: fixture.methodId,
+    payoutMethodId: method.id,
     method: 'stellar_wallet',
-    destinationAddress: fixture.destinationAddress,
+    destinationAddress: method.destinationAddress,
     amount,
   };
 }

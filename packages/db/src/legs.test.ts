@@ -54,7 +54,7 @@ async function createWith(amounts: readonly bigint[], total = TOTAL) {
       tx,
       newAttempt(fixture, payoutId, {
         total: usdc(total),
-        legs: amounts.map((amount) => newLeg(fixture, amount)),
+        legs: amounts.map((amount, index) => newLeg(fixture, amount, index)),
       }),
     ),
   );
@@ -140,7 +140,17 @@ describe('legs sum to their attempt', () => {
   });
 
   it('refuses a fifth leg', async () => {
-    expect(await codeOf(createWith([1n, 1n, 1n, 1n, TOTAL - 4n]))).toBe('23514');
+    const amounts = [1n, 1n, 1n, 1n, TOTAL - 4n];
+    const attempt = db.tenant(fixture.tenant).transaction(async (tx) =>
+      payoutAttempts.create(
+        tx,
+        newAttempt(fixture, payoutId, {
+          total: usdc(TOTAL),
+          legs: amounts.map((amount, index) => newLeg(fixture, amount, index)),
+        }),
+      ),
+    );
+    expect(await codeOf(attempt)).toBe('23514');
   });
 
   it('holds exactly at the largest amount the domain allows', async () => {
@@ -150,7 +160,7 @@ describe('legs sum to their attempt', () => {
         tx,
         newAttempt(fixture, payoutId, {
           total: usdc(big + 1n),
-          legs: [newLeg(fixture, big), newLeg(fixture, 1n)],
+          legs: [newLeg(fixture, big, 0), newLeg(fixture, 1n, 1)],
         }),
       ),
     );

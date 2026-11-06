@@ -17,7 +17,6 @@ import { databaseAsServiceRoles } from './testing/databases.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
 import {
   newAttempt,
-  newLeg,
   newPayout,
   ONE_USDC,
   payoutFixture,
@@ -135,16 +134,11 @@ describe('the network of the instance', () => {
       );
 
   const attemptOn = async (forPayout: string, mandateInstanceId: string, network: string) =>
-    db.tenant(fixture.tenant).transaction(async (tx) =>
-      payoutAttempts.create(tx, {
-        payoutId: forPayout,
-        mandateInstanceId,
-        network,
-        total: usdc(5n * ONE_USDC),
-        deadline: new Date(Date.now() + 3_600_000),
-        legs: [newLeg(fixture, 5n * ONE_USDC)],
-      }),
-    );
+    db
+      .tenant(fixture.tenant)
+      .transaction(async (tx) =>
+        payoutAttempts.create(tx, newAttempt(fixture, forPayout, { mandateInstanceId, network })),
+      );
 
   async function asOwner<T>(work: (admin: pg.Client) => Promise<T>): Promise<T> {
     const admin = new pg.Client({ connectionString: database.url });

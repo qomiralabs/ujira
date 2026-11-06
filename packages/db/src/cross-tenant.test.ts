@@ -18,9 +18,9 @@ import { audit, auditRepositories } from './repositories/audit.js';
 import { entryPoints } from './repositories/entry-points.js';
 import { deadLetters, jobQueue, jobRepositories } from './repositories/jobs.js';
 import { fundingAccountRepositories, fundingAccounts } from './repositories/funding-accounts.js';
+import { approvals, legRepositories, payoutLegs } from './repositories/payout-legs.js';
 import { managedSigners } from './repositories/signers.js';
 import { ledger, ledgerRepositories } from './repositories/ledger.js';
-import { approvals, legRepositories, payoutLegs } from './repositories/payout-legs.js';
 import { payoutEngine, payoutEngineRepositories } from './repositories/payout-engine.js';
 import {
   chainEvents,
@@ -208,7 +208,6 @@ async function tenant(name: string): Promise<Tenant> {
       fundingAccountId: forwarder?.id ?? '',
     };
   });
-  const destinationAddress = `G${randomUUID()}`;
   const eventTxHash = randomBytes(32);
   const bookingPayoutId = randomBytes(32);
   const roleAddress = `G${name}`;
@@ -272,6 +271,7 @@ async function tenant(name: string): Promise<Tenant> {
       };
     },
   );
+  const destinationAddress = `G${randomUUID()}`;
   const evidence = await db.tenant(first).transaction(async (tx) => {
     const recipient = await recipients.create(tx, {
       recipientRef: randomBytes(32),
@@ -361,12 +361,11 @@ async function tenant(name: string): Promise<Tenant> {
       agentLinkId: agentLink.id,
     };
   });
-  const { recipientId, methodId } = evidence;
   const { payoutId, batchId, attemptId, heldPayoutId, legId } = await db
     .tenant(first)
     .transaction(async (tx) => {
       const payoutInput = {
-        recipientId,
+        recipientId: evidence.recipientId,
         mandateId,
         method: 'stellar_wallet' as const,
         requested: tokenAmount(50_000_000n, 'USDC', 'stellar'),
@@ -388,7 +387,7 @@ async function tenant(name: string): Promise<Tenant> {
         deadline: new Date(Date.now() + 3_600_000),
         legs: [
           {
-            payoutMethodId: methodId,
+            payoutMethodId: evidence.methodId,
             method: 'stellar_wallet',
             destinationAddress,
             amount: 50_000_000n,
