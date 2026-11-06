@@ -20,7 +20,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint --max-warnings 0 .",
-    "test": "vitest run",
+    "test": "vitest run --root ../.. --configLoader native --project @ujira/embed",
     "brand": "node tokens/build.ts",
     "size": "node tools/size.ts",
     "e2e": "playwright test",

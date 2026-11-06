@@ -255,6 +255,8 @@ export interface UjiraComplianceNotices {
 }
 
 export interface UjiraComplianceParkedJobs {
+  close_reason: string | null;
+  closed_at: Timestamp | null;
   job_id: string;
   mandate_instance_id: string;
   parked_at: Generated<Timestamp>;

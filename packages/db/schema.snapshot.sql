@@ -2067,9 +2067,13 @@ CREATE TABLE ujira.compliance_parked_jobs (
     status text DEFAULT 'parked'::text NOT NULL,
     parked_at timestamp with time zone DEFAULT now() NOT NULL,
     resumed_at timestamp with time zone,
+    closed_at timestamp with time zone,
+    close_reason text,
+    CONSTRAINT compliance_parked_jobs_close_reason CHECK ((close_reason = ANY (ARRAY['mandate_revoked'::text, 'mandate_expired'::text]))),
+    CONSTRAINT compliance_parked_jobs_closed_when CHECK (((status = 'closed'::text) = ((closed_at IS NOT NULL) AND (close_reason IS NOT NULL)))),
     CONSTRAINT compliance_parked_jobs_job_id_length CHECK (((char_length(job_id) >= 1) AND (char_length(job_id) <= 200))),
     CONSTRAINT compliance_parked_jobs_resumed_when CHECK (((status = 'resumed'::text) = (resumed_at IS NOT NULL))),
-    CONSTRAINT compliance_parked_jobs_status CHECK ((status = ANY (ARRAY['parked'::text, 'resumed'::text])))
+    CONSTRAINT compliance_parked_jobs_status CHECK ((status = ANY (ARRAY['parked'::text, 'resumed'::text, 'closed'::text])))
 );
 
 ALTER TABLE ONLY ujira.compliance_parked_jobs FORCE ROW LEVEL SECURITY;
@@ -7732,6 +7736,20 @@ GRANT UPDATE(parked_at) ON TABLE ujira.compliance_parked_jobs TO ujira_app;
 --
 
 GRANT UPDATE(resumed_at) ON TABLE ujira.compliance_parked_jobs TO ujira_app;
+
+
+--
+-- Name: COLUMN compliance_parked_jobs.closed_at; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(closed_at) ON TABLE ujira.compliance_parked_jobs TO ujira_app;
+
+
+--
+-- Name: COLUMN compliance_parked_jobs.close_reason; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(close_reason) ON TABLE ujira.compliance_parked_jobs TO ujira_app;
 
 
 --
