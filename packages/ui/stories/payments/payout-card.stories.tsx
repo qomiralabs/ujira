@@ -52,6 +52,7 @@ export const Failed: Story = {
   args: {
     recipient: 'Kwame Mensah',
     amount: money('45000', 'GHS'),
+    secondary: tokenAmount('385000000', 'USDC', 'stellar'),
     status: 'failed',
     corridor: 'Ghana',
     timing: { label: 'Failed', value: '5 Nov 2026, 18:40' },
@@ -63,6 +64,8 @@ export const LongName: Story = {
   args: {
     recipient: 'Oluwadamilare Adebayo-Ogunleye Chukwuemeka Nwankwo',
     amount: money('99999999999', 'NGN'),
+    // At the same 1,600 naira to the dollar as the card with an action.
+    secondary: tokenAmount('6249999999375', 'USDC', 'stellar'),
     status: 'delivering',
     corridor: 'Nigeria',
     timing: { label: 'Arrives', value: 'In about 4 minutes' },
