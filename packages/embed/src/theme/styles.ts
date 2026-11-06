@@ -236,6 +236,18 @@ const widget = css`
     ${typeStep('data')}
   }
 
+  /* The message a wallet signs, shown whole so nothing has to scroll. */
+  .sign-text {
+    ${typeStep('data')}
+    margin: 0;
+    padding: 12px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: var(--ujira-embed-text);
+    border: 1px solid var(--ujira-embed-rule);
+    border-radius: var(--ujira-embed-radius-control);
+  }
+
   .primary {
     ${typeStep('body')}
     width: 100%;

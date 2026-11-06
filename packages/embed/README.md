@@ -10,7 +10,7 @@ The onboarding widget recipients use inside the integrator's own product. One sc
 
 The file is built from `src/index.ts`; the hosted address integrators point at arrives with the release pipeline.
 
-This first slice is the shell: the step framework, the theme contract, the English copy and the browser tests. The answers are handed to the page through an event; saving them through the API comes with the recipient endpoints.
+It runs two ways. Without a session, it asks its questions and hands the answers to your page in an event, and your page saves them. Given an embed token, it saves through UJIRA itself and has the recipient's wallet confirm the address; see "Saving through UJIRA".
 
 ## Layout
 
@@ -20,6 +20,10 @@ This first slice is the shell: the step framework, the theme contract, the Engli
 | `src/onboarding-element.ts`       | The element: state, events, mode and locale                                |
 | `src/steps.ts`                    | Step order, progress and the check that runs before a step is left         |
 | `src/methods.ts`                  | The payout methods and the one field each of them needs                    |
+| `src/destination.ts`              | Reads a Stellar address and memo with UJIRA's own rules                    |
+| `src/api/`                        | The one client for the UJIRA API, its schemas, and a fake for tests        |
+| `src/outcomes.ts`                 | Where a refusal from UJIRA sends the person, and what they read            |
+| `src/wallet.ts`                   | What the widget asks of your page's wallet                                 |
 | `src/views/`                      | One view per step, plus the pieces they are built from                     |
 | `src/i18n/en.ts`                  | Every word a person reads                                                  |
 | `src/theme/defaults.generated.ts` | Generated. The default value of every custom property                      |
@@ -88,23 +92,62 @@ If you need a recipient's answers kept from your own page, a shadow root is not 
 
 ## Attributes and properties
 
-| Name     | Type                      | Default | What it does                                                |
-| -------- | ------------------------- | ------- | ----------------------------------------------------------- |
-| `mode`   | `light`, `dark`, `system` | `light` | Which set of default colours to use                         |
-| `locale` | language tag              | `en`    | Which language file to read. Unknown languages give English |
-| `busy`   | boolean                   | `false` | Holds the step and says the answer is being saved           |
-| `error`  | string                    | empty   | A message from the integrator, shown in place of ours       |
+| Name           | Type                      | Default | What it does                                                                                                                            |
+| -------------- | ------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `mode`         | `light`, `dark`, `system` | `light` | Which set of default colours to use                                                                                                     |
+| `locale`       | language tag              | `en`    | Which language file to read. Unknown languages give English                                                                             |
+| `busy`         | boolean                   | `false` | Holds the step and says the answer is being saved                                                                                       |
+| `error`        | string                    | empty   | A message from the integrator, shown in place of ours                                                                                   |
+| `sessionToken` | string                    | empty   | The embed token your server minted for this recipient. Attribute `session-token`. With `apiBase`, the widget saves through UJIRA itself |
+| `apiBase`      | URL                       | empty   | Where the UJIRA API is. Attribute `api-base`                                                                                            |
+| `client`       | object                    | none    | Property only. A client to use in place of one built from the token, for tests                                                          |
+| `wallet`       | object                    | none    | Property only. Your page's wallet, so the recipient signs with one press. See below                                                     |
 
 `reset()` starts again from the first question. `finish()` moves to the confirmation screen. `currentStep` and `currentAnswers` read the state.
 
+## Saving through UJIRA
+
+Give the widget an embed token and it does the saving itself:
+
+```html
+<ujira-onboarding session-token="ujes_test_..." api-base="https://api.example"></ujira-onboarding>
+```
+
+Mint the token on your server, for one recipient you have already registered, with the pages the widget may run on. It lasts half an hour and reaches nothing but that recipient. Never put an API key in a page.
+
+Connected, the widget:
+
+1. Reads the recipient's corridor and offers only the methods a partner pays out there and the widget has finished. It skips the name question, because UJIRA already holds it.
+2. Checks the destination the way UJIRA does before anything is sent: a Stellar address with a valid checksum, a memo only as a number, and never an address a payout would burn, such as the USDC issuer. UJIRA checks it again and has the last word; a refusal comes back in plain words on the same step.
+3. Has the wallet sign a short message to show the address belongs to the recipient. That moves no money.
+4. When the wallet cannot receive USDC yet, because the account is not active or has no USDC line, and the session offers it, it offers "Activate this account for free" first. The wallet signs the activation, UJIRA pays for it, and the signature in step 3 follows; activation is never itself the proof.
+
+It fires `ujira-onboarding-complete` once the wallet has confirmed the address, and that one cannot be cancelled: there is nothing left for you to save.
+
+To sign with one press, give it your wallet. Without one, the recipient signs the message in their own wallet and pastes the signature back, and activation is not offered.
+
+```js
+document.querySelector('ujira-onboarding').wallet = {
+  // SEP-53 message signing; resolve with the base64 signature.
+  signMessage: async (message, address) => ({
+    signature: await myWallet.signMessage(message, address),
+  }),
+  // Optional. Without it, free activation is not offered.
+  signTransaction: async (xdr, { address, networkPassphrase }) =>
+    myWallet.signTransaction(xdr, { address, networkPassphrase }),
+};
+```
+
+The widget calls these routes with the token, all under `/v1/embed/`: `GET onboarding`, then for the recipient in it `POST recipients/{id}/methods`, `POST recipients/{id}/methods/{methodId}/wallet-challenges`, `POST recipients/{id}/methods/{methodId}/wallet-proofs`, `POST recipients/{id}/methods/{methodId}/activations`, and `POST activations/{activationId}/submissions`. Every answer is checked against its schema before it is used.
+
 ## Events
 
-| Event                       | Detail                          | When                       |
-| --------------------------- | ------------------------------- | -------------------------- |
-| `ujira-step-change`         | `{ step, position, total }`     | The step on screen changed |
-| `ujira-onboarding-complete` | `{ name, method, destination }` | The last answer is given   |
+| Event                       | Detail                                          | When                                                                 |
+| --------------------------- | ----------------------------------------------- | -------------------------------------------------------------------- |
+| `ujira-step-change`         | `{ step, position, total }`                     | The step on screen changed                                           |
+| `ujira-onboarding-complete` | `{ name, method, destination, memo, methodId }` | The last answer is given, or connected, once the wallet confirmed it |
 
-Both bubble and cross the shadow boundary. Cancel `ujira-onboarding-complete` to keep the widget on the review step while you save:
+`methodId` is there only when the widget saved through UJIRA. Both events bubble and cross the shadow boundary. With handed answers, cancel `ujira-onboarding-complete` to keep the widget on the review step while you save:
 
 ```js
 const widget = document.querySelector('ujira-onboarding');
@@ -125,7 +168,7 @@ widget.addEventListener('ujira-onboarding-complete', async (event) => {
 
 ## Payout methods
 
-One method is open today: USDC to the recipient's own wallet. Bank transfer, mobile money and cash pickup are built behind the same step and switched off, so opening one is a change to `open` in `src/methods.ts` and nothing else. The step states a single method rather than offering a choice of one.
+One method is open today: USDC to the recipient's own wallet. Bank transfer, mobile money and cash pickup are built behind the same step and switched off, so opening one is a change to `open` in `src/methods.ts` and nothing else. Connected, a method is offered only when it is open here and the recipient's corridor pays it out, so a corridor with a signed mobile money partner still shows only the wallet until the mobile money path is opened. The step states a single method rather than offering a choice of one.
 
 Recipients paid in local currency see only their own currency. The wallet method is the one place USDC appears, because that is what the person chose.
 

@@ -16,6 +16,8 @@ export {
 export type { CompleteDetail, StepChangeDetail, WidgetMode } from './onboarding-element.js';
 export type { Answers, StepId } from './steps.js';
 export type { MethodId } from './methods.js';
+export type { OnboardingClient } from './api/client.js';
+export type { SignedMessage, WalletConnector } from './wallet.js';
 export { LOCALES, type Locale, type MessageKey } from './i18n/catalogue.js';
 
 /** Defines the element once, so two script tags on one page are harmless. */

@@ -287,7 +287,7 @@ describe('i18n', () => {
 
   it('every key in the catalogue is used', () => {
     const sources = filesWithTemplates(SRC)
-      .concat(['methods.ts', 'steps.ts'])
+      .concat(['methods.ts', 'steps.ts', 'destination.ts', 'outcomes.ts'])
       .map((file) => readFileSync(join(SRC, file), 'utf8'))
       .join('\n');
     const unused = Object.keys(en).filter((key) => !sources.includes(`'${key}'`));

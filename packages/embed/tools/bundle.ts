@@ -70,7 +70,11 @@ export interface Bundle {
  * export, which exists only so the size check can prove it can tell the two
  * apart; nothing ships from it.
  */
-export async function bundleWidget(root: string, mode = 'production'): Promise<Bundle> {
+export async function bundleWidget(
+  root: string,
+  mode = 'production',
+  entry = ENTRY,
+): Promise<Bundle> {
   const result = await build({
     root,
     configFile: false,
@@ -82,7 +86,7 @@ export async function bundleWidget(root: string, mode = 'production'): Promise<B
       target: 'es2022',
       minify: true,
       cssCodeSplit: false,
-      lib: { entry: ENTRY, formats: ['es'], fileName: 'ujira-embed' },
+      lib: { entry, formats: ['es'], fileName: 'ujira-embed' },
       // Keeps the dependencies' own licence notices in the file we hand to
       // an integrator, which is what their licences ask of a binary
       // redistribution. Measured cost: 364 bytes before compression.

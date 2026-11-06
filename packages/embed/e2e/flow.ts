@@ -6,8 +6,11 @@
 
 import { expect, type Locator, type Page } from '@playwright/test';
 
+import { encodeAccountAddress } from '../src/destination.js';
+
 export const WIDGET = 'ujira-onboarding';
-export const WALLET = `G${'A'.repeat(55)}`;
+/** A real Stellar address, checksum and all, that belongs to nobody we know. */
+export const WALLET = encodeAccountAddress(new Uint8Array(32).fill(7));
 export const NAME = 'Amara Eze';
 
 export interface OpenOptions {
@@ -24,8 +27,13 @@ export function primary(page: Page): Locator {
   return page.locator(`${WIDGET} .primary`);
 }
 
+/** The step's main question. The wallet step has a memo field under it too. */
 export function field(page: Page): Locator {
-  return page.locator(`${WIDGET} input.input`);
+  return page.locator(`${WIDGET} input#answer`);
+}
+
+export function memo(page: Page): Locator {
+  return page.locator(`${WIDGET} input#memo`);
 }
 
 export function progress(page: Page): Locator {

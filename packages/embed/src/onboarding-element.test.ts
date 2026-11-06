@@ -8,6 +8,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { encodeAccountAddress } from './destination.js';
 import { en } from './i18n/en.js';
 import { define, TAG_NAME } from './index.js';
 import {
@@ -18,7 +19,7 @@ import {
   type StepChangeDetail,
 } from './onboarding-element.js';
 
-const WALLET = `G${'A'.repeat(55)}`;
+const WALLET = encodeAccountAddress(new Uint8Array(32).fill(7));
 
 let widget: UjiraOnboarding;
 
@@ -176,7 +177,7 @@ describe('ujira-onboarding', () => {
     });
     await fillInEverything();
     await submit();
-    expect(seen).toEqual([{ name: 'Amara Eze', method: 'wallet', destination: WALLET }]);
+    expect(seen).toEqual([{ name: 'Amara Eze', method: 'wallet', destination: WALLET, memo: '' }]);
     expect(widget.currentStep).toBe('done');
     expect(text()).toContain(en['method.wallet.name']);
     expect(root().querySelector('.progress')).toBeNull();
@@ -212,7 +213,12 @@ describe('ujira-onboarding', () => {
     widget.reset();
     await widget.updateComplete;
     expect(widget.currentStep).toBe('name');
-    expect(widget.currentAnswers).toEqual({ name: '', method: 'wallet', destination: '' });
+    expect(widget.currentAnswers).toEqual({
+      name: '',
+      method: 'wallet',
+      destination: '',
+      memo: '',
+    });
   });
 
   it('hands out a copy of the answers, not the answers themselves', async () => {
@@ -254,7 +260,7 @@ describe('ujira-onboarding', () => {
     // this one.
     const section = readme.slice(readme.indexOf('## Attributes and properties'));
     const table = section.slice(0, section.indexOf('\n\n', section.indexOf('|')));
-    const rows = [...table.matchAll(/^\| `([a-z]+)` *\| [^|]+\| ([^|]+)\|/gm)].map(
+    const rows = [...table.matchAll(/^\| `([a-zA-Z]+)` *\| [^|]+\| ([^|]+)\|/gm)].map(
       (m) => [m[1] ?? '', (m[2] ?? '').trim().replaceAll('`', '')] as const,
     );
     const declared = Object.entries(UjiraOnboarding.properties)
@@ -267,12 +273,20 @@ describe('ujira-onboarding', () => {
       locale: 'en',
       busy: 'false',
       error: 'empty',
+      sessionToken: 'empty',
+      apiBase: 'empty',
+      client: 'none',
+      wallet: 'none',
     });
     // The documented defaults are the ones a fresh element really has.
     expect(widget.mode).toBe('light');
     expect(widget.locale).toBe('en');
     expect(widget.busy).toBe(false);
     expect(widget.error).toBe('');
+    expect(widget.sessionToken).toBe('');
+    expect(widget.apiBase).toBe('');
+    expect(widget.client).toBeUndefined();
+    expect(widget.wallet).toBeUndefined();
   });
 });
 
