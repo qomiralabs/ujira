@@ -99,7 +99,9 @@ async function refuseBadDeployment(db: Database): Promise<void> {
 }
 
 export interface WorkerProcessOptions {
-  readonly handlers?: WorkerHandlers;
+  // A function is called only once the configuration and the logins have passed, so a
+  // deployment that cannot build its handlers still hears first about what it got wrong.
+  readonly handlers?: WorkerHandlers | (() => WorkerHandlers);
   readonly alert?: (alert: WorkerAlert) => void;
   readonly logger?: Logger;
   // Where the startup report goes. Stdout unless a test is reading it.
@@ -122,7 +124,8 @@ export async function startWorkerProcess(
   let worker: RunningWorker;
   try {
     await refuseBadDeployment(db);
-    const handlers = options.handlers ?? {};
+    const handlers =
+      typeof options.handlers === 'function' ? options.handlers() : (options.handlers ?? {});
     writeUnwired(unwiredTasks(handlers), options.write);
     worker = await startWorker({
       db,

@@ -18,7 +18,7 @@ function refuse(error: unknown): never {
 try {
   // Refuses, naming each store it lacks, until a deployment has every part it runs on.
   const worker = await startWorkerProcess(process.env, {
-    handlers: workerHandlers(productionParts()),
+    handlers: () => workerHandlers(productionParts()),
   });
   let stopping = false;
   const stop = (): void => {

@@ -469,6 +469,45 @@ describe('the pay step', { timeout: 30_000 }, () => {
         expect(w.rpc.sent).toEqual([]);
       });
 
+      it('waits on a cancel it already sent, and sends no second one', async () => {
+        const w = payWorld();
+        const req = payRequest(w);
+        w.views.set(req.payoutId, record(2, { expiresAt: 1n }));
+        const first = await w.payouts.cancelLapsed(request(req), OPTS);
+        if (first.kind !== 'submitted') throw new Error('expected submitted');
+        w.rpc.txs.set(first.submission.txHash, {
+          status: 'NOT_FOUND',
+          latestLedgerCloseTime: w.rpc.latest.closeTime,
+        });
+        expect(await w.payouts.cancelLapsed(request(req), OPTS)).toEqual(first);
+        expect(w.rpc.sent).toHaveLength(1);
+      });
+
+      it('goes on from what the mandate says once its cancel landed', async () => {
+        const w = payWorld();
+        const req = payRequest(w);
+        w.views.set(req.payoutId, record(2, { expiresAt: 1n }));
+        const first = await w.payouts.cancelLapsed(request(req), OPTS);
+        if (first.kind !== 'submitted') throw new Error('expected submitted');
+        w.rpc.txs.set(first.submission.txHash, { status: 'SUCCESS', ledger: 7 });
+        w.views.set(req.payoutId, tombstone(5));
+        expect(await w.payouts.cancelLapsed(request(req), OPTS)).toEqual({
+          kind: 'cancelled',
+          final: true,
+        });
+        expect(w.rpc.sent).toHaveLength(1);
+      });
+
+      it('leaves a payout that closed some other way alone, and says how it closed', async () => {
+        const w = payWorld();
+        const req = payRequest(w);
+        w.views.set(req.payoutId, tombstone(3));
+        const step = await w.payouts.cancelLapsed(request(req), OPTS);
+        expect(step.kind).toBe('closed');
+        expect(step).not.toMatchObject({ status: 'cancelled' });
+        expect(w.rpc.sent).toEqual([]);
+      });
+
       it('reports one already cancelled, and one never recorded', async () => {
         const w = payWorld();
         const req = payRequest(w);

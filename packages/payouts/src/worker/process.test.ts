@@ -132,6 +132,22 @@ describe('refusing to start', () => {
     ).rejects.toBeInstanceOf(DatabaseConfigError);
   });
 
+  it('a wrong login before the handlers are built, so it is what gets reported', async () => {
+    let built = false;
+    await expect(
+      startWorkerProcess(
+        { ...env, UJIRA_DB_WORKER_URL: harness.loginUrl('ujira_indexer') },
+        {
+          handlers: () => {
+            built = true;
+            return {};
+          },
+        },
+      ),
+    ).rejects.toThrow(/must log in as ujira_worker/);
+    expect(built).toBe(false);
+  });
+
   it('a transaction pooler URL for the worker, which delivers no notifications', async () => {
     await expect(
       startWorkerProcess({
@@ -267,18 +283,19 @@ describe('the built process', () => {
     expect(existsSync(MAIN)).toBe(true);
   });
 
-  it('runs until a signal, then stops cleanly', async () => {
+  // Running until a signal is proven in process, under 'starting'. The built process
+  // cannot run yet: it refuses until every store under its handlers exists.
+  it('refuses with a good configuration until its stores exist, naming each issue', async () => {
     const worker = run(env);
     try {
-      await until(
-        'the process to beat',
-        async () => (await adminQuery(harness.database.url, HEARTBEATS)).length === 1,
-      );
-      worker.child.kill('SIGTERM');
-      expect(await worker.exit).toBe(0);
+      expect(await worker.exit).toBe(1);
     } finally {
       worker.child.kill('SIGKILL');
     }
+    for (const issue of ['#591', '#377', '#423', '#370', '#64']) {
+      expect(worker.output()).toContain(issue);
+    }
+    expect(worker.output()).not.toContain(new URL(harness.loginUrl('ujira_worker')).password);
     expect(await adminQuery(harness.database.url, HEARTBEATS)).toEqual([]);
   });
 
