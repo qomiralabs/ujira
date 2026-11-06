@@ -5,28 +5,43 @@
 // every query lives in that package's repositories, and the time limit on each
 // comes from the statement and lock timeouts every transaction opens with.
 
-import { CountryPolicy, SigningRequestWire } from '@ujira/api-schema';
+import { CountryPolicy, SigningRequestWire, toWireMoney } from '@ujira/api-schema';
 import { chainOf } from '@ujira/chain-adapter';
-import { settlementToken } from '@ujira/core';
+import { settlementToken, usdToToken } from '@ujira/core';
+import type { Money as CoreMoney, TokenAmount as CoreTokenAmount } from '@ujira/core';
 import {
   apiTokens,
   entryPoints,
+  IdempotencyConflictError,
   idempotencyKeys,
   mandateActionRequests,
   mandateInstances,
   mandateTerms,
   mandates,
   payoutMethods,
+  payouts,
+  payoutViews,
+  projects,
   rateLimits,
   recipientPii,
   recipients,
   securityEvents,
 } from '@ujira/db';
-import type { Database, MandateTerms, PayoutMethod, Recipient } from '@ujira/db';
+import type {
+  Database,
+  MandateInstance,
+  MandateTerms,
+  Payout,
+  PayoutMethod,
+  PayoutMinimumMethod,
+  Recipient,
+} from '@ujira/db';
 
 import type { IdempotencyStore } from './idempotency.js';
 import { InstancePlan } from './mandate-service.js';
 import type { MandateRecords, StoredInstance, StoredMandate } from './mandate-service.js';
+import type { NewPayoutRequest, PayoutCreation, PayoutRecords } from './payout-service.js';
+import { requestedMoney } from './payout-wire.js';
 import type { BucketStore } from './rate-limit.js';
 import type { RecipientRecords, StoredMethod, StoredRecipient } from './recipient-service.js';
 import type { SecurityEventSink, TokenStore } from './token-auth.js';
@@ -245,6 +260,95 @@ export function databaseRecipientRecords(db: Database): RecipientRecords {
         const created = await payoutMethods.create(tx, method);
         return storedMethodOf(created);
       }),
+  };
+}
+
+/**
+ * Schedules a new payout's job, inside the transaction that wrote the payout, so
+ * the two commit together or not at all. The worker's queue fills this in.
+ */
+export type PayoutScheduler = (tx: Tx, payout: Payout) => Promise<void>;
+
+// What a key already made, against what a retry asks for. Compared field by
+// field rather than by the stored hash, because a default method is worked out
+// again on a retry and may have changed since.
+function sameRequest(payout: Payout, request: NewPayoutRequest): boolean {
+  const asked = toWireMoney(request.amount);
+  const held = toWireMoney(requestedMoney(payout.requested));
+  return (
+    payout.mandateId === request.mandateId &&
+    payout.recipientId === request.recipientId &&
+    payout.taskId === request.taskId &&
+    (request.method === null || payout.method === request.method) &&
+    asked.amount === held.amount &&
+    asked.currency === held.currency
+  );
+}
+
+// The unit the project asks in: what the recipient must receive when the
+// principal bears the cash-out cost, and otherwise US dollars held as the
+// mandate's dollar token at par. A mandate with no single token cannot say which.
+function requestedUnit(
+  bearer: string,
+  amount: CoreMoney,
+  instances: readonly MandateInstance[],
+): CoreMoney | CoreTokenAmount | 'amount_unit' | 'mandate_not_deployed' {
+  if (bearer === 'principal') return amount;
+  const units = new Set(instances.map((instance) => `${instance.asset}:${instance.chain}`));
+  const [first] = instances;
+  if (first === undefined || units.size !== 1) return 'mandate_not_deployed';
+  if (amount.currency !== 'USD') return 'amount_unit';
+  const token = settlementToken(first.asset, first.chain);
+  return usdToToken(amount, token.asset, token.chain);
+}
+
+export function databasePayoutRecords(db: Database, schedule: PayoutScheduler): PayoutRecords {
+  return {
+    create: (tenant, request) =>
+      db.tenant(tenant).transaction(async (tx): Promise<PayoutCreation> => {
+        const held = await payouts.findByKey(tx, request.idempotencyKey);
+        if (held !== undefined) {
+          if (!sameRequest(held, request)) throw new IdempotencyConflictError();
+          return { outcome: 'existing', payout: held };
+        }
+        const recipient = await recipients.get(tx, request.recipientId);
+        if (recipient === undefined) return { outcome: 'recipient_not_found' };
+        const mandate = await mandates.get(tx, request.mandateId);
+        if (mandate === undefined) return { outcome: 'mandate_not_found' };
+        if (recipient.status !== 'active') return { outcome: 'recipient_inactive' };
+        const active = (await payoutMethods.listOf(tx, recipient.id)).filter(
+          (method) => method.status === 'active',
+        );
+        const method =
+          request.method === null
+            ? active[0]?.method
+            : active.find((one) => one.method === request.method)?.method;
+        if (method === undefined) return { outcome: 'no_method' };
+        const settings = await projects.settings(tx);
+        if (settings === undefined) throw new Error('a tenant transaction has no project');
+        const unit = requestedUnit(
+          settings.cashoutCostBearer,
+          request.amount,
+          await mandateInstances.forMandate(tx, mandate.id),
+        );
+        if (unit === 'amount_unit' || unit === 'mandate_not_deployed') return { outcome: unit };
+        const written = await payouts.create(tx, {
+          idempotencyKey: request.idempotencyKey,
+          recipientId: recipient.id,
+          mandateId: mandate.id,
+          method: method as PayoutMinimumMethod,
+          requested: unit,
+          taskId: request.taskId,
+        });
+        // A create that lost a race to the same key finds the winner's payout,
+        // whose job the winner scheduled.
+        if (!written.created) return { outcome: 'existing', payout: written.payout };
+        await schedule(tx, written.payout);
+        return { outcome: 'created', payout: written.payout };
+      }),
+    page: (tenant, filter, page) =>
+      db.tenant(tenant).transaction((tx) => payoutViews.page(tx, filter, page)),
+    get: (tenant, id) => db.tenant(tenant).transaction((tx) => payoutViews.get(tx, id)),
   };
 }
 

@@ -11,6 +11,8 @@ import type { Route } from '../route.js';
 import { healthRoute } from './health.js';
 import { MANDATES_NOT_CONFIGURED, mandateRoutes } from './mandates.js';
 import type { MandateEndpoints } from './mandates.js';
+import { PAYOUTS_NOT_CONFIGURED, payoutRoutes } from './payouts.js';
+import type { PayoutEndpoints } from './payouts.js';
 import { RECEIPTS_NOT_CONFIGURED, receiptRoutes } from './receipts.js';
 import type { ReceiptReads } from './receipts.js';
 import { RECIPIENTS_NOT_CONFIGURED, recipientRoutes } from './recipients.js';
@@ -31,6 +33,8 @@ export interface RouteDependencies {
   readonly recipients: RecipientEndpoints;
   /** Answers 503 when left out, until the receipts tables are in. */
   readonly receipts?: ReceiptReads;
+  /** Answers 503 when left out, until the worker's queue is in. */
+  readonly payouts?: PayoutEndpoints;
 }
 
 export function v1Routes(deps: RouteDependencies): readonly Route[] {
@@ -42,6 +46,7 @@ export function v1Routes(deps: RouteDependencies): readonly Route[] {
     ...mandateRoutes(deps.mandates),
     ...recipientRoutes(deps.recipients),
     ...receiptRoutes(deps.receipts ?? RECEIPTS_NOT_CONFIGURED),
+    ...payoutRoutes(deps.payouts ?? PAYOUTS_NOT_CONFIGURED),
   ]);
 }
 

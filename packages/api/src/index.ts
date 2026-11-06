@@ -52,10 +52,12 @@ export {
   databaseBucketStore,
   databaseIdempotencyStore,
   databaseMandateRecords,
+  databasePayoutRecords,
   databaseRecipientRecords,
   databaseSecurityEvents,
   databaseTokenStore,
 } from './postgres-stores.js';
+export type { PayoutScheduler } from './postgres-stores.js';
 export {
   ADDRESS_LIMIT_DEFAULTS,
   RATE_LIMIT_DEFAULTS,
@@ -92,7 +94,19 @@ export type {
 } from './mandate-service.js';
 export { MANDATES_NOT_CONFIGURED, mandateRoutes } from './routes/mandates.js';
 export type { MandateEndpoints } from './routes/mandates.js';
-export { createRecipientEndpoints } from './recipient-service.js';
+export { createPayoutEndpoints } from './payout-service.js';
+export type {
+  NewPayoutRequest,
+  PayoutCreation,
+  PayoutReceiptLinks,
+  PayoutRecords,
+  PayoutServiceDeps,
+  RecipientNames,
+} from './payout-service.js';
+export type { PayoutReceiptLink } from './payout-wire.js';
+export { PAYOUTS_NOT_CONFIGURED, payoutRoutes } from './routes/payouts.js';
+export type { PayoutEndpoints } from './routes/payouts.js';
+export { createRecipientEndpoints, recipientNames } from './recipient-service.js';
 export type {
   EncryptedValue,
   PersonalDataCipher,

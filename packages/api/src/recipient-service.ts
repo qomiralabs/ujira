@@ -143,6 +143,36 @@ function encoded(value: unknown): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(value));
 }
 
+/**
+ * What a recipient is called where a payout is shown: the full name they were
+ * registered with, decrypted for this read only, or a label from their id when
+ * no name was given or it has been erased.
+ */
+export function recipientNames(
+  records: Pick<RecipientRecords, 'personal'>,
+  cipher: Pick<PersonalDataCipher, 'decrypt'>,
+): (
+  tenant: Tenant,
+  recipientIds: readonly string[],
+  signal: AbortSignal,
+) => Promise<ReadonlyMap<string, string>> {
+  return async (tenant, recipientIds, signal) => {
+    const names = new Map<string, string>();
+    for (const id of recipientIds) {
+      const held = await records.personal(tenant, id);
+      if (held === undefined) {
+        names.set(id, `Recipient ${id.slice(0, 8)}`);
+        continue;
+      }
+      const personal = RecipientPersonalData.parse(
+        JSON.parse(new TextDecoder().decode(await cipher.decrypt(tenant, id, held, signal))),
+      );
+      names.set(id, personal.fullName);
+    }
+    return names;
+  };
+}
+
 export function createRecipientEndpoints(deps: RecipientServiceDeps): RecipientEndpoints {
   const { records, cipher } = deps;
 

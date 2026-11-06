@@ -85,8 +85,9 @@ export const createPayoutRoute = defineTenantRoute({
   path: '/v1/payouts',
   summary: 'Request a payout',
   scope: 'payouts:write',
+  rateLimit: 'payout_creation',
   body: CreatePayoutRequest,
-  response: { status: 201, name: 'PayoutDetail', schema: PayoutDetail },
+  response: { status: 202, name: 'PayoutAccepted', schema: PayoutAccepted },
   errors: ['DESTINATION_INVALID', 'MANDATE_REFUSED'],
   handler: async ({ body }, { tenant, call, log }) => {
     /* ... */
@@ -235,11 +236,44 @@ the production stores exist.
 
 Personal data and method details are encrypted through the `PersonalDataCipher` port before anything stores them, under a key bound to the tenant and the recipient. They reach only `recipient_pii` and the method's encrypted columns. A write's answer is stored for replay, so it never holds them, and the server refuses to start with a write route that declares any.
 
-Every destination goes through the capture onboarding uses, so these routes refuse exactly what it refuses, including a muxed or memo destination the rail cannot pay. The detail on a refusal is `DESTINATION_INVALID`.
+Every destination goes through the capture onboarding uses, so these routes refuse exactly what it refuses, including a muxed or memo destination the rail cannot pay, and an address where a payout would be burned, such as the settlement asset's issuer. `createRecipientEndpoints` takes those addresses as `neverPayable`, from `settlementAddressesOf`. The detail on a refusal is `DESTINATION_INVALID`.
 
 A `reference` names one recipient in a project, so sending it again finds the same recipient, and the first personal data given for it stands. It is stored only as a keyed hash. Without a reference, the idempotency key plays that part, so a retry of one request finds the recipient its first run made.
 
 Until the data keys exist the served table uses `RECIPIENTS_NOT_CONFIGURED`, which answers 503, so nothing personal can be stored unencrypted.
+
+## Payouts
+
+| Route                  | Scope           | Answers                                                        |
+| ---------------------- | --------------- | -------------------------------------------------------------- |
+| `POST /v1/payouts`     | `payouts:write` | 202 with the id, what was asked for and `queued`               |
+| `GET /v1/payouts`      | `payouts:read`  | A page, newest first, under the contract's filters             |
+| `GET /v1/payouts/{id}` | `payouts:read`  | Legs, charges, timeline, the rule that allowed it, the receipt |
+
+A create takes the mandate, the recipient, the amount in minor units, and optionally
+the method and a task id. A project whose recipients bear the cash-out cost asks in
+US dollars, held as the mandate's dollar token at par; one whose principal bears it
+asks in the currency the recipient must receive. Leaving out the method takes the
+recipient's first active one. A split is not taken yet.
+
+The payout and the worker's job are written in one transaction through a
+`PayoutScheduler`, and the answer comes back at once; the payout runs from there.
+The payout carries the request's `Idempotency-Key` under a unique constraint of its
+own, so a handler run again after its process died finds the first payout, and
+schedules nothing. The create takes from the payout creation bucket as well.
+
+A list cursor is signed with the server's cursor key over the caller, the route and
+the filters, so an altered cursor, another tenant's, or one sent with other filters
+is `400 INVALID_CURSOR`. The page size can change between pages.
+
+`charges` restates the settlement total, the take, the agreed rate and what is
+charged, the total plus the take. Until the fee tables are in, the take is the sum of
+the live attempt's leg fees. `approvals.required` reads 0 until approvals record
+their quorum. A recipient's name is decrypted for the read through `recipientNames`,
+and a recipient with none shows a label from its id.
+
+The served table uses `PAYOUTS_NOT_CONFIGURED`, which answers 503, until the worker's
+queue is in, so no payout is taken that nothing would run.
 
 ## Idempotency
 
