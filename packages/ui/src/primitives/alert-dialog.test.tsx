@@ -3,11 +3,40 @@
 
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AlertDialog } from './alert-dialog.js';
 
 afterEach(cleanup);
+
+/** Opened from the caller's own button, the way a screen uses it. */
+function PauseFromButton() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          setOpen(true);
+        }}
+      >
+        Pause this mandate
+      </button>
+      <AlertDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Pause this mandate?"
+        description="No payouts leave until you resume it."
+        confirmLabel="Pause mandate"
+        confirmIcon={<span />}
+        onConfirm={() => {
+          setOpen(false);
+        }}
+      />
+    </>
+  );
+}
 
 function renderPause(props: Partial<Parameters<typeof AlertDialog>[0]> = {}) {
   const onConfirm = vi.fn();
@@ -32,6 +61,24 @@ function confirmButton(): HTMLElement {
 }
 
 describe('AlertDialog', { timeout: 30_000 }, () => {
+  it('returns focus to the button that opened it, on Cancel and on confirm', async () => {
+    render(<PauseFromButton />);
+    const opener = screen.getByRole('button', { name: 'Pause this mandate' });
+    for (const close of ['Cancel', 'Pause mandate']) {
+      opener.focus();
+      fireEvent.click(opener);
+      expect(screen.getByRole('alertdialog')).toBeTruthy();
+      expect(document.activeElement).not.toBe(opener);
+      fireEvent.click(screen.getByRole('button', { name: close }));
+      // Radix restores focus after its close animation frame.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(screen.queryByRole('alertdialog'), close).toBeNull();
+      expect(document.activeElement, close).toBe(opener);
+    }
+  });
+
   it('the danger button stays disabled until the shown word is typed exactly', () => {
     const { onConfirm } = renderPause({ confirmationWord: 'pause' });
     const input = screen.getByRole('textbox', { name: 'Type pause to confirm' });

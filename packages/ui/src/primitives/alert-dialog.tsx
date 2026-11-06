@@ -4,7 +4,7 @@
 'use client';
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { useId, useState, type ReactElement, type ReactNode } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { cn } from '../lib/cn.js';
 import { Button } from './button.js';
 import { OVERLAY } from './dialog.js';
@@ -54,6 +54,18 @@ export function AlertDialog({
   const inputId = useId();
   const matches = confirmationWord === undefined || typed === confirmationWord;
 
+  // The dialog is opened from the caller's own button rather than a Radix
+  // trigger, so Radix does not know where focus came from. The element that
+  // had focus is noted as it opens, before the dialog moves focus inside
+  // (layout effects run before the focus scope's own effect), and focus goes
+  // back there when it closes.
+  const returnFocus = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (open && document.activeElement instanceof HTMLElement) {
+      returnFocus.current = document.activeElement;
+    }
+  }, [open]);
+
   return (
     <DialogPrimitive.Root
       open={open}
@@ -74,6 +86,13 @@ export function AlertDialog({
           }}
           onInteractOutside={(event) => {
             event.preventDefault();
+          }}
+          onCloseAutoFocus={(event) => {
+            const target = returnFocus.current;
+            if (target?.isConnected === true) {
+              event.preventDefault();
+              target.focus();
+            }
           }}
           className={cn(
             'fixed top-1/2 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-4',
