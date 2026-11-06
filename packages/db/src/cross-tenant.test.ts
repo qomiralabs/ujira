@@ -1483,12 +1483,6 @@ const cases: Record<string, () => Promise<void>> = {
     expect(before.map((row) => row.setBy)).not.toContain(b.ownerUserId);
     expect(before.map((row) => row.setBy)).toContain(a.ownerUserId);
   },
-  'mandateInstances.setStatus': async () => {
-    expect(await asA(async (tx) => mandateInstances.setStatus(tx, b.instanceId, 'paused'))).toBe(
-      false,
-    );
-    expect(await statusOf('ujira.mandate_instances', b.instanceId)).toBe('deploying');
-  },
   'projects.identitySettings': async () => {
     await db
       .tenant(b.first)

@@ -3,7 +3,8 @@
 --
 -- A mandate instance's lifecycle: eligibility refuses to pay under an instance that
 -- is not active, and until now nothing recorded whether it was. A new row starts as
--- deploying, so an instance nobody has marked active pays no one.
+-- deploying, so an instance nobody has marked active pays no one. No login the API
+-- holds is given the right to change it: what moves an instance is the chain.
 --
 -- A project's identity settings, as the principal saved them. Null means the
 -- service's default, and the service validates what it reads, so the column only
@@ -27,8 +28,6 @@ alter table ujira.mandate_instances
   add constraint mandate_instances_status
     check (status in ('deploying', 'active', 'paused', 'revoked', 'expired', 'deploy_failed'))
     not valid;
-
-grant update (status) on ujira.mandate_instances to ujira_app;
 
 alter table ujira.projects
   add column identity_settings jsonb;
@@ -79,7 +78,6 @@ revoke usage on schema ujira from ujira_fn_identities;
 drop policy identity_scope on ujira.recipient_identities;
 alter table ujira.projects drop constraint projects_identity_settings_object;
 alter table ujira.projects drop column identity_settings;
-revoke update (status) on ujira.mandate_instances from ujira_app;
 alter table ujira.mandate_instances drop constraint mandate_instances_status;
 alter table ujira.mandate_instances drop column status;
 

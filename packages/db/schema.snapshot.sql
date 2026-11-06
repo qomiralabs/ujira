@@ -7897,13 +7897,6 @@ GRANT SELECT ON TABLE ujira.mandate_instances TO ujira_indexer;
 
 
 --
--- Name: COLUMN mandate_instances.status; Type: ACL; Schema: ujira; Owner: ujira_owner
---
-
-GRANT UPDATE(status) ON TABLE ujira.mandate_instances TO ujira_app;
-
-
---
 -- Name: TABLE mandates; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 

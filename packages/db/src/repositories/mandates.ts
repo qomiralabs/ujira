@@ -273,17 +273,6 @@ export const mandateInstances = {
       .executeTakeFirstOrThrow();
     return toInstance(row);
   },
-
-  // True when the instance was found. Moved by whatever learns of the change: the
-  // deploy, a pause or a revocation on chain, the expiry.
-  setStatus: async (db: Tx, id: string, status: MandateInstanceStatus): Promise<boolean> => {
-    const result = await db
-      .updateTable('ujira.mandate_instances')
-      .set({ status })
-      .where('id', '=', id)
-      .executeTakeFirst();
-    return result.numUpdatedRows > 0n;
-  },
 };
 
 // The transaction that sponsored a funding account's reserves. Reserves are

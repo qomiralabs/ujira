@@ -21,7 +21,7 @@ Smaller design decisions, each with what it was choosing between. Newest first.
 - Anchor methods read as absent until methods record their anchor, so nothing is paid through an anchor on a guess.
 - A suspended or erased recipient reads as inactive.
 
-**Trade offs and risks.** Something has to move an instance to `active` before it can pay. Until the mandate flow does that, it is one call to `mandateInstances.setStatus`.
+**Trade offs and risks.** Something has to move an instance to `active` before it can pay, and no login the API holds may: that is the chain's to say, through the indexer (#609).
 
 **Evidence.** The shared cases in `packages/identity/src/testing/contract.ts` run against memory and against Postgres (`packages/db/src/identity-store.test.ts`).
 

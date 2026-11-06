@@ -70,7 +70,7 @@ async function seed(options: ContractSeed = {}): Promise<ContractTenant> {
     principalId: tenant.principalId as Uuid,
     projectId: tenant.projectId as Uuid,
   };
-  return db.tenant(scope).transaction(async (tx) => {
+  const seeded = await db.tenant(scope).transaction(async (tx) => {
     const recipient = await recipients.create(tx, { recipientRef: randomBytes(32), country: 'NG' });
     if (options.recipientActive === false) {
       await recipients.setStatus(tx, recipient.id, 'suspended');
@@ -99,7 +99,6 @@ async function seed(options: ContractSeed = {}): Promise<ContractTenant> {
       scale: 7,
       attesterPublicKey: Buffer.from(ed25519PublicKey(TEST_ATTESTER_SEED)),
     });
-    await mandateInstances.setStatus(tx, instance.id, options.instanceStatus ?? 'active');
     const kind = options.identity ?? 'verified';
     const identityId = kind === 'none' ? null : randomUUID();
     if (identityId !== null) {
@@ -163,6 +162,13 @@ async function seed(options: ContractSeed = {}): Promise<ContractTenant> {
       address,
     };
   });
+  // As the table's owner: no login the API holds can move an instance, because only
+  // the chain says whether one is live.
+  await admin.query('update ujira.mandate_instances set status = $1 where id = $2', [
+    options.instanceStatus ?? 'active',
+    seeded.instanceId,
+  ]);
+  return seeded;
 }
 
 function backend(): ContractBackend {
