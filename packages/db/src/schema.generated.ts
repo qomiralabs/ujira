@@ -29,6 +29,12 @@ export type Numeric = ColumnType<string, number | string, number | string>;
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
+export interface OpsAlertDeliveryCursors {
+  last_alert_id: Int8;
+  sink: string;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface OpsChainCursors {
   cursor: string;
   network: string;
@@ -871,6 +877,7 @@ export interface UjiraWebhookEndpoints {
 }
 
 export interface Schema {
+  'ops.alert_delivery_cursors': OpsAlertDeliveryCursors;
   'ops.chain_cursors': OpsChainCursors;
   'ops.email_quota_usage': OpsEmailQuotaUsage;
   'ops.executor_accounts': OpsExecutorAccounts;

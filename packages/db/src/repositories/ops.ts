@@ -160,6 +160,25 @@ export const routingConfig = {
 
 // Where the indexer has read up to on each network, as its login only. The position
 // belongs to the chain's event stream and says nothing about any tenant.
+// Where telling operations of flagged mandates has reached, one position per sink. Run
+// as the indexer; the app can reach neither function.
+export const alertDeliveryCursors = {
+  // Zero before the sink's first delivery.
+  read: async (db: Tx, sink: string): Promise<bigint> => {
+    const result = await sql<{ position: string }>`
+      select ops.alert_delivery_cursor(${sink}) as position
+    `.execute(db);
+    return BigInt(result.rows[0]?.position ?? '0');
+  },
+
+  // Only forward: an id below the one held changes nothing.
+  advance: async (db: Tx, sink: string, alertId: bigint): Promise<void> => {
+    await sql`select ops.advance_alert_delivery_cursor(${sink}, ${alertId.toString()}::bigint)`.execute(
+      db,
+    );
+  },
+};
+
 export const chainCursors = {
   // Null before the first scan of the network.
   read: async (db: Tx, network: string): Promise<string | null> => {

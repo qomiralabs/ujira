@@ -2,6 +2,26 @@
 
 Smaller design decisions, each with what it was choosing between. Newest first.
 
+## Who hears of a flagged mandate, and what its deposits do
+
+**Problem.** Intake flags a mandate whose tag does not match its tenant, or whose attester key is one anyone can rebuild, and records why in `ops.mandate_alerts`. From then on it reads none of the mandate's events. Nobody read the alerts, so the mirror went quiet with nobody told.
+
+**Options.**
+
+1. Tell operations and the principal.
+2. Tell operations only, and leave the principal to operations.
+
+**Decision.** Option 2.
+
+- A mandate made directly through the factory may have no instance row, so there may be no tenant to tell. Both reasons are about a contract UJIRA will not trust, which is for operations to take up with the principal when there is one.
+- Delivery reads the alerts in order from where the last one stopped, one position per sink in `ops.alert_delivery_cursors`, and moves the position after each alert the sink takes. A restart loses none and repeats none. A process that dies between the sink answering and the position moving tells that one alert again, under the same idempotency key.
+- The sink is a port. Until a pager is wired, the default writes one error log line per alert, naming only the alert, the contract and the reason, all of which are public on the chain.
+- Deposits to a flagged mandate stay uncredited, as they already are: funding credits a deposit only to an unflagged registration. The money stays in the mandate on chain, under the principal's control.
+
+**Trade offs and risks.** Nothing runs the delivery on a schedule until the job queue lands (#90). Until then it is one call to `createMandateAlertDelivery(...).deliverPending()`.
+
+**Evidence.** `packages/indexer/src/alerts.db.test.ts` and `packages/db/src/alert-delivery-cursors.test.ts`.
+
 ## A mandate's recipient mode is recorded when its instance is
 
 **Problem.** The signer must refuse a key UJIRA holds while it is seated on a mandate that pays attested recipients only. The seat comes from the chain's role events, but the mode was not stored off chain anywhere, so there was nothing to check a seat against.

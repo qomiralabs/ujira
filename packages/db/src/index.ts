@@ -249,6 +249,7 @@ export {
 } from './repositories/retention.js';
 export {
   SECURITY_EVENT_KINDS,
+  alertDeliveryCursors,
   chainCursors,
   emailQuota,
   executors,
