@@ -1837,8 +1837,8 @@ CREATE UNLOGGED TABLE ops.rate_limit_buckets (
     bucket_key text NOT NULL,
     tokens numeric(18,6) NOT NULL,
     refilled_at timestamp with time zone NOT NULL,
-    capacity integer,
-    refill_per_second integer,
+    capacity bigint,
+    refill_per_second bigint,
     CONSTRAINT rate_limit_buckets_key_format CHECK ((bucket_key ~ '^[a-z_]{1,32}:[0-9a-f]{64}$'::text)),
     CONSTRAINT rate_limit_buckets_tokens_not_negative CHECK ((tokens >= (0)::numeric))
 );
