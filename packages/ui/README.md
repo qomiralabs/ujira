@@ -121,6 +121,40 @@ When a corridor in a new currency is added, check its sign against JetBrains Mon
 face carries exactly the four signs the brand face lacks today; a sign neither face draws falls to
 a system font at another width, and the column drifts again until the sign is added to the subset.
 
+## Payments
+
+```tsx
+import { MandateMeter, PayoutCard, StatusBadge } from '@ujira/ui';
+
+<StatusBadge status={payout.status} />
+<PayoutCard recipient="Wanjiru Kamau" amount={amount} status="paid"
+  method="USDC to Stellar wallet" corridor="Kenya" action={<Button>Review payout</Button>} />
+<MandateMeter budget={budget} used={used} committed={committed} label="Budget this month" />
+```
+
+- `StatusBadge` takes every public payout status from `@ujira/api-schema`, plus the approval states
+  (`approval_waiting`, `approval_approved`, `approval_rejected`) and the delivery states
+  (`in_transit`, `arrived`, `verified`). Each has a fixed word, an icon and a tone. The word is
+  always shown and is what screen readers hear; the icon is hidden from them. The map is typed over
+  the whole union, so a status the API adds does not compile here until it has a word, a tone and
+  an icon.
+- Tones: paid (green) for paid, arrived and verified; waiting (amber) for everything still moving;
+  blocked (red) for blocked, failed, rejected and needs attention; neutral for cancelled and an
+  approval that was given, which are settled but are not payment outcomes. Saffron is never a
+  status, and `no-saffron-status.test.ts` holds that.
+- The word and the icon take the status text colour, which holds AA on `bg` and `surface` in both
+  modes. The light waiting fill is under 3:1 on cream, so nothing that carries meaning uses it.
+- `PayoutCard` is the stacked form of a payout row and the item of the approvals queue: who and how
+  much lead, then the status, then under a dotted rule the method, corridor and an optional timing
+  row. One action at most. It narrows in a grid column (`min-w-0`), so a long name truncates
+  instead of pushing a phone screen sideways. The dotted rule stands in for the brand perforation
+  until that component lands.
+- `MandateMeter` is a bullet bar, never a gauge. `meterSegments` splits the budget in integer basis
+  points: used and committed are rounded down, committed is held to what used leaves, and remaining
+  takes the rest, so the three always fill the bar exactly. Committed is hatched as well as
+  coloured. Screen readers hear one sentence with every amount, and how far over an overrun budget
+  is.
+
 ## Catalogue
 
 ```sh

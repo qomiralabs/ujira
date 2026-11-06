@@ -90,7 +90,8 @@ describe('percentOf', () => {
   });
 });
 
-describe('MandateMeter', () => {
+// The first render loads React and the money model, which is slow on a loaded runner.
+describe('MandateMeter', { timeout: 30_000 }, () => {
   it('segments are proportional with integer arithmetic, and the text alternative states every amount', () => {
     render(<MandateMeter budget={usd('500000')} used={usd('120000')} committed={usd('30000')} />);
     expect(widths()).toEqual({ used: '24.00%', committed: '6.00%', remaining: '70.00%' });

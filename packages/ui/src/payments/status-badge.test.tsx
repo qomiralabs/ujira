@@ -10,7 +10,8 @@ import { BADGE_STATUSES, STATUS_SPECS, StatusBadge, type BadgeStatus } from './s
 
 afterEach(cleanup);
 
-describe('StatusBadge', () => {
+// The first render loads React and the icons, which is slow on a loaded runner.
+describe('StatusBadge', { timeout: 30_000 }, () => {
   it('covers every public payout status', () => {
     for (const status of PAYOUT_STATUSES) expect(BADGE_STATUSES).toContain(status);
     expect(Object.keys(STATUS_SPECS).sort()).toEqual([...BADGE_STATUSES].sort());

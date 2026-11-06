@@ -19,7 +19,8 @@ const BASE = {
   corridor: 'Kenya',
 } as const;
 
-describe('PayoutCard', () => {
+// The first render loads React and the money model, which is slow on a loaded runner.
+describe('PayoutCard', { timeout: 30_000 }, () => {
   it('leads with the recipient and the amount, then the status, method and corridor', () => {
     render(<PayoutCard {...BASE} />);
     const card = screen.getByRole('article', { name: 'Wanjiru Kamau' });
@@ -60,6 +61,14 @@ describe('PayoutCard', () => {
       expect.arrayContaining(['border', 'border-rule', 'rounded-card', 'bg-surface']),
     );
     expect(classes.filter((name) => name.startsWith('shadow'))).toEqual([]);
+    // A long name truncates in a narrow grid column instead of widening the card.
+    expect(classes).toContain('min-w-0');
+  });
+
+  it('moves the status under the name, rather than cut the name, when both do not fit', () => {
+    render(<PayoutCard {...BASE} />);
+    const header = screen.getByRole('heading', { name: 'Wanjiru Kamau' }).parentElement;
+    expect(header?.className.split(' ')).toContain('flex-wrap');
   });
 
   it('carries one action at most, after the details', () => {

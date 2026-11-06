@@ -50,13 +50,17 @@ export function PayoutCard({
     <article
       data-slot="payout-card"
       aria-labelledby={heading}
+      // min-w-0 lets the card narrow in a grid or flex row: the name then
+      // truncates instead of pushing a phone screen sideways.
       className={cn(
-        'flex flex-col gap-3 rounded-card border border-rule bg-surface p-4',
+        'flex min-w-0 flex-col gap-3 rounded-card border border-rule bg-surface p-4',
         className,
       )}
       {...rest}
     >
-      <div className="flex items-start justify-between gap-3">
+      {/* Who is paid comes first: when the name and the status do not fit on
+          one line, the status moves under the name rather than cut it short. */}
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <h3 id={heading} className="min-w-0 truncate text-body-s font-medium text-text">
           {recipient}
         </h3>
