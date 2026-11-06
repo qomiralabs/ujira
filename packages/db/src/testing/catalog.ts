@@ -297,6 +297,8 @@ export const DEFINER_ALLOWLIST: readonly string[] = [
   'ops.registered_mandate(text,text)',
   'ops.take_rate_limit_tokens(text[],integer[],integer[])',
   'ujira.check_payout_booking()',
+  'ops.advance_alert_delivery_cursor(text,bigint)',
+  'ops.alert_delivery_cursor(text)',
   'ops.lease_executor(text,text,integer)',
   'ops.record_identity_provider_event(text,text,text,bytea)',
   'ops.release_executor(text,text,text,bigint)',
