@@ -73,6 +73,36 @@ Rules the primitives hold to:
 - Colours come from the generated theme only. A test fails on a hex, `rgb()` or `hsl()` literal, on
   a colour utility that is not in the theme, and on a custom property that is not a UJIRA or Radix one.
 
+### Overlays
+
+`Dialog`, `AlertDialog`, `Sheet`, `DropdownMenu` and `Command`, on Radix and cmdk.
+
+```tsx
+<AlertDialog
+  open={open}
+  onOpenChange={setOpen}
+  title="Pause this mandate?"
+  description="No payouts leave Annotation batch 14 until you resume it."
+  confirmLabel="Pause mandate"
+  confirmIcon={<BrandIcon name="pause" size={16} />}
+  confirmationWord="pause"
+  pending={pausing}
+  onConfirm={pause}
+/>
+```
+
+- Focus moves into an open overlay, stays there, and returns to the control that opened it.
+- `pending` is for money actions waiting on the server: while it is true, Escape, a click outside
+  and the close button do nothing, so a payout or an approval is never half dismissed.
+- `AlertDialog` restates what will happen and never closes on a click outside. With
+  `confirmationWord`, the action stays off until that word is typed exactly; use it for pause and
+  revoke.
+- `Sheet` is a panel from the right edge, full screen on a phone. It sits over the page without
+  moving it, so a table behind it keeps its place.
+- Free standing overlays (dialog, alert dialog, sheet) use the 14px radius; a menu anchored to its
+  trigger uses the control's 6px. All use the one overlay shadow and the dimmed teal ink ground.
+- Popover, tabs, scroll area, toast and the date pickers follow in a second change.
+
 ## Catalogue
 
 ```sh
