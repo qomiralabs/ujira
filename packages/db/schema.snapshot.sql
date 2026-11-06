@@ -1408,6 +1408,27 @@ $$;
 ALTER FUNCTION ujira.legs_match_attempt() OWNER TO ujira_owner;
 
 --
+-- Name: mandate_instance_recipient_mode_once(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.mandate_instance_recipient_mode_once() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if old.recipient_mode is not null and new.recipient_mode is distinct from old.recipient_mode then
+    raise exception using
+      errcode = 'UJ022',
+      message = 'a mandate''s recipient mode is fixed once it is known';
+  end if;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.mandate_instance_recipient_mode_once() OWNER TO ujira_owner;
+
+--
 -- Name: payout_instance_matches(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2846,9 +2867,11 @@ CREATE TABLE ujira.mandate_instances (
     country_policy_hash ujira.hash32,
     network ujira.network_id NOT NULL,
     status text DEFAULT 'deploying'::text NOT NULL,
+    recipient_mode text,
     CONSTRAINT mandate_instances_address_length CHECK (((char_length(contract_address) >= 1) AND (char_length(contract_address) <= 128))),
     CONSTRAINT mandate_instances_attester_key_length CHECK ((octet_length(attester_public_key) = 32)),
     CONSTRAINT mandate_instances_network_on_chain CHECK (((network IS NULL) OR (split_part((network)::text, ':'::text, 1) = chain))),
+    CONSTRAINT mandate_instances_recipient_mode CHECK ((recipient_mode = ANY (ARRAY['allowlist'::text, 'attested'::text, 'both'::text]))),
     CONSTRAINT mandate_instances_spec_length CHECK (((char_length(spec_version) >= 1) AND (char_length(spec_version) <= 32))),
     CONSTRAINT mandate_instances_status CHECK ((status = ANY (ARRAY['deploying'::text, 'active'::text, 'paused'::text, 'revoked'::text, 'expired'::text, 'deploy_failed'::text])))
 );
@@ -5173,6 +5196,13 @@ CREATE TRIGGER managed_signers_transition BEFORE UPDATE ON ujira.managed_signers
 --
 
 CREATE TRIGGER mandate_instance_roles_touch BEFORE UPDATE ON ujira.mandate_instance_roles FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
+-- Name: mandate_instances mandate_instances_recipient_mode_once; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER mandate_instances_recipient_mode_once BEFORE UPDATE OF recipient_mode ON ujira.mandate_instances FOR EACH ROW EXECUTE FUNCTION ujira.mandate_instance_recipient_mode_once();
 
 
 --
@@ -8605,6 +8635,13 @@ REVOKE ALL ON FUNCTION ujira.legs_match_attempt() FROM PUBLIC;
 
 
 --
+-- Name: FUNCTION mandate_instance_recipient_mode_once(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.mandate_instance_recipient_mode_once() FROM PUBLIC;
+
+
+--
 -- Name: FUNCTION payout_instance_matches(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -9216,6 +9253,13 @@ GRANT SELECT ON TABLE ujira.mandate_instances TO ujira_indexer;
 --
 
 GRANT UPDATE(status) ON TABLE ujira.mandate_instances TO ujira_indexer;
+
+
+--
+-- Name: COLUMN mandate_instances.recipient_mode; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(recipient_mode) ON TABLE ujira.mandate_instances TO ujira_app;
 
 
 --
