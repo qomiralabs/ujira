@@ -8,6 +8,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./db": {
+      "types": "./dist/db-store.d.ts",
+      "default": "./dist/db-store.js"
     }
   },
   "files": [
@@ -21,7 +25,8 @@
   },
   "dependencies": {
     "@ujira/chain-adapter": "workspace:*",
-    "@ujira/core": "workspace:*"
+    "@ujira/core": "workspace:*",
+    "@ujira/db": "workspace:*"
   },
   "devDependencies": {
     "fast-check": "4.10.2",

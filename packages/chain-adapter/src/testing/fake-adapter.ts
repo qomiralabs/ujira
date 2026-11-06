@@ -99,6 +99,7 @@ import type {
   PayStep,
   PayoutChainStatus,
   PayoutId,
+  PayoutMethodSource,
   PrepareFundingRequest,
   ProveDeadRequest,
   Quote,
@@ -165,7 +166,11 @@ export interface FakeChainAdapterPorts {
   readonly alerts: AdapterAlerts;
   /** Where the wallet proof host comes from. Defaults to the sandbox host. */
   readonly publicConfig?: PublicConfig;
+  /** Where each leg's destination is kept, as for the real adapter. By default none is known. */
+  readonly methods?: PayoutMethodSource;
 }
+
+const NO_METHODS: PayoutMethodSource = { destination: () => Promise.resolve(null) };
 
 const FAKE_PUBLIC_CONFIG = parsePublicConfig({ widgetHost: 'app.sandbox.ujira.co' });
 
@@ -282,6 +287,7 @@ export class FakeChainAdapter implements ChainAdapter {
   readonly #signer: SignerProvider;
   readonly #sponsorship: SponsorshipPolicy;
   readonly #alerts: AdapterAlerts;
+  readonly #methods: PayoutMethodSource;
   readonly #publicConfig: PublicConfig;
   /** Submissions this process sent, so a replayed signed payload finds its own. */
   readonly #sent = new Map<string, Pending>();
@@ -300,6 +306,7 @@ export class FakeChainAdapter implements ChainAdapter {
     this.#signer = ports.signer;
     this.#sponsorship = ports.sponsorship;
     this.#alerts = ports.alerts;
+    this.#methods = ports.methods ?? NO_METHODS;
     this.#publicConfig = ports.publicConfig ?? FAKE_PUBLIC_CONFIG;
   }
 
@@ -786,7 +793,7 @@ export class FakeChainAdapter implements ChainAdapter {
           op,
         });
         if (live === null) continue;
-        const run = this.#payRun(engine, req, op);
+        const run = await this.#payRun(engine, req, op, opts);
         const settled = await this.#reconcile(live, run);
         if (settled === 'pending') {
           return { kind: 'submitted', op, submission: this.#ref(live.txHash, null) };
@@ -967,10 +974,10 @@ export class FakeChainAdapter implements ChainAdapter {
     // The cap is checked here first, so a payout the mandate would refuse
     // never costs a signature, a sponsorship reservation or a fee.
     if (fee > feeCap(total, engine.config().maxFeeBps)) throw this.#rule('FEE_EXCEEDS_CAP');
-    const run = this.#payRun(engine, req, 'request');
+    const run = await this.#payRun(engine, req, 'request', opts);
     const signerAddress = await this.#signerAddress(req.signer, opts);
     this.#simulate(() => run(signerAddress));
-    await this.#recordDeliveries(req);
+    await this.#recordDeliveries(req, opts);
     if (req.signer.kind === 'external') {
       const open = [...this.#net.requests.values()].find(
         (r) =>
@@ -1128,49 +1135,71 @@ export class FakeChainAdapter implements ChainAdapter {
     }
   }
 
-  #payRun(
+  async #payRun(
     engine: MandateEngine,
     req: PayRequest,
     op: 'request' | 'execute',
-  ): (c: string) => unknown {
+    opts: CallOptions,
+  ): Promise<(c: string) => unknown> {
     if (op === 'execute') {
       return (caller) => {
         engine.execute({ caller }, req.payoutId);
         return null;
       };
     }
-    return (caller) => engine.requestPayout({ caller }, this.#engineRequest(engine, req));
+    const request = await this.#engineRequest(engine, req, opts);
+    return (caller) => engine.requestPayout({ caller }, request());
   }
 
-  #engineRequest(engine: MandateEngine, req: PayRequest): EnginePayoutRequest {
-    const policyEpoch = engine.state().policyEpoch;
-    return {
+  // The destinations are read first, since that is the one step that waits. The rest is
+  // built when the run is, inside the simulation, so a read of the mandate that fails
+  // there is the outage it would be on chain.
+  async #engineRequest(
+    engine: MandateEngine,
+    req: PayRequest,
+    opts: CallOptions,
+  ): Promise<() => EnginePayoutRequest> {
+    const legs = await Promise.all(
+      [...req.legs]
+        .sort((a, b) => a.index - b.index)
+        .map(async (leg) => ({
+          leg,
+          destination: await this.#legDestination(req.scope, leg.recipientMethodId, opts),
+        })),
+    );
+    return () => ({
       payoutId: req.payoutId,
       recipientRef: req.recipientRef,
       total: this.#units(req.total, 'total'),
       fee: this.#units(req.fee, 'fee'),
-      legs: [...req.legs]
-        .sort((a, b) => a.index - b.index)
-        .map((leg) => ({
-          destination: this.#legDestination(leg.recipientMethodId),
-          amount: this.#units(leg.amount, 'legs.amount'),
-        })),
+      legs: legs.map(({ leg, destination }) => ({
+        destination,
+        amount: this.#units(leg.amount, 'legs.amount'),
+      })),
       deadline: req.deadline,
       taskRef: req.taskRef,
       attestations: [...req.attestations]
         .sort((a, b) => a.legIndex - b.legIndex)
-        .map((a) => ({ validUntil: a.validUntil, policyEpoch, signature: a.signature })),
-    };
+        .map((a) => ({
+          validUntil: a.validUntil,
+          policyEpoch: engine.state().policyEpoch,
+          signature: a.signature,
+        })),
+    });
   }
 
-  #legDestination(methodId: string): EngineDestination {
-    const found = this.#method(methodId);
+  async #legDestination(
+    scope: TenantScope,
+    methodId: string,
+    opts: CallOptions,
+  ): Promise<EngineDestination> {
+    const found = await this.#method(scope, methodId, opts);
     return { address: found.address.value, tag: found.tag };
   }
 
-  #method(methodId: string): Destination {
-    const found = this.#net.recipientMethod(methodId);
-    if (found === undefined) throw invalid('legs.recipientMethodId (unknown)', this.network);
+  async #method(scope: TenantScope, methodId: string, opts: CallOptions): Promise<Destination> {
+    const found = await this.#methods.destination(scope, methodId, opts);
+    if (found === null) throw invalid('legs.recipientMethodId (unknown)', this.network);
     return found;
   }
 
@@ -1231,7 +1260,9 @@ export class FakeChainAdapter implements ChainAdapter {
     }
     if (ready.length === 0) return;
     const signerAddress = await this.#signerAddress(signer, opts);
-    const requests = ready.map((item) => this.#engineRequest(engine, item));
+    const requests = (
+      await Promise.all(ready.map((item) => this.#engineRequest(engine, item, opts)))
+    ).map((build) => build());
     const run = (caller: string): unknown => engine.requestPayouts({ caller }, requests);
     const results = this.#simulate(() => run(signerAddress)) as ReturnType<
       MandateEngine['requestPayouts']
@@ -1242,7 +1273,7 @@ export class FakeChainAdapter implements ChainAdapter {
       return error === null;
     });
     if (accepted.length === 0) return;
-    for (const item of accepted) await this.#recordDeliveries(item);
+    for (const item of accepted) await this.#recordDeliveries(item, opts);
     if (signer.kind === 'external') {
       const request = await this.#request({
         scope: req.scope,
@@ -1692,12 +1723,12 @@ export class FakeChainAdapter implements ChainAdapter {
   // -------------------------------------------------------------------------
   // Deliveries
 
-  async #recordDeliveries(req: PayRequest): Promise<void> {
+  async #recordDeliveries(req: PayRequest, opts: CallOptions): Promise<void> {
     const anchor = this.#net.faults.anchor;
     for (const leg of req.legs) {
       const existing = await this.#store.liveDelivery(req.scope, leg.legKey);
       if (existing !== null) continue;
-      const destination = this.#method(leg.recipientMethodId);
+      const destination = await this.#method(req.scope, leg.recipientMethodId, opts);
       const wallet = leg.rail === 'stellar.wallet';
       if (!wallet && anchor === null) throw new RailUnavailableError({ network: this.network });
       await this.#store.upsertDelivery({

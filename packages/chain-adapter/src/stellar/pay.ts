@@ -46,6 +46,7 @@ import type {
   PayStep,
   PayoutChainStatus,
   PayoutId,
+  PayoutMethodSource,
   ProveDeadRequest,
   ReceiptLeg,
   ReceiptRef,
@@ -90,11 +91,6 @@ import {
   simulatedData,
 } from './tx.js';
 import { configViewOf, stateOf } from './views.js';
-
-/** Where a leg's destination is kept. The adapter never takes one from a caller. */
-export interface PayoutMethodSource {
-  destination(scope: TenantScope, methodId: string, opts: CallOptions): Promise<Destination | null>;
-}
 
 /** The indexer's copy of a payout_executed, for a receipt past the RPC's retention. */
 export interface MirroredExecution {

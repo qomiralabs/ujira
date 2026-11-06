@@ -93,7 +93,8 @@ import type { DestinationState } from './destination-check.js';
 import { mandateAddressOf } from './mandate-address.js';
 import { StellarFunding } from './funding.js';
 import { StellarPayouts } from './pay.js';
-import type { ExecutionMirror, PayoutMethodSource } from './pay.js';
+import type { ExecutionMirror } from './pay.js';
+import type { PayoutMethodSource } from '../types.js';
 import type { StellarRpc } from './rpc.js';
 import { asAddress } from './scval.js';
 import {

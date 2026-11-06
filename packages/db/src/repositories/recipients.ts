@@ -552,6 +552,39 @@ export const payoutMethods = {
     return toMethod(row);
   },
 
+  // Where a wallet payout to this method goes on `chain`, or undefined when one cannot
+  // go there: not this tenant's, disabled, an anchor method, on another chain, or its
+  // recipient is no longer active. The chain adapter refuses a leg it has no answer for.
+  payable: async (
+    db: Tx,
+    id: string,
+    chain: string,
+  ): Promise<
+    { readonly destinationAddress: string; readonly destinationTag: bigint | null } | undefined
+  > => {
+    const row = await db
+      .selectFrom('ujira.payout_methods as m')
+      .innerJoin('ujira.recipients as r', (join) =>
+        join
+          .onRef('r.principal_id', '=', 'm.principal_id')
+          .onRef('r.project_id', '=', 'm.project_id')
+          .onRef('r.id', '=', 'm.recipient_id'),
+      )
+      .select(['m.destination_address', 'm.destination_tag'])
+      .where('m.id', '=', id)
+      .where('m.status', '=', 'active')
+      .where('m.rail', '=', 'wallet')
+      .where('m.method', '=', 'stellar_wallet')
+      .where('m.chain', '=', chain)
+      .where('r.status', '=', 'active')
+      .executeTakeFirst();
+    if (row === undefined) return undefined;
+    return {
+      destinationAddress: row.destination_address,
+      destinationTag: row.destination_tag === null ? null : BigInt(row.destination_tag),
+    };
+  },
+
   // True when an active method was found and disabled.
   disable: async (db: Tx, id: string): Promise<boolean> => {
     const result = await db

@@ -67,6 +67,7 @@ export type {
   TestAccount,
 } from './fake-network.js';
 export { FakeAlerts, FakeSigner, FakeSponsorship } from './fake-ports.js';
+export { MemoryPayoutMethods } from './payout-methods.js';
 export type { RecordedAlert, Reservation } from './fake-ports.js';
 export {
   FakeAdapterStore,

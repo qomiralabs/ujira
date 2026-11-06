@@ -349,6 +349,15 @@ export interface Destination {
   readonly tag: bigint | null;
 }
 
+/**
+ * Where a payout leg's destination is kept, under the tenant that pays. An adapter
+ * never takes a destination from a caller, only the id of a method this answers
+ * for, and null refuses the leg.
+ */
+export interface PayoutMethodSource {
+  destination(scope: TenantScope, methodId: string, opts: CallOptions): Promise<Destination | null>;
+}
+
 /** A destination as a recipient or a provider gives it, before parsing. */
 export interface RawDestination {
   readonly address: string;

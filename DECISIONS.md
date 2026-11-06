@@ -2,6 +2,26 @@
 
 Smaller design decisions, each with what it was choosing between. Newest first.
 
+## Where a payout leg's destination comes from
+
+**Problem.** A pay request names each leg's recipient only by its payout method id, and the mandate binds each leg to an address and tag, so the chain adapter has to learn the destination from somewhere. Only the fake knew one, from a registry of its own.
+
+**Options.**
+
+1. Carry the parsed destination on each leg of the pay request, resolved by the caller from the recipient's method.
+2. A port the adapter asks, under the paying tenant, for the destination of a method id.
+
+**Decision.** Option 2, the `PayoutMethodSource` port that #474 gave the Stellar adapter, now in the chain neutral types.
+
+- The adapter never takes a destination from a caller. The caller names a method, and what the method pays is read where it is kept, under the tenant that pays, so a request cannot point a leg anywhere a recipient did not choose.
+- `@ujira/payouts/db` reads it from `payout_methods`. It answers only for an active `stellar_wallet` method on the wallet rail, on the chain of the adapter's network, whose recipient is active, and only under that project's own session. A method records its chain, not its network, as the identity store's entry says.
+- A stored address and tag that do not read, or disagree, answer nothing rather than a guess, and the adapter refuses that leg.
+- The fake takes the same port, and its own registry is gone. Its harness holds methods in `MemoryPayoutMethods`.
+
+**Trade offs and risks.** Each leg is one more read at pay time, and a method disabled between request and execute is caught then rather than at request. Anchor methods answer nothing until anchor payouts are built, so nothing is paid through an anchor on a guess.
+
+**Evidence.** `packages/db/src/payout-methods.test.ts` (what may be paid) against Postgres, `packages/payouts/src/db-store.test.ts` (how a stored method becomes a destination), and the conformance suite against the fake with its registry removed.
+
 ## What the identity store reads where the tables are silent
 
 **Problem.** The identity service's records carry facts the tables did not hold: whether a mandate instance is active, whether it takes attestations, which network a payout method is paid on, the project's identity settings, and the tenant of an identity row a provider's callback names by id alone.
