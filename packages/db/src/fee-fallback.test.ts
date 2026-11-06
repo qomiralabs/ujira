@@ -26,12 +26,14 @@ import {
   feeAddressAlarms,
   feeFallback,
 } from './repositories/fee-fallback.js';
+import { payoutLegs } from './repositories/payout-legs.js';
 import { payoutAttempts, payouts } from './repositories/payouts.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
 import {
   ONE_USDC,
   TESTNET,
+  newLeg,
   newPayout,
   payoutFixture,
   usdc,
@@ -84,6 +86,7 @@ async function failedAttempt(fixture: PayoutFixture) {
       total: usdc(FIVE),
       deadline: new Date(Date.now() + 3_600_000),
       onChainPayoutId: chainId,
+      legs: [newLeg(fixture, 2n * ONE_USDC, 0), newLeg(fixture, 3n * ONE_USDC, 1)],
     });
     await payoutAttempts.transition(tx, attempt.id, { from: 'created', to: 'requested' });
     return { payoutId: created.payout.id, attemptId: attempt.id };
@@ -178,6 +181,12 @@ describe('the resend', () => {
       at: { ledgerOrBlock: '7' },
     });
     expect(item).toMatchObject({ payoutId, attemptId, fee: FEE });
+    const legsOf = (id: string) =>
+      db.tenant(fixture.tenant).transaction((tx) => payoutLegs.forAttempt(tx, id));
+    const strip = (legs: Awaited<ReturnType<typeof legsOf>>) =>
+      legs.map((leg) => [leg.index, leg.payoutMethodId, leg.destinationAddress, leg.amount]);
+    expect(strip(await legsOf(attempt.id))).toEqual(strip(await legsOf(attemptId)));
+    expect(await legsOf(attempt.id)).toHaveLength(2);
   });
 
   it('gives one attempt and one invoice item however many runs race', async () => {

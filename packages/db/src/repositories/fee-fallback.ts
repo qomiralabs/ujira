@@ -12,7 +12,13 @@ import { sql, type Kysely } from 'kysely';
 
 import { amountParam, tokenFromRow } from '../money-mapper.js';
 import type { Schema } from '../schema.generated.js';
-import { payoutAttempts, type AttemptStatusValue, type PayoutAttempt } from './payouts.js';
+import { payoutLegs } from './payout-legs.js';
+import {
+  payoutAttempts,
+  type AttemptStatusValue,
+  type NewPayoutLeg,
+  type PayoutAttempt,
+} from './payouts.js';
 
 type Tx = Kysely<Schema>;
 
@@ -157,6 +163,9 @@ export const feeFallback = {
     const later = attempts.find((a) => a.attemptNumber > failed.attemptNumber);
     if (later !== undefined) return { attempt: later, created: false };
 
+    // The same legs to the same destinations: only the fee changes. An attempt with no
+    // legs is refused, so a failed attempt's legs are what the new one pays.
+    const legs = await payoutLegs.forAttempt(db, failed.id);
     const attempt = await payoutAttempts.create(db, {
       payoutId: failed.payoutId,
       mandateInstanceId: failed.mandateInstanceId,
@@ -164,6 +173,14 @@ export const feeFallback = {
       total: failed.total,
       deadline: input.deadline,
       onChainPayoutId: input.chainIdFor(failed.attemptNumber + 1),
+      legs: legs.map((leg): NewPayoutLeg => ({
+        payoutMethodId: leg.payoutMethodId,
+        method: leg.method as NewPayoutLeg['method'],
+        destinationAddress: leg.destinationAddress,
+        destinationTag: leg.destinationTag,
+        amount: leg.amount.amount,
+        fee: leg.fee.amount,
+      })),
     });
     // A payout that fails on its fee twice still owes one fee, so the first item stands.
     await db

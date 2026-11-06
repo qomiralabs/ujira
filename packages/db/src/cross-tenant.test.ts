@@ -1448,9 +1448,9 @@ const cases: Record<string, () => Promise<void>> = {
     );
   },
   'feeFallback.decided': async () => {
-    await expect(
-      acrossA((tx) => feeFallback.decided(tx, b.attemptChainId)),
-    ).rejects.toBeInstanceOf(FeeAttemptUnknownError);
+    await expect(acrossA((tx) => feeFallback.decided(tx, b.attemptChainId))).rejects.toBeInstanceOf(
+      FeeAttemptUnknownError,
+    );
   },
   'feeFallback.resend': async () => {
     await expect(

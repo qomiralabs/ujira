@@ -272,11 +272,13 @@ describe('exactly one release', () => {
     expect(holds).toEqual([]);
   });
 
-  it('routes a payout held on two networks once, and clears both holds', async () => {
+  // A mandate has one instance per chain and asset, and each instance is on one network,
+  // so while Stellar is the only chain a payout is only ever held on one network.
+  it('routes a held payout once, and clears its holds', async () => {
     const fixture = await payoutFixture(db);
-    const id = await heldPayout(fixture, [TESTNET, PUBNET]);
+    const id = await heldPayout(fixture);
     const results = await Promise.all(
-      [TESTNET, PUBNET, TESTNET, PUBNET].map((network) =>
+      [TESTNET, TESTNET, TESTNET, TESTNET].map((network) =>
         stores.holds.release(scopeOf(fixture), id, routeFor(fixture, network), OPTS),
       ),
     );
@@ -877,6 +879,7 @@ describe('tenant isolation', () => {
       const instance = await mandateInstances.create(tx, {
         mandateId: mandate.id,
         chain: 'stellar',
+        network: TESTNET,
         contractAddress: `C${randomUUID()}`,
         specVersion: '1',
         asset: 'USDC',
