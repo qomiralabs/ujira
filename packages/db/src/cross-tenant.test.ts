@@ -23,6 +23,7 @@ import { fundingAccountRepositories, fundingAccounts } from './repositories/fund
 import { approvals, legRepositories, payoutLegs } from './repositories/payout-legs.js';
 import { managedSigners } from './repositories/signers.js';
 import { ledger, ledgerRepositories } from './repositories/ledger.js';
+import { reconciliationRepositories, reconciliations } from './repositories/reconciliations.js';
 import {
   chainEvents,
   deposits,
@@ -122,6 +123,7 @@ const REPOSITORIES = {
   ...mandateRepositories,
   ...fundingAccountRepositories,
   ...ledgerRepositories,
+  ...reconciliationRepositories,
   ...recipientRepositories,
   ...identityEvidenceRepositories,
   ...auditRepositories,
@@ -1332,6 +1334,42 @@ const cases: Record<string, () => Promise<void>> = {
   'ledger.reconciliation': async () => {
     expect(await acrossA(async (tx) => ledger.reconciliation(tx, b.instanceId))).toBeUndefined();
     expect(await acrossA(async (tx) => ledger.reconciliation(tx, a.instanceId))).toBeDefined();
+  },
+  'reconciliations.record': async () => {
+    // Naming B's instance stores nothing for it, and leaves no outcome behind.
+    const attempt = indexing(a.first, async (tx) =>
+      reconciliations.record(tx, {
+        mandateInstanceId: b.instanceId,
+        ledger: 98n,
+        balance: 0n,
+        pending: 0n,
+        committed: 0n,
+        spent: 0n,
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+    // B may hold its own outcome from another case; none of it is A's attempt.
+    const rows = await admin.query(
+      'select 1 from ujira.instance_reconciliations where mandate_instance_id = $1 and ledger = 98',
+      [b.instanceId],
+    );
+    expect(rows.rowCount).toBe(0);
+  },
+  'reconciliations.get': async () => {
+    await indexing(b.first, async (tx) =>
+      reconciliations.record(tx, {
+        mandateInstanceId: b.instanceId,
+        ledger: 97n,
+        balance: 0n,
+        pending: 0n,
+        committed: 0n,
+        spent: 0n,
+      }),
+    );
+    expect(await acrossA(async (tx) => reconciliations.get(tx, b.instanceId))).toBeUndefined();
+    expect(
+      await indexing(a.first, async (tx) => reconciliations.get(tx, b.instanceId)),
+    ).toBeUndefined();
   },
   // The chain a row joins comes from the context, so a writer can only ever
   // reach its own: B's head does not move, and the rows land on A.

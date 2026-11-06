@@ -9,6 +9,7 @@ import { sql, type Kysely } from 'kysely';
 
 import type { Schema } from '../schema.generated.js';
 import type { FundingAccountStatus } from './funding-accounts.js';
+import { checkedLimit, pageOf, PageRequestError, type Page, type PageRequest } from './page.js';
 
 type Tx = Kysely<Schema>;
 
@@ -79,7 +80,49 @@ export interface EmbedInviteExchangeInput {
   readonly origin: string;
 }
 
+/** An instance to compare with its contract, and the tenant to compare it under. */
+export interface ReconcileTarget {
+  readonly principalId: string;
+  readonly projectId: string;
+  readonly mandateInstanceId: string;
+  readonly network: string;
+  readonly contractAddress: string;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 export const entryPoints = {
+  // Every active or paused instance, a page at a time in id order, for the
+  // reconcile sweep, which then works on each under its own tenant. Only the
+  // indexer's login may call it, and it tells nothing but where each instance lives.
+  reconcileTargets: async (db: Tx, page: PageRequest): Promise<Page<ReconcileTarget>> => {
+    const limit = checkedLimit(page.limit);
+    if (page.after !== undefined && !UUID.test(page.after)) {
+      throw new PageRequestError('after is not a key this list returned');
+    }
+    const result = await sql<{
+      principal_id: string;
+      project_id: string;
+      mandate_instance_id: string;
+      network: string;
+      contract_address: string;
+    }>`
+      select principal_id, project_id, mandate_instance_id, network, contract_address
+        from ujira.reconcile_targets(${page.after ?? null}::uuid, ${limit + 1})
+    `.execute(db);
+    return pageOf(
+      result.rows.map((row) => ({
+        principalId: row.principal_id,
+        projectId: row.project_id,
+        mandateInstanceId: row.mandate_instance_id,
+        network: row.network,
+        contractAddress: row.contract_address,
+      })),
+      limit,
+      (target) => target.mandateInstanceId,
+    );
+  },
+
   // The embed token a hash names, whatever its tenant, or undefined. The caller
   // checks expiry, use and the origin.
   authenticateEmbedToken: async (

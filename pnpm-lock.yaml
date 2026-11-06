@@ -534,13 +534,13 @@ importers:
       '@ujira/db':
         specifier: workspace:*
         version: link:../db
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
     devDependencies:
       fast-check:
         specifier: 4.10.2
         version: 4.10.2
-      zod:
-        specifier: 4.6.7
-        version: 4.6.7
 
   packages/receipts:
     dependencies:
