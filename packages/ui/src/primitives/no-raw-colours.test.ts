@@ -14,6 +14,7 @@ const COMPONENT_DIRS = [
   HERE,
   join(HERE, '..', 'money'),
   join(HERE, '..', 'payments'),
+  join(HERE, '..', 'patterns'),
   join(HERE, '..', 'patterns', 'data-table'),
 ];
 
