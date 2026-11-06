@@ -71,6 +71,24 @@ export class ApiUnreachable extends Error {
   override readonly name = 'ApiUnreachable';
 }
 
+/**
+ * The problem a client rejected with, read by shape rather than by class. A
+ * client the page supplies is built from its own copy of this code, so its
+ * ApiProblem is a different class from ours: what counts is that the error
+ * carries a problem the contract can read.
+ */
+export function problemOf(error: unknown): Problem | undefined {
+  if (error instanceof ApiProblem) return error.problem;
+  if (typeof error !== 'object' || error === null || !('problem' in error)) return undefined;
+  const parsed = Problem.safeParse(error.problem);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/** The embed token is no longer good. */
+export function isExpiry(error: unknown): boolean {
+  return problemOf(error)?.status === 401;
+}
+
 export interface HttpClientOptions {
   /** Where the API is, such as https://api.example; no trailing path. */
   baseUrl: string;

@@ -5,7 +5,7 @@
 // lands on and the words they read there. Pure, so every refusal the API can
 // give is tested without a browser.
 
-import { ApiProblem } from './api/client.js';
+import { isExpiry, problemOf } from './api/client.js';
 import {
   isReceivabilityReason,
   UNSUPPORTED_MEMO_DETAIL,
@@ -25,21 +25,14 @@ export interface Shown {
 
 const EXPIRED: Expired = { kind: 'expired' };
 
-function codeOf(error: unknown): string | undefined {
-  return error instanceof ApiProblem ? error.problem.code : undefined;
-}
-
-function isExpiry(error: unknown): boolean {
-  return error instanceof ApiProblem && error.problem.status === 401;
-}
-
 /** Where a refused save sends the person back to. */
 export type SaveOutcome = Expired | (Shown & { step: 'destination' | 'review' });
 
 export function afterSaveFailed(error: unknown): SaveOutcome {
   if (isExpiry(error)) return EXPIRED;
-  if (codeOf(error) === 'DESTINATION_INVALID') {
-    const detail = error instanceof ApiProblem ? error.problem.detail : undefined;
+  const problem = problemOf(error);
+  if (problem?.code === 'DESTINATION_INVALID') {
+    const detail = problem.detail;
     const key =
       detail === UNSUPPORTED_MEMO_DETAIL ? 'destination.memo.unsupported' : 'destination.refused';
     return { kind: 'message', step: 'destination', key };
@@ -72,9 +65,10 @@ export type ProofOutcome = Expired | Shown | { kind: 'activate'; reason: Receiva
  */
 export function afterProofFailed(error: unknown, canActivate: boolean): ProofOutcome {
   if (isExpiry(error)) return EXPIRED;
-  const code = codeOf(error);
+  const problem = problemOf(error);
+  const code = problem?.code;
   if (code === 'DESTINATION_NOT_RECEIVABLE') {
-    const detail = error instanceof ApiProblem ? error.problem.detail : undefined;
+    const detail = problem?.detail;
     if (!isReceivabilityReason(detail)) return { kind: 'message', key: 'destination.refused' };
     if (canActivate && ACTIVATABLE.includes(detail)) return { kind: 'activate', reason: detail };
     return { kind: 'message', key: NOT_RECEIVABLE[detail] };

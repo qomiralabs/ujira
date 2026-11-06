@@ -83,6 +83,26 @@ describe('after a wallet proof is refused', () => {
     }
   });
 
+  it('reads a refusal from a client built from another copy of this code', () => {
+    // The browser tests hand the widget a fake built into its own bundle, so
+    // its errors are not instances of our class. The shape is what counts.
+    const foreign = Object.assign(new Error('DESTINATION_NOT_RECEIVABLE'), {
+      problem: { status: 422, code: 'DESTINATION_NOT_RECEIVABLE', detail: 'ACCOUNT_NOT_FOUND' },
+    });
+    expect(afterProofFailed(foreign, true)).toEqual({
+      kind: 'activate',
+      reason: 'ACCOUNT_NOT_FOUND',
+    });
+    const expired = Object.assign(new Error('expired'), { problem: { status: 401, code: 'X' } });
+    expect(afterSaveFailed(expired)).toEqual({ kind: 'expired' });
+    const garbled = Object.assign(new Error('odd'), { problem: { code: 7 } });
+    expect(afterSaveFailed(garbled)).toEqual({
+      kind: 'message',
+      step: 'review',
+      key: 'widget.saveFailed',
+    });
+  });
+
   it('does not trust a reason it does not know', () => {
     expect(afterProofFailed(refused(422, 'DESTINATION_NOT_RECEIVABLE', '<script>'), true)).toEqual({
       kind: 'message',

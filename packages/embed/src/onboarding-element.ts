@@ -17,7 +17,7 @@
 
 import { html, LitElement, nothing, type CSSResultGroup, type TemplateResult } from 'lit';
 
-import { ApiProblem, httpClient, type OnboardingClient } from './api/client.js';
+import { httpClient, isExpiry, type OnboardingClient } from './api/client.js';
 import type { OnboardingSession, ReceivabilityReason, WalletChallenge } from './api/contract.js';
 import { DEFAULT_LOCALE, translator, type MessageKey, type Translate } from './i18n/catalogue.js';
 import { methodById, PAYOUT_METHODS, type MethodId } from './methods.js';
@@ -94,10 +94,6 @@ const LIFT = [
 ];
 
 type Loading = 'idle' | 'loading' | 'failed';
-
-function isExpiry(error: unknown): boolean {
-  return error instanceof ApiProblem && error.problem.status === 401;
-}
 
 export class UjiraOnboarding extends LitElement {
   static override styles: CSSResultGroup = widgetStyles;

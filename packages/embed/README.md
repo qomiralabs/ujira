@@ -92,16 +92,16 @@ If you need a recipient's answers kept from your own page, a shadow root is not 
 
 ## Attributes and properties
 
-| Name           | Type                      | Default | What it does                                                                                                                            |
-| -------------- | ------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `mode`         | `light`, `dark`, `system` | `light` | Which set of default colours to use                                                                                                     |
-| `locale`       | language tag              | `en`    | Which language file to read. Unknown languages give English                                                                             |
-| `busy`         | boolean                   | `false` | Holds the step and says the answer is being saved                                                                                       |
-| `error`        | string                    | empty   | A message from the integrator, shown in place of ours                                                                                   |
-| `sessionToken` | string                    | empty   | The embed token your server minted for this recipient. Attribute `session-token`. With `apiBase`, the widget saves through UJIRA itself |
-| `apiBase`      | URL                       | empty   | Where the UJIRA API is. Attribute `api-base`                                                                                            |
-| `client`       | object                    | none    | Property only. A client to use in place of one built from the token, for tests                                                          |
-| `wallet`       | object                    | none    | Property only. Your page's wallet, so the recipient signs with one press. See below                                                     |
+| Name           | Type                      | Default | What it does                                                                                                                                |
+| -------------- | ------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mode`         | `light`, `dark`, `system` | `light` | Which set of default colours to use                                                                                                         |
+| `locale`       | language tag              | `en`    | Which language file to read. Unknown languages give English                                                                                 |
+| `busy`         | boolean                   | `false` | Holds the step and says the answer is being saved                                                                                           |
+| `error`        | string                    | empty   | A message from the integrator, shown in place of ours                                                                                       |
+| `sessionToken` | string                    | empty   | The embed token your server minted for this recipient. Attribute `session-token`. With `apiBase`, the widget saves through UJIRA itself     |
+| `apiBase`      | URL                       | empty   | Where the UJIRA API is. Attribute `api-base`                                                                                                |
+| `client`       | object                    | none    | Property only. A client to use in place of one built from the token, for tests. Its refusals carry a `problem` with the API status and code |
+| `wallet`       | object                    | none    | Property only. Your page's wallet, so the recipient signs with one press. See below                                                         |
 
 `reset()` starts again from the first question. `finish()` moves to the confirmation screen. `currentStep` and `currentAnswers` read the state.
 
