@@ -8,6 +8,9 @@ set local statement_timeout = '60s';
 
 set local role ujira_owner;
 
+-- The status check is replaced by a wider one that accepts every row the old one did,
+-- so no guarantee a reader relies on is lost.
+-- squawk-ignore ban-drop-constraint
 alter table ujira.compliance_parked_jobs
   add column closed_at timestamptz,
   add column close_reason text,
