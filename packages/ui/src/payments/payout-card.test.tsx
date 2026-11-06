@@ -65,6 +65,12 @@ describe('PayoutCard', { timeout: 30_000 }, () => {
     expect(classes).toContain('min-w-0');
   });
 
+  it('moves the status under the name, rather than cut the name, when both do not fit', () => {
+    render(<PayoutCard {...BASE} />);
+    const header = screen.getByRole('heading', { name: 'Wanjiru Kamau' }).parentElement;
+    expect(header?.className.split(' ')).toContain('flex-wrap');
+  });
+
   it('carries one action at most, after the details', () => {
     render(<PayoutCard {...BASE} status="pending_approval" action={<Button>Review</Button>} />);
     const card = screen.getByRole('article');

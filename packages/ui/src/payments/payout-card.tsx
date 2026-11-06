@@ -58,7 +58,9 @@ export function PayoutCard({
       )}
       {...rest}
     >
-      <div className="flex items-start justify-between gap-3">
+      {/* Who is paid comes first: when the name and the status do not fit on
+          one line, the status moves under the name rather than cut it short. */}
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <h3 id={heading} className="min-w-0 truncate text-body-s font-medium text-text">
           {recipient}
         </h3>
