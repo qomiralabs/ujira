@@ -52,6 +52,7 @@ export interface FundingHoldStore {
   hold(
     scope: TenantScope,
     payoutId: Uuid,
+    total: TokenAmount,
     shortfalls: readonly NetworkShortfall[],
     opts: StoreOptions,
   ): Promise<boolean>;
@@ -90,6 +91,11 @@ export interface FundingHoldStore {
 
 export interface ReleaseTarget {
   readonly principalId: Uuid;
+  /**
+   * A project of the principal, because a database session opens under one.
+   * The job reads across all of them, and this is not part of its job key.
+   */
+  readonly projectId: Uuid;
   readonly network: NetworkId;
 }
 
@@ -153,7 +159,9 @@ export async function holdPayout(
   outcome: Extract<RouteOutcome, { kind: 'hold' }>,
   deps: HoldDeps,
 ): Promise<boolean> {
-  return call(deps, (opts) => deps.store.hold(scope, payoutId, outcome.networks, opts));
+  return call(deps, (opts) =>
+    deps.store.hold(scope, payoutId, outcome.total, outcome.networks, opts),
+  );
 }
 
 /** A detected deposit enqueues the job. It never routes anything itself. */
@@ -163,6 +171,7 @@ export async function onDeposit(
 ): Promise<void> {
   const spec = releaseJobSpec({
     principalId: deposit.scope.principalId,
+    projectId: deposit.scope.projectId,
     network: deposit.mandate.network,
   });
   await call(deps, (opts) => deps.queue.enqueue(spec, opts));
@@ -360,7 +369,7 @@ export function createMemoryFundingHoldStore(
         .map((attempt) => attempt.charged);
       return routed.reduce((total, charged) => add(total, charged), zero);
     },
-    hold(scope, payoutId, shortfalls) {
+    hold(scope, payoutId, _total, shortfalls) {
       const id = idOf(scope, payoutId);
       const payout = payouts.get(id);
       if (payout?.status !== 'received' || payout.statusReason !== null) {
@@ -383,8 +392,12 @@ export function createMemoryFundingHoldStore(
     heldPairs() {
       const seen = new Map<string, ReleaseTarget>();
       for (const hold of all()) {
-        const target = { principalId: hold.scope.principalId, network: hold.network };
-        seen.set(JSON.stringify(target), target);
+        const target = {
+          principalId: hold.scope.principalId,
+          projectId: hold.scope.projectId,
+          network: hold.network,
+        };
+        seen.set(JSON.stringify([target.principalId, target.network]), target);
       }
       return Promise.resolve([...seen.values()]);
     },

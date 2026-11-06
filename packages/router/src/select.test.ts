@@ -305,6 +305,7 @@ describe('selectRoute', () => {
     const w = await routeWorld({ test: 100n, pub: 900n });
     expect(await select(w)).toEqual({
       kind: 'hold',
+      total: usdc(1_000n),
       networks: [
         { network: TEST_NET, mandateInstanceId: 'instance-test', needed: usdc(910n) },
         { network: PUB_NET, mandateInstanceId: 'instance-pub', needed: usdc(110n) },

@@ -17,6 +17,7 @@ import type { Schema } from './schema.generated.js';
 import { managedAgentRepositories, managedAgents } from './repositories/managed-agents.js';
 import { compliance, complianceRepositories } from './repositories/compliance.js';
 import { audit, auditRepositories } from './repositories/audit.js';
+import { routing, routingRepositories } from './repositories/routing.js';
 import { entryPoints } from './repositories/entry-points.js';
 import { fundingAccountRepositories, fundingAccounts } from './repositories/funding-accounts.js';
 import { approvals, legRepositories, payoutLegs } from './repositories/payout-legs.js';
@@ -63,6 +64,11 @@ import {
   tenancyRepositories,
 } from './repositories/tenancy.js';
 import { payoutBookings } from './repositories/mandate-registry.js';
+import {
+  FeeAttemptUnknownError,
+  feeFallback,
+  feeFallbackRepositories,
+} from './repositories/fee-fallback.js';
 import { caseProblems, methodNames } from './testing/cross-tenant.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
@@ -99,6 +105,7 @@ interface Tenant {
   readonly payoutId: string;
   readonly batchId: string;
   readonly attemptId: string;
+  readonly attemptChainId: string;
   readonly heldPayoutId: string;
   readonly legId: string;
   readonly sessionId: string;
@@ -119,7 +126,9 @@ const REPOSITORIES = {
   ...identityEvidenceRepositories,
   ...auditRepositories,
   ...payoutRepositories,
+  ...routingRepositories,
   ...legRepositories,
+  ...feeFallbackRepositories,
   payoutBookings,
 };
 
@@ -364,6 +373,7 @@ async function tenant(name: string): Promise<Tenant> {
       agentLinkId: agentLink.id,
     };
   });
+  const attemptChainId = randomUUID();
   const { payoutId, batchId, attemptId, heldPayoutId, legId } = await db
     .tenant(first)
     .transaction(async (tx) => {
@@ -388,6 +398,7 @@ async function tenant(name: string): Promise<Tenant> {
         network: 'stellar:testnet',
         total: tokenAmount(50_000_000n, 'USDC', 'stellar'),
         deadline: new Date(Date.now() + 3_600_000),
+        onChainPayoutId: attemptChainId,
         legs: [
           {
             payoutMethodId: evidence.methodId,
@@ -452,6 +463,7 @@ async function tenant(name: string): Promise<Tenant> {
     payoutId,
     batchId,
     attemptId,
+    attemptChainId,
     heldPayoutId,
     legId,
   };
@@ -1448,6 +1460,32 @@ const cases: Record<string, () => Promise<void>> = {
     expect(await acrossA(async (tx) => payoutAttempts.get(tx, b.attemptId))).toBeUndefined();
     expect(await acrossA(async (tx) => payoutAttempts.get(tx, a.attemptId))).toBeDefined();
   },
+  'feeFallback.decide': async () => {
+    await expect(asA((tx) => feeFallback.decide(tx, b.attemptChainId))).rejects.toBeInstanceOf(
+      FeeAttemptUnknownError,
+    );
+  },
+  'feeFallback.decided': async () => {
+    await expect(acrossA((tx) => feeFallback.decided(tx, b.attemptChainId))).rejects.toBeInstanceOf(
+      FeeAttemptUnknownError,
+    );
+  },
+  'feeFallback.resend': async () => {
+    await expect(
+      asA((tx) =>
+        feeFallback.resend(tx, {
+          failedOnChainId: b.attemptChainId,
+          proof: { kind: 'payout_lapsed' },
+          fee: tokenAmount(1n, 'USDC', 'stellar'),
+          deadline: new Date(Date.now() + 3_600_000),
+          chainIdFor: () => randomUUID(),
+        }),
+      ),
+    ).rejects.toBeInstanceOf(FeeAttemptUnknownError);
+  },
+  'feeFallback.unpaidForPayout': async () => {
+    expect(await acrossA((tx) => feeFallback.unpaidForPayout(tx, b.payoutId))).toBeUndefined();
+  },
   'payoutAttempts.forPayout': async () => {
     expect(await acrossA(async (tx) => payoutAttempts.forPayout(tx, b.payoutId))).toEqual([]);
   },
@@ -1490,6 +1528,38 @@ const cases: Record<string, () => Promise<void>> = {
       [b.heldPayoutId],
     );
     expect(left.rows).toHaveLength(1);
+  },
+  'routing.heldOnNetwork': async () => {
+    const held = await acrossA(async (tx) => routing.heldOnNetwork(tx, 'stellar:testnet', 100));
+    const ids = held.map((row) => row.payoutId);
+    expect(ids).toContain(a.heldPayoutId);
+    expect(ids).not.toContain(b.heldPayoutId);
+  },
+  'routing.recordTotal': async () => {
+    expect(
+      await asA(async (tx) =>
+        routing.recordTotal(tx, b.heldPayoutId, tokenAmount(1n, 'USDC', 'stellar')),
+      ),
+    ).toBe(false);
+  },
+  'routing.moveHeldToRouted': async () => {
+    expect(
+      await asA(async (tx) =>
+        routing.moveHeldToRouted(tx, b.heldPayoutId, tokenAmount(1n, 'USDC', 'stellar')),
+      ),
+    ).toBe(false);
+  },
+  'routing.moveHeldToExpired': async () => {
+    expect(await asA(async (tx) => routing.moveHeldToExpired(tx, b.heldPayoutId))).toBe(false);
+  },
+  'routing.instancesOfMandate': async () => {
+    expect(await acrossA(async (tx) => routing.instancesOfMandate(tx, b.mandateId))).toEqual([]);
+  },
+  'routing.unrequestedOnInstance': async () => {
+    expect(await acrossA(async (tx) => routing.unrequestedOnInstance(tx, b.instanceId))).toBe(0n);
+  },
+  'routing.usableMethods': async () => {
+    expect(await acrossA(async (tx) => routing.usableMethods(tx, b.recipientId))).toEqual([]);
   },
   'fundingHolds.oldestOnNetwork': async () => {
     const holds = await acrossA(async (tx) =>
