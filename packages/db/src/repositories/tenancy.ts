@@ -210,6 +210,30 @@ export const projects = {
         };
   },
 
+  // The project's identity settings as saved, or null for the defaults. The identity
+  // service validates what it reads, so this hands back whatever is there.
+  identitySettings: async (db: Tx): Promise<unknown> => {
+    const row = await db
+      .selectFrom('ujira.projects')
+      .select('identity_settings')
+      .where('id', '=', CURRENT_PROJECT)
+      .executeTakeFirst();
+    return row?.identity_settings ?? null;
+  },
+
+  // The transaction's own project. Null goes back to the defaults.
+  setIdentitySettings: async (
+    db: Tx,
+    settings: Readonly<Record<string, unknown>> | null,
+  ): Promise<boolean> => {
+    const result = await db
+      .updateTable('ujira.projects')
+      .set({ identity_settings: settings === null ? null : JSON.stringify(settings) })
+      .where('id', '=', CURRENT_PROJECT)
+      .executeTakeFirst();
+    return result.numUpdatedRows > 0n;
+  },
+
   // Each of these changes the setting and writes its audit row in one transaction.
   // Setting what is already there changes nothing and writes nothing. Payouts
   // already created keep the bearer they were created under.

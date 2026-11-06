@@ -10,7 +10,10 @@
 // the mirror of what happened on chain, chain events, roles and deposits. The
 // grants enforce that split, whichever method is called.
 
+import { INSTANCE_MOVES } from '@ujira/chain-adapter';
+import type { CountryCode, InstanceMove } from '@ujira/chain-adapter';
 import type { TokenAmount } from '@ujira/core';
+import { countryPolicyHash } from '@ujira/identity';
 import { sql, type Kysely, type UpdateObject } from 'kysely';
 
 import { amountParam, tokenFromRow } from '../money-mapper.js';
@@ -118,6 +121,10 @@ export const mandates = {
   },
 };
 
+// Where an instance is in its life. Deploying and a failed deploy cannot pay yet.
+export type MandateInstanceStatus =
+  'deploying' | 'active' | 'paused' | 'revoked' | 'expired' | 'deploy_failed';
+
 export interface MandateInstance {
   readonly id: string;
   readonly mandateId: string;
@@ -128,6 +135,7 @@ export interface MandateInstance {
   readonly asset: string;
   readonly scale: number;
   readonly createdAt: Date;
+  readonly status: string;
   // 32 bytes of ed25519; null in allowlist mode.
   readonly attesterPublicKey: Buffer | null;
   readonly countryPolicyHash: Buffer | null;
@@ -144,7 +152,8 @@ export interface NewMandateInstance {
   readonly asset: string;
   readonly scale: number;
   readonly attesterPublicKey?: Buffer | null;
-  readonly countryPolicyHash?: Buffer | null;
+  // From the config the contract was created with. Fixed once known.
+  readonly recipientMode?: 'allowlist' | 'attested' | 'both' | null;
 }
 
 const instanceColumns = [
@@ -157,6 +166,7 @@ const instanceColumns = [
   'asset',
   'scale',
   'created_at',
+  'status',
   'attester_public_key',
   'country_policy_hash',
 ] as const;
@@ -171,6 +181,7 @@ function toInstance(row: {
   asset: string;
   scale: number;
   created_at: Date;
+  status: string;
   attester_public_key: Buffer | null;
   country_policy_hash: Buffer | null;
 }): MandateInstance {
@@ -184,6 +195,7 @@ function toInstance(row: {
     asset: row.asset,
     scale: row.scale,
     createdAt: row.created_at,
+    status: row.status,
     attesterPublicKey: row.attester_public_key,
     countryPolicyHash: row.country_policy_hash,
   };
@@ -230,6 +242,21 @@ export const mandateInstances = {
   // is refused by the foreign key (23503). A network that is not on the chain is
   // refused by a check (23514).
   create: async (db: Tx, input: NewMandateInstance): Promise<MandateInstance> => {
+    // The hash is built here from the mandate's own list, the way the attester
+    // rebuilds it, so the two cannot drift. A mandate this tenant cannot see has no
+    // list, and the foreign key refuses the row.
+    const policy = await db
+      .selectFrom('ujira.mandates')
+      .select('country_policy_list')
+      .where('id', '=', input.mandateId)
+      .executeTakeFirst();
+    const hash =
+      policy === undefined
+        ? null
+        : Buffer.from(
+            countryPolicyHash(policy.country_policy_list as CountryCode[]).slice(2),
+            'hex',
+          );
     const row = await db
       .insertInto('ujira.mandate_instances')
       .values({
@@ -243,11 +270,43 @@ export const mandateInstances = {
         asset: input.asset,
         scale: input.scale,
         attester_public_key: input.attesterPublicKey ?? null,
-        country_policy_hash: input.countryPolicyHash ?? null,
+        country_policy_hash: hash,
+        recipient_mode: input.recipientMode ?? null,
       })
       .returning(instanceColumns)
       .executeTakeFirstOrThrow();
     return toInstance(row);
+  },
+
+  // For an instance recorded before its mode was known, such as one claimed after the
+  // chain was read. False when it was already set, to this or any other value: the
+  // contract never changes it, and neither does this.
+  setRecipientMode: async (
+    db: Tx,
+    id: string,
+    mode: 'allowlist' | 'attested' | 'both',
+  ): Promise<boolean> => {
+    const result = await db
+      .updateTable('ujira.mandate_instances')
+      .set({ recipient_mode: mode })
+      .where('id', '=', id)
+      .where('recipient_mode', 'is', null)
+      .executeTakeFirst();
+    return result.numUpdatedRows > 0n;
+  },
+
+  // As the chain said, and only from a state the move starts from, so a replayed or
+  // out of turn event changes nothing. True when it moved. Only the indexer's login
+  // may change an instance's status; any other is refused (42501).
+  move: async (db: Tx, id: string, move: InstanceMove): Promise<boolean> => {
+    const { from, to } = INSTANCE_MOVES[move];
+    const result = await db
+      .updateTable('ujira.mandate_instances')
+      .set({ status: to })
+      .where('id', '=', id)
+      .where('status', 'in', [...from])
+      .executeTakeFirst();
+    return result.numUpdatedRows > 0n;
   },
 };
 

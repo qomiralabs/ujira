@@ -270,6 +270,13 @@ describe('finding the tenant of a contract', () => {
     });
     expect(await store.tenantOf(NETWORK, `C${randomUUID()}`)).toBeNull();
   });
+
+  // An event from a contract is only ever booked to an instance on the network it
+  // was seen on, whatever chain the two share.
+  it('finds nothing for a contract on another network of the same chain', async () => {
+    const instance = await newInstance(tenant);
+    expect(await store.tenantOf('stellar:pubnet', instance.contractAddress)).toBeNull();
+  });
 });
 
 describe('payout bookings', () => {

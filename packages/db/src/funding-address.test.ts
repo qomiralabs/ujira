@@ -165,6 +165,54 @@ describe('resolving a forwarding account', () => {
     );
   });
 
+  // The link table refuses this, so it is written around that check, as the owner.
+  // Keeping networks apart must not rest on one check, since the answer decides
+  // where a deposit is swept.
+  it('never lists an instance on another network, even one linked around the checks', async () => {
+    const tenant = await newTenant();
+    const testnet = await newInstance(tenant);
+    const pubnet = await as(tenant, async (tx) => {
+      const mandate = await mandates.create(tx, { name: `mandate ${randomUUID()}` });
+      return mandateInstances.create(tx, {
+        network: 'stellar:pubnet',
+        mandateId: mandate.id,
+        chain: 'stellar',
+        contractAddress: `C${randomUUID()}`,
+        specVersion: '1',
+        asset: 'USDC',
+        scale: 7,
+      });
+    });
+    const account = await newAccount(tenant);
+    const source = await as(tenant, async (tx) =>
+      fundingSources.create(tx, {
+        mandateInstanceId: pubnet.id,
+        kind: 'stellar_funding_account',
+        config: { sponsoredReserves: true, sponsorTxHash: randomBytes(32) },
+      }),
+    );
+    const owner = new pg.Client({ connectionString: database.url });
+    await owner.connect();
+    try {
+      await owner.query(
+        'alter table ujira.funding_account_sources disable trigger funding_account_sources_check_new',
+      );
+      await owner.query(
+        `insert into ujira.funding_account_sources
+           (principal_id, project_id, funding_account_id, funding_source_id, mandate_instance_id)
+         values ($1, $2, $3, $4, $5)`,
+        [tenant.principalId, tenant.projectId, account.id, source.id, pubnet.id],
+      );
+    } finally {
+      await owner.query(
+        'alter table ujira.funding_account_sources enable trigger funding_account_sources_check_new',
+      );
+      await owner.end();
+    }
+    expect(testnet.network).toBe(NETWORK);
+    expect(await resolve(account.address)).toMatchObject({ status: 'active', instances: [] });
+  });
+
   it('says when an account was rejected', async () => {
     const tenant = await newTenant();
     const account = await newAccount(tenant, ['master_key_kept']);

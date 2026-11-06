@@ -12,6 +12,7 @@ import { join, relative } from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
+import { DRAFTS, flagged, LOCALES, type MessageKey } from './catalogue.js';
 import { en } from './en.js';
 
 const PACKAGE_ROOT = join(import.meta.dirname, '..', '..');
@@ -287,10 +288,80 @@ describe('i18n', () => {
 
   it('every key in the catalogue is used', () => {
     const sources = filesWithTemplates(SRC)
-      .concat(['methods.ts', 'steps.ts'])
+      .concat(['methods.ts', 'steps.ts', 'destination.ts', 'outcomes.ts'])
       .map((file) => readFileSync(join(SRC, file), 'utf8'))
       .join('\n');
     const unused = Object.keys(en).filter((key) => !sources.includes(`'${key}'`));
     expect(unused).toEqual([]);
+  });
+});
+
+// Every language file against English: the same keys, the same placeholders,
+// the names that must not be translated, and the strings still waiting for
+// a translator, so that list is never a surprise.
+
+const KEYS = Object.keys(en).sort();
+
+function placeholders(text: string): string[] {
+  return [...text.matchAll(/\{(\w+)\}/g)].map((match) => match[1] ?? '').sort();
+}
+
+describe('i18n', () => {
+  it('every language has every key', () => {
+    for (const locale of LOCALES) {
+      expect(Object.keys(DRAFTS[locale]).sort(), locale).toEqual(KEYS);
+    }
+  });
+
+  it('keeps every placeholder English has, and adds none', () => {
+    for (const locale of LOCALES) {
+      for (const key of KEYS as MessageKey[]) {
+        const value = DRAFTS[locale][key];
+        if (value === null) continue;
+        expect(placeholders(value), `${locale} ${key}`).toEqual(placeholders(en[key]));
+      }
+    }
+  });
+
+  it('keeps the names nobody translates: USDC, Stellar, XLM and Self', () => {
+    for (const locale of LOCALES) {
+      for (const key of KEYS as MessageKey[]) {
+        const value = DRAFTS[locale][key];
+        if (value === null) continue;
+        for (const name of ['USDC', 'Stellar', 'XLM', 'Self']) {
+          if (new RegExp(`\\b${name}\\b`).test(en[key])) {
+            expect(value, `${locale} ${key} lost ${name}`).toContain(name);
+          }
+        }
+      }
+    }
+  });
+
+  it('never leaves English sitting in a finished translation by mistake', () => {
+    // Short labels can match English by right (Memo, Copy in some
+    // languages), so this looks only at sentences.
+    for (const locale of LOCALES.filter((code) => code !== 'en')) {
+      const copied = (KEYS as MessageKey[]).filter((key) => {
+        const value = DRAFTS[locale][key];
+        return key !== 'footer.byline' && value === en[key] && en[key].split(' ').length > 3;
+      });
+      expect(copied, locale).toEqual([]);
+    }
+  });
+
+  it('lists what waits for a translator: all of Hausa, Yoruba and Igbo, nothing else', () => {
+    const waiting = Object.fromEntries(
+      LOCALES.map((locale) => [locale, flagged(DRAFTS[locale]).length]),
+    );
+    expect(waiting).toEqual({
+      en: 0,
+      ha: KEYS.length - 1,
+      yo: KEYS.length - 1,
+      ig: KEYS.length - 1,
+      sw: 0,
+      fr: 0,
+      pt: 0,
+      es: 0,
+    });
   });
 });

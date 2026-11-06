@@ -13,7 +13,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { encodeAccountAddress } from './codecs/index.js';
-import { InvalidInputError, operationsGuardianOf, parseNetworksConfig } from './index.js';
+import {
+  InvalidInputError,
+  operationsGuardianOf,
+  operationsGuardiansOf,
+  parseNetworksConfig,
+} from './index.js';
 
 const account = (fill: number): string => encodeAccountAddress(new Uint8Array(32).fill(fill));
 const GUARDIAN = account(9);
@@ -97,5 +102,62 @@ describe('operations guardian', () => {
     expect(issuesOf({ 'stellar:testnet': section(EXECUTOR) })).toEqual([
       'networks.stellar:testnet.operationsGuardian (custom)',
     ]);
+  });
+});
+
+describe('the addresses an operations guardian replaced', () => {
+  const PAST = account(8);
+  const OLDER = account(7);
+  const retiring = (guardian: string | undefined, retired: readonly string[]) => ({
+    'stellar:testnet': { ...section(guardian), retiredOperationsGuardians: [...retired] },
+  });
+
+  it('reads every address the network has used, the current one first', () => {
+    const config = parseNetworksConfig(retiring(GUARDIAN, [PAST, OLDER]));
+    expect(operationsGuardiansOf(config, 'stellar:testnet')).toEqual([
+      { network: 'stellar:testnet', value: GUARDIAN },
+      { network: 'stellar:testnet', value: PAST },
+      { network: 'stellar:testnet', value: OLDER },
+    ]);
+    expect(operationsGuardianOf(config, 'stellar:testnet')).toEqual({
+      network: 'stellar:testnet',
+      value: GUARDIAN,
+    });
+  });
+
+  it('reads the past addresses of a network that has no current one', () => {
+    const config = parseNetworksConfig(retiring(undefined, [PAST]));
+    expect(operationsGuardiansOf(config, 'stellar:testnet')).toEqual([
+      { network: 'stellar:testnet', value: PAST },
+    ]);
+    expect(operationsGuardianOf(config, 'stellar:testnet')).toBeNull();
+  });
+
+  it('reads none for a network with none, or one not configured', () => {
+    const config = parseNetworksConfig({ 'stellar:testnet': section() });
+    expect(operationsGuardiansOf(config, 'stellar:testnet')).toEqual([]);
+    expect(operationsGuardiansOf(config, 'stellar:pubnet')).toEqual([]);
+  });
+
+  it('refuses the current address listed as a past one too', () => {
+    expect(issuesOf(retiring(GUARDIAN, [GUARDIAN])).join('\n')).toContain(
+      'retiredOperationsGuardians',
+    );
+  });
+
+  it('refuses a past address listed twice', () => {
+    expect(issuesOf(retiring(GUARDIAN, [PAST, PAST])).join('\n')).toContain(
+      'retiredOperationsGuardians',
+    );
+  });
+
+  it('refuses a past address that is a key UJIRA signs with', () => {
+    expect(issuesOf(retiring(GUARDIAN, [EXECUTOR])).join('\n')).toContain(
+      'retiredOperationsGuardians',
+    );
+  });
+
+  it('refuses a past address that is not a Stellar account', () => {
+    expect(issuesOf(retiring(GUARDIAN, ['not-an-account']))).not.toEqual([]);
   });
 });

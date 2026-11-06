@@ -120,8 +120,11 @@ export function registerFocusProperties(registry: PropertyRegistry = CSS): void 
  * the element beats these, so the element is where a property is set. A value
  * on an ancestor does not reach the widget: these defaults sit on the element
  * itself, and a value declared on an element always wins over an inherited
- * one. The one place an ancestor shows through is the focus colours' fallback,
- * when the value on the element cannot be used.
+ * one. The one place an ancestor shows through is the fallback of the five
+ * registered focus properties, the two colours and the three lengths: when the
+ * value on the element cannot be used, each takes what an ancestor set, and
+ * the default only when no ancestor set one. Where the browser cannot register
+ * properties there is no such fallback.
  */
 export const hostTheme = css`
   :host {

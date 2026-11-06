@@ -7,12 +7,13 @@
 // is the only one that can add to it. A booking is a tenant's row, and a contract
 // is part of its key.
 
+import type { InstanceMove } from '@ujira/chain-adapter';
 import { sql, type Kysely } from 'kysely';
 
 import type { Database, ProjectContext } from '../database.js';
 import type { Schema } from '../schema.generated.js';
 import { entryPoints } from './entry-points.js';
-import { chainEvents } from './mandates.js';
+import { chainEvents, instanceRoles, mandateInstances, type MandateRole } from './mandates.js';
 import { checkedLimit, pageOf, type Page, type PageRequest } from './page.js';
 
 type Tx = Kysely<Schema>;
@@ -249,6 +250,42 @@ export interface IntakeBooking {
  * event. The event and its payout's move share a transaction, and a replay of an
  * event moves nothing.
  */
+// The contract's role codes, in the order of its spec.
+const ROLE_BY_CODE: Readonly<Record<number, MandateRole>> = Object.freeze({
+  1: 'agent',
+  2: 'approver',
+  3: 'guardian',
+  4: 'executor',
+  5: 'recovery',
+});
+
+/** A role event from a registered mandate in a shape the contract never emits. */
+export class RoleEventMalformedError extends Error {
+  override readonly name = 'RoleEventMalformedError';
+  readonly code = 'ROLE_EVENT_MALFORMED';
+
+  constructor() {
+    super('A role event does not name a known role and an account');
+  }
+}
+
+function roleChangeOf(
+  name: string,
+  payload: unknown,
+): { readonly added: boolean; readonly role: MandateRole; readonly address: string } | null {
+  if (name !== 'role_added' && name !== 'role_removed') return null;
+  const fields = payload as { role?: unknown; account?: unknown } | null;
+  const code = typeof fields?.role === 'string' ? Number(fields.role) : fields?.role;
+  const role = typeof code === 'number' ? ROLE_BY_CODE[code] : undefined;
+  const account = fields?.account;
+  // A mandate from a trusted factory never emits this, so it is a fault to look at, and
+  // the scan stops on it rather than skip a seat it cannot read.
+  if (role === undefined || typeof account !== 'string' || account.length === 0) {
+    throw new RoleEventMalformedError();
+  }
+  return { added: name === 'role_added', role, address: account };
+}
+
 export function mandateEventStore(db: Database, chainOf: (network: string) => string) {
   const indexer = <T>(work: (tx: Tx) => Promise<T>): Promise<T> => db.unscoped(work, 'indexer');
   return {
@@ -261,7 +298,7 @@ export function mandateEventStore(db: Database, chainOf: (network: string) => st
     },
     tenantOf: async (network: string, contractId: string): Promise<IntakeTenant | null> => {
       const found = await indexer((tx) =>
-        entryPoints.resolveMandateInstance(tx, chainOf(network), contractId),
+        entryPoints.resolveMandateInstance(tx, network, contractId),
       );
       if (found === undefined) return null;
       return {
@@ -269,6 +306,11 @@ export function mandateEventStore(db: Database, chainOf: (network: string) => st
         mandateInstanceId: found.mandateInstanceId,
       };
     },
+    // Under the instance's own tenant, so the indexer can move no other.
+    moveInstance: (tenant: IntakeTenant, move: InstanceMove): Promise<boolean> =>
+      db.withTenant('indexer', { ...tenant.scope, scope: 'project' }, async (tx) =>
+        mandateInstances.move(tx, tenant.mandateInstanceId, move),
+      ),
     book: (booking: IntakeBooking): Promise<boolean> =>
       db.withTenant('indexer', { ...booking.tenant.scope, scope: 'project' }, async (tx) => {
         const chain = chainOf(booking.network);
@@ -282,6 +324,19 @@ export function mandateEventStore(db: Database, chainOf: (network: string) => st
           payload: booking.payload,
           finalizedAt: new Date(booking.closedAt),
         });
+        // The mirror of who holds which role, kept with the event that changed it, so a
+        // seat a principal makes straight on the contract counts as soon as it is read.
+        const change = roleChangeOf(booking.name, booking.payload);
+        if (event.created && event.id !== undefined && change !== null) {
+          const grant = {
+            mandateInstanceId: booking.tenant.mandateInstanceId,
+            role: change.role,
+            address: change.address,
+            eventId: event.id,
+          };
+          if (change.added) await instanceRoles.grant(tx, grant);
+          else await instanceRoles.revoke(tx, grant);
+        }
         if (event.created && event.id !== undefined && booking.payoutId !== null) {
           await payoutBookings.apply(tx, {
             mandateInstanceId: booking.tenant.mandateInstanceId,

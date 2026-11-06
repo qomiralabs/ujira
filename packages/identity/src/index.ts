@@ -43,7 +43,11 @@ export type { IdentityErrorCode, SessionRefusal } from './errors.js';
 export { evidenceAccepted, levelAcceptedForMode, sameDestination } from './evidence.js';
 export type { AttestedMode } from './evidence.js';
 export { canonicalCountryList, countryAllowed, countryPolicyHash } from './policy.js';
-export { NOT_RECEIVABLE_REASONS, railCatalogFromRegistry } from './ports.js';
+export {
+  NOT_RECEIVABLE_REASONS,
+  attestationChainsFromRegistry,
+  railCatalogFromRegistry,
+} from './ports.js';
 export type {
   AttestationChain,
   AttestationLog,
