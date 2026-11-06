@@ -81,6 +81,33 @@ export {
   withFee,
 } from './fee-builder.js';
 export type { AppliedFee, FeeBasis, FeeTerms, FeeTermsSource } from './fee-builder.js';
+export {
+  RETURN_FUNDS_BACKOFF,
+  RETURN_FUNDS_TASK,
+  ReturnFundsPayloadError,
+  bookSwept,
+  notifySweepRun,
+  returnFundsDelayMs,
+  returnFundsJobKey,
+  runReturnFunds,
+} from './return-funds.js';
+export type {
+  BookedSweep,
+  FundsReturnedMessage,
+  InflowState,
+  ReturnFundsAdapter,
+  ReturnFundsAlerts,
+  ReturnFundsDeps,
+  ReturnFundsFix,
+  ReturnFundsNotice,
+  ReturnFundsNotices,
+  ReturnFundsOutcome,
+  ReturnFundsPayload,
+  ReturnFundsStore,
+  SweepBookings,
+  SweepRunNotices,
+  SweptEvent,
+} from './return-funds.js';
 export { isTransferFailed, onTransferFailed, zeroFeeRequest } from './fee-fallback.js';
 export type {
   FeeFallbackAdapter,

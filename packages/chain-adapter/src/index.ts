@@ -104,6 +104,7 @@ export {
   mandateErrorName,
 } from './mandate-errors.js';
 export type { MandateErrorName } from './mandate-errors.js';
+export { SWEEP_GRACE_SECONDS } from './mandate-constants.js';
 export { PUBLIC_TEST_ATTESTER_KEYS, isPublicTestAttesterKey } from './test-attester-keys.js';
 export { pinnedKeys, verifyPinnedAddresses } from './key-ref.js';
 export type { PinnedKey } from './key-ref.js';

@@ -609,6 +609,29 @@ export class FakeChainAdapter implements ChainAdapter {
     });
   }
 
+  sweepToPrincipal(
+    req: { readonly scope: TenantScope; readonly mandate: MandateRef },
+    opts: CallOptions,
+  ): Promise<SubmissionRef> {
+    return this.#traced('sweepToPrincipal', async () => {
+      this.#reach(opts);
+      const engine = this.#mandate(req.scope, req.mandate);
+      return this.#withExecutor(opts, (lease, executor, nextSequence) => {
+        const run = (): unknown => engine.sweep({ caller: executor });
+        this.#simulate(run);
+        return this.#signAndSubmit(
+          req.scope,
+          { kind: 'executor', network: this.network, keyId: lease.keyId },
+          executor,
+          { op: 'sweep', mandate: engine.address, payoutId: null, attempt: null },
+          run,
+          opts,
+          nextSequence(),
+        );
+      });
+    });
+  }
+
   // -------------------------------------------------------------------------
   // Funding and deposits
 

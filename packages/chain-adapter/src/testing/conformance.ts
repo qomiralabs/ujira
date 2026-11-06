@@ -694,6 +694,47 @@ export function describeChainAdapter(
         await act(h, m.ref, { op: 'recovery_revoke' }, second, 'recovery');
         expect((await read()).state.revoked).toBe(true);
       });
+
+      it("returns a closed mandate's whole balance to its principal and to no one else", async () => {
+        const { h, m } = await setup();
+        const read = () => h.adapter.readMandate({ scope: h.scope, mandate: m.ref }, OPTS);
+        const sweep = (scope = h.scope) =>
+          h.adapter.sweepToPrincipal({ scope, mandate: m.ref }, OPTS);
+        // Open, nobody may sweep it, UJIRA included.
+        expect(await refusalOf(sweep())).toMatchObject({
+          code: 'MANDATE_RULE',
+          specName: 'MANDATE_ACTIVE',
+        });
+        await act(h, m.ref, { op: 'revoke' }, m.principal);
+        expect((await refusalOf(sweep(h.otherScope))).code).toBe('TENANT_MISMATCH');
+        const held = (await read()).state.balance.amount;
+        const principal = await h.balance(m.principal);
+        const others = await Promise.all(m.recipients.map((r) => h.balance(r.address)));
+        const ref = await sweep();
+        expect(ref.network).toBe(h.adapter.network);
+        expect((await h.balance(m.principal)) - principal).toBe(held);
+        expect(await Promise.all(m.recipients.map((r) => h.balance(r.address)))).toEqual(others);
+        expect((await read()).state.balance.amount).toBe(0n);
+        expect(await refusalOf(sweep())).toMatchObject({
+          code: 'MANDATE_RULE',
+          specName: 'NOTHING_TO_SWEEP',
+        });
+      });
+
+      it('waits out the grace after expiry and any principal change before a sweep', async () => {
+        const { h, m } = await setup();
+        const sweep = () => h.adapter.sweepToPrincipal({ scope: h.scope, mandate: m.ref }, OPTS);
+        const next = h.wallet('next-principal');
+        await act(h, m.ref, { op: 'propose_principal', proposed: next }, m.principal);
+        await h.advance(m.expiresAt - (await now(h)) + 1n);
+        expect(await refusalOf(sweep())).toMatchObject({ specName: 'PRINCIPAL_CHANGE_PENDING' });
+        await act(h, m.ref, { op: 'cancel_principal_proposal' }, m.principal);
+        expect(await refusalOf(sweep())).toMatchObject({ specName: 'SWEEP_GRACE_PERIOD' });
+        await h.advance(30n * DAY);
+        const principal = await h.balance(m.principal);
+        await sweep();
+        expect((await h.balance(m.principal)) - principal).toBe(CAP * 10n);
+      });
     });
 
     describe('the pay step function', () => {
@@ -1166,6 +1207,27 @@ export function describeChainAdapter(
         expect(error).toMatchObject({ code: 'MANDATE_RULE', specCode: 72, retryable: false });
         w.faults.transferFails(recipient, false);
         expect(last(await drive(w.h.adapter, req))?.kind).toBe('final');
+      });
+
+      it('refuses a sweep the principal cannot receive yet, with nothing sent', async () => {
+        const w = await withFaults();
+        await act(w.h, w.m.ref, { op: 'revoke' }, w.m.principal);
+        w.faults.transferFails(w.m.principal);
+        const moves = w.h.moves().length;
+        const sweep = () =>
+          w.h.adapter.sweepToPrincipal({ scope: w.h.scope, mandate: w.m.ref }, OPTS);
+        expect(await refusalOf(sweep())).toMatchObject({
+          code: 'MANDATE_RULE',
+          specName: 'TRANSFER_FAILED',
+          landed: 'no',
+        });
+        expect(w.h.moves()).toHaveLength(moves);
+        w.faults.transferFails(w.m.principal, false);
+        await sweep();
+        expect(
+          (await w.h.adapter.readMandate({ scope: w.h.scope, mandate: w.m.ref }, OPTS)).state
+            .balance.amount,
+        ).toBe(0n);
       });
     });
   });
