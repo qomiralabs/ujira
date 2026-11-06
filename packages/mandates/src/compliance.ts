@@ -25,6 +25,10 @@ export const WATCHED_MANDATE_EVENTS: ReadonlySet<string> = new Set([
   'principal_transferred',
 ]);
 
+/** Why a mandate stopped: its parked jobs are closed with this, not left blocked. */
+export const RETIRED_REASONS = Object.freeze(['mandate_revoked', 'mandate_expired'] as const);
+export type RetiredReason = (typeof RETIRED_REASONS)[number];
+
 /** What a parked job's status says. Not failed, and not retried in a loop. */
 export const BLOCKED_BY_POLICY = 'blocked_by_policy';
 
@@ -68,6 +72,15 @@ export interface ComplianceStore {
    * after the mark cleared, with nothing left to resume it.
    */
   parkIfNoncompliant(key: InstanceKey, jobId: string, opts: PortCallOptions): Promise<boolean>;
+  /**
+   * In one transaction with the mark: closes the instance's parked jobs with the reason
+   * and drops its mark, with no notice. Returns the jobs it closed, none on a replay.
+   */
+  closeOut(
+    key: InstanceKey,
+    reason: RetiredReason,
+    opts: PortCallOptions,
+  ): Promise<readonly string[]>;
 }
 
 export interface ComplianceDeps extends PrincipalKeyDeps {
@@ -146,6 +159,44 @@ export async function servableInstances<T extends { readonly key: InstanceKey }>
   return Object.freeze(servable);
 }
 
+export interface RetiredOutcome {
+  /** The jobs closed, for the payouts they belong to to be reported with the reason. */
+  readonly closedJobs: readonly string[];
+  /** Other mandates of the principal that changed state without this one. */
+  readonly notices: readonly ComplianceNotice[];
+}
+
+/**
+ * Called when a mandate is revoked or expires. Its parked jobs can never resume, so they
+ * are closed with the reason, and its mark goes with no notice: it did not become
+ * compliant, it stopped. The principal is then checked again without it, because its
+ * budget no longer counts toward the line and another mandate may clear. The retired
+ * instance is left out of that check whatever the instance list still says, so it can
+ * never be marked again. A failed check throws with the close out kept, and running this
+ * again finishes it.
+ */
+export async function onMandateRetired(
+  key: InstanceKey,
+  reason: RetiredReason,
+  deps: ComplianceDeps,
+): Promise<RetiredOutcome> {
+  const closedJobs = await callPort(
+    (opts) => deps.compliance.closeOut(key, reason, opts),
+    deps.timeoutMs,
+  );
+  const without: ComplianceDeps = {
+    ...deps,
+    instances: {
+      list: async (principalId, opts) =>
+        (await deps.instances.list(principalId, opts)).filter(
+          (instance) => instance.instanceId !== key.instanceId,
+        ),
+    },
+  };
+  const notices = await recheckPrincipal(key.principalId, without);
+  return Object.freeze({ closedJobs, notices });
+}
+
 export type SubmissionDecision =
   | { readonly action: 'submit' }
   | { readonly action: 'park'; readonly status: typeof BLOCKED_BY_POLICY };
@@ -172,6 +223,8 @@ export interface MemoryComplianceStore extends ComplianceStore {
   readonly notices: readonly ComplianceNotice[];
   /** Jobs resumed so far, in order. */
   readonly resumed: readonly string[];
+  /** Jobs closed out so far, in order, with why. */
+  readonly closed: readonly { readonly jobId: string; readonly reason: RetiredReason }[];
   /** Jobs parked now, for one instance. */
   parked(key: InstanceKey): readonly string[];
 }
@@ -181,11 +234,13 @@ export function createMemoryComplianceStore(): MemoryComplianceStore {
   const parked = new Map<string, Set<string>>();
   const notices: ComplianceNotice[] = [];
   const resumed: string[] = [];
+  const closed: { jobId: string; reason: RetiredReason }[] = [];
   const keyOf = (key: InstanceKey): string =>
     JSON.stringify([key.principalId, key.projectId, key.instanceId]);
   return {
     notices,
     resumed,
+    closed,
     read(key) {
       return Promise.resolve(marks.get(keyOf(key)) ?? null);
     },
@@ -207,6 +262,14 @@ export function createMemoryComplianceStore(): MemoryComplianceStore {
       if (!marks.has(id)) return Promise.resolve(false);
       parked.set(id, (parked.get(id) ?? new Set<string>()).add(jobId));
       return Promise.resolve(true);
+    },
+    closeOut(key, reason) {
+      const id = keyOf(key);
+      marks.delete(id);
+      const jobs = [...(parked.get(id) ?? [])];
+      parked.delete(id);
+      closed.push(...jobs.map((jobId) => ({ jobId, reason })));
+      return Promise.resolve(Object.freeze(jobs));
     },
     parked(key) {
       return [...(parked.get(keyOf(key)) ?? [])];

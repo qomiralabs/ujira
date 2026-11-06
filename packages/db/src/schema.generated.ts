@@ -255,6 +255,8 @@ export interface UjiraComplianceNotices {
 }
 
 export interface UjiraComplianceParkedJobs {
+  close_reason: string | null;
+  closed_at: Timestamp | null;
   job_id: string;
   mandate_instance_id: string;
   parked_at: Generated<Timestamp>;
@@ -479,6 +481,7 @@ export interface UjiraMandateInstances {
   recipient_mode: string | null;
   scale: number;
   spec_version: string;
+  status: Generated<string>;
 }
 
 export interface UjiraMandates {
@@ -670,6 +673,7 @@ export interface UjiraProjects {
   created_at: Generated<Timestamp>;
   funding_hold_max_seconds: Generated<Int8>;
   id: Generated<string>;
+  identity_settings: Json | null;
   name: string;
   principal_id: string;
   updated_at: Generated<Timestamp>;
