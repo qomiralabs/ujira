@@ -151,6 +151,31 @@ describe('POST /v1/payouts', () => {
     expect(store.scheduled).toHaveLength(1);
   });
 
+  it('refuses another payout under a key whose stored answer is gone', async () => {
+    const store = memoryPayouts();
+    const parties = knownParties(store);
+    const key = randomUUID();
+    const first = await payoutWorld({ records: store }).request(
+      'POST',
+      '/v1/payouts',
+      { ...parties, amount: TEN_DOLLARS },
+      { [KEY]: key },
+    );
+    expect(first.status).toBe(202);
+    // A fresh idempotency store is the stored answer expired, so only the payout's
+    // own constraint is left to tell the second request apart.
+    const { request } = payoutWorld({ records: store });
+    const other = await request(
+      'POST',
+      '/v1/payouts',
+      { ...parties, amount: { ...TEN_DOLLARS, amount: '2000' } },
+      { [KEY]: key },
+    );
+    expect(other.status).toBe(422);
+    expect((await problemOf(other)).code).toBe('IDEMPOTENCY_KEY_REUSED');
+    expect(store.scheduled).toHaveLength(1);
+  });
+
   it('needs an Idempotency-Key', async () => {
     const store = memoryPayouts();
     const { app } = payoutWorld({ records: store });
