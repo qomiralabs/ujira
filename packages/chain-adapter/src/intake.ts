@@ -11,6 +11,11 @@
 // mandate or the principal called the factory directly. A mandate UJIRA just
 // created counts as registered when its event has been read and not before:
 // there is no second way in for a bug or an attacker to reach.
+//
+// The same holds for a tenant's mandate instance. It becomes active only here, once
+// a trusted factory's creation of its contract is read under its tenant's tag, and
+// it follows the mandate's own pause, resume and revocation after that. Nothing an
+// API call does can make an instance pay.
 
 import type { NetworkId } from './networks.js';
 import { isPublicTestAttesterKey } from './test-attester-keys.js';
@@ -69,6 +74,33 @@ export interface EventBooking {
   readonly payoutId: Bytes32 | null;
 }
 
+/** How the chain moves a tenant's mandate instance through its life. */
+export type InstanceMove = 'created' | 'paused' | 'resumed' | 'revoked';
+
+/**
+ * Each move, the states it starts from and the one it ends in. A move from any other
+ * state changes nothing, so a replayed or out of turn event cannot undo a later one,
+ * and nothing brings a revoked mandate back.
+ */
+export const INSTANCE_MOVES: Readonly<
+  Record<InstanceMove, { readonly from: readonly string[]; readonly to: string }>
+> = Object.freeze({
+  created: Object.freeze({ from: Object.freeze(['deploying', 'deploy_failed']), to: 'active' }),
+  paused: Object.freeze({ from: Object.freeze(['active']), to: 'paused' }),
+  resumed: Object.freeze({ from: Object.freeze(['paused']), to: 'active' }),
+  revoked: Object.freeze({
+    from: Object.freeze(['deploying', 'deploy_failed', 'active', 'paused', 'expired']),
+    to: 'revoked',
+  }),
+});
+
+/** The mandate events that move its instance. */
+const LIFECYCLE_EVENTS: Readonly<Record<string, InstanceMove>> = Object.freeze({
+  paused: 'paused',
+  resumed: 'resumed',
+  revoked: 'revoked',
+});
+
 /** Why a mandate was flagged, which is what operations is told. */
 export type MandateFlagReason = 'tenant_tag_mismatch' | 'public_test_attester';
 
@@ -83,6 +115,11 @@ export interface EventIntakeStore {
   flag(network: NetworkId, contractId: string, reason: MandateFlagReason): Promise<void>;
   /** The tenant that claims this contract, or null when none has. */
   tenantOf(network: NetworkId, contractId: string): Promise<MandateTenant | null>;
+  /**
+   * Moves the claimed instance as INSTANCE_MOVES says, and only from a state the
+   * move starts from. True when this call moved it.
+   */
+  moveInstance(tenant: MandateTenant, move: InstanceMove): Promise<boolean>;
   /**
    * Stores the event and moves its payout in one transaction. Unique on chain,
    * transaction and event index, and a payout on chain, contract and payout ID.
@@ -201,9 +238,12 @@ export function createEventIntake(options: EventIntakeOptions): EventIntake {
       eventIndex: event.eventIndex,
       ledger: event.ledger,
     });
-    if ((await tenantOf(mandate, event.key)) === 'flagged') {
-      return { action: 'flagged', contractId: mandate };
-    }
+    const tenant = await tenantOf(mandate, event.key);
+    if (tenant === 'flagged') return { action: 'flagged', contractId: mandate };
+    // The tag was recomputed for the tenant that claims the contract, so the chain has
+    // now confirmed this tenant's mandate. A contract claimed later becomes active on
+    // its next event instead, below.
+    if (tenant !== 'unattributed') await store.moveInstance(tenant, 'created');
     return { action: 'registered', contractId: mandate, created };
   }
 
@@ -236,6 +276,12 @@ export function createEventIntake(options: EventIntakeOptions): EventIntake {
       payload: { ...fields, [keyField]: key },
       payoutId: PAYOUT_MOVES.has(name) ? key : null,
     });
+    // Registered by a trusted factory under this tenant's tag, so its creation is
+    // confirmed, whenever the tenant's claim arrived.
+    await store.moveInstance(tenant, 'created');
+    // Only a new event moves it, so reading a range again cannot undo a later move.
+    const move = LIFECYCLE_EVENTS[name];
+    if (created && move !== undefined) await store.moveInstance(tenant, move);
     return { action: 'booked', created };
   }
 

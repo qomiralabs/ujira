@@ -1,0 +1,16 @@
+{
+  "repository": "qomiralabs/ujira-contracts",
+  "commit": "952b8554c18d55ffd04c2b14be71c02a326b63db",
+  "soroban_tree": "91e6732a4ff415fd48025897db622d0463a2eb99",
+  "note": "Built with stellar contract build --locked from that tree. The same bytes as deployed on testnet, as deployments/testnet.json records.",
+  "files": [
+    {
+      "path": "ujira_factory.wasm",
+      "sha256": "4ec32aca58ed53ccf4f7ca74818f765d5b0aeaafd169c4335c6eb69b22804361"
+    },
+    {
+      "path": "ujira_mandate.wasm",
+      "sha256": "47c93c212957b859995331ba0f1683b4f6dcb04802d51a378e8eaa3131fef61a"
+    }
+  ]
+}
