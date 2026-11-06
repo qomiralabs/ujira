@@ -22,6 +22,7 @@ const repo = vi.hoisted(() => ({
   register: vi.fn(),
   flag: vi.fn(),
   tenantOf: vi.fn(),
+  moveInstance: vi.fn(),
   book: vi.fn(),
   chainOf: vi.fn(),
 }));
@@ -37,6 +38,7 @@ vi.mock('@ujira/db', () => ({
       register: repo.register,
       flag: repo.flag,
       tenantOf: repo.tenantOf,
+      moveInstance: repo.moveInstance,
       book: repo.book,
     };
   },
@@ -133,6 +135,14 @@ describe('the intake store', () => {
     };
     expect(await store.register(added)).toBe(true);
     expect(repo.register).toHaveBeenCalledWith(added);
+  });
+
+  it('moves an instance under the tenant intake resolved, and says whether it moved', async () => {
+    const store = dbIntakeStore(database().db);
+    repo.moveInstance.mockResolvedValue(true);
+    const tenant = { scope, mandateInstanceId: 'instance-1' };
+    expect(await store.moveInstance(tenant, 'created')).toBe(true);
+    expect(repo.moveInstance).toHaveBeenCalledWith(tenant, 'created');
   });
 
   it('passes a flag through with its reason', async () => {

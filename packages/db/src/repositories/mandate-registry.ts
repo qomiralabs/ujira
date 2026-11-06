@@ -7,12 +7,13 @@
 // is the only one that can add to it. A booking is a tenant's row, and a contract
 // is part of its key.
 
+import type { InstanceMove } from '@ujira/chain-adapter';
 import { sql, type Kysely } from 'kysely';
 
 import type { Database, ProjectContext } from '../database.js';
 import type { Schema } from '../schema.generated.js';
 import { entryPoints } from './entry-points.js';
-import { chainEvents } from './mandates.js';
+import { chainEvents, mandateInstances } from './mandates.js';
 import { checkedLimit, pageOf, type Page, type PageRequest } from './page.js';
 
 type Tx = Kysely<Schema>;
@@ -269,6 +270,11 @@ export function mandateEventStore(db: Database, chainOf: (network: string) => st
         mandateInstanceId: found.mandateInstanceId,
       };
     },
+    // Under the instance's own tenant, so the indexer can move no other.
+    moveInstance: (tenant: IntakeTenant, move: InstanceMove): Promise<boolean> =>
+      db.withTenant('indexer', { ...tenant.scope, scope: 'project' }, async (tx) =>
+        mandateInstances.move(tx, tenant.mandateInstanceId, move),
+      ),
     book: (booking: IntakeBooking): Promise<boolean> =>
       db.withTenant('indexer', { ...booking.tenant.scope, scope: 'project' }, async (tx) => {
         const chain = chainOf(booking.network);
