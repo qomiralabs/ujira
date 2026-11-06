@@ -291,6 +291,31 @@ export {
   type ParkedJob,
 } from './repositories/compliance.js';
 export {
+  HeldPayoutUnreadableError,
+  RouteLegMethodError,
+  UnsupportedSpecVersionError,
+  createRouteStores,
+  type RouteStoreOptions,
+  type RouteStores,
+} from './route-stores.js';
+export {
+  routing,
+  type HeldRow,
+  type InstanceOfMandate,
+  type UsableMethod,
+} from './repositories/routing.js';
+export {
+  FeeAttemptLandedError,
+  FeeAttemptUnknownError,
+  FeeResendNotDecidedError,
+  feeAddressAlarms,
+  feeFallback,
+  type FeeAddressAlarmReason,
+  type FeeResend,
+  type NewFeeResend,
+  type UnpaidFeeItem,
+} from './repositories/fee-fallback.js';
+export {
   SeatRecipientModeUnknownError,
   createManagedAgentPorts,
   type ManagedAgentPorts,
