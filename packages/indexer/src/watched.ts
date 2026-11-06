@@ -7,13 +7,12 @@
 // The chain adapter still checks what comes back against the registry before it
 // believes any of it.
 
-import {
-  chainOf,
-  type ChainAddress,
-  type DepositScanRequest,
-  type NetworkId,
-  type TenantScope,
-  type WatchedMandate,
+import type {
+  ChainAddress,
+  DepositScanRequest,
+  NetworkId,
+  TenantScope,
+  WatchedMandate,
 } from '@ujira/chain-adapter';
 import { isTokenAsset } from '@ujira/core';
 import { entryPoints, type Database } from '@ujira/db';
@@ -63,7 +62,8 @@ export function dbWatchedAddresses(
     const [only, ...others] = account.instances;
     if (only === undefined) return refuse(address, 'no_mandate');
     // Which of several a deposit is for cannot be told from the transfer. Picking one
-    // could sweep a principal's money into the wrong mandate.
+    // could sweep a principal's money into the wrong mandate. The key on the account
+    // should make this impossible, and this decides where money goes, so it stays.
     if (others.length > 0) return refuse(address, 'several_mandates');
     if (!isTokenAsset(only.asset)) return refuse(address, 'unknown_asset');
     return {
@@ -82,7 +82,7 @@ export function dbWatchedAddresses(
   return async (asked: ChainAddress) => {
     if (asked.network !== network) return null;
     const instance = await db.unscoped(
-      (tx) => entryPoints.resolveMandateInstance(tx, chainOf(network), asked.value),
+      (tx) => entryPoints.resolveMandateInstance(tx, network, asked.value),
       'indexer',
     );
     if (instance === undefined) return forwardingAccount(asked.value);

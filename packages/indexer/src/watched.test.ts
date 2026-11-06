@@ -80,7 +80,8 @@ describe('a mandate address', () => {
       mandate: { network: NETWORK, address: asMandate, specVersion: 1 },
       asset: 'USDC',
     });
-    expect(repo.resolveMandateInstance).toHaveBeenCalledWith(w.tx, 'stellar', CONTRACT);
+    // The network, not its chain, so an address on one network never matches another.
+    expect(repo.resolveMandateInstance).toHaveBeenCalledWith(w.tx, NETWORK, CONTRACT);
     expect(repo.resolveFundingAddress).not.toHaveBeenCalled();
     expect(w.roles).toEqual(['indexer']);
   });

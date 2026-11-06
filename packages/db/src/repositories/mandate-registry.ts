@@ -261,7 +261,7 @@ export function mandateEventStore(db: Database, chainOf: (network: string) => st
     },
     tenantOf: async (network: string, contractId: string): Promise<IntakeTenant | null> => {
       const found = await indexer((tx) =>
-        entryPoints.resolveMandateInstance(tx, chainOf(network), contractId),
+        entryPoints.resolveMandateInstance(tx, network, contractId),
       );
       if (found === undefined) return null;
       return {

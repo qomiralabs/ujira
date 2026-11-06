@@ -17,3 +17,22 @@ export function operationsGuardianOf(
   const value = config[network]?.operationsGuardian;
   return value === undefined ? null : Object.freeze({ network, value });
 }
+
+/**
+ * Every address that has served as a network's operations guardian, the current
+ * one first, or none when the network is not configured. A mandate made before a
+ * rotation holds an older one, which is still UJIRA's guardian on that mandate.
+ */
+export function operationsGuardiansOf(
+  config: NetworksConfig,
+  network: NetworkId,
+): readonly ChainAddress[] {
+  const section = config[network];
+  if (section === undefined) return Object.freeze([]);
+  const current = section.operationsGuardian === undefined ? [] : [section.operationsGuardian];
+  return Object.freeze(
+    [...current, ...section.retiredOperationsGuardians].map((value) =>
+      Object.freeze({ network, value }),
+    ),
+  );
+}

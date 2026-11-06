@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
 import type { Database, ProjectContext } from './database.js';
 import type { Schema } from './schema.generated.js';
+import { compliance, complianceRepositories } from './repositories/compliance.js';
 import { audit, auditRepositories } from './repositories/audit.js';
 import { entryPoints } from './repositories/entry-points.js';
 import { fundingAccountRepositories, fundingAccounts } from './repositories/funding-accounts.js';
@@ -107,6 +108,7 @@ interface Tenant {
 }
 
 const REPOSITORIES = {
+  ...complianceRepositories,
   ...tenancyRepositories,
   ...mandateRepositories,
   ...fundingAccountRepositories,
@@ -515,6 +517,36 @@ const acrossA = async <T>(work: (tx: Kysely<Schema>) => Promise<T>): Promise<T> 
 
 // One case per repository method, each run as tenant A.
 const cases: Record<string, () => Promise<void>> = {
+  'compliance.mark': async () => {
+    expect(await acrossA(async (tx) => compliance.mark(tx, b.instanceId))).toBeUndefined();
+  },
+  'compliance.applyMark': async () => {
+    const notice = { to: 'compliant' as const, at: new Date(), fixes: [] };
+    expect(await asA(async (tx) => compliance.applyMark(tx, b.instanceId, null, notice))).toBe(
+      false,
+    );
+    await expect(
+      asA(async (tx) =>
+        compliance.applyMark(
+          tx,
+          b.instanceId,
+          { reason: 'principal_key_risk', since: new Date() },
+          { ...notice, to: 'noncompliant' },
+        ),
+      ),
+    ).rejects.toMatchObject({ code: '23503' });
+  },
+  'compliance.parkIfNoncompliant': async () => {
+    expect(await asA(async (tx) => compliance.parkIfNoncompliant(tx, b.instanceId, 'job'))).toBe(
+      false,
+    );
+  },
+  'compliance.parkedJobs': async () => {
+    expect(await acrossA(async (tx) => compliance.parkedJobs(tx, b.instanceId))).toEqual([]);
+  },
+  'compliance.notices': async () => {
+    expect(await acrossA(async (tx) => compliance.notices(tx, b.instanceId))).toEqual([]);
+  },
   'principals.current': async () => {
     const found = await asA(async (tx) => principals.current(tx));
     expect(found?.id).toBe(a.first.principalId);
@@ -787,8 +819,9 @@ const cases: Record<string, () => Promise<void>> = {
   'fundingAccounts.forNetwork': async () => {
     const seen = await asA(async (tx) => fundingAccounts.forNetwork(tx, 'stellar:testnet'));
     expect(seen?.id).toBe(a.fundingAccountId);
+    // Accounts are one per project, so a read across projects has no one answer.
     const across = await acrossA(async (tx) => fundingAccounts.forNetwork(tx, 'stellar:testnet'));
-    expect(across?.id).toBe(a.fundingAccountId);
+    expect(across).toBeUndefined();
   },
   'fundingAccounts.record': async () => {
     const saved = await asA(async (tx) =>

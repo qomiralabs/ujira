@@ -95,22 +95,20 @@ beforeEach(() => {
 });
 
 describe('db-store.test.ts', () => {
-  describe('accounts.forPrincipal', () => {
-    it('reads across the principal on the app connection, and maps the row', async () => {
+  describe('accounts.forProject', () => {
+    it("reads under the project's own session, and maps the row", async () => {
       const { db, opened } = database();
       repo.forNetwork.mockResolvedValue(row);
-      const found = await createDbFundingAccountStores(db).accounts.forPrincipal(scope, NETWORK);
+      const found = await createDbFundingAccountStores(db).accounts.forProject(scope, NETWORK);
       expect(found).toEqual(record);
-      expect(opened).toEqual([{ session: 'principal', context: scope, role: 'app' }]);
+      expect(opened).toEqual([{ session: 'tenant', context: scope }]);
       expect(repo.forNetwork).toHaveBeenCalledWith('tx', NETWORK);
     });
 
     it('answers null where there is no account', async () => {
       const { db } = database();
       repo.forNetwork.mockResolvedValue(undefined);
-      expect(
-        await createDbFundingAccountStores(db).accounts.forPrincipal(scope, NETWORK),
-      ).toBeNull();
+      expect(await createDbFundingAccountStores(db).accounts.forProject(scope, NETWORK)).toBeNull();
     });
   });
 
