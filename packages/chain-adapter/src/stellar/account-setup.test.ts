@@ -4,6 +4,7 @@
 // The setup and check of the channel and fee sponsor accounts, over a ledger in
 // memory that checks signatures against the thresholds as the network does.
 
+import { xdr } from '@stellar/stellar-base';
 import { describe, expect, it } from 'vitest';
 
 import { InvalidInputError } from '../errors.js';
@@ -81,7 +82,7 @@ describe('account-setup.test.ts', () => {
     const built = buildLayoutTransaction({
       network: NETWORK,
       account: address,
-      sequence: (held?.sequence ?? 0n) + 1n,
+      accountSequence: held?.sequence ?? 0n,
       state: {
         masterWeight: 0,
         low: 1,
@@ -96,9 +97,14 @@ describe('account-setup.test.ts', () => {
       nowSeconds: 1_800_000_000,
     });
     const signed = await w.ledger.sign('channel-1-managed', built.xdr);
+    // Its weight meets the low threshold, so the network takes the transaction
+    // and fails the operation, which needs the high one.
     const sent = await w.ledger.rpc.sendTransaction(signed, OPTS);
-    expect(sent.status).toBe('ERROR');
-    expect(resultCodeOf(sent.errorResultXdr)).toBe('tx_bad_auth');
+    expect(sent.status).toBe('PENDING');
+    const landed = await w.ledger.rpc.getTransaction(sent.hash, OPTS);
+    expect(landed.status).toBe('FAILED');
+    expect(resultCodeOf(landed.resultXdr)).toBe('op_bad_auth');
+    expect(w.ledger.account(address)?.signers.has(w.want.managed)).toBe(true);
   });
 
   it('reports what differs and nothing for an account in the layout', async () => {
@@ -139,5 +145,18 @@ describe('account-setup.test.ts', () => {
     expect((error as InvalidInputError).issues).toEqual(['transaction (tx_bad_auth)']);
     expect(resultCodeOf(undefined)).toBe('unknown');
     expect(resultCodeOf('not xdr')).toBe('unreadable');
+    const failedInside = new xdr.TransactionResult({
+      feeCharged: xdr.Int64.fromString('200'),
+      result: xdr.TransactionResultResult.txFailed([
+        xdr.OperationResult.opInner(
+          xdr.OperationResultTr.setOptions(xdr.SetOptionsResult.setOptionsSuccess()),
+        ),
+        xdr.OperationResult.opInner(
+          xdr.OperationResultTr.setOptions(xdr.SetOptionsResult.setOptionsTooManySigners()),
+        ),
+      ]),
+      ext: new xdr.TransactionResultExt(0),
+    }).toXDR('base64');
+    expect(resultCodeOf(failedInside)).toBe('set_options_too_many_signers');
   });
 });

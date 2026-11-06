@@ -2,9 +2,9 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 // A testnet ledger in memory, for the account setup's tests. It holds classic
-// accounts, checks a transaction's signatures against the high threshold as the
-// network does for a change of signers, and applies SetOptions. Keys are random
-// and live only in memory.
+// accounts, checks a transaction's signatures as the network does (the envelope
+// against the low threshold, a change of signers against the high one), and
+// applies SetOptions. Keys are random and live only in memory.
 
 import { Keypair, Networks, StrKey, TransactionBuilder, xdr } from '@stellar/stellar-base';
 import type { Operation, Transaction } from '@stellar/stellar-base';
@@ -34,10 +34,10 @@ export interface MemoryAccountLedger {
   account(address: string): Readonly<HeldAccount> | undefined;
 }
 
-function badAuth(): string {
+function refused(result: xdr.TransactionResultResult): string {
   return new xdr.TransactionResult({
     feeCharged: xdr.Int64.fromString('100'),
-    result: xdr.TransactionResultResult.txBadAuth(),
+    result,
     ext: new xdr.TransactionResultExt(0),
   }).toXDR('base64');
 }
@@ -138,17 +138,36 @@ export function createMemoryAccountLedger(): MemoryAccountLedger {
         const tx = TransactionBuilder.fromXDR(txXdr, Networks.TESTNET) as Transaction;
         const hash = tx.hash().toString('hex');
         const held = accounts.get(tx.source);
-        // Every operation here changes signers or thresholds, which takes the
-        // high threshold. A threshold of 0 still takes a signature of some weight.
-        const needed = Math.max(held?.high ?? 1, 1);
-        if (held === undefined || weightSigned(tx, tx.source, held) < needed) {
-          return Promise.resolve({ status: 'ERROR', hash, errorResultXdr: badAuth() });
+        if (held === undefined) {
+          const errorResultXdr = refused(xdr.TransactionResultResult.txNoAccount());
+          return Promise.resolve({ status: 'ERROR', hash, errorResultXdr });
         }
+        // The order the network checks in: the sequence, then the envelope's
+        // signatures against the low threshold. A threshold of 0 still takes a
+        // signature of some weight.
+        if (BigInt(tx.sequence) !== held.sequence + 1n) {
+          const errorResultXdr = refused(xdr.TransactionResultResult.txBadSeq());
+          return Promise.resolve({ status: 'ERROR', hash, errorResultXdr });
+        }
+        const weight = weightSigned(tx, tx.source, held);
+        if (weight < Math.max(held.low, 1)) {
+          const errorResultXdr = refused(xdr.TransactionResultResult.txBadAuth());
+          return Promise.resolve({ status: 'ERROR', hash, errorResultXdr });
+        }
+        // Accepted, so it lands and uses the sequence even if it then fails.
+        // Every operation here changes signers or thresholds, which takes the
+        // high threshold; short of it the operation fails, not the envelope.
         held.sequence = BigInt(tx.sequence);
+        ledger += 1;
+        if (weight < Math.max(held.high, 1)) {
+          const ops = tx.operations.map(() => xdr.OperationResult.opBadAuth());
+          const resultXdr = refused(xdr.TransactionResultResult.txFailed(ops));
+          results.set(hash, { status: 'FAILED', ledger, resultXdr });
+          return Promise.resolve({ status: 'PENDING', hash });
+        }
         for (const op of tx.operations) {
           if (op.type === 'setOptions') apply(held, op);
         }
-        ledger += 1;
         results.set(hash, { status: 'SUCCESS', ledger });
         return Promise.resolve({ status: 'PENDING', hash });
       },

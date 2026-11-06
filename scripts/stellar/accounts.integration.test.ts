@@ -69,21 +69,21 @@ describe.skipIf(!enabled)('accounts.integration.test.ts', { timeout: 180_000 }, 
     throw new Error('the transaction did not land');
   }
 
-  it('a SetOptions signed only by the managed key fails with tx_bad_auth', async () => {
+  it('a SetOptions signed only by the managed key fails with op_bad_auth', async () => {
     const account = await current();
     if (plan === undefined) return;
     const intruder = await deps.keys.ensure('ujira-testnet-integration-intruder');
     const built = buildLayoutTransaction({
       network: NETWORK,
       account: account.address,
-      sequence: account.sequence + 1n,
+      accountSequence: account.sequence,
       state: account.state,
       want: { managed: intruder, recovery: account.recovery },
       nowSeconds: deps.nowSeconds(),
     });
     const result = await send(await deps.keys.sign(plan.managedKey, built.xdr));
     process.stdout.write(`managed only: ${result.hash} ${result.code}\n`);
-    expect(result.code).toBe('tx_bad_auth');
+    expect(result.code).toBe('op_bad_auth');
   });
 
   it('recovery signer replaces the managed signer, address unchanged', async () => {
@@ -93,7 +93,7 @@ describe.skipIf(!enabled)('accounts.integration.test.ts', { timeout: 180_000 }, 
     const rotate = buildLayoutTransaction({
       network: NETWORK,
       account: before.address,
-      sequence: before.sequence + 1n,
+      accountSequence: before.sequence,
       state: before.state,
       want: { managed: replacement, recovery: before.recovery },
       nowSeconds: deps.nowSeconds(),
@@ -117,7 +117,7 @@ describe.skipIf(!enabled)('accounts.integration.test.ts', { timeout: 180_000 }, 
     const restore = buildLayoutTransaction({
       network: NETWORK,
       account: middle.address,
-      sequence: middle.sequence + 1n,
+      accountSequence: middle.sequence,
       state: middle.state,
       want: { managed: before.managed, recovery: before.recovery },
       nowSeconds: deps.nowSeconds(),

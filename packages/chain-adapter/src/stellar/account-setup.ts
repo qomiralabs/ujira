@@ -144,7 +144,8 @@ function signerFor(state: AccountLayoutState, want: SignerLayout): 'master' | 'r
 export function buildLayoutTransaction(input: {
   readonly network: string;
   readonly account: string;
-  readonly sequence: bigint;
+  /** The account's sequence as the ledger holds it; the transaction takes the next one. */
+  readonly accountSequence: bigint;
   readonly state: AccountLayoutState;
   readonly want: SignerLayout;
   readonly nowSeconds: number;
@@ -183,7 +184,8 @@ export function buildLayoutTransaction(input: {
       highThreshold: ACCOUNT_LAYOUT.high,
     }),
   );
-  const builder = new TransactionBuilder(new Account(input.account, input.sequence.toString()), {
+  const source = new Account(input.account, input.accountSequence.toString());
+  const builder = new TransactionBuilder(source, {
     fee: String(FEE_PER_OPERATION),
     networkPassphrase: Networks.TESTNET,
     timebounds: { minTime: 0, maxTime: input.nowSeconds + VALID_FOR_SECONDS },
@@ -300,7 +302,7 @@ export async function setUpAccounts(
     const built = buildLayoutTransaction({
       network,
       account: account.address,
-      sequence: found.sequence + 1n,
+      accountSequence: found.sequence,
       state: found.state,
       want: request.want,
       nowSeconds: ports.nowSeconds(),
@@ -364,15 +366,28 @@ export async function verifyAccounts(
   return results;
 }
 
+const snakeCase = (name: string): string =>
+  name.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+
 /**
- * A transaction result code from its XDR, in lower snake case (tx_bad_auth),
- * which is how Horizon and the docs spell it and the only form an error issue takes.
+ * Why a transaction failed, from its result XDR, in lower snake case
+ * (tx_bad_auth), which is how Horizon and the docs spell it and the only form an
+ * error issue takes. For tx_failed it names the first operation that failed
+ * instead, since that is the answer: a signer change signed under the high
+ * threshold lands and fails as op_bad_auth, not tx_bad_auth.
  */
 export function resultCodeOf(resultXdr: string | undefined): string {
   if (resultXdr === undefined) return 'unknown';
   try {
-    const name = xdr.TransactionResult.fromXDR(resultXdr, 'base64').result().switch().name;
-    return name.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+    const result = xdr.TransactionResult.fromXDR(resultXdr, 'base64').result();
+    const name = result.switch().name;
+    if (name !== 'txFailed') return snakeCase(name);
+    for (const op of result.results()) {
+      if (op.switch().name !== 'opInner') return snakeCase(op.switch().name);
+      const inner = op.tr().value().switch().name;
+      if (!inner.endsWith('Success')) return snakeCase(inner);
+    }
+    return snakeCase(name);
   } catch {
     return 'unreadable';
   }
