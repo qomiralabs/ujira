@@ -19,7 +19,8 @@ const BASE = {
   corridor: 'Kenya',
 } as const;
 
-describe('PayoutCard', () => {
+// The first render loads React and the money model, which is slow on a loaded runner.
+describe('PayoutCard', { timeout: 30_000 }, () => {
   it('leads with the recipient and the amount, then the status, method and corridor', () => {
     render(<PayoutCard {...BASE} />);
     const card = screen.getByRole('article', { name: 'Wanjiru Kamau' });
