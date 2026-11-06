@@ -74,6 +74,7 @@ describe('the stellar entry', { timeout: 30_000 }, () => {
       'ledgerEventOf',
       'mandateAddressOf',
       'parseForwarderRequest',
+      'readStellarPrincipalSigning',
       'reflectorOracleSource',
       'scanLedgerEvents',
       'stellarFundingView',
