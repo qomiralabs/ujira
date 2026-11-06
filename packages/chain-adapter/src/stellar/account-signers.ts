@@ -15,6 +15,7 @@ import { StrKey } from '@stellar/stellar-base';
 import { InvalidInputError } from '../errors.js';
 import type { StellarNetworkId } from '../networks.js';
 import type { CallOptions } from '../types.js';
+import type { StellarAccountEntry } from './account-rules.js';
 import type { StellarLedgerReader } from './check-destination.js';
 
 export interface StellarAccountSigners {
@@ -46,6 +47,34 @@ export function stellarMinimumSignatures(account: StellarAccountSigners): number
     if (total >= needed) return index + 1;
   }
   return null;
+}
+
+/**
+ * Whether the signatures on a classic account's own transaction authorize its
+ * contract call, given which key made each one (null for none the account
+ * lists). The call is checked at medium and the envelope at low, so both must
+ * be met. Only keys count here, the master key at its own weight; a signature
+ * no listed key of weight made, or a second from the same key, is refused, as
+ * the network refuses a signature it has no use for.
+ */
+export function signaturesAuthorize(
+  account: StellarAccountEntry,
+  signedBy: readonly (string | null)[],
+): boolean {
+  const weights = new Map<string, number>([[account.accountId, account.masterWeight]]);
+  for (const signer of account.signers) {
+    if (signer.kind === 'ed25519') weights.set(signer.key, signer.weight);
+  }
+  const seen = new Set<string>();
+  let total = 0;
+  for (const key of signedBy) {
+    const weight = key === null ? 0 : (weights.get(key) ?? 0);
+    if (key === null || weight === 0 || seen.has(key)) return false;
+    seen.add(key);
+    total += weight;
+  }
+  const { low, medium } = account.thresholds;
+  return seen.size > 0 && total >= Math.max(low, medium, 1);
 }
 
 /** How a principal signs, in the shape the principal key gate reads. */
