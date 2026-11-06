@@ -9,6 +9,10 @@
 // House style: sentence case, plain words, no filler. A label says what the
 // control does. Where a person chooses between things we named, every choice
 // carries one short line saying what it is.
+//
+// Keys under method.bank, method.mobile, method.cash and their destination
+// keys are read by someone paid in their own currency: they never mention
+// USDC, a chain or a token. A test holds that line.
 
 export const en = {
   'widget.label': 'Get set up to be paid',
@@ -16,6 +20,11 @@ export const en = {
   'widget.back': 'Back',
   'widget.back.name': 'Back to {step}',
   'widget.busy': 'Saving your answer',
+  'widget.loading': 'Getting things ready',
+  'widget.loadFailed': 'We could not connect. Check your internet connection, then try again.',
+  'widget.retry': 'Try again',
+  'widget.saveFailed': 'We could not save that. Try again in a moment.',
+  'widget.expired': 'This setup link has expired. Ask the people paying you for a new one.',
 
   'step.name.short': 'your name',
   'step.method.short': 'how you get paid',
@@ -50,6 +59,17 @@ export const en = {
   'destination.wallet.action': 'Save my address',
   'destination.wallet.missing': 'Paste the address from your wallet.',
   'destination.wallet.invalid': 'That address is not right. Copy it from your wallet again.',
+  'destination.wallet.unpayable':
+    'Payouts cannot be sent to this address. Use the address of your own wallet.',
+  'destination.refused':
+    'This address cannot receive payouts. Check the address and memo, or use another wallet.',
+  'destination.memo.label': 'Memo, only if you were given one',
+  'destination.memo.hint':
+    'Leave this empty for your own wallet. Some exchanges give a number to add to their address.',
+  'destination.memo.unsupported':
+    'Payouts cannot carry a memo with letters or symbols. Use your own wallet, or an address that needs no memo or only a number.',
+  'destination.memo.notNeeded': 'This address cannot take a separate memo. Leave the memo empty.',
+  'destination.memo.tooLong': 'That memo number is too long. Check it and type it again.',
 
   'destination.bank.heading': 'Which account should the money reach?',
   'destination.bank.label': 'Your account number',
@@ -77,9 +97,67 @@ export const en = {
   'review.name': 'Name',
   'review.method': 'How you get paid',
   'review.destination': 'Where it arrives',
+  'review.memo': 'Memo',
   'review.change': 'Change',
   'review.change.name': 'Change {thing}',
   'review.action': 'Finish setting up',
+
+  'verify.heading': 'Confirm who you are',
+  'verify.self.hint':
+    'Self checks your ID on your phone. We only learn that you passed, never anything from your documents.',
+  'verify.self.action': 'Verify with Self',
+  'verify.anchor.hint':
+    'The partner that pays you out checks your ID, as the law asks them to. We only learn whether you passed.',
+  'verify.anchor.action': 'Continue to the ID check',
+  'verify.waiting.heading': 'Finish the check in the new window',
+  'verify.waiting.hint':
+    'When you are done there, come back here. If you closed it by mistake, open it again.',
+  'verify.waiting.status': 'Waiting for the result',
+  'verify.finished': 'I have finished',
+  'verify.reopen': 'Open the check again',
+  'verify.pending': 'The result is not in yet. It can take a few minutes.',
+  'verify.rejected':
+    'Your ID could not be confirmed. Check that it is valid and not expired, then try again.',
+  'verify.expired': 'The check closed before it was finished. Start it again.',
+  'verify.retry': 'Start the check again',
+  'verify.failed': 'We could not start the check. Try again in a moment.',
+
+  'prove.heading': 'Confirm this wallet is yours',
+  'prove.hint': 'Your wallet signs a short message. It moves no money and costs nothing.',
+  'prove.action': 'Sign with my wallet',
+  'prove.busy': 'Waiting for your wallet',
+  'prove.manual.hint':
+    'In your wallet, choose to sign a message and paste in the text below. Then paste the signature your wallet shows.',
+  'prove.message.label': 'Message to sign',
+  'prove.copy': 'Copy',
+  'prove.copy.name': 'Copy the message to sign',
+  'prove.copied': 'Copied',
+  'prove.signature.label': 'Signature from your wallet',
+  'prove.signature.hint': 'Paste it exactly as your wallet shows it.',
+  'prove.signature.missing': 'Paste the signature your wallet gave you.',
+  'prove.manual.action': 'Confirm my wallet',
+  'prove.declined': 'Your wallet did not sign. Try again when you are ready.',
+  'prove.invalid':
+    'That signature does not match this address. Sign the message again with the wallet for this address.',
+  'prove.expired': 'The message expired before it was signed. Sign this new one.',
+
+  'receive.accountNotFound':
+    'This account is not active yet. A Stellar account is activated with a small amount of XLM, which most wallets add on your first deposit. Activate it in your wallet, add USDC, then try again.',
+  'receive.noTrustline':
+    'Add USDC in your wallet, then try again. Adding USDC needs a small amount of XLM in the account.',
+  'receive.notAuthorized': 'USDC is not enabled for this account yet; ask your wallet provider.',
+  'receive.limit': 'Raise the USDC limit in your wallet.',
+  'receive.signerNotAuthorized':
+    'This key cannot sign for this account any more. Sign with a key that is a current signer of the account.',
+
+  'activate.heading': 'This account is not ready for USDC yet',
+  'activate.hint':
+    'We can set it up to receive USDC, at no cost to you. Your wallet signs once to agree, and nothing is taken from it.',
+  'activate.action': 'Activate this account for free',
+  'activate.self': 'Set it up myself',
+  'activate.self.name': 'Set up the account myself, in my wallet',
+  'activate.busy': 'Activating your account',
+  'activate.failed': 'The activation did not go through. Try again, or set it up in your wallet.',
 
   'done.heading': 'You are set up.',
   'done.body': 'Payouts reach you as {method}. Every payout comes with a receipt you can keep.',
