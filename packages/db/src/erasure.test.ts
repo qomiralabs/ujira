@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
 import type { Database } from './database.js';
 import { entryPoints, type CreatedPrincipal } from './repositories/entry-points.js';
+import { embedSessions } from './repositories/identity-evidence.js';
 import { recipientIdentities, recipients } from './repositories/recipients.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
@@ -127,6 +128,42 @@ describe('erasing a recipient', () => {
       .transaction(async (tx) => recipientIdentities.get(tx, kept.selfId));
     expect(row).toMatchObject({ state: 'verified', providerSubject: 'subject-1' });
     expect(row?.providerRef).not.toBeNull();
+  });
+
+  it('open embed sessions are consumed', async () => {
+    const newSession = (recipientId: string, expiresAt: Date) =>
+      db.tenant(tenant).transaction(async (tx) =>
+        embedSessions.create(tx, {
+          tokenHash: randomBytes(32),
+          tokenPrefix: `ujes_test_${randomUUID().slice(0, 8)}`,
+          recipientId,
+          purpose: 'onboarding',
+          allowedOrigins: ['https://app.example'],
+          createdByToken: null,
+          expiresAt,
+        }),
+      );
+    const later = new Date(Date.now() + 3_600_000);
+    const { recipientId } = await verifiedRecipient(randomBytes(32));
+    const other = await verifiedRecipient(randomBytes(32));
+    const open = await newSession(recipientId, later);
+    const lapsed = await newSession(recipientId, new Date(Date.now() - 1000));
+    const used = await newSession(recipientId, later);
+    const others = await newSession(other.recipientId, later);
+    const read = (id: string) =>
+      db.tenant(tenant).transaction(async (tx) => embedSessions.get(tx, id));
+    await db.tenant(tenant).transaction(async (tx) => embedSessions.consume(tx, used.id));
+    const usedAt = (await read(used.id))?.consumedAt;
+
+    const closed = await db
+      .tenant(tenant)
+      .transaction(async (tx) => embedSessions.consumeOpen(tx, recipientId));
+
+    expect(closed).toBe(2);
+    expect((await read(open.id))?.consumedAt).toBeInstanceOf(Date);
+    expect((await read(lapsed.id))?.consumedAt).toBeInstanceOf(Date);
+    expect((await read(used.id))?.consumedAt).toEqual(usedAt);
+    expect((await read(others.id))?.consumedAt).toBeNull();
   });
 
   it('a recipient with no identities erases nothing', async () => {

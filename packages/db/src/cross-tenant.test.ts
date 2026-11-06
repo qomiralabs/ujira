@@ -578,6 +578,15 @@ afterAll(async () => {
 });
 
 // Tenant A's first project, and every project of A read only.
+// Whether another tenant's call reached the session, read past the policies.
+const ownerRead = async (sessionId: string): Promise<Date | null> => {
+  const { rows } = await admin.query<{ consumed_at: Date | null }>(
+    'select consumed_at from ujira.embed_sessions where id = $1',
+    [sessionId],
+  );
+  return rows[0]?.consumed_at ?? null;
+};
+
 const asA = async <T>(work: (tx: Kysely<Schema>) => Promise<T>): Promise<T> =>
   db.tenant(a.first).transaction(work);
 const acrossA = async <T>(work: (tx: Kysely<Schema>) => Promise<T>): Promise<T> =>
@@ -1370,6 +1379,14 @@ const cases: Record<string, () => Promise<void>> = {
       }),
     );
     expect(await codeOf(attempt)).toBe('23503');
+  },
+  'embedSessions.consume': async () => {
+    expect(await asA(async (tx) => embedSessions.consume(tx, b.sessionId))).toBe(false);
+    expect(await ownerRead(b.sessionId)).toBeNull();
+  },
+  'embedSessions.consumeOpen': async () => {
+    expect(await asA(async (tx) => embedSessions.consumeOpen(tx, b.recipientId))).toBe(0);
+    expect(await ownerRead(b.sessionId)).toBeNull();
   },
   'embedSessions.get': async () => {
     expect(await acrossA(async (tx) => embedSessions.get(tx, b.sessionId))).toBeUndefined();

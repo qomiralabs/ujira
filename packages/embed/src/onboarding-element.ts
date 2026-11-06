@@ -4,32 +4,52 @@
 // The onboarding widget: one custom element, one shadow root, no framework
 // needed on the page that hosts it.
 //
-// The integrator owns the look (custom properties), the words (locale) and
-// what happens with the answers (events). The widget owns the flow: which
-// question comes next, what counts as an answer, and what a person sees while
-// an answer is being saved or after it failed.
+// The integrator owns the look (custom properties) and the words (locale).
+// What happens with the answers is theirs too, in one of two ways:
+//   - Handed answers. With no session, the widget asks its questions and
+//     hands the answers over in an event, and the page saves them.
+//   - Connected. Given an embed token, the widget saves through UJIRA itself:
+//     it reads which methods the recipient's corridor pays out, saves the
+//     destination, and has the wallet confirm it is the recipient's.
+// The widget owns the flow either way: which question comes next, what
+// counts as an answer, and what a person sees while an answer is being saved
+// or after it failed.
 
 import { html, LitElement, nothing, type CSSResultGroup, type TemplateResult } from 'lit';
 
-import { DEFAULT_LOCALE, translator, type MessageKey, type Translate } from './i18n/catalogue.js';
-import { PAYOUT_METHODS, type MethodId } from './methods.js';
+import { httpClient, isExpiry, type OnboardingClient } from './api/client.js';
+import type {
+  ApiMethod,
+  OnboardingSession,
+  ReceivabilityReason,
+  VerificationNeed,
+  VerificationStatus,
+  WalletChallenge,
+} from './api/contract.js';
+import { resolveLocale, translator, type MessageKey, type Translate } from './i18n/catalogue.js';
+import { methodById, PAYOUT_METHODS, type MethodId } from './methods.js';
+import { afterProofFailed, afterSaveFailed, receivabilityMessage } from './outcomes.js';
 import {
+  findProblem,
+  firstStep,
+  HANDED,
   initialAnswers,
   isQuestionStep,
   nextStep,
   previousStep,
-  problem,
   shortLabel,
   stepCount,
   stepNumber,
   type Answers,
+  type Flow,
   type StepId,
 } from './steps.js';
 import { widgetStyles } from './theme/styles.js';
 import type { ThemeMode } from './theme/defaults.generated.js';
 import { footer } from './views/footer.js';
 import { textButton } from './views/parts.js';
-import { stepView, type StepContext } from './views/step-views.js';
+import { stepView, waitingView, type StepContext } from './views/step-views.js';
+import type { WalletConnector } from './wallet.js';
 
 export const TAG_NAME = 'ujira-onboarding';
 
@@ -37,8 +57,10 @@ export const TAG_NAME = 'ujira-onboarding';
 export const STEP_CHANGE_EVENT = 'ujira-step-change';
 
 /**
- * Fires once the last answer is given. Cancel it to keep the widget on the
- * review step while the answers are saved, then call finish() or set error.
+ * Fires once the last answer is given. With handed answers, cancel it to
+ * keep the widget on the review step while the answers are saved, then call
+ * finish() or set error. Connected, it fires once UJIRA has saved the method
+ * and the wallet has confirmed it, and cannot be cancelled.
  */
 export const COMPLETE_EVENT = 'ujira-onboarding-complete';
 
@@ -53,6 +75,9 @@ export interface CompleteDetail {
   name: string;
   method: MethodId | '';
   destination: string;
+  memo: string;
+  /** The saved method's id, when the widget saved it through UJIRA. */
+  methodId?: string;
 }
 
 /** How the widget picks its colours when the integrator sets none. */
@@ -75,6 +100,18 @@ const LIFT = [
   { opacity: 1, transform: 'translateY(0)' },
 ];
 
+type Loading = 'idle' | 'loading' | 'failed';
+
+/** The identity check on screen: the need, how far it got, and its page. */
+interface Check {
+  need: VerificationNeed;
+  state: 'start' | 'waiting' | 'verified' | 'rejected' | 'expired';
+  url: string | undefined;
+}
+
+/** How often to look while the person is on the provider's page. */
+const POLL_MS = 5_000;
+
 export class UjiraOnboarding extends LitElement {
   static override styles: CSSResultGroup = widgetStyles;
 
@@ -83,15 +120,31 @@ export class UjiraOnboarding extends LitElement {
     locale: { type: String, reflect: true },
     busy: { type: Boolean, reflect: true },
     error: { type: String },
+    sessionToken: { type: String, attribute: 'session-token' },
+    apiBase: { type: String, attribute: 'api-base' },
+    client: { attribute: false },
+    wallet: { attribute: false },
     step: { state: true },
     answers: { state: true },
     message: { state: true },
+    session: { state: true },
+    loading: { state: true },
+    expired: { state: true },
+    working: { state: true },
+    challenge: { state: true },
+    challengeFailed: { state: true },
+    signature: { state: true },
+    copied: { state: true },
+    check: { state: true },
   };
 
   /** light, dark, or system to follow the reader's setting. */
   declare mode: WidgetMode;
 
-  /** A language tag. Unknown languages fall back to English. */
+  /**
+   * A language tag. Empty follows the reader's browser. A language that is
+   * not ready yet, or unknown, gives English.
+   */
   declare locale: string;
 
   /** Set while the integrator saves an answer: the step waits, and says so. */
@@ -100,11 +153,44 @@ export class UjiraOnboarding extends LitElement {
   /** A message from the integrator, shown in place of our own. */
   declare error: string;
 
+  /** The embed token the integrator's server minted for this recipient. */
+  declare sessionToken: string;
+
+  /** Where the UJIRA API is. Needed with a session token. */
+  declare apiBase: string;
+
+  /** A client to use instead of one built from the token, such as a test's. */
+  declare client: OnboardingClient | undefined;
+
+  /** The page's wallet, if it can sign for the recipient. */
+  declare wallet: WalletConnector | undefined;
+
   declare private step: StepId;
-
   declare private answers: Answers;
-
   declare private message: MessageKey | '';
+  declare private session: OnboardingSession | undefined;
+  declare private loading: Loading;
+  declare private expired: boolean;
+  declare private working: MessageKey | '';
+  declare private challenge: WalletChallenge | undefined;
+  declare private challengeFailed: boolean;
+  declare private signature: string;
+  declare private copied: boolean;
+  declare private check: Check | undefined;
+
+  /**
+   * The checks the session said were still to do when it started, by
+   * method. Kept as they were, so a check that passes stays in the count.
+   */
+  private toVerify = new Map<ApiMethod, VerificationNeed>();
+  private poll: ReturnType<typeof setTimeout> | undefined;
+  private problemField: 'answer' | 'memo' = 'answer';
+  private methodId = '';
+  private activationReason: ReceivabilityReason | undefined;
+  private built: { key: string; client: OnboardingClient } | undefined;
+  /** Counts session loads, so a stale answer never lands over a newer one. */
+  private loads = 0;
+  private loadedFrom: OnboardingClient | undefined;
 
   /** True when the last render came from moving between steps. */
   private moved = false;
@@ -112,12 +198,30 @@ export class UjiraOnboarding extends LitElement {
   constructor() {
     super();
     this.mode = 'light';
-    this.locale = DEFAULT_LOCALE;
+    this.locale = '';
     this.busy = false;
     this.error = '';
-    this.step = 'name';
-    this.answers = initialAnswers(PAYOUT_METHODS);
+    this.sessionToken = '';
+    this.apiBase = '';
+    this.client = undefined;
+    this.wallet = undefined;
+    this.step = firstStep(HANDED);
+    this.answers = initialAnswers(HANDED);
     this.message = '';
+    this.session = undefined;
+    this.loading = 'idle';
+    this.expired = false;
+    this.working = '';
+    this.challenge = undefined;
+    this.challengeFailed = false;
+    this.signature = '';
+    this.copied = false;
+    this.check = undefined;
+  }
+
+  override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.stopPolling();
   }
 
   /** The step on screen. */
@@ -138,24 +242,85 @@ export class UjiraOnboarding extends LitElement {
 
   /** Starts again from the first question with nothing filled in. */
   reset(): void {
-    this.answers = initialAnswers(PAYOUT_METHODS);
+    this.answers = initialAnswers(this.flow);
     this.error = '';
-    this.goTo('name');
+    this.methodId = '';
+    this.challenge = undefined;
+    this.signature = '';
+    this.goTo(firstStep(this.flow));
+  }
+
+  /** The client in use: the page's own, or one built from the token. */
+  private get api(): OnboardingClient | undefined {
+    if (this.client !== undefined) return this.client;
+    if (this.sessionToken === '' || this.apiBase === '') return undefined;
+    const key = `${this.apiBase}\n${this.sessionToken}`;
+    if (this.built?.key !== key) {
+      this.built = { key, client: httpClient({ baseUrl: this.apiBase, token: this.sessionToken }) };
+    }
+    return this.built.client;
+  }
+
+  private get flow(): Flow {
+    const session = this.session;
+    if (session === undefined) return HANDED;
+    const chosen = methodById(this.answers.method);
+    return {
+      connected: true,
+      methods: PAYOUT_METHODS,
+      corridor: session.methods,
+      neverPayable: session.neverPayable,
+      verify: chosen !== undefined && this.toVerify.has(chosen.api),
+    };
+  }
+
+  private get canActivate(): boolean {
+    return this.session?.activation.offered === true && this.wallet?.signTransaction !== undefined;
+  }
+
+  protected override willUpdate(): void {
+    const api = this.api;
+    if (api !== undefined && api !== this.loadedFrom) {
+      this.loadedFrom = api;
+      void this.load(api);
+    }
   }
 
   protected override render(): TemplateResult {
-    const t = translator(this.locale);
+    const locale = resolveLocale(
+      this.locale,
+      this.ownerDocument.defaultView?.navigator.languages ?? [],
+    );
+    const t = translator(locale);
+    const waiting = this.waiting();
+    if (waiting !== undefined) {
+      return html`<section
+        class="widget"
+        part="widget"
+        lang=${locale}
+        aria-label=${t('widget.label')}
+      >
+        ${waitingView(t, waiting)} ${footer(t('footer.byline'))}
+      </section>`;
+    }
     const ctx: StepContext = {
       t,
       answers: this.answers,
-      methods: PAYOUT_METHODS,
+      flow: this.flow,
       message: this.alert(t),
-      busy: this.busy,
+      problemField: this.problemField,
+      busy: this.busy || this.working !== '',
+      ...(this.working === '' ? {} : { busyLabel: t(this.working) }),
       submit: (event: Event) => {
-        this.onSubmit(event);
+        event.preventDefault();
+        void this.onSubmit();
       },
       change: (value: string) => {
         this.onChange(value);
+      },
+      changeMemo: (value: string) => {
+        this.answers = { ...this.answers, memo: value };
+        this.message = '';
       },
       choose: (id: MethodId) => {
         this.onChoose(id);
@@ -163,8 +328,39 @@ export class UjiraOnboarding extends LitElement {
       goTo: (step: StepId) => {
         this.goTo(step);
       },
+      proof: {
+        challenge: this.challenge,
+        failed: this.challengeFailed,
+        walletSigns: this.wallet !== undefined,
+        signature: this.signature,
+        changeSignature: (value: string) => {
+          this.signature = value;
+          this.message = '';
+        },
+        copy: () => {
+          this.copyMessage();
+        },
+        copied: this.copied,
+        declineActivation: () => {
+          this.declineActivation();
+        },
+      },
+      ...(this.check === undefined
+        ? {}
+        : {
+            verification: {
+              provider: this.check.need.provider,
+              state: this.check.state === 'verified' ? 'start' : this.check.state,
+              url: this.check.url,
+            },
+          }),
     };
-    return html`<section class="widget" part="widget" aria-label=${t('widget.label')}>
+    return html`<section
+      class="widget"
+      part="widget"
+      lang=${locale}
+      aria-label=${t('widget.label')}
+    >
       ${this.chrome(t)} ${stepView(this.step, ctx)} ${footer(t('footer.byline'))}
     </section>`;
   }
@@ -180,20 +376,65 @@ export class UjiraOnboarding extends LitElement {
     step?.animate?.(LIFT, { duration: 180, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
   }
 
+  private waiting():
+    { kind: 'loading' } | { kind: 'failed'; retry: () => void } | { kind: 'expired' } | undefined {
+    if (this.expired) return { kind: 'expired' };
+    if (this.api === undefined || this.session !== undefined) return undefined;
+    if (this.loading === 'failed') {
+      return {
+        kind: 'failed',
+        retry: () => {
+          const api = this.api;
+          if (api !== undefined) void this.load(api);
+        },
+      };
+    }
+    return { kind: 'loading' };
+  }
+
+  private async load(api: OnboardingClient): Promise<void> {
+    this.loads += 1;
+    const ticket = this.loads;
+    this.loading = 'loading';
+    try {
+      const session = await api.session();
+      if (ticket !== this.loads) return;
+      this.toVerify = new Map(
+        session.verification
+          .filter((need) => need.status !== 'verified')
+          .map((need) => [need.method, need]),
+      );
+      this.session = session;
+      this.loading = 'idle';
+      this.answers = initialAnswers(this.flow);
+      this.goTo(firstStep(this.flow));
+    } catch (error) {
+      if (ticket !== this.loads) return;
+      if (isExpiry(error)) this.expired = true;
+      this.loading = 'failed';
+    }
+  }
+
   /** The integrator's message wins: they know what their save failed on. */
   private alert(t: Translate): string {
     if (this.error !== '') return this.error;
     return this.message === '' ? '' : t(this.message);
   }
 
+  private show(key: MessageKey, field: 'answer' | 'memo' = 'answer'): void {
+    this.message = key;
+    this.problemField = field;
+  }
+
   private chrome(t: Translate): TemplateResult | typeof nothing {
     const step = this.step;
-    if (!isQuestionStep(step)) return nothing;
-    const back = previousStep(step);
+    const flow = this.flow;
+    if (!isQuestionStep(step, flow)) return nothing;
+    const back = previousStep(step, flow);
     const backLabel = back === undefined ? undefined : shortLabel(back);
     return html`<div class="chrome" part="chrome">
       ${
-        back === undefined || backLabel === undefined
+        back === undefined || backLabel === undefined || this.working !== ''
           ? nothing
           : textButton({
               label: t('widget.back'),
@@ -205,26 +446,32 @@ export class UjiraOnboarding extends LitElement {
       }
       <p class="progress" part="progress" role="status">
         ${t('widget.progress', {
-          step: String(stepNumber(step)),
-          total: String(stepCount()),
+          step: String(stepNumber(step, flow)),
+          total: String(stepCount(flow)),
         })}
       </p>
     </div>`;
   }
 
-  private onSubmit(event: Event): void {
-    event.preventDefault();
-    if (this.busy) return;
-    const found = problem(this.step, this.answers, PAYOUT_METHODS);
+  private async onSubmit(): Promise<void> {
+    if (this.busy || this.working !== '') return;
+    const flow = this.flow;
+    if (this.step === 'prove') return this.prove();
+    if (this.step === 'activate') return this.activate();
+    if (this.step === 'verify') return this.verify();
+    const found = findProblem(this.step, this.answers, flow);
     if (found !== undefined) {
-      this.message = found;
+      this.show(found.key, found.field);
       return;
     }
     this.message = '';
     if (this.step !== 'review') {
-      this.goTo(nextStep(this.step));
+      const next = nextStep(this.step, flow);
+      if (next === 'verify') return this.enterCheck();
+      this.goTo(next);
       return;
     }
+    if (flow.connected) return this.save();
     const accepted = this.dispatchEvent(
       new CustomEvent<CompleteDetail>(COMPLETE_EVENT, {
         detail: { ...this.answers },
@@ -236,6 +483,315 @@ export class UjiraOnboarding extends LitElement {
     if (accepted) this.goTo('done');
   }
 
+  /**
+   * Opens the identity check step for the chosen method, where the session
+   * left it. A check already open is picked up again, with its page, so a
+   * person who left half way carries on rather than starting over.
+   */
+  private async enterCheck(): Promise<void> {
+    const chosen = methodById(this.answers.method);
+    const need = chosen === undefined ? undefined : this.toVerify.get(chosen.api);
+    if (need === undefined) return;
+    if (this.check?.need.method === need.method && this.check.state === 'verified') {
+      this.goTo('destination');
+      return;
+    }
+    const state =
+      need.status === null ? 'start' : need.status === 'pending' ? 'waiting' : need.status;
+    this.check = { need, state: state === 'verified' ? 'start' : state, url: undefined };
+    this.goTo('verify');
+    if (this.check.state === 'waiting') {
+      await this.openCheck(false);
+    }
+  }
+
+  /** The one action on the check step: start it, or say it is finished. */
+  private async verify(): Promise<void> {
+    const check = this.check;
+    if (check === undefined) return;
+    if (check.state === 'waiting') return this.finishCheck();
+    return this.openCheck(true);
+  }
+
+  /**
+   * Starts the check, or picks up the open one. With `show`, the provider's
+   * page opens in a new window: opened blank first, inside the press, so a
+   * pop-up blocker lets it through, and cut off from this page before the
+   * provider's address is loaded into it.
+   */
+  private async openCheck(show: boolean): Promise<void> {
+    const api = this.api;
+    const session = this.session;
+    const check = this.check;
+    if (api === undefined || session === undefined || check === undefined) return;
+    const view = this.ownerDocument.defaultView;
+    const popup = show ? (view?.open('about:blank', '_blank') ?? null) : null;
+    if (popup !== null) popup.opener = null;
+    this.working = 'widget.loading';
+    try {
+      const handoff = await api.startVerification(session.recipientId, check.need.method);
+      this.working = '';
+      this.check = {
+        need: { ...check.need, verificationId: handoff.verificationId, status: 'pending' },
+        state: 'waiting',
+        url: handoff.url,
+      };
+      this.message = '';
+      popup?.location.replace(handoff.url);
+      this.startPolling();
+    } catch (error) {
+      this.working = '';
+      popup?.close();
+      if (isExpiry(error)) {
+        this.expired = true;
+        return;
+      }
+      this.show('verify.failed');
+    }
+  }
+
+  /** The person says they finished: ask UJIRA where the check stands. */
+  private async finishCheck(): Promise<void> {
+    const api = this.api;
+    const session = this.session;
+    const id = this.check?.need.verificationId;
+    if (api === undefined || session === undefined || id === undefined) return;
+    this.working = 'verify.waiting.status';
+    try {
+      const state = await api.reportVerification(session.recipientId, id, {
+        status: 'completed',
+        reference: id,
+      });
+      this.working = '';
+      this.settleCheck(state.status, true);
+    } catch (error) {
+      this.working = '';
+      if (isExpiry(error)) {
+        this.expired = true;
+        return;
+      }
+      this.show('widget.saveFailed');
+    }
+  }
+
+  /** Acts on where the check stands: on to the destination, or how it ended. */
+  private settleCheck(status: VerificationStatus, asked: boolean): void {
+    const check = this.check;
+    if (check === undefined || this.step !== 'verify') return;
+    if (status === 'pending') {
+      if (asked) this.show('verify.pending');
+      return;
+    }
+    this.stopPolling();
+    this.check = { ...check, need: { ...check.need, status }, state: status };
+    if (status === 'verified') this.goTo('destination');
+  }
+
+  /** Looks again every few seconds while the person is on the provider's page. */
+  private startPolling(): void {
+    this.stopPolling();
+    this.poll = setTimeout(() => {
+      this.poll = undefined;
+      void this.pollOnce();
+    }, POLL_MS);
+  }
+
+  private async pollOnce(): Promise<void> {
+    const api = this.api;
+    const session = this.session;
+    const id = this.check?.need.verificationId;
+    if (api === undefined || session === undefined || id === undefined) return;
+    if (!this.waitingOnCheck()) return;
+    try {
+      const state = await api.verificationState(session.recipientId, id);
+      this.settleCheck(state.status, false);
+    } catch {
+      // A missed look is not worth troubling the person with; look again.
+    }
+    if (this.waitingOnCheck()) this.startPolling();
+  }
+
+  /** A method, not an inline test: the answer changes while a look is out. */
+  private waitingOnCheck(): boolean {
+    return this.step === 'verify' && this.check?.state === 'waiting';
+  }
+
+  private stopPolling(): void {
+    if (this.poll !== undefined) clearTimeout(this.poll);
+    this.poll = undefined;
+  }
+
+  /** Saves the method through UJIRA, then asks the wallet to confirm it. */
+  private async save(): Promise<void> {
+    const api = this.api;
+    const session = this.session;
+    const method = methodById(this.answers.method);
+    if (api === undefined || session === undefined || method === undefined) return;
+    const memo = this.answers.memo.trim();
+    this.working = 'widget.busy';
+    try {
+      const saved = await api.addMethod(session.recipientId, {
+        method: method.api,
+        destination: {
+          network: session.network,
+          address: this.answers.destination.trim(),
+          ...(memo === '' ? {} : { memo }),
+        },
+      });
+      this.methodId = saved.id;
+      this.working = '';
+      this.goTo('prove');
+      await this.fetchChallenge();
+    } catch (error) {
+      this.working = '';
+      const outcome = afterSaveFailed(error);
+      if (outcome.kind === 'expired') {
+        this.expired = true;
+        return;
+      }
+      this.goTo(outcome.step);
+      this.show(outcome.key, outcome.key === 'destination.memo.unsupported' ? 'memo' : 'answer');
+    }
+  }
+
+  private async fetchChallenge(): Promise<void> {
+    const api = this.api;
+    const session = this.session;
+    if (api === undefined || session === undefined) return;
+    this.challenge = undefined;
+    this.challengeFailed = false;
+    this.signature = '';
+    this.copied = false;
+    try {
+      this.challenge = await api.createWalletChallenge(session.recipientId, this.methodId);
+    } catch (error) {
+      if (isExpiry(error)) {
+        this.expired = true;
+        return;
+      }
+      this.challengeFailed = true;
+      this.show('widget.loadFailed');
+    }
+  }
+
+  /** Has the wallet sign the challenge, and sends the proof. */
+  private async prove(): Promise<void> {
+    const api = this.api;
+    const session = this.session;
+    const challenge = this.challenge;
+    if (api === undefined || session === undefined) return;
+    if (challenge === undefined) {
+      this.message = '';
+      await this.fetchChallenge();
+      return;
+    }
+    const address = this.answers.destination.trim();
+    let signature = this.signature.trim();
+    let signer: string | undefined;
+    this.working = 'prove.busy';
+    if (this.wallet !== undefined) {
+      try {
+        const signed = await this.wallet.signMessage(challenge.message, address);
+        signature = signed.signature;
+        signer = signed.signer;
+      } catch {
+        this.working = '';
+        this.show('prove.declined');
+        return;
+      }
+    } else if (signature === '') {
+      this.working = '';
+      this.show('prove.signature.missing');
+      return;
+    }
+    try {
+      await api.submitWalletProof(session.recipientId, this.methodId, {
+        challengeId: challenge.challengeId,
+        message: challenge.message,
+        nonce: challenge.nonce,
+        signature,
+        ...(signer === undefined ? {} : { signer }),
+      });
+      this.working = '';
+      this.complete();
+    } catch (error) {
+      this.working = '';
+      const outcome = afterProofFailed(error, this.canActivate);
+      if (outcome.kind === 'expired') {
+        this.expired = true;
+        return;
+      }
+      if (outcome.kind === 'activate') {
+        this.activationReason = outcome.reason;
+        this.goTo('activate');
+        return;
+      }
+      // A challenge is good for one try, so the next try gets a new one.
+      await this.fetchChallenge();
+      this.show(outcome.key);
+    }
+  }
+
+  /** Has UJIRA pay to activate the wallet, then goes back to proving it. */
+  private async activate(): Promise<void> {
+    const api = this.api;
+    const session = this.session;
+    const sign = this.wallet?.signTransaction?.bind(this.wallet);
+    if (api === undefined || session === undefined || sign === undefined) return;
+    this.working = 'activate.busy';
+    try {
+      const offer = await api.requestActivation(session.recipientId, this.methodId);
+      const signed = await sign(offer.transaction, {
+        address: this.answers.destination.trim(),
+        networkPassphrase: offer.networkPassphrase,
+      });
+      await api.submitActivation(offer.activationId, signed);
+      this.working = '';
+      this.activationReason = undefined;
+      this.goTo('prove');
+      await this.fetchChallenge();
+    } catch (error) {
+      this.working = '';
+      if (isExpiry(error)) {
+        this.expired = true;
+        return;
+      }
+      this.show('activate.failed');
+    }
+  }
+
+  private declineActivation(): void {
+    const reason = this.activationReason;
+    this.goTo('prove');
+    if (reason !== undefined) this.show(receivabilityMessage(reason));
+    void this.fetchChallenge();
+  }
+
+  private copyMessage(): void {
+    const text = this.challenge?.message;
+    const clipboard = this.ownerDocument.defaultView?.navigator.clipboard;
+    if (text === undefined || clipboard === undefined) return;
+    // A refused copy changes nothing: the message is on screen to select.
+    clipboard.writeText(text).then(
+      () => {
+        this.copied = true;
+      },
+      () => undefined,
+    );
+  }
+
+  private complete(): void {
+    this.dispatchEvent(
+      new CustomEvent<CompleteDetail>(COMPLETE_EVENT, {
+        detail: { ...this.answers, methodId: this.methodId },
+        bubbles: true,
+        composed: true,
+        cancelable: false,
+      }),
+    );
+    this.goTo('done');
+  }
+
   private onChange(value: string): void {
     this.answers =
       this.step === 'name'
@@ -245,12 +801,13 @@ export class UjiraOnboarding extends LitElement {
   }
 
   private onChoose(id: MethodId): void {
-    this.answers = { ...this.answers, method: id, destination: '' };
+    this.answers = { ...this.answers, method: id, destination: '', memo: '' };
     this.message = '';
   }
 
   private goTo(step: StepId): void {
     if (step === this.step) return;
+    const flow = this.flow;
     this.step = step;
     this.message = '';
     this.moved = true;
@@ -258,8 +815,8 @@ export class UjiraOnboarding extends LitElement {
       new CustomEvent<StepChangeDetail>(STEP_CHANGE_EVENT, {
         detail: {
           step,
-          position: isQuestionStep(step) ? stepNumber(step) : 0,
-          total: stepCount(),
+          position: isQuestionStep(step, flow) ? stepNumber(step, flow) : 0,
+          total: stepCount(flow),
         },
         bubbles: true,
         composed: true,

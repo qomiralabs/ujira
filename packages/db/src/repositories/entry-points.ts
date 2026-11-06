@@ -60,7 +60,76 @@ export interface ResolvedFundingAddress {
   readonly instances: readonly ResolvedFundingInstance[];
 }
 
+export interface EmbedTokenRecord {
+  readonly sessionId: string;
+  readonly principalId: string;
+  readonly projectId: string;
+  readonly recipientId: string;
+  readonly purpose: string;
+  readonly allowedOrigins: readonly string[];
+  readonly expiresAt: Date;
+  readonly consumedAt: Date | null;
+}
+
+export interface EmbedInviteExchangeInput {
+  readonly inviteSha256: Buffer;
+  readonly tokenSha256: Buffer;
+  readonly tokenPrefix: string;
+  readonly tokenSeconds: number;
+  readonly origin: string;
+}
+
 export const entryPoints = {
+  // The embed token a hash names, whatever its tenant, or undefined. The caller
+  // checks expiry, use and the origin.
+  authenticateEmbedToken: async (
+    db: Tx,
+    tokenSha256: Buffer,
+  ): Promise<EmbedTokenRecord | undefined> => {
+    const result = await sql<{
+      session_id: string;
+      principal_id: string;
+      project_id: string;
+      recipient_id: string;
+      purpose: string;
+      allowed_origins: string[];
+      expires_at: Date;
+      consumed_at: Date | null;
+    }>`
+      select session_id, principal_id, project_id, recipient_id, purpose, allowed_origins,
+             expires_at, consumed_at
+        from ujira.authenticate_embed_token(${tokenSha256})
+    `.execute(db);
+    const row = result.rows[0];
+    if (row === undefined) return undefined;
+    return {
+      sessionId: row.session_id,
+      principalId: row.principal_id,
+      projectId: row.project_id,
+      recipientId: row.recipient_id,
+      purpose: row.purpose,
+      allowedOrigins: row.allowed_origins,
+      expiresAt: row.expires_at,
+      consumedAt: row.consumed_at,
+    };
+  },
+
+  // Spends an invite and makes its token, or undefined when it cannot be spent.
+  exchangeEmbedInvite: async (
+    db: Tx,
+    input: EmbedInviteExchangeInput,
+  ): Promise<{ readonly expiresAt: Date } | undefined> => {
+    const result = await sql<{ expires_at: Date }>`
+      select expires_at
+        from ujira.exchange_embed_invite(
+          ${input.inviteSha256}, ${input.tokenSha256}, ${input.tokenPrefix},
+          ${input.tokenSeconds}::integer, ${input.origin}
+        )
+    `.execute(db);
+    const row = result.rows[0];
+    return row === undefined ? undefined : { expiresAt: row.expires_at };
+  },
+
   // The tenant of a deployed contract on one network, or undefined when it is not
   // one of ours there. This is how the indexer learns which context to write an
   // event under, so only the indexer's login may call it. The network, not its

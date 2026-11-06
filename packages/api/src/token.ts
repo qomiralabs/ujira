@@ -36,7 +36,7 @@ export interface IssuedToken {
   readonly secretSha256: Buffer;
 }
 
-function base32(bytes: Uint8Array): string {
+export function base32(bytes: Uint8Array): string {
   let out = '';
   let buffer = 0;
   let bits = 0;
@@ -52,7 +52,7 @@ function base32(bytes: Uint8Array): string {
   return bits === 0 ? out : out + ALPHABET.charAt((buffer << (5 - bits)) & 31);
 }
 
-function checksumOf(body: string): string {
+export function checksumOf(body: string): string {
   let value = crc32(body);
   let out = '';
   for (let at = 0; at < CHECKSUM_LENGTH; at += 1) {

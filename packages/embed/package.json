@@ -27,12 +27,14 @@
     "screenshots": "node tools/screenshots.ts"
   },
   "dependencies": {
-    "lit": "3.3.3"
+    "lit": "3.3.3",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
     "@playwright/test": "1.63.0",
     "@types/node": "24.19.2",
+    "@ujira/api-schema": "workspace:*",
     "@ujira/ui": "workspace:*",
     "jsdom": "30.1.3",
     "typescript": "6.0.3",

@@ -36,7 +36,7 @@ export function alertBlock(message: string): TemplateResult | typeof nothing {
   </div>`;
 }
 
-/** Shown while the integrator is saving the answer. */
+/** Shown while an answer is being saved, or a wallet is signing. */
 export function busyBlock(label: string, busy: boolean): TemplateResult | typeof nothing {
   if (!busy) return nothing;
   return html`<p class="status" role="status">
@@ -98,17 +98,21 @@ export interface TextFieldOptions {
   inputMode: 'text' | 'numeric' | 'tel';
   autocomplete: string;
   change: (value: string) => void;
+  /** For a second field on the same step. The first is always the answer. */
+  id?: string;
 }
 
 export function textField(options: TextFieldOptions): TemplateResult {
-  const describedBy = options.invalid ? `${HINT_ID} ${ALERT_ID}` : HINT_ID;
+  const id = options.id ?? FIELD_ID;
+  const hintId = id === FIELD_ID ? HINT_ID : `${id}-hint`;
+  const describedBy = options.invalid ? `${hintId} ${ALERT_ID}` : hintId;
   return html`<div class="field">
-    <label class="label" for=${FIELD_ID}>${options.label}</label>
-    <p class="hint" id=${HINT_ID}>${options.hint}</p>
+    <label class="label" for=${id}>${options.label}</label>
+    <p class="hint" id=${hintId}>${options.hint}</p>
     <input
       class="input"
-      id=${FIELD_ID}
-      name=${FIELD_ID}
+      id=${id}
+      name=${id}
       type="text"
       .value=${options.value}
       ?disabled=${options.disabled}
