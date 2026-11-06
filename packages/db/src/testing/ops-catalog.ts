@@ -124,7 +124,16 @@ export async function opsDataProblems(client: pg.ClientBase): Promise<string[]> 
   // none of this text comes from a row.
   const identifiers = tenantColumns
     .map((row) => `select "${row.column_name}"::text as id from ${row.table_name}`)
-    .join(' union ');
+    .join(' union all ');
+  // Collected once into a temporary table. The whole union inside each ops table's check
+  // was run again for every row, grows with every tenant table, and at about 60 tables
+  // took a test database down. Unqualified, because a session that has never made a
+  // temporary table has no temporary schema to name.
+  await client.query('drop table if exists ops_tenant_ids');
+  await client.query(
+    `create temporary table ops_tenant_ids as
+       select distinct id from (${identifiers}) as tenant where id is not null`,
+  );
   const tables = (
     await client.query<{ name: string }>(
       `select format('%I.%I', n.nspname, c.relname) as name
@@ -139,8 +148,8 @@ export async function opsDataProblems(client: pg.ClientBase): Promise<string[]> 
       `select count(*)::text as count
          from ${table.name} as row_of_ops
         where exists (
-          select 1 from (${identifiers}) as tenant
-           where to_jsonb(row_of_ops)::text like '%' || tenant.id || '%'
+          select 1 from pg_temp.ops_tenant_ids as tenant
+           where strpos(to_jsonb(row_of_ops)::text, tenant.id) > 0
         )`,
     );
     const count = found.rows[0]?.count ?? '0';
@@ -148,5 +157,6 @@ export async function opsDataProblems(client: pg.ClientBase): Promise<string[]> 
       problems.push(`${table.name}: ${count} row(s) hold an identifier of a tenant row`);
     }
   }
+  await client.query('drop table pg_temp.ops_tenant_ids');
   return problems;
 }
