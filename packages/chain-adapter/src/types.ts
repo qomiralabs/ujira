@@ -766,6 +766,7 @@ export interface SigningSummary {
     | 'request_payouts'
     | 'activate_recipient'
     | 'create_funding_account';
+  /** The mandate acted on. For a create, the one it will deploy, so its row can exist first. */
   readonly mandate?: MandateRef;
   readonly amount?: TokenAmount;
   readonly feePaidBy: 'ujira' | 'signer';

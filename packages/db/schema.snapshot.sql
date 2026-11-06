@@ -207,6 +207,38 @@ $$;
 ALTER FUNCTION ops.clear_fee_address_alarm(target_network text) OWNER TO ujira_ops;
 
 --
+-- Name: delete_expired_security_events(integer); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.delete_expired_security_events(batch_size integer) RETURNS bigint
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  removed bigint;
+begin
+  if batch_size is null or batch_size < 1 or batch_size > 10000 then
+    raise exception using
+      errcode = '22023',
+      message = 'a batch is from 1 to 10000 rows';
+  end if;
+  delete from ops.security_events as e
+   where e.id in (
+     select c.id
+       from ops.security_events as c
+      where c.occurred_at < now() - interval '90 days'
+      order by c.occurred_at
+      limit batch_size
+   );
+  get diagnostics removed = row_count;
+  return removed;
+end
+$$;
+
+
+ALTER FUNCTION ops.delete_expired_security_events(batch_size integer) OWNER TO ujira_ops;
+
+--
 -- Name: email_quota_take(text, text, integer, integer); Type: FUNCTION; Schema: ops; Owner: ujira_ops
 --
 
@@ -443,6 +475,21 @@ $$;
 ALTER FUNCTION ops.record_identity_provider_event(p_provider text, p_provider_account text, p_event_key text, p_raw_sha256 bytea) OWNER TO ujira_ops;
 
 --
+-- Name: record_security_event(text, bytea, text, bytea); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.record_security_event(event_kind text, event_email_hmac bytea, event_token_prefix text, event_ip_hmac bytea) RETURNS void
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  insert into ops.security_events (kind, email_hmac, token_prefix, ip_hmac)
+  values (event_kind, event_email_hmac, event_token_prefix, event_ip_hmac)
+$$;
+
+
+ALTER FUNCTION ops.record_security_event(event_kind text, event_email_hmac bytea, event_token_prefix text, event_ip_hmac bytea) OWNER TO ujira_ops;
+
+--
 -- Name: register_mandate(text, text, text, bytea, bytea, bigint, bigint); Type: FUNCTION; Schema: ops; Owner: ujira_ops
 --
 
@@ -565,6 +612,44 @@ $$;
 
 
 ALTER FUNCTION ops.take_rate_limit_tokens(bucket_keys text[], capacities integer[], refills_per_second integer[]) OWNER TO ujira_ops;
+
+--
+-- Name: api_tokens_nearing_expiry(uuid, integer); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_tokens
+--
+
+CREATE FUNCTION ujira.api_tokens_nearing_expiry(after_id uuid, max_rows integer) RETURNS TABLE(token_id uuid, principal_id uuid, project_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select t.id, t.principal_id, t.project_id
+    from ujira.api_tokens as t
+   where (after_id is null or t.id > after_id)
+     and t.revoked_at is null
+     and t.expires_at > now()
+     and t.expires_at <= now() + interval '30 days'
+     -- A rotated key is on its way out on purpose.
+     and not exists (
+       select 1
+         from ujira.api_tokens as successor
+        where successor.principal_id = t.principal_id
+          and successor.project_id = t.project_id
+          and successor.rotated_from_id = t.id
+     )
+     and not exists (
+       select 1
+         from ujira.api_token_expiry_warnings as w
+        where w.principal_id = t.principal_id
+          and w.project_id = t.project_id
+          and w.token_id = t.id
+          and w.notified_at is not null
+          and w.threshold_days = case when t.expires_at <= now() + interval '7 days' then 7 else 30 end
+     )
+   order by t.id
+   limit least(greatest(max_rows, 1), 1000)
+$$;
+
+
+ALTER FUNCTION ujira.api_tokens_nearing_expiry(after_id uuid, max_rows integer) OWNER TO ujira_fn_tokens;
 
 --
 -- Name: apply_tenant_policies(regclass); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
@@ -1075,6 +1160,27 @@ $$;
 ALTER FUNCTION ujira.forbid_mutation() OWNER TO ujira_owner;
 
 --
+-- Name: forbid_mutation_except_retention(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.forbid_mutation_except_retention() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if tg_op = 'DELETE' and current_user = 'ujira_retention' then
+    return old;
+  end if;
+  raise exception using
+    errcode = 'UJ002',
+    message = format('%I.%I is append only: %s is refused', tg_table_schema, tg_table_name, lower(tg_op));
+end
+$$;
+
+
+ALTER FUNCTION ujira.forbid_mutation_except_retention() OWNER TO ujira_owner;
+
+--
 -- Name: funding_hold_is_held(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1559,6 +1665,47 @@ $$;
 ALTER FUNCTION ujira.payout_network_matches() OWNER TO ujira_owner;
 
 --
+-- Name: payout_step_times(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.payout_step_times() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if tg_op = 'INSERT' then
+    new.approved_at := null;
+    new.settled_at := null;
+    new.delivered_at := null;
+    return new;
+  end if;
+  if new.status is not distinct from old.status then
+    new.approved_at := old.approved_at;
+    new.settled_at := old.settled_at;
+    new.delivered_at := old.delivered_at;
+    return new;
+  end if;
+  case new.status
+    when 'approved' then
+      new.approved_at := now();
+    when 'settling' then
+      new.approved_at := coalesce(old.approved_at, now());
+      new.settled_at := now();
+    when 'paid' then
+      new.delivered_at := now();
+    when 'received', 'routed' then
+      new.approved_at := null;
+    else
+      null;
+  end case;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.payout_step_times() OWNER TO ujira_owner;
+
+--
 -- Name: project_scope_all(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1932,6 +2079,40 @@ ALTER TABLE ops.routing_config_versions ALTER COLUMN version ADD GENERATED ALWAY
 
 
 --
+-- Name: security_events; Type: TABLE; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TABLE ops.security_events (
+    id bigint NOT NULL,
+    kind text NOT NULL,
+    email_hmac bytea,
+    token_prefix text,
+    ip_hmac bytea,
+    occurred_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT security_events_email_hmac_length CHECK ((octet_length(email_hmac) = 32)),
+    CONSTRAINT security_events_ip_hmac_length CHECK ((octet_length(ip_hmac) = 32)),
+    CONSTRAINT security_events_kind_known CHECK ((kind = ANY (ARRAY['sign_in_failed'::text, 'otp_failed'::text, 'mfa_failed'::text, 'token_invalid'::text, 'token_env_mismatch'::text, 'csrf_failed'::text, 'callback_signature_invalid'::text, 'unresolved_identity_event'::text]))),
+    CONSTRAINT security_events_token_prefix_format CHECK ((token_prefix ~ '^[A-Za-z0-9_]{8,40}$'::text))
+);
+
+
+ALTER TABLE ops.security_events OWNER TO ujira_owner;
+
+--
+-- Name: security_events_id_seq; Type: SEQUENCE; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ops.security_events ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME ops.security_events_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: signing_keys; Type: TABLE; Schema: ops; Owner: ujira_owner
 --
 
@@ -2047,6 +2228,25 @@ ALTER TABLE ONLY ujira.agent_identity_links FORCE ROW LEVEL SECURITY;
 ALTER TABLE ujira.agent_identity_links OWNER TO ujira_owner;
 
 --
+-- Name: api_token_expiry_warnings; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.api_token_expiry_warnings (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    token_id uuid NOT NULL,
+    threshold_days bigint NOT NULL,
+    claimed_at timestamp with time zone DEFAULT now() NOT NULL,
+    notified_at timestamp with time zone,
+    CONSTRAINT api_token_expiry_warnings_threshold CHECK ((threshold_days = ANY (ARRAY[(7)::bigint, (30)::bigint])))
+);
+
+ALTER TABLE ONLY ujira.api_token_expiry_warnings FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.api_token_expiry_warnings OWNER TO ujira_owner;
+
+--
 -- Name: api_tokens; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2062,6 +2262,8 @@ CREATE TABLE ujira.api_tokens (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     rotated_from_id uuid,
     last_used_at timestamp with time zone,
+    name text,
+    CONSTRAINT api_tokens_name_length CHECK (((char_length(name) >= 1) AND (char_length(name) <= 100))),
     CONSTRAINT api_tokens_prefix_format CHECK ((prefix ~ '^[A-Za-z0-9_]{8,40}$'::text)),
     CONSTRAINT api_tokens_scopes_known CHECK ((((cardinality(scopes) >= 1) AND (cardinality(scopes) <= 10)) AND (scopes <@ ARRAY['payouts:read'::text, 'payouts:write'::text, 'approvals:write'::text, 'recipients:read'::text, 'recipients:write'::text, 'mandates:read'::text, 'mandates:write'::text, 'receipts:read'::text, 'webhooks:manage'::text, 'corridors:read'::text])))
 );
@@ -2167,7 +2369,7 @@ CREATE TABLE ujira.audit_log (
     occurred_at timestamp with time zone DEFAULT now() NOT NULL,
     prev_hash ujira.hash32 NOT NULL,
     row_hash ujira.hash32 NOT NULL,
-    CONSTRAINT audit_log_action_format CHECK ((action ~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$'::text)),
+    CONSTRAINT audit_log_action_known CHECK ((action = ANY (ARRAY['session.signed_in'::text, 'session.signed_out'::text, 'session.stepped_up'::text, 'member.invited'::text, 'member.added'::text, 'member.removed'::text, 'member.role_changed'::text, 'api_key.created'::text, 'api_key.rotated'::text, 'api_key.revoked'::text, 'webhook.endpoint_created'::text, 'webhook.endpoint_updated'::text, 'webhook.endpoint_deleted'::text, 'webhook.secret_rotated'::text, 'export.requested'::text, 'export.downloaded'::text, 'identity.verification_started'::text, 'identity.verification_completed'::text, 'identity.verification_revoked'::text, 'identity.pii_viewed'::text, 'principal.reporting_time_zone_changed'::text, 'project.routing_settings_changed'::text, 'project.payout_minimums_changed'::text, 'project.cashout_bearer_changed'::text, 'fee_terms.recorded'::text]))),
     CONSTRAINT audit_log_actor_kind CHECK ((actor_kind = ANY (ARRAY['member'::text, 'token'::text, 'system'::text]))),
     CONSTRAINT audit_log_actor_whole CHECK (((actor_kind = 'system'::text) = (actor_id IS NULL)))
 );
@@ -2562,6 +2764,32 @@ ALTER TABLE ONLY ujira.funding_sweeps FORCE ROW LEVEL SECURITY;
 ALTER TABLE ujira.funding_sweeps OWNER TO ujira_owner;
 
 --
+-- Name: idempotency_keys; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.idempotency_keys (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    idempotency_key text NOT NULL,
+    request_sha256 ujira.hash32 NOT NULL,
+    lease_id uuid,
+    lease_expires_at timestamp with time zone,
+    request_id text,
+    response_status bigint,
+    response_body text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    CONSTRAINT idempotency_keys_key_format CHECK ((idempotency_key ~ '^[A-Za-z0-9_.:-]{1,255}$'::text)),
+    CONSTRAINT idempotency_keys_running_or_finished CHECK ((((lease_id IS NOT NULL) AND (lease_expires_at IS NOT NULL) AND (request_id IS NULL) AND (response_status IS NULL) AND (response_body IS NULL)) OR ((lease_id IS NULL) AND (lease_expires_at IS NULL) AND (request_id IS NOT NULL) AND (response_body IS NOT NULL) AND ((response_status >= 200) AND (response_status <= 499)) AND (response_status <> 429))))
+);
+
+ALTER TABLE ONLY ujira.idempotency_keys FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.idempotency_keys OWNER TO ujira_owner;
+
+--
 -- Name: ledger_accounts; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2725,6 +2953,31 @@ ALTER TABLE ONLY ujira.managed_signers FORCE ROW LEVEL SECURITY;
 ALTER TABLE ujira.managed_signers OWNER TO ujira_owner;
 
 --
+-- Name: mandate_action_requests; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.mandate_action_requests (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    mandate_id uuid NOT NULL,
+    mandate_instance_id uuid NOT NULL,
+    op text NOT NULL,
+    idempotency_key text NOT NULL,
+    signing_request jsonb NOT NULL,
+    instance_plan jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT mandate_action_requests_key_format CHECK ((idempotency_key ~ '^[A-Za-z0-9_.:-]{1,255}$'::text)),
+    CONSTRAINT mandate_action_requests_op CHECK ((op = ANY (ARRAY['create'::text, 'lower_fee_cap'::text, 'revoke'::text, 'withdraw'::text, 'cancel_principal_proposal'::text]))),
+    CONSTRAINT mandate_action_requests_plan_on_create CHECK (((op = 'create'::text) = (instance_plan IS NOT NULL)))
+);
+
+ALTER TABLE ONLY ujira.mandate_action_requests FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.mandate_action_requests OWNER TO ujira_owner;
+
+--
 -- Name: mandate_instance_roles; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2780,6 +3033,40 @@ ALTER TABLE ONLY ujira.mandate_instances FORCE ROW LEVEL SECURITY;
 ALTER TABLE ujira.mandate_instances OWNER TO ujira_owner;
 
 --
+-- Name: mandate_terms; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.mandate_terms (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    mandate_id uuid NOT NULL,
+    creation_key text NOT NULL,
+    recipient_mode text NOT NULL,
+    total_budget ujira.amount NOT NULL,
+    per_payment_cap ujira.amount NOT NULL,
+    per_recipient_daily_cap ujira.amount NOT NULL,
+    approval_threshold ujira.amount NOT NULL,
+    currency text NOT NULL,
+    scale ujira.scale NOT NULL,
+    country_policy_hash ujira.hash32 NOT NULL,
+    max_fee_bps bigint NOT NULL,
+    agreed_fee_bps bigint NOT NULL,
+    payout_ttl_seconds bigint NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT mandate_terms_agreed_fee_range CHECK (((agreed_fee_bps >= 0) AND (agreed_fee_bps <= 100))),
+    CONSTRAINT mandate_terms_creation_key_format CHECK ((creation_key ~ '^[A-Za-z0-9_.:-]{1,255}$'::text)),
+    CONSTRAINT mandate_terms_max_fee_range CHECK (((max_fee_bps >= 0) AND (max_fee_bps <= 100))),
+    CONSTRAINT mandate_terms_payout_ttl_range CHECK (((payout_ttl_seconds >= 3600) AND (payout_ttl_seconds <= 2592000))),
+    CONSTRAINT mandate_terms_recipient_mode CHECK ((recipient_mode = ANY (ARRAY['allowlist'::text, 'attested'::text, 'both'::text])))
+);
+
+ALTER TABLE ONLY ujira.mandate_terms FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.mandate_terms OWNER TO ujira_owner;
+
+--
 -- Name: mandates; Type: TABLE; Schema: ujira; Owner: ujira_owner
 --
 
@@ -2801,6 +3088,42 @@ ALTER TABLE ONLY ujira.mandates FORCE ROW LEVEL SECURITY;
 
 
 ALTER TABLE ujira.mandates OWNER TO ujira_owner;
+
+--
+-- Name: outbox_events; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.outbox_events (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    seq bigint NOT NULL,
+    tx_id xid8 DEFAULT pg_current_xact_id() NOT NULL,
+    event_type text NOT NULL,
+    payload jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT outbox_events_payload_object CHECK ((jsonb_typeof(payload) = 'object'::text)),
+    CONSTRAINT outbox_events_type_format CHECK ((event_type ~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$'::text))
+);
+
+ALTER TABLE ONLY ujira.outbox_events FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.outbox_events OWNER TO ujira_owner;
+
+--
+-- Name: outbox_events_seq_seq; Type: SEQUENCE; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.outbox_events ALTER COLUMN seq ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME ujira.outbox_events_seq_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
 
 --
 -- Name: payout_attempts; Type: TABLE; Schema: ujira; Owner: ujira_owner
@@ -3015,6 +3338,14 @@ END) STORED NOT NULL,
     status_reason text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    task_id text,
+    blocked_by text,
+    allowed_by text,
+    approved_at timestamp with time zone,
+    settled_at timestamp with time zone,
+    delivered_at timestamp with time zone,
+    CONSTRAINT payouts_allowed_by_value CHECK ((allowed_by = ANY (ARRAY['allowlist_auto'::text, 'allowlist_approved'::text, 'attestation_auto'::text, 'attestation_approved'::text, 'allowlist_and_attestation_auto'::text, 'allowlist_and_attestation_approved'::text]))),
+    CONSTRAINT payouts_blocked_by_format CHECK ((blocked_by ~ '^[A-Z][A-Z0-9_]{1,63}$'::text)),
     CONSTRAINT payouts_cashout_cost_bearer CHECK ((cashout_cost_bearer = ANY (ARRAY['recipient'::text, 'principal'::text]))),
     CONSTRAINT payouts_key_length CHECK (((char_length(idempotency_key) >= 1) AND (char_length(idempotency_key) <= 255))),
     CONSTRAINT payouts_method CHECK ((method = ANY (ARRAY['stellar_wallet'::text, 'bank'::text, 'mobile_money'::text, 'cash_pickup'::text]))),
@@ -3022,6 +3353,7 @@ END) STORED NOT NULL,
     CONSTRAINT payouts_requested_unit CHECK ((((cashout_cost_bearer = 'recipient'::text) AND (num_nonnulls(requested_asset, requested_chain, requested_token_scale) = 3) AND (num_nonnulls(requested_currency, requested_currency_scale) = 0)) OR ((cashout_cost_bearer = 'principal'::text) AND (num_nonnulls(requested_asset, requested_chain, requested_token_scale) = 0) AND (num_nonnulls(requested_currency, requested_currency_scale) = 2)))),
     CONSTRAINT payouts_status CHECK ((status = ANY (ARRAY['received'::text, 'routed'::text, 'submitting'::text, 'pending_approval'::text, 'approved'::text, 'settling'::text, 'delivering'::text, 'partly_paid'::text, 'paid'::text, 'needs_attention'::text, 'blocked'::text, 'rejected'::text, 'cancelled'::text, 'failed'::text]))),
     CONSTRAINT payouts_status_reason CHECK (((status_reason IS NULL) OR ((status_reason = ANY (ARRAY['awaiting_funding'::text, 'network_unavailable'::text])) AND (status = 'received'::text)) OR ((status_reason = 'funding_hold_expired'::text) AND (status = 'failed'::text)))),
+    CONSTRAINT payouts_task_id_length CHECK (((char_length(task_id) >= 1) AND (char_length(task_id) <= 255))),
     CONSTRAINT payouts_total_positive CHECK (((total_amount)::numeric > (0)::numeric)),
     CONSTRAINT payouts_total_whole CHECK ((num_nonnulls(total_amount, total_asset, total_chain, total_scale) = ANY (ARRAY[0, 4])))
 );
@@ -3291,6 +3623,58 @@ ALTER TABLE ONLY ujira.wallet_proof_challenges FORCE ROW LEVEL SECURITY;
 ALTER TABLE ujira.wallet_proof_challenges OWNER TO ujira_owner;
 
 --
+-- Name: webhook_deliveries; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.webhook_deliveries (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    endpoint_id uuid NOT NULL,
+    event_id uuid NOT NULL,
+    event_created_at timestamp with time zone NOT NULL,
+    attempt bigint NOT NULL,
+    status text NOT NULL,
+    response_status bigint,
+    error_code text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT webhook_deliveries_attempt_range CHECK (((attempt >= 1) AND (attempt <= 1000))),
+    CONSTRAINT webhook_deliveries_error_length CHECK (((char_length(error_code) >= 1) AND (char_length(error_code) <= 64))),
+    CONSTRAINT webhook_deliveries_response_range CHECK (((response_status >= 100) AND (response_status <= 599))),
+    CONSTRAINT webhook_deliveries_status CHECK ((status = ANY (ARRAY['succeeded'::text, 'failed'::text, 'dead_letter'::text])))
+);
+
+ALTER TABLE ONLY ujira.webhook_deliveries FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.webhook_deliveries OWNER TO ujira_owner;
+
+--
+-- Name: webhook_endpoints; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.webhook_endpoints (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    url text NOT NULL,
+    secret_ref text NOT NULL,
+    event_types text[] NOT NULL,
+    status text DEFAULT 'enabled'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT webhook_endpoints_has_events CHECK ((cardinality(event_types) > 0)),
+    CONSTRAINT webhook_endpoints_secret_ref_length CHECK (((char_length(secret_ref) >= 1) AND (char_length(secret_ref) <= 256))),
+    CONSTRAINT webhook_endpoints_status CHECK ((status = ANY (ARRAY['enabled'::text, 'disabled'::text]))),
+    CONSTRAINT webhook_endpoints_url_format CHECK (((url ~ '^https://'::text) AND (char_length(url) <= 2048)))
+);
+
+ALTER TABLE ONLY ujira.webhook_endpoints FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.webhook_endpoints OWNER TO ujira_owner;
+
+--
 -- Name: ujira_migrations id; Type: DEFAULT; Schema: public; Owner: test
 --
 
@@ -3402,6 +3786,14 @@ ALTER TABLE ONLY ops.routing_config_versions
 
 
 --
+-- Name: security_events security_events_pkey; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.security_events
+    ADD CONSTRAINT security_events_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: signing_keys signing_keys_pkey; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
 --
 
@@ -3431,6 +3823,14 @@ ALTER TABLE ONLY ujira.agent_identity_links
 
 ALTER TABLE ONLY ujira.agent_identity_links
     ADD CONSTRAINT agent_identity_links_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: api_token_expiry_warnings api_token_expiry_warnings_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.api_token_expiry_warnings
+    ADD CONSTRAINT api_token_expiry_warnings_pkey PRIMARY KEY (principal_id, project_id, token_id, threshold_days);
 
 
 --
@@ -3794,6 +4194,22 @@ ALTER TABLE ONLY ujira.funding_sweeps
 
 
 --
+-- Name: idempotency_keys idempotency_keys_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.idempotency_keys
+    ADD CONSTRAINT idempotency_keys_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: idempotency_keys idempotency_keys_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.idempotency_keys
+    ADD CONSTRAINT idempotency_keys_tenant_key UNIQUE (principal_id, project_id, idempotency_key);
+
+
+--
 -- Name: ledger_accounts ledger_accounts_per_kind; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3890,6 +4306,22 @@ ALTER TABLE ONLY ujira.managed_signers
 
 
 --
+-- Name: mandate_action_requests mandate_action_requests_once; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_action_requests
+    ADD CONSTRAINT mandate_action_requests_once UNIQUE (principal_id, project_id, idempotency_key, mandate_instance_id);
+
+
+--
+-- Name: mandate_action_requests mandate_action_requests_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_action_requests
+    ADD CONSTRAINT mandate_action_requests_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: mandate_instance_roles mandate_instance_roles_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3962,6 +4394,22 @@ ALTER TABLE ONLY ujira.mandate_state_snapshots
 
 
 --
+-- Name: mandate_terms mandate_terms_creation_once; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_terms
+    ADD CONSTRAINT mandate_terms_creation_once UNIQUE (principal_id, project_id, creation_key);
+
+
+--
+-- Name: mandate_terms mandate_terms_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_terms
+    ADD CONSTRAINT mandate_terms_pkey PRIMARY KEY (mandate_id);
+
+
+--
 -- Name: mandates mandates_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -3975,6 +4423,30 @@ ALTER TABLE ONLY ujira.mandates
 
 ALTER TABLE ONLY ujira.mandates
     ADD CONSTRAINT mandates_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
+-- Name: outbox_events outbox_events_delivery_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.outbox_events
+    ADD CONSTRAINT outbox_events_delivery_key UNIQUE (principal_id, project_id, id, created_at);
+
+
+--
+-- Name: outbox_events outbox_events_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.outbox_events
+    ADD CONSTRAINT outbox_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: outbox_events outbox_events_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.outbox_events
+    ADD CONSTRAINT outbox_events_tenant_key UNIQUE (principal_id, project_id, id);
 
 
 --
@@ -4290,10 +4762,64 @@ ALTER TABLE ONLY ujira.wallet_proof_challenges
 
 
 --
+-- Name: webhook_deliveries webhook_deliveries_per_attempt; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.webhook_deliveries
+    ADD CONSTRAINT webhook_deliveries_per_attempt UNIQUE (principal_id, project_id, endpoint_id, event_id, attempt);
+
+
+--
+-- Name: webhook_deliveries webhook_deliveries_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.webhook_deliveries
+    ADD CONSTRAINT webhook_deliveries_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: webhook_endpoints webhook_endpoints_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.webhook_endpoints
+    ADD CONSTRAINT webhook_endpoints_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: webhook_endpoints webhook_endpoints_tenant_key; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.webhook_endpoints
+    ADD CONSTRAINT webhook_endpoints_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
+-- Name: webhook_endpoints webhook_endpoints_url_per_project; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.webhook_endpoints
+    ADD CONSTRAINT webhook_endpoints_url_per_project UNIQUE (principal_id, project_id, url);
+
+
+--
+-- Name: security_events_occurred_at; Type: INDEX; Schema: ops; Owner: ujira_owner
+--
+
+CREATE INDEX security_events_occurred_at ON ops.security_events USING btree (occurred_at);
+
+
+--
 -- Name: signing_keys_one_active; Type: INDEX; Schema: ops; Owner: ujira_owner
 --
 
 CREATE UNIQUE INDEX signing_keys_one_active ON ops.signing_keys USING btree (purpose, COALESCE(network, ''::text), COALESCE(anchor_id, ''::text), key_ref) WHERE (status = 'active'::text);
+
+
+--
+-- Name: api_tokens_one_successor; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE UNIQUE INDEX api_tokens_one_successor ON ujira.api_tokens USING btree (principal_id, project_id, rotated_from_id) WHERE (rotated_from_id IS NOT NULL);
 
 
 --
@@ -4402,6 +4928,13 @@ CREATE INDEX funding_sweeps_by_instance ON ujira.funding_sweeps USING btree (pri
 
 
 --
+-- Name: idempotency_keys_expires_at; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX idempotency_keys_expires_at ON ujira.idempotency_keys USING btree (expires_at);
+
+
+--
 -- Name: ledger_entries_by_journal; Type: INDEX; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4413,6 +4946,27 @@ CREATE INDEX ledger_entries_by_journal ON ujira.ledger_entries USING btree (prin
 --
 
 CREATE UNIQUE INDEX managed_signers_one_active ON ujira.managed_signers USING btree (principal_id, project_id, agent_id, network) WHERE (status = 'active'::text);
+
+
+--
+-- Name: mandate_action_requests_by_mandate; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX mandate_action_requests_by_mandate ON ujira.mandate_action_requests USING btree (principal_id, project_id, mandate_id, op);
+
+
+--
+-- Name: outbox_events_read; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX outbox_events_read ON ujira.outbox_events USING btree (principal_id, project_id, seq);
+
+
+--
+-- Name: outbox_events_retention; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX outbox_events_retention ON ujira.outbox_events USING btree (created_at);
 
 
 --
@@ -4493,6 +5047,13 @@ CREATE INDEX payouts_by_status ON ujira.payouts USING btree (principal_id, proje
 
 
 --
+-- Name: payouts_newest_first; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX payouts_newest_first ON ujira.payouts USING btree (principal_id, project_id, created_at DESC, id DESC);
+
+
+--
 -- Name: recipient_identities_one_per_provider; Type: INDEX; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4518,6 +5079,20 @@ CREATE UNIQUE INDEX recipient_identities_verified_nullifier ON ujira.recipient_i
 --
 
 CREATE INDEX unpaid_fee_items_by_attempt ON ujira.unpaid_fee_items USING btree (principal_id, project_id, attempt_id);
+
+
+--
+-- Name: webhook_deliveries_by_event; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX webhook_deliveries_by_event ON ujira.webhook_deliveries USING btree (principal_id, project_id, event_id);
+
+
+--
+-- Name: webhook_deliveries_retention; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX webhook_deliveries_retention ON ujira.webhook_deliveries USING btree (event_created_at);
 
 
 --
@@ -4553,6 +5128,13 @@ CREATE TRIGGER routing_config_active_touch BEFORE UPDATE ON ops.routing_config_a
 --
 
 CREATE TRIGGER routing_config_versions_append_only BEFORE DELETE OR UPDATE ON ops.routing_config_versions FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: security_events security_events_append_only; Type: TRIGGER; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TRIGGER security_events_append_only BEFORE UPDATE ON ops.security_events FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation();
 
 
 --
@@ -4878,6 +5460,20 @@ CREATE TRIGGER mandates_touch BEFORE UPDATE ON ujira.mandates FOR EACH ROW EXECU
 
 
 --
+-- Name: outbox_events outbox_events_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER outbox_events_append_only BEFORE DELETE OR UPDATE ON ujira.outbox_events FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation_except_retention();
+
+
+--
+-- Name: outbox_events outbox_events_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER outbox_events_no_truncate BEFORE TRUNCATE ON ujira.outbox_events FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
 -- Name: payout_attempts payout_attempts_have_legs; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5067,6 +5663,13 @@ CREATE TRIGGER payouts_no_truncate BEFORE TRUNCATE ON ujira.payouts FOR EACH STA
 
 
 --
+-- Name: payouts payouts_step_times; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER payouts_step_times BEFORE INSERT OR UPDATE ON ujira.payouts FOR EACH ROW EXECUTE FUNCTION ujira.payout_step_times();
+
+
+--
 -- Name: payouts payouts_touch; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5151,6 +5754,27 @@ CREATE TRIGGER unpaid_fee_items_no_truncate BEFORE TRUNCATE ON ujira.unpaid_fee_
 
 
 --
+-- Name: webhook_deliveries webhook_deliveries_append_only; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER webhook_deliveries_append_only BEFORE DELETE OR UPDATE ON ujira.webhook_deliveries FOR EACH ROW EXECUTE FUNCTION ujira.forbid_mutation_except_retention();
+
+
+--
+-- Name: webhook_deliveries webhook_deliveries_no_truncate; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER webhook_deliveries_no_truncate BEFORE TRUNCATE ON ujira.webhook_deliveries FOR EACH STATEMENT EXECUTE FUNCTION ujira.forbid_mutation();
+
+
+--
+-- Name: webhook_endpoints webhook_endpoints_touch; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER webhook_endpoints_touch BEFORE UPDATE ON ujira.webhook_endpoints FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
 -- Name: mandate_alerts mandate_alerts_network_contract_id_fkey; Type: FK CONSTRAINT; Schema: ops; Owner: ujira_owner
 --
 
@@ -5172,6 +5796,14 @@ ALTER TABLE ONLY ops.routing_config_active
 
 ALTER TABLE ONLY ujira.agent_identity_links
     ADD CONSTRAINT agent_identity_links_principal_id_project_id_fkey FOREIGN KEY (principal_id, project_id) REFERENCES ujira.projects(principal_id, id);
+
+
+--
+-- Name: api_token_expiry_warnings api_token_expiry_warnings_principal_id_project_id_token_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.api_token_expiry_warnings
+    ADD CONSTRAINT api_token_expiry_warnings_principal_id_project_id_token_id_fkey FOREIGN KEY (principal_id, project_id, token_id) REFERENCES ujira.api_tokens(principal_id, project_id, id);
 
 
 --
@@ -5447,6 +6079,14 @@ ALTER TABLE ONLY ujira.funding_sweeps
 
 
 --
+-- Name: idempotency_keys idempotency_keys_principal_id_project_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.idempotency_keys
+    ADD CONSTRAINT idempotency_keys_principal_id_project_id_fkey FOREIGN KEY (principal_id, project_id) REFERENCES ujira.projects(principal_id, id);
+
+
+--
 -- Name: ledger_accounts ledger_accounts_principal_id_project_id_mandate_instance_i_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5511,6 +6151,22 @@ ALTER TABLE ONLY ujira.managed_signers
 
 
 --
+-- Name: mandate_action_requests mandate_action_requests_principal_id_project_id_mandate_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_action_requests
+    ADD CONSTRAINT mandate_action_requests_principal_id_project_id_mandate_id_fkey FOREIGN KEY (principal_id, project_id, mandate_id) REFERENCES ujira.mandates(principal_id, project_id, id);
+
+
+--
+-- Name: mandate_action_requests mandate_action_requests_principal_id_project_id_mandate_in_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_action_requests
+    ADD CONSTRAINT mandate_action_requests_principal_id_project_id_mandate_in_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id) REFERENCES ujira.mandate_instances(principal_id, project_id, id);
+
+
+--
 -- Name: mandate_instance_roles mandate_instance_roles_principal_id_project_id_granted_eve_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5559,11 +6215,35 @@ ALTER TABLE ONLY ujira.mandate_state_snapshots
 
 
 --
+-- Name: mandate_terms mandate_terms_currency_scale_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_terms
+    ADD CONSTRAINT mandate_terms_currency_scale_fkey FOREIGN KEY (currency, scale) REFERENCES ujira.currency_scales(currency, scale);
+
+
+--
+-- Name: mandate_terms mandate_terms_principal_id_project_id_mandate_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.mandate_terms
+    ADD CONSTRAINT mandate_terms_principal_id_project_id_mandate_id_fkey FOREIGN KEY (principal_id, project_id, mandate_id) REFERENCES ujira.mandates(principal_id, project_id, id);
+
+
+--
 -- Name: mandates mandates_principal_id_project_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
 ALTER TABLE ONLY ujira.mandates
     ADD CONSTRAINT mandates_principal_id_project_id_fkey FOREIGN KEY (principal_id, project_id) REFERENCES ujira.projects(principal_id, id);
+
+
+--
+-- Name: outbox_events outbox_events_principal_id_project_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.outbox_events
+    ADD CONSTRAINT outbox_events_principal_id_project_id_fkey FOREIGN KEY (principal_id, project_id) REFERENCES ujira.projects(principal_id, id);
 
 
 --
@@ -5807,10 +6487,40 @@ ALTER TABLE ONLY ujira.wallet_proof_challenges
 
 
 --
+-- Name: webhook_deliveries webhook_deliveries_principal_id_project_id_endpoint_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.webhook_deliveries
+    ADD CONSTRAINT webhook_deliveries_principal_id_project_id_endpoint_id_fkey FOREIGN KEY (principal_id, project_id, endpoint_id) REFERENCES ujira.webhook_endpoints(principal_id, project_id, id);
+
+
+--
+-- Name: webhook_deliveries webhook_deliveries_principal_id_project_id_event_id_event__fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.webhook_deliveries
+    ADD CONSTRAINT webhook_deliveries_principal_id_project_id_event_id_event__fkey FOREIGN KEY (principal_id, project_id, event_id, event_created_at) REFERENCES ujira.outbox_events(principal_id, project_id, id, created_at);
+
+
+--
+-- Name: webhook_endpoints webhook_endpoints_principal_id_project_id_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.webhook_endpoints
+    ADD CONSTRAINT webhook_endpoints_principal_id_project_id_fkey FOREIGN KEY (principal_id, project_id) REFERENCES ujira.projects(principal_id, id);
+
+
+--
 -- Name: agent_identity_links; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
 --
 
 ALTER TABLE ujira.agent_identity_links ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: api_token_expiry_warnings; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.api_token_expiry_warnings ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: api_tokens; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
@@ -5975,6 +6685,12 @@ ALTER TABLE ujira.funding_sources ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE ujira.funding_sweeps ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: idempotency_keys; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.idempotency_keys ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: recipient_identities identity_scope; Type: POLICY; Schema: ujira; Owner: ujira_owner
@@ -6169,6 +6885,12 @@ CREATE POLICY ledger_stamp_update ON ujira.ledger_accounts FOR UPDATE TO ujira_f
 ALTER TABLE ujira.managed_signers ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: mandate_action_requests; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.mandate_action_requests ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: mandate_instance_roles; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6187,16 +6909,35 @@ ALTER TABLE ujira.mandate_instances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ujira.mandate_state_snapshots ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: mandate_terms; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.mandate_terms ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: mandates; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
 --
 
 ALTER TABLE ujira.mandates ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: outbox_events; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.outbox_events ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: agent_identity_links owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY owner_all ON ujira.agent_identity_links TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: api_token_expiry_warnings owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.api_token_expiry_warnings TO ujira_owner USING (true) WITH CHECK (true);
 
 
 --
@@ -6326,6 +7067,13 @@ CREATE POLICY owner_all ON ujira.funding_sweeps TO ujira_owner USING (true) WITH
 
 
 --
+-- Name: idempotency_keys owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.idempotency_keys TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: ledger_accounts owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6354,6 +7102,13 @@ CREATE POLICY owner_all ON ujira.managed_signers TO ujira_owner USING (true) WIT
 
 
 --
+-- Name: mandate_action_requests owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.mandate_action_requests TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: mandate_instance_roles owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6375,10 +7130,24 @@ CREATE POLICY owner_all ON ujira.mandate_state_snapshots TO ujira_owner USING (t
 
 
 --
+-- Name: mandate_terms owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.mandate_terms TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
 -- Name: mandates owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY owner_all ON ujira.mandates TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: outbox_events owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.outbox_events TO ujira_owner USING (true) WITH CHECK (true);
 
 
 --
@@ -6491,6 +7260,20 @@ CREATE POLICY owner_all ON ujira.unpaid_fee_items TO ujira_owner USING (true) WI
 --
 
 CREATE POLICY owner_all ON ujira.wallet_proof_challenges TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: webhook_deliveries owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.webhook_deliveries TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: webhook_endpoints owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.webhook_endpoints TO ujira_owner USING (true) WITH CHECK (true);
 
 
 --
@@ -6608,6 +7391,27 @@ CREATE POLICY retention_delete ON ujira.embed_sessions FOR DELETE TO ujira_reten
 
 
 --
+-- Name: idempotency_keys retention_delete; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY retention_delete ON ujira.idempotency_keys FOR DELETE TO ujira_retention USING ((expires_at < now()));
+
+
+--
+-- Name: outbox_events retention_delete; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY retention_delete ON ujira.outbox_events FOR DELETE TO ujira_retention USING ((created_at < (now() - '30 days'::interval)));
+
+
+--
+-- Name: webhook_deliveries retention_delete; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY retention_delete ON ujira.webhook_deliveries FOR DELETE TO ujira_retention USING ((event_created_at < (now() - '30 days'::interval)));
+
+
+--
 -- Name: destination_verifications retention_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6624,10 +7428,38 @@ CREATE POLICY retention_read ON ujira.embed_sessions FOR SELECT TO ujira_retenti
 
 
 --
+-- Name: idempotency_keys retention_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY retention_read ON ujira.idempotency_keys FOR SELECT TO ujira_retention USING ((expires_at < now()));
+
+
+--
+-- Name: outbox_events retention_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY retention_read ON ujira.outbox_events FOR SELECT TO ujira_retention USING ((created_at < (now() - '30 days'::interval)));
+
+
+--
+-- Name: webhook_deliveries retention_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY retention_read ON ujira.webhook_deliveries FOR SELECT TO ujira_retention USING ((event_created_at < (now() - '30 days'::interval)));
+
+
+--
 -- Name: attestations signer_pending; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY signer_pending ON ujira.attestations FOR SELECT TO ujira_signer_read USING (true);
+
+
+--
+-- Name: api_token_expiry_warnings sweep; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY sweep ON ujira.api_token_expiry_warnings FOR SELECT TO ujira_fn_tokens USING (true);
 
 
 --
@@ -6649,6 +7481,13 @@ CREATE POLICY tenant_delete ON ujira.payout_funding_holds FOR DELETE TO ujira_ap
 --
 
 CREATE POLICY tenant_insert ON ujira.agent_identity_links FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: api_token_expiry_warnings tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.api_token_expiry_warnings FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -6771,6 +7610,13 @@ CREATE POLICY tenant_insert ON ujira.funding_sweeps FOR INSERT TO ujira_app WITH
 
 
 --
+-- Name: idempotency_keys tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.idempotency_keys FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: ledger_accounts tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6799,6 +7645,13 @@ CREATE POLICY tenant_insert ON ujira.managed_signers FOR INSERT TO ujira_app WIT
 
 
 --
+-- Name: mandate_action_requests tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.mandate_action_requests FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: mandate_instance_roles tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6820,10 +7673,24 @@ CREATE POLICY tenant_insert ON ujira.mandate_state_snapshots FOR INSERT TO ujira
 
 
 --
+-- Name: mandate_terms tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.mandate_terms FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: mandates tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY tenant_insert ON ujira.mandates FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: outbox_events tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.outbox_events FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -6932,10 +7799,31 @@ CREATE POLICY tenant_insert ON ujira.wallet_proof_challenges FOR INSERT TO ujira
 
 
 --
+-- Name: webhook_deliveries tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.webhook_deliveries FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: webhook_endpoints tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.webhook_endpoints FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: agent_identity_links tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY tenant_read ON ujira.agent_identity_links FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: api_token_expiry_warnings tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.api_token_expiry_warnings FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
 
 
 --
@@ -7065,6 +7953,13 @@ CREATE POLICY tenant_read ON ujira.funding_sweeps FOR SELECT TO ujira_app, ujira
 
 
 --
+-- Name: idempotency_keys tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.idempotency_keys FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
 -- Name: ledger_accounts tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -7093,6 +7988,13 @@ CREATE POLICY tenant_read ON ujira.managed_signers FOR SELECT TO ujira_app, ujir
 
 
 --
+-- Name: mandate_action_requests tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.mandate_action_requests FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
 -- Name: mandate_instance_roles tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -7114,10 +8016,24 @@ CREATE POLICY tenant_read ON ujira.mandate_state_snapshots FOR SELECT TO ujira_a
 
 
 --
+-- Name: mandate_terms tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.mandate_terms FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
 -- Name: mandates tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY tenant_read ON ujira.mandates FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: outbox_events tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.outbox_events FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
 
 
 --
@@ -7233,10 +8149,31 @@ CREATE POLICY tenant_read ON ujira.wallet_proof_challenges FOR SELECT TO ujira_a
 
 
 --
+-- Name: webhook_deliveries tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.webhook_deliveries FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
+-- Name: webhook_endpoints tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.webhook_endpoints FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
 -- Name: agent_identity_links tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY tenant_update ON ujira.agent_identity_links FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: api_token_expiry_warnings tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.api_token_expiry_warnings FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -7359,6 +8296,13 @@ CREATE POLICY tenant_update ON ujira.funding_sweeps FOR UPDATE TO ujira_app USIN
 
 
 --
+-- Name: idempotency_keys tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.idempotency_keys FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: ledger_accounts tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -7387,6 +8331,13 @@ CREATE POLICY tenant_update ON ujira.managed_signers FOR UPDATE TO ujira_app USI
 
 
 --
+-- Name: mandate_action_requests tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.mandate_action_requests FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: mandate_instance_roles tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -7408,10 +8359,24 @@ CREATE POLICY tenant_update ON ujira.mandate_state_snapshots FOR UPDATE TO ujira
 
 
 --
+-- Name: mandate_terms tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.mandate_terms FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: mandates tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
 CREATE POLICY tenant_update ON ujira.mandates FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: outbox_events tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.outbox_events FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -7527,6 +8492,20 @@ CREATE POLICY tenant_update ON ujira.wallet_proof_challenges FOR UPDATE TO ujira
 
 
 --
+-- Name: webhook_deliveries tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.webhook_deliveries FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: webhook_endpoints tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.webhook_endpoints FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: unpaid_fee_items; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -7539,12 +8518,26 @@ ALTER TABLE ujira.unpaid_fee_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ujira.wallet_proof_challenges ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: webhook_deliveries; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.webhook_deliveries ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: webhook_endpoints; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.webhook_endpoints ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: SCHEMA ops; Type: ACL; Schema: -; Owner: ujira_owner
 --
 
 GRANT USAGE ON SCHEMA ops TO ujira_ops;
 GRANT USAGE ON SCHEMA ops TO ujira_app;
 GRANT USAGE ON SCHEMA ops TO ujira_indexer;
+GRANT USAGE ON SCHEMA ops TO ujira_auth;
+GRANT USAGE ON SCHEMA ops TO ujira_retention;
 
 
 --
@@ -7680,6 +8673,14 @@ GRANT ALL ON FUNCTION ops.clear_fee_address_alarm(target_network text) TO ujira_
 
 
 --
+-- Name: FUNCTION delete_expired_security_events(batch_size integer); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.delete_expired_security_events(batch_size integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.delete_expired_security_events(batch_size integer) TO ujira_retention;
+
+
+--
 -- Name: FUNCTION email_quota_take(p_provider_account text, p_kind text, p_cap integer, p_code_reserve integer); Type: ACL; Schema: ops; Owner: ujira_ops
 --
 
@@ -7751,6 +8752,15 @@ GRANT ALL ON FUNCTION ops.record_identity_provider_event(p_provider text, p_prov
 
 
 --
+-- Name: FUNCTION record_security_event(event_kind text, event_email_hmac bytea, event_token_prefix text, event_ip_hmac bytea); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.record_security_event(event_kind text, event_email_hmac bytea, event_token_prefix text, event_ip_hmac bytea) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.record_security_event(event_kind text, event_email_hmac bytea, event_token_prefix text, event_ip_hmac bytea) TO ujira_app;
+GRANT ALL ON FUNCTION ops.record_security_event(event_kind text, event_email_hmac bytea, event_token_prefix text, event_ip_hmac bytea) TO ujira_auth;
+
+
+--
 -- Name: FUNCTION register_mandate(target_network text, contract text, factory text, tag bytea, tx bytea, event_at bigint, at_ledger bigint); Type: ACL; Schema: ops; Owner: ujira_ops
 --
 
@@ -7781,6 +8791,14 @@ GRANT ALL ON FUNCTION ops.release_executor(target_network text, account text, ho
 
 REVOKE ALL ON FUNCTION ops.take_rate_limit_tokens(bucket_keys text[], capacities integer[], refills_per_second integer[]) FROM PUBLIC;
 GRANT ALL ON FUNCTION ops.take_rate_limit_tokens(bucket_keys text[], capacities integer[], refills_per_second integer[]) TO ujira_app;
+
+
+--
+-- Name: FUNCTION api_tokens_nearing_expiry(after_id uuid, max_rows integer); Type: ACL; Schema: ujira; Owner: ujira_fn_tokens
+--
+
+REVOKE ALL ON FUNCTION ujira.api_tokens_nearing_expiry(after_id uuid, max_rows integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.api_tokens_nearing_expiry(after_id uuid, max_rows integer) TO ujira_app;
 
 
 --
@@ -7932,6 +8950,13 @@ REVOKE ALL ON FUNCTION ujira.forbid_mutation() FROM PUBLIC;
 
 
 --
+-- Name: FUNCTION forbid_mutation_except_retention(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.forbid_mutation_except_retention() FROM PUBLIC;
+
+
+--
 -- Name: FUNCTION funding_hold_is_held(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -8034,6 +9059,13 @@ REVOKE ALL ON FUNCTION ujira.payout_leg_stamp() FROM PUBLIC;
 --
 
 REVOKE ALL ON FUNCTION ujira.payout_network_matches() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION payout_step_times(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.payout_step_times() FROM PUBLIC;
 
 
 --
@@ -8173,6 +9205,13 @@ GRANT SELECT,INSERT ON TABLE ops.routing_config_versions TO ujira_ops;
 
 
 --
+-- Name: TABLE security_events; Type: ACL; Schema: ops; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,DELETE ON TABLE ops.security_events TO ujira_ops;
+
+
+--
 -- Name: TABLE signing_keys; Type: ACL; Schema: ops; Owner: ujira_owner
 --
 
@@ -8185,6 +9224,29 @@ GRANT SELECT,INSERT,UPDATE ON TABLE ops.signing_keys TO ujira_ops;
 
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.agent_identity_links TO ujira_app;
 GRANT SELECT ON TABLE ujira.agent_identity_links TO ujira_reader;
+
+
+--
+-- Name: TABLE api_token_expiry_warnings; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.api_token_expiry_warnings TO ujira_app;
+GRANT SELECT ON TABLE ujira.api_token_expiry_warnings TO ujira_reader;
+GRANT SELECT ON TABLE ujira.api_token_expiry_warnings TO ujira_fn_tokens;
+
+
+--
+-- Name: COLUMN api_token_expiry_warnings.claimed_at; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(claimed_at) ON TABLE ujira.api_token_expiry_warnings TO ujira_app;
+
+
+--
+-- Name: COLUMN api_token_expiry_warnings.notified_at; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(notified_at) ON TABLE ujira.api_token_expiry_warnings TO ujira_app;
 
 
 --
@@ -8498,6 +9560,28 @@ GRANT SELECT ON TABLE ujira.funding_sweeps TO ujira_reader;
 
 
 --
+-- Name: TABLE idempotency_keys; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE ujira.idempotency_keys TO ujira_app;
+GRANT DELETE ON TABLE ujira.idempotency_keys TO ujira_retention;
+
+
+--
+-- Name: COLUMN idempotency_keys.id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(id) ON TABLE ujira.idempotency_keys TO ujira_retention;
+
+
+--
+-- Name: COLUMN idempotency_keys.expires_at; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(expires_at) ON TABLE ujira.idempotency_keys TO ujira_retention;
+
+
+--
 -- Name: TABLE ledger_accounts; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -8553,6 +9637,13 @@ GRANT SELECT ON TABLE ujira.managed_signers TO ujira_reader;
 
 
 --
+-- Name: TABLE mandate_action_requests; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.mandate_action_requests TO ujira_app;
+
+
+--
 -- Name: TABLE mandate_instance_roles; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -8586,11 +9677,42 @@ GRANT UPDATE(recipient_mode) ON TABLE ujira.mandate_instances TO ujira_app;
 
 
 --
+-- Name: TABLE mandate_terms; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.mandate_terms TO ujira_app;
+GRANT SELECT ON TABLE ujira.mandate_terms TO ujira_reader;
+
+
+--
 -- Name: TABLE mandates; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.mandates TO ujira_app;
 GRANT SELECT ON TABLE ujira.mandates TO ujira_reader;
+
+
+--
+-- Name: TABLE outbox_events; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.outbox_events TO ujira_app;
+GRANT SELECT ON TABLE ujira.outbox_events TO ujira_reader;
+GRANT DELETE ON TABLE ujira.outbox_events TO ujira_retention;
+
+
+--
+-- Name: COLUMN outbox_events.id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(id) ON TABLE ujira.outbox_events TO ujira_retention;
+
+
+--
+-- Name: COLUMN outbox_events.created_at; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(created_at) ON TABLE ujira.outbox_events TO ujira_retention;
 
 
 --
@@ -8728,6 +9850,20 @@ GRANT UPDATE(status_reason) ON TABLE ujira.payouts TO ujira_app;
 
 
 --
+-- Name: COLUMN payouts.blocked_by; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(blocked_by) ON TABLE ujira.payouts TO ujira_app;
+
+
+--
+-- Name: COLUMN payouts.allowed_by; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(allowed_by) ON TABLE ujira.payouts TO ujira_app;
+
+
+--
 -- Name: TABLE principal_members; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -8841,6 +9977,102 @@ GRANT SELECT ON TABLE ujira.unpaid_fee_items TO ujira_reader;
 --
 
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.wallet_proof_challenges TO ujira_app;
+
+
+--
+-- Name: TABLE webhook_deliveries; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.webhook_deliveries TO ujira_app;
+GRANT SELECT ON TABLE ujira.webhook_deliveries TO ujira_reader;
+GRANT DELETE ON TABLE ujira.webhook_deliveries TO ujira_retention;
+
+
+--
+-- Name: COLUMN webhook_deliveries.id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(id) ON TABLE ujira.webhook_deliveries TO ujira_retention;
+
+
+--
+-- Name: COLUMN webhook_deliveries.event_created_at; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(event_created_at) ON TABLE ujira.webhook_deliveries TO ujira_retention;
+
+
+--
+-- Name: TABLE webhook_endpoints; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT ON TABLE ujira.webhook_endpoints TO ujira_app;
+
+
+--
+-- Name: COLUMN webhook_endpoints.principal_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(principal_id) ON TABLE ujira.webhook_endpoints TO ujira_reader;
+
+
+--
+-- Name: COLUMN webhook_endpoints.project_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(project_id) ON TABLE ujira.webhook_endpoints TO ujira_reader;
+
+
+--
+-- Name: COLUMN webhook_endpoints.id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(id) ON TABLE ujira.webhook_endpoints TO ujira_reader;
+
+
+--
+-- Name: COLUMN webhook_endpoints.url; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(url) ON TABLE ujira.webhook_endpoints TO ujira_app;
+GRANT SELECT(url) ON TABLE ujira.webhook_endpoints TO ujira_reader;
+
+
+--
+-- Name: COLUMN webhook_endpoints.secret_ref; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(secret_ref) ON TABLE ujira.webhook_endpoints TO ujira_app;
+
+
+--
+-- Name: COLUMN webhook_endpoints.event_types; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(event_types) ON TABLE ujira.webhook_endpoints TO ujira_app;
+GRANT SELECT(event_types) ON TABLE ujira.webhook_endpoints TO ujira_reader;
+
+
+--
+-- Name: COLUMN webhook_endpoints.status; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(status) ON TABLE ujira.webhook_endpoints TO ujira_app;
+GRANT SELECT(status) ON TABLE ujira.webhook_endpoints TO ujira_reader;
+
+
+--
+-- Name: COLUMN webhook_endpoints.created_at; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(created_at) ON TABLE ujira.webhook_endpoints TO ujira_reader;
+
+
+--
+-- Name: COLUMN webhook_endpoints.updated_at; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(updated_at) ON TABLE ujira.webhook_endpoints TO ujira_reader;
 
 
 --

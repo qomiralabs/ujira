@@ -122,6 +122,8 @@ export function embedRoutes(deps: EmbedDependencies): readonly Route[] {
       path: '/v1/embed/sessions',
       summary: 'Mint a short lived token for the widget to touch one recipient',
       scope: 'recipients:write',
+      // The answer is the credential, which must not be stored in clear for replay.
+      noReplay: true,
       body: EmbedSessionRequest,
       response: { status: 201, name: 'EmbedSessionCreated', schema: EmbedSessionCreated },
       errors: ['NOT_FOUND'],
@@ -143,6 +145,8 @@ export function embedRoutes(deps: EmbedDependencies): readonly Route[] {
       path: '/v1/embed/invites',
       summary: 'Make a single use invite the widget can exchange for a token',
       scope: 'recipients:write',
+      // The answer is the credential, which must not be stored in clear for replay.
+      noReplay: true,
       body: EmbedSessionRequest,
       response: { status: 201, name: 'EmbedInviteCreated', schema: EmbedInviteCreated },
       errors: ['NOT_FOUND'],

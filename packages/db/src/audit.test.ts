@@ -7,7 +7,12 @@ import pg from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from 'vitest';
 
 import type { Database } from './database.js';
-import { audit, AuditScopeError, type NewAuditEntry } from './repositories/audit.js';
+import {
+  audit,
+  AuditScopeError,
+  type AuditAction,
+  type NewAuditEntry,
+} from './repositories/audit.js';
 import { entryPoints, type CreatedPrincipal } from './repositories/entry-points.js';
 import { projects } from './repositories/tenancy.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
@@ -276,7 +281,7 @@ describe('metadata', () => {
 
 describe('the fields', () => {
   it('refuses a malformed action, and an actor kind and id that disagree', async () => {
-    expect(await codeOf(record({ action: 'NotDotted' }))).toBe('23514');
+    expect(await codeOf(record({ action: 'NotDotted' as AuditAction }))).toBe('23514');
     const admin = new pg.Client({ connectionString: database.url });
     await admin.connect();
     try {
@@ -285,7 +290,7 @@ describe('the fields', () => {
           admin.query(
             `insert into ujira.audit_log
                (principal_id, project_id, action, actor_kind, seq, prev_hash, row_hash)
-             values ($1, $2, 'a.b', 'member', 0, $3, $3)`,
+             values ($1, $2, 'project.routing_settings_changed', 'member', 0, $3, $3)`,
             [tenant.principalId, tenant.projectId, Buffer.alloc(32)],
           ),
         ),

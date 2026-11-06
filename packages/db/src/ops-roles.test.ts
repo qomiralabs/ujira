@@ -28,6 +28,7 @@ const TABLES = [
   'ops.mandate_alerts',
   'ops.mandate_registry',
   'ops.rate_limit_buckets',
+  'ops.security_events',
 ];
 
 let database: TestDatabase;
@@ -68,7 +69,7 @@ describe('the ops role', () => {
     });
   });
 
-  it('the other service roles can read no ops table and call no function of the app', async () => {
+  it('the other service roles cannot reach what they were not given', async () => {
     for (const role of [
       'ujira_reader',
       'ujira_retention',

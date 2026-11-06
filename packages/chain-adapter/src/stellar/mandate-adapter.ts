@@ -546,7 +546,13 @@ export class StellarMandateAdapter implements StellarMandateOperations {
           : call.op === 'request_batch'
             ? 'request_payouts'
             : call.op,
-      ...(req.mandate === null ? {} : { mandate: req.mandate }),
+      // A create names the mandate it will deploy, so its row can exist before
+      // the transaction lands.
+      ...(req.mandate !== null
+        ? { mandate: req.mandate }
+        : action.op === 'create'
+          ? { mandate: { network, address: { network, value: target }, specVersion: 1 } }
+          : {}),
       ...(call.amount === undefined ? {} : { amount: call.amount }),
       feePaidBy: 'ujira',
       estimatedFee: stroops(network, fee),

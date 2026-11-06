@@ -35,6 +35,34 @@ export interface AuthenticatedTenant extends Tenant {
   readonly scopes: readonly ApiScope[];
 }
 
+/** A person, from a dashboard session, as opposed to a key. */
+export const MEMBER_ROLES = Object.freeze(['owner', 'admin', 'developer', 'viewer'] as const);
+export type MemberRole = (typeof MEMBER_ROLES)[number];
+
+export interface AuthenticatedMember extends Tenant {
+  readonly userId: string;
+  readonly role: MemberRole;
+  /** When this session last passed a second factor, or null if it never has. */
+  readonly steppedUpAt: Date | null;
+}
+
+export type MemberAuthResult =
+  | { readonly ok: true; readonly member: AuthenticatedMember }
+  | { readonly ok: false; readonly code: 'TOKEN_INVALID' | 'ORIGIN_NOT_ALLOWED' };
+
+export interface MemberCredentials extends Credentials {
+  /** The Cookie header as sent, or null. */
+  readonly cookie: string | null;
+}
+
+export type AuthenticateMember = (
+  credentials: MemberCredentials,
+  call: CallOptions,
+) => Promise<MemberAuthResult>;
+
+/** How old a second factor may be for an action that needs a fresh one. */
+export const STEP_UP_MAX_AGE_SECONDS = 300;
+
 export type AuthFailureCode =
   'TOKEN_MALFORMED' | 'TOKEN_INVALID' | 'TOKEN_ENVIRONMENT_MISMATCH' | 'ORIGIN_NOT_ALLOWED';
 
@@ -65,9 +93,21 @@ export type Authenticate = (credentials: Credentials, call: CallOptions) => Prom
 export const refuseAllCredentials: Authenticate = () =>
   Promise.resolve({ ok: false, code: 'TOKEN_INVALID' });
 
+/** Until dashboard sessions exist, no member route can run as anybody. */
+export const refuseAllMembers: AuthenticateMember = () =>
+  Promise.resolve({ ok: false, code: 'TOKEN_INVALID' });
+
 // Lower case canonical UUIDs only, the spelling the database accepts for a
 // tenant context, so a tenant the database would refuse is refused here.
 const TenantId = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+
+export const AuthenticatedMemberSchema = z.strictObject({
+  principalId: TenantId,
+  projectId: TenantId,
+  userId: TenantId,
+  role: z.enum(MEMBER_ROLES),
+  steppedUpAt: z.date().nullable(),
+});
 
 export const AuthenticatedTenantSchema = z.strictObject({
   principalId: TenantId,

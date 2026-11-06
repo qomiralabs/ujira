@@ -16,6 +16,39 @@ type Tx = Kysely<Schema>;
 const CURRENT_PRINCIPAL = sql<string>`ujira.current_principal_id()`;
 const CURRENT_PROJECT = sql<string>`ujira.current_project_id()`;
 
+// The fixed catalog: what can appear in the log at all. The check constraint on
+// audit_log.action holds the same list, and audit.db.test.ts holds the two to each
+// other. Adding an action takes a migration as well as a line here.
+export const AUDIT_ACTIONS = Object.freeze([
+  'session.signed_in',
+  'session.signed_out',
+  'session.stepped_up',
+  'member.invited',
+  'member.added',
+  'member.removed',
+  'member.role_changed',
+  'api_key.created',
+  'api_key.rotated',
+  'api_key.revoked',
+  'webhook.endpoint_created',
+  'webhook.endpoint_updated',
+  'webhook.endpoint_deleted',
+  'webhook.secret_rotated',
+  'export.requested',
+  'export.downloaded',
+  'identity.verification_started',
+  'identity.verification_completed',
+  'identity.verification_revoked',
+  'identity.pii_viewed',
+  'principal.reporting_time_zone_changed',
+  'project.routing_settings_changed',
+  'project.payout_minimums_changed',
+  'project.cashout_bearer_changed',
+  // Written by the fee terms functions in the database, with the terms they record.
+  'fee_terms.recorded',
+] as const);
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+
 export type AuditMetadata = Readonly<Record<string, string | number | boolean | null>>;
 
 // An actor is the id of a member or a token, or the system, and never who they
@@ -24,8 +57,7 @@ export type AuditActor =
   { readonly kind: 'member' | 'token'; readonly id: string } | { readonly kind: 'system' };
 
 export interface NewAuditEntry {
-  // Dotted lower case, such as `project.routing_settings_changed`.
-  readonly action: string;
+  readonly action: AuditAction;
   readonly actor: AuditActor;
   readonly metadata?: AuditMetadata;
 }

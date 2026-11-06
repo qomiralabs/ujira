@@ -20,6 +20,7 @@ import type { ApiScope, Authenticate } from './auth.js';
 import { createEmbedAuthenticator } from './embed-auth.js';
 import type { EmbedTokenLookup } from './embed-auth.js';
 import { issueEmbedCredential } from './embed-token.js';
+import { memoryIdempotencyStore } from './idempotency.js';
 import { memoryLogger } from './log.js';
 import { allowEveryRequest, allowEveryAddress } from './rate-limit.js';
 import { defineTenantRoute } from './route.js';
@@ -95,6 +96,7 @@ function served(scopes: readonly ApiScope[] = ['recipients:write']) {
       now,
     }),
     rateLimit: allowEveryRequest,
+    idempotency: memoryIdempotencyStore(),
     addressRateLimit: allowEveryAddress,
     logger: memoryLogger(),
     now,
@@ -135,6 +137,7 @@ function createTokenAuthenticatorOver(inner: Authenticate): Authenticate {
       find: () => Promise.resolve(undefined),
       touchLastUsed: () => Promise.resolve(),
     },
+    securityEvents: () => Promise.resolve(),
     environment: 'test',
     embedOrigins: [],
     logger: memoryLogger(),

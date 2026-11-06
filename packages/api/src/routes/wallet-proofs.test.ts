@@ -15,10 +15,14 @@ import { describe, expect, it } from 'vitest';
 import { createApp } from '../app.js';
 import type { Authenticate } from '../auth.js';
 import { refuseAllCredentials } from '../auth.js';
+import { memoryIdempotencyStore } from '../idempotency.js';
 import { memoryLogger } from '../log.js';
 import { allowEveryAddress, allowEveryRequest } from '../rate-limit.js';
 
 import { V1_ROUTES, v1Routes } from './index.js';
+import { MANDATES_NOT_CONFIGURED } from './mandates.js';
+import { RECIPIENTS_NOT_CONFIGURED } from './recipients.js';
+import { API_KEYS_NOT_CONFIGURED } from './api-keys.js';
 import { SELF_WEBHOOK_NOT_CONFIGURED } from './self-webhook.js';
 
 const TOKEN_ID = randomUUID();
@@ -54,9 +58,16 @@ function authFor(w: WalletProofWorld): Authenticate {
 function served(w: WalletProofWorld, flow: WalletProofFlow = w.flow) {
   const logger = memoryLogger();
   const app = createApp({
-    routes: v1Routes({ selfWebhook: SELF_WEBHOOK_NOT_CONFIGURED, walletProof: flow }),
+    routes: v1Routes({
+      selfWebhook: SELF_WEBHOOK_NOT_CONFIGURED,
+      walletProof: flow,
+      mandates: MANDATES_NOT_CONFIGURED,
+      recipients: RECIPIENTS_NOT_CONFIGURED,
+      apiKeys: API_KEYS_NOT_CONFIGURED,
+    }),
     authenticate: authFor(w),
     rateLimit: allowEveryRequest,
+    idempotency: memoryIdempotencyStore(),
     addressRateLimit: allowEveryAddress,
     logger,
   });
@@ -64,6 +75,7 @@ function served(w: WalletProofWorld, flow: WalletProofFlow = w.flow) {
   const headers = (token: string) => ({
     authorization: `Bearer ${token}`,
     'content-type': 'application/json',
+    'idempotency-key': randomUUID(),
   });
   return {
     records: logger.records,
@@ -262,16 +274,24 @@ describe('the served route table', () => {
       routes: V1_ROUTES,
       authenticate: authFor(w),
       rateLimit: allowEveryRequest,
+      idempotency: memoryIdempotencyStore(),
       addressRateLimit: allowEveryAddress,
       logger: memoryLogger(),
     });
     const base = `/v1/recipients/${w.recipient.id}/methods/${w.method.id}`;
-    const headers = { authorization: 'Bearer writer', 'content-type': 'application/json' };
-    const challenge = await app.request(`${base}/wallet-challenges`, { method: 'POST', headers });
+    const headers = (): Record<string, string> => ({
+      authorization: 'Bearer writer',
+      'content-type': 'application/json',
+      'idempotency-key': randomUUID(),
+    });
+    const challenge = await app.request(`${base}/wallet-challenges`, {
+      method: 'POST',
+      headers: headers(),
+    });
     expect(challenge.status).toBe(503);
     const proof = await app.request(`${base}/wallet-proofs`, {
       method: 'POST',
-      headers,
+      headers: headers(),
       body: JSON.stringify({
         challengeId: w.recipient.id,
         message: 'm',
@@ -288,6 +308,7 @@ describe('the served route table', () => {
       routes: V1_ROUTES,
       authenticate: refuseAllCredentials,
       rateLimit: allowEveryRequest,
+      idempotency: memoryIdempotencyStore(),
       addressRateLimit: allowEveryAddress,
       logger: memoryLogger(),
     });

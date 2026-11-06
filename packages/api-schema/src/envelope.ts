@@ -74,6 +74,7 @@ export const PROBLEM_CODES = Object.freeze({
   LIMIT_OUT_OF_RANGE: 400,
   INVALID_AMOUNT: 400,
   INVALID_REQUEST: 400,
+  IDEMPOTENCY_KEY_INVALID: 400,
   WEBHOOK_SIGNATURE_INVALID: 400,
   WEBHOOK_PAYLOAD_INVALID: 400,
   WEBHOOK_REJECTED: 400,
@@ -84,8 +85,10 @@ export const PROBLEM_CODES = Object.freeze({
   INSUFFICIENT_SCOPE: 403,
   ORIGIN_NOT_ALLOWED: 403,
   EMBED_SCOPE_VIOLATION: 403,
+  STEP_UP_REQUIRED: 403,
   NOT_FOUND: 404,
   METHOD_NOT_ALLOWED: 405,
+  IDEMPOTENCY_IN_PROGRESS: 409,
   PAYLOAD_TOO_LARGE: 413,
   UNSUPPORTED_MEDIA_TYPE: 415,
   DESTINATION_INVALID: 422,
@@ -95,17 +98,37 @@ export const PROBLEM_CODES = Object.freeze({
   WALLET_PROOF_EXPIRED: 422,
   WALLET_SIGNER_NOT_AUTHORIZED: 422,
   DESTINATION_NOT_RECEIVABLE: 422,
+  FEE_CAP_INVALID: 422,
+  PRINCIPAL_KEY_RISK: 422,
+  CUSTODY_GUARD: 422,
+  TRANSFER_FAILED: 422,
+  IDEMPOTENCY_KEY_REUSED: 422,
+  API_KEY_EXPIRY_INVALID: 422,
+  API_KEY_LIMIT_REACHED: 422,
+  API_KEY_NOT_ROTATABLE: 422,
   RATE_LIMITED: 429,
   INTERNAL: 500,
   DB_UNAVAILABLE: 503,
   CHAIN_UNAVAILABLE: 503,
   REQUEST_TIMEOUT: 503,
   WEBHOOK_UNAVAILABLE: 503,
+  OPERATIONS_GUARDIAN_NOT_CONFIGURED: 503,
 } as const);
 export type ProblemCode = keyof typeof PROBLEM_CODES;
 const CODES = Object.keys(PROBLEM_CODES) as [ProblemCode, ...ProblemCode[]];
 
 export const PROBLEM_TYPE_BASE = 'https://docs.ujira.co/errors/';
+
+/** What a client can do about a refusal, so it can offer the fix and not only the failure. */
+export const PROBLEM_FIXES = Object.freeze([
+  'add_recovery_set',
+  'use_multisig_principal',
+  'lower_budget',
+  'principal_trustline_missing',
+  'principal_unreceivable',
+] as const);
+export const ProblemFix = z.enum(PROBLEM_FIXES);
+export type ProblemFix = z.infer<typeof ProblemFix>;
 
 export const FieldErrorCode = z.enum([
   'unknown_field',
@@ -134,6 +157,7 @@ export const Problem = z
       .min(1)
       .max(50)
       .optional(),
+    fixes: z.array(ProblemFix).min(1).max(5).optional(),
   })
   .superRefine((value, ctx) => {
     if (value.type !== `${PROBLEM_TYPE_BASE}${value.code}`) {

@@ -23,12 +23,16 @@ import { expect, test } from 'vitest';
 
 import { createApp } from '../app.js';
 import type { Authenticate, Tenant } from '../auth.js';
+import { memoryIdempotencyStore } from '../idempotency.js';
 import { memoryLogger } from '../log.js';
 import { buildOpenApiDocument } from '../openapi.js';
 import { allowEveryAddress, allowEveryRequest } from '../rate-limit.js';
+import { API_KEYS_NOT_CONFIGURED } from './api-keys.js';
 import { V1_ROUTES, v1Routes } from './index.js';
+import { MANDATES_NOT_CONFIGURED } from './mandates.js';
 import { toPrincipalReceipt } from './receipts.js';
 import type { PrincipalReceiptRecord, ReceiptExportFilter, ReceiptReads } from './receipts.js';
+import { RECIPIENTS_NOT_CONFIGURED } from './recipients.js';
 import { SELF_WEBHOOK_NOT_CONFIGURED } from './self-webhook.js';
 import { WALLET_PROOF_NOT_CONFIGURED } from './wallet-proofs.js';
 
@@ -194,10 +198,14 @@ function served(with_: ReceiptReads = reads()) {
     routes: v1Routes({
       selfWebhook: SELF_WEBHOOK_NOT_CONFIGURED,
       walletProof: WALLET_PROOF_NOT_CONFIGURED,
+      mandates: MANDATES_NOT_CONFIGURED,
+      recipients: RECIPIENTS_NOT_CONFIGURED,
+      apiKeys: API_KEYS_NOT_CONFIGURED,
       receipts: with_,
     }),
     authenticate,
     rateLimit: allowEveryRequest,
+    idempotency: memoryIdempotencyStore(),
     addressRateLimit: allowEveryAddress,
     logger,
   });
@@ -421,6 +429,7 @@ test('the served routes answer 503 until the tables are in, and are documented',
     routes: V1_ROUTES,
     authenticate,
     rateLimit: allowEveryRequest,
+    idempotency: memoryIdempotencyStore(),
     addressRateLimit: allowEveryAddress,
     logger: memoryLogger(),
   });

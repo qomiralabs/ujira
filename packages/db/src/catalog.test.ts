@@ -126,6 +126,28 @@ describe('catalog', () => {
     }
   });
 
+  it('lists ops.security_events, with no tenant columns', async () => {
+    const client = new pg.Client({ connectionString: migrated.url });
+    await client.connect();
+    try {
+      const columns = await client.query<{ column_name: string }>(
+        `select column_name from information_schema.columns
+          where table_schema = 'ops' and table_name = 'security_events'
+          order by ordinal_position`,
+      );
+      expect(columns.rows.map((row) => row.column_name)).toEqual([
+        'id',
+        'kind',
+        'email_hmac',
+        'token_prefix',
+        'ip_hmac',
+        'occurred_at',
+      ]);
+    } finally {
+      await client.end();
+    }
+  });
+
   it('lists ops.rate_limit_buckets, with no tenant columns', async () => {
     const client = new pg.Client({ connectionString: migrated.url });
     await client.connect();

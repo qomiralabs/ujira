@@ -102,9 +102,16 @@ describe('grants on ujira', () => {
       const relations = mine.filter((grant) => grant.object.startsWith('relation '));
       expect(relations.length).toBeGreaterThan(0);
       if (role === 'ujira_retention') {
-        // Retention removes what its policies say has lapsed, and writes nothing.
-        expect(relations.filter((grant) => grant.privilege !== 'SELECT')).toEqual([
-          { object: 'relation embed_sessions', grantee: role, privilege: 'DELETE' },
+        expect(
+          relations
+            .filter((grant) => grant.privilege !== 'SELECT')
+            .map((grant) => `${grant.privilege} ${grant.object}`)
+            .sort(),
+        ).toEqual([
+          'DELETE relation embed_sessions',
+          'DELETE relation idempotency_keys',
+          'DELETE relation outbox_events',
+          'DELETE relation webhook_deliveries',
         ]);
       } else if (role !== 'ujira_app' && role !== 'ujira_indexer') {
         expect(relations.filter((grant) => grant.privilege !== 'SELECT')).toEqual([]);
@@ -114,12 +121,19 @@ describe('grants on ujira', () => {
 
   it('gives the roles with no tables of their own yet read access to the reference data only', async () => {
     const all = await grants();
-    for (const role of ['ujira_auth']) {
-      const relations = all
-        .filter((grant) => grant.grantee === role && grant.object.startsWith('relation '))
+    const reads = (role: string): string[] =>
+      all
+        .filter(
+          (grant) =>
+            grant.grantee === role &&
+            grant.object.startsWith('relation ') &&
+            grant.privilege === 'SELECT',
+        )
         .map((grant) => grant.object)
         .sort();
-      expect(relations).toEqual([
+    // The retention role reads its own tables by column, which is not listed here.
+    for (const role of ['ujira_retention', 'ujira_auth']) {
+      expect(reads(role)).toEqual([
         'relation chains',
         'relation currencies',
         'relation currency_scales',
@@ -146,6 +160,7 @@ describe('grants on ujira', () => {
       'function ujira.audit_row_hash(bytea,uuid,uuid,bigint,text,text,uuid,jsonb,timestamp with time zone)';
     expect(await executable('ujira_app')).toEqual(
       [
+        'function ujira.api_tokens_nearing_expiry(uuid,integer)',
         'function ujira.authenticate_embed_token(bytea)',
         auditHash,
         'function ujira.authenticate_token(text)',
@@ -227,6 +242,7 @@ describe('roles', () => {
         order by 1`,
     );
     expect(definers.rows).toEqual([
+      { fn: 'ujira.api_tokens_nearing_expiry(uuid,integer)', owner: 'ujira_fn_tokens' },
       { fn: 'ujira.attestation_pending(bytea)', owner: 'ujira_signer_read' },
       { fn: 'ujira.audit_chain()', owner: 'ujira_fn_audit' },
       { fn: 'ujira.authenticate_embed_token(bytea)', owner: 'ujira_fn_tokens' },
@@ -267,6 +283,7 @@ describe('roles', () => {
       { grantee: 'ujira_fn_principals', object: 'principal_members', privilege: 'INSERT' },
       { grantee: 'ujira_fn_principals', object: 'principals', privilege: 'INSERT' },
       { grantee: 'ujira_fn_principals', object: 'projects', privilege: 'INSERT' },
+      { grantee: 'ujira_fn_tokens', object: 'api_token_expiry_warnings', privilege: 'SELECT' },
       { grantee: 'ujira_fn_tokens', object: 'api_tokens', privilege: 'SELECT' },
       { grantee: 'ujira_fn_tokens', object: 'embed_sessions', privilege: 'INSERT' },
       { grantee: 'ujira_fn_tokens', object: 'embed_sessions', privilege: 'SELECT' },

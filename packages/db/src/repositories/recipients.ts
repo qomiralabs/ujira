@@ -82,6 +82,36 @@ export const recipients = {
     return toRecipient(row);
   },
 
+  // False when this reference already names a recipient, so a second run of one
+  // request finds the first run's row rather than failing or making another.
+  createOnce: async (
+    db: Tx,
+    input: { readonly id: string; readonly recipientRef: Buffer; readonly country: string },
+  ): Promise<boolean> => {
+    const row = await db
+      .insertInto('ujira.recipients')
+      .values({
+        id: input.id,
+        principal_id: CURRENT_PRINCIPAL,
+        project_id: CURRENT_PROJECT,
+        recipient_ref: input.recipientRef,
+        country: input.country,
+      })
+      .onConflict((conflict) => conflict.constraint('recipients_ref_key').doNothing())
+      .returning('id')
+      .executeTakeFirst();
+    return row !== undefined;
+  },
+
+  getByRef: async (db: Tx, recipientRef: Buffer): Promise<Recipient | undefined> => {
+    const row = await db
+      .selectFrom('ujira.recipients')
+      .select(recipientColumns)
+      .where('recipient_ref', '=', recipientRef)
+      .executeTakeFirst();
+    return row === undefined ? undefined : toRecipient(row);
+  },
+
   setStatus: async (db: Tx, id: string, status: RecipientStatus): Promise<boolean> => {
     const result = await db
       .updateTable('ujira.recipients')
@@ -529,6 +559,18 @@ export const payoutMethods = {
       .where('id', '=', id)
       .executeTakeFirst();
     return row === undefined ? undefined : toMethod(row);
+  },
+
+  // Bounded, because the read of one recipient answers with all of these at once.
+  listOf: async (db: Tx, recipientId: string): Promise<PayoutMethod[]> => {
+    const rows = await db
+      .selectFrom('ujira.payout_methods')
+      .select(methodColumns)
+      .where('recipient_id', '=', recipientId)
+      .orderBy('id')
+      .limit(50)
+      .execute();
+    return rows.map(toMethod);
   },
 
   create: async (db: Tx, input: NewPayoutMethod): Promise<PayoutMethod> => {

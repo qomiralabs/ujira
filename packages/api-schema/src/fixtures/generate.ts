@@ -416,8 +416,13 @@ class Builder {
           payoutTtlSeconds: 7 * 86400,
           policyEpoch: rng.below(4),
           expiresAt: iso(BASE_TIME + 365 * DAY),
+          operationsGuardian: 'present',
+          proposedPrincipal: null,
+          sweepGraceEndsAt: null,
+          nextAction: null,
         },
       ],
+      warnings: [],
     });
   }
 

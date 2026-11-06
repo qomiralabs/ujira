@@ -30,6 +30,7 @@
     "@ujira/core": "workspace:*",
     "@ujira/db": "workspace:*",
     "@ujira/identity": "workspace:*",
+    "@ujira/mandates": "workspace:*",
     "@ujira/receipts": "workspace:*",
     "hono": "4.13.13",
     "zod": "4.6.7"

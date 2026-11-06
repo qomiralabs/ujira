@@ -558,7 +558,14 @@ export class FakeChainAdapter implements ChainAdapter {
         mandateRef: req.mandate ?? undefined,
         payoutId: 'payoutId' in action ? action.payoutId : null,
         attempt: null,
-        summary: this.#actionSummary(action, req.mandate),
+        summary: this.#actionSummary(
+          action,
+          req.mandate ?? {
+            network: this.network,
+            address: { network: this.network, value: mandate },
+            specVersion: 1,
+          },
+        ),
         run,
       });
     });

@@ -10,17 +10,25 @@
 // - contractRoute: a read route already described in @ujira/api-schema;
 //   its path, schemas and query rules come from there.
 // - defineTenantRoute: any other route that acts for a tenant.
+// - defineMemberRoute: an action a person takes in the dashboard, which no key
+//   can reach.
 // - definePublicRoute: a route with no tenant, which must say why.
 // - defineEmbedRoute: a route the widget calls with an embed token.
 // - defineWebhookRoute: a provider's signed delivery, handed over as the
 //   exact bytes, because parsing first would verify something else.
 
-import { OPENAPI_COMPONENTS, PROBLEM_CODES, ROUTES, parseQuery } from '@ujira/api-schema';
+import {
+  OPENAPI_COMPONENTS,
+  PROBLEM_CODES,
+  ROUTES,
+  isPersonalDataSchema,
+  parseQuery,
+} from '@ujira/api-schema';
 import type { FieldError, ProblemCode, RouteId, RouteQuery } from '@ujira/api-schema';
 import { z } from 'zod';
 
 import { API_SCOPES } from './auth.js';
-import type { ApiScope, CallOptions, Tenant } from './auth.js';
+import type { ApiScope, AuthenticatedMember, CallOptions, MemberRole, Tenant } from './auth.js';
 import type { EmbedCaller } from './embed-auth.js';
 import { ApiError, RouteRegistryError } from './errors.js';
 import type { RequestLog } from './log.js';
@@ -44,6 +52,12 @@ export interface RequestContext {
   /** Pass to every chain adapter call, so the request id travels with it. */
   readonly call: CallOptions;
   readonly log: RequestLog;
+  /**
+   * The client's key on a tenant write, null anywhere else. A handler that moves
+   * money writes it under a unique constraint of its own, which is what stops a
+   * retry paying twice if a process dies mid request.
+   */
+  readonly idempotencyKey: string | null;
   /** The Origin header as sent, or null. */
   readonly origin: string | null;
   /** The API key that made this call, on a tenant route. */
@@ -55,6 +69,11 @@ export interface RequestContext {
 export interface TenantRequestContext extends RequestContext {
   /** From the credential only. Hand it to every repository and adapter call. */
   readonly tenant: Tenant;
+}
+
+export interface MemberRequestContext extends TenantRequestContext {
+  /** Who is acting, from the session only. */
+  readonly member: AuthenticatedMember;
 }
 
 export interface EmbedRequestContext extends TenantRequestContext {
@@ -86,6 +105,19 @@ export type Access =
       readonly scope: ApiScope;
       /** A tighter limit on top of the ones every tenant route has. */
       readonly rateLimit?: RateLimitGroup;
+      /**
+       * The answer carries a credential, which must not sit in clear in the replay
+       * store, so this write takes no Idempotency-Key. Refused on a route that can
+       * move money.
+       */
+      readonly noReplay?: true;
+    }
+  | {
+      readonly kind: 'member';
+      /** Who may take this action. Never empty. */
+      readonly roles: readonly MemberRole[];
+      /** True: this needs a second factor passed within the last five minutes. */
+      readonly stepUp: boolean;
     };
 
 /** A route as the pipeline sees it, with its types erased. */
@@ -110,11 +142,12 @@ export interface Route {
   };
   /** Statuses this route can answer with besides its success status. */
   readonly errorStatuses: readonly number[];
-  /** tenant is null exactly when access is public. */
+  /** tenant is null exactly when access is public, and member set exactly on a member route. */
   readonly handle: (
     input: RouteInput<unknown, unknown, unknown>,
     context: RequestContext,
     tenant: Tenant | null,
+    member?: AuthenticatedMember | null,
   ) => Promise<unknown>;
 }
 
@@ -141,6 +174,12 @@ export function routeAccessProblems(routes: readonly Route[]): string[] {
       if (!KNOWN_SCOPES.has(access.scope)) {
         problems.push(`route ${route.id} has no scope from the closed list`);
       }
+      // A write that moves money needs its key, whatever its answer holds.
+      if (access.noReplay === true && access.scope === 'payouts:write') {
+        problems.push(`route ${route.id} can move money, so it cannot skip its Idempotency-Key`);
+      }
+    } else if (access?.kind === 'member') {
+      if (access.roles.length === 0) problems.push(`route ${route.id} allows no role`);
     } else if (access?.kind === 'public') {
       if (access.reason.trim().length < 10) {
         problems.push(`route ${route.id} must say why it needs no key`);
@@ -154,6 +193,62 @@ export function routeAccessProblems(routes: readonly Route[]): string[] {
     }
   }
   return problems;
+}
+
+/** Every write a tenant route takes needs an Idempotency-Key. */
+export function requiresIdempotencyKey(route: Pick<Route, 'access' | 'method'>): boolean {
+  return route.access.kind === 'tenant' && route.method !== 'GET' && route.access.noReplay !== true;
+}
+
+// The names that say personal data whatever they hold, matching the check on the
+// database's columns. `name`, `address` and `country` are not here, because they
+// mean something else in this API: a mandate's name, a chain address, a corridor.
+const PERSONAL_FIELD =
+  /(?:^|_)(?:email|phone|msisdn|first_name|last_name|full_name|given_name|family_name|middle_name|recipient_name|account_name|birth|birthdate|dob|date_of_birth|national_id|passport|tax_id|ssn|nin|bvn|home_address|street|street_address|postal_address|postcode|zipcode|city)(?:_|$)/i;
+
+function snakeCase(name: string): string {
+  return name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+}
+
+// Every property in a JSON Schema, however deep, that is personal data by its name
+// or by its mark.
+function personalFields(schema: unknown, at: string): string[] {
+  if (Array.isArray(schema)) return schema.flatMap((inner) => personalFields(inner, at));
+  if (typeof schema !== 'object' || schema === null) return [];
+  const found: string[] = [];
+  for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
+    if (key === 'properties' && typeof value === 'object' && value !== null) {
+      for (const [name, property] of Object.entries(value as Record<string, unknown>)) {
+        const path = at === '' ? name : `${at}.${name}`;
+        if (PERSONAL_FIELD.test(snakeCase(name)) || isPersonalDataSchema(property)) {
+          found.push(path);
+        }
+        found.push(...personalFields(property, path));
+      }
+    } else {
+      found.push(...personalFields(value, at));
+    }
+  }
+  return found;
+}
+
+/**
+ * A tenant write's answer is stored in clear for 7 days so a retry can get it back,
+ * and personal data has one home, encrypted. So a write route cannot be declared
+ * with personal data in its response: a read route serves it instead, which is not
+ * stored. The rule is on the kind of route rather than on each author's memory.
+ */
+export function storedResponseProblems(routes: readonly Route[]): string[] {
+  return routes
+    .filter((route) => requiresIdempotencyKey(route))
+    .flatMap((route) =>
+      personalFields(
+        z.toJSONSchema(route.response.schema, { io: 'output', unrepresentable: 'any' }),
+        '',
+      ).map(
+        (field) => `route ${route.id} stores its answer for replay, and ${field} is personal data`,
+      ),
+    );
 }
 
 const NoInput = z.strictObject({});
@@ -217,15 +312,21 @@ function errorStatuses(
   hasParams: boolean,
   hasBody: boolean,
   extra: readonly ProblemCode[],
+  write: boolean,
 ): number[] {
   const codes: ProblemCode[] = ['INVALID_FILTER', 'INTERNAL', 'DB_UNAVAILABLE', ...extra];
   // A path id that does not parse cannot name anything.
   if (hasParams) codes.push('NOT_FOUND');
-  if (access.kind === 'tenant') codes.push('TOKEN_INVALID', 'INSUFFICIENT_SCOPE', 'RATE_LIMITED');
+  if (access.kind === 'tenant' || access.kind === 'member') {
+    codes.push('TOKEN_INVALID', 'INSUFFICIENT_SCOPE', 'RATE_LIMITED');
+  }
   if (access.kind === 'embed')
     codes.push('EMBED_TOKEN_INVALID', 'ORIGIN_NOT_ALLOWED', 'RATE_LIMITED');
   if (access.kind === 'public' && access.addressLimit !== undefined) codes.push('RATE_LIMITED');
   if (hasBody) codes.push('INVALID_REQUEST', 'PAYLOAD_TOO_LARGE', 'UNSUPPORTED_MEDIA_TYPE');
+  if (write) {
+    codes.push('IDEMPOTENCY_KEY_INVALID', 'IDEMPOTENCY_IN_PROGRESS', 'IDEMPOTENCY_KEY_REUSED');
+  }
   return [...new Set(statusesOf(codes))].sort((a, b) => a - b);
 }
 
@@ -297,6 +398,7 @@ function build<
       Object.keys(params.shape).length > 0,
       spec.body !== undefined || rawBody !== null,
       spec.errors ?? [],
+      requiresIdempotencyKey({ access, method: spec.method }),
     ),
     handle,
   });
@@ -312,6 +414,7 @@ export function defineTenantRoute<
   spec: RouteSpec<P, Q, B, R> & {
     readonly scope: ApiScope;
     readonly rateLimit?: RateLimitGroup;
+    readonly noReplay?: true;
     readonly handler: (input: Input<P, Q, B>, context: TenantRequestContext) => Promise<z.input<R>>;
   },
 ): Route {
@@ -319,6 +422,7 @@ export function defineTenantRoute<
     kind: 'tenant',
     scope: spec.scope,
     ...(spec.rateLimit === undefined ? {} : { rateLimit: spec.rateLimit }),
+    ...(spec.noReplay === undefined ? {} : { noReplay: spec.noReplay }),
   };
   return build(spec, access, (input, context, tenant) =>
     asTenant(context, tenant, (scoped) => spec.handler(input as Input<P, Q, B>, scoped)),
@@ -376,6 +480,34 @@ function publicAccess(
     ...(addressLimit === undefined ? {} : { addressLimit }),
     ...(browser ? { browser: true } : {}),
   };
+}
+
+/**
+ * An action a person takes in the dashboard. The pipeline refuses an API key by
+ * its form before anything else, so a key cannot reach this however it is scoped,
+ * and then checks the role and how fresh the second factor is.
+ */
+export function defineMemberRoute<
+  R extends z.ZodType,
+  P extends z.ZodObject = NoInput,
+  Q extends z.ZodType = NoInput,
+  B extends z.ZodType = z.ZodUndefined,
+>(
+  spec: RouteSpec<P, Q, B, R> & {
+    readonly roles: readonly MemberRole[];
+    readonly stepUp: boolean;
+    readonly handler: (input: Input<P, Q, B>, context: MemberRequestContext) => Promise<z.input<R>>;
+  },
+): Route {
+  if (spec.roles.length === 0) throw new RouteRegistryError(`route ${spec.id} allows no role`);
+  const access: Access = { kind: 'member', roles: spec.roles, stepUp: spec.stepUp };
+  return build(spec, access, (input, context, tenant, member) => {
+    // The pipeline authenticates first, so this is a bug in it, and it fails closed.
+    if (tenant === null || member === undefined || member === null) {
+      return Promise.reject(new ApiError('INTERNAL'));
+    }
+    return spec.handler(input as Input<P, Q, B>, { ...context, tenant, member });
+  });
 }
 
 /**

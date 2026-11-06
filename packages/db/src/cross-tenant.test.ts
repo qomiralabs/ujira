@@ -7,10 +7,10 @@
 
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { tokenAmount } from '@ujira/core';
+import { money, tokenAmount } from '@ujira/core';
 import type { Kysely } from 'kysely';
 import pg from 'pg';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 
 import type { Database, ProjectContext } from './database.js';
 import type { Schema } from './schema.generated.js';
@@ -20,9 +20,16 @@ import { audit, auditRepositories } from './repositories/audit.js';
 import { routing, routingRepositories } from './repositories/routing.js';
 import { entryPoints } from './repositories/entry-points.js';
 import { fundingAccountRepositories, fundingAccounts } from './repositories/funding-accounts.js';
+import { idempotencyKeys, idempotencyRepositories } from './repositories/idempotency.js';
 import { approvals, legRepositories, payoutLegs } from './repositories/payout-legs.js';
+import { payoutViewRepositories, payoutViews } from './repositories/payout-views.js';
 import { managedSigners } from './repositories/signers.js';
 import { ledger, ledgerRepositories } from './repositories/ledger.js';
+import {
+  mandateActionRequests,
+  mandateTerms,
+  mandateTermsRepositories,
+} from './repositories/mandate-terms.js';
 import {
   chainEvents,
   deposits,
@@ -57,7 +64,14 @@ import {
   walletChallenges,
 } from './repositories/identity-evidence.js';
 import {
+  outbox,
+  outboxRepositories,
+  webhookDeliveries,
+  webhookEndpoints,
+} from './repositories/outbox.js';
+import {
   apiTokens,
+  apiTokenWarnings,
   members,
   principals,
   projects,
@@ -113,6 +127,8 @@ interface Tenant {
   readonly verificationId: string;
   readonly attestationId: string;
   readonly agentLinkId: string;
+  readonly outboxEventId: string;
+  readonly endpointId: string;
 }
 
 const REPOSITORIES = {
@@ -125,11 +141,15 @@ const REPOSITORIES = {
   ...recipientRepositories,
   ...identityEvidenceRepositories,
   ...auditRepositories,
+  ...idempotencyRepositories,
+  ...mandateTermsRepositories,
   ...payoutRepositories,
   ...routingRepositories,
   ...legRepositories,
+  ...payoutViewRepositories,
   ...feeFallbackRepositories,
   payoutBookings,
+  ...outboxRepositories,
 };
 
 let database: TestDatabase;
@@ -137,6 +157,8 @@ let db: Database;
 let admin: pg.Client;
 let a: Tenant;
 let b: Tenant;
+let aCreationKey = '';
+let aTermsMandate = '';
 
 async function tenant(name: string): Promise<Tenant> {
   const ownerUserId = randomUUID();
@@ -280,6 +302,21 @@ async function tenant(name: string): Promise<Tenant> {
       };
     },
   );
+  const { outboxEventId, endpointId } = await db.tenant(first).transaction(async (tx) => {
+    const event = await outbox.append(tx, { eventType: 'payout.held', payload: { name } });
+    const endpoint = await webhookEndpoints.create(tx, {
+      url: `https://example.com/${name}`,
+      secretRef: `ref-${name}`,
+      eventTypes: ['payout.held'],
+    });
+    await webhookDeliveries.record(tx, {
+      endpointId: endpoint.id,
+      eventId: event.id,
+      attempt: 1,
+      status: 'succeeded',
+    });
+    return { outboxEventId: event.id, endpointId: endpoint.id };
+  });
   const destinationAddress = `G${randomUUID()}`;
   const evidence = await db.tenant(first).transaction(async (tx) => {
     const recipient = await recipients.create(tx, {
@@ -466,6 +503,8 @@ async function tenant(name: string): Promise<Tenant> {
     attemptChainId,
     heldPayoutId,
     legId,
+    outboxEventId,
+    endpointId,
   };
 }
 
@@ -687,6 +726,295 @@ const cases: Record<string, () => Promise<void>> = {
     expect(token.projectId).toBe(a.first.projectId);
     expect(await ownerOf('ujira.api_tokens', 'id', token.id)).toBe(a.first.principalId);
   },
+  'mandateTerms.create': async () => {
+    const terms = {
+      creationKey: randomUUID(),
+      recipientMode: 'allowlist' as const,
+      limits: {
+        totalBudget: money('100', 'USD'),
+        perPaymentCap: money('100', 'USD'),
+        perRecipientDailyCap: money('100', 'USD'),
+        approvalThreshold: money('100', 'USD'),
+      },
+      countryPolicyHash: Buffer.alloc(32, 3),
+      maxFeeBps: 100,
+      agreedFeeBps: 50,
+      payoutTtlSeconds: 86_400,
+      expiresAt: new Date('2100-01-01T00:00:00Z'),
+    };
+    // B's mandate cannot take terms from A: the composite key refuses it.
+    expect(
+      await codeOf(
+        asA(async (tx) => mandateTerms.create(tx, { ...terms, mandateId: b.mandateId })),
+      ),
+    ).toBe('23503');
+    const mine = await asA(async (tx) => mandates.create(tx, { name: 'with terms' }));
+    expect(await asA(async (tx) => mandateTerms.create(tx, { ...terms, mandateId: mine.id }))).toBe(
+      true,
+    );
+    expect(await ownerOf('ujira.mandate_terms', 'mandate_id', mine.id)).toBe(a.first.principalId);
+    aCreationKey = terms.creationKey;
+    aTermsMandate = mine.id;
+  },
+  'mandateTerms.get': async () => {
+    await cases['mandateTerms.create']?.();
+    expect(
+      await db.tenant(b.first).transaction(async (tx) => mandateTerms.get(tx, aTermsMandate)),
+    ).toBeUndefined();
+    expect((await asA(async (tx) => mandateTerms.get(tx, aTermsMandate)))?.mandateId).toBe(
+      aTermsMandate,
+    );
+  },
+  'mandateTerms.getByCreationKey': async () => {
+    await cases['mandateTerms.create']?.();
+    expect(
+      await db
+        .tenant(b.first)
+        .transaction(async (tx) => mandateTerms.getByCreationKey(tx, aCreationKey)),
+    ).toBeUndefined();
+  },
+  'mandateActionRequests.record': async () => {
+    // B's instance cannot take a row from A: the composite key refuses it.
+    expect(
+      await codeOf(
+        asA(async (tx) =>
+          mandateActionRequests.record(tx, {
+            mandateId: b.mandateId,
+            mandateInstanceId: b.instanceId,
+            op: 'revoke',
+            idempotencyKey: randomUUID(),
+            signingRequest: {},
+            instancePlan: null,
+          }),
+        ),
+      ),
+    ).toBe('23503');
+  },
+  'mandateActionRequests.find': async () => {
+    const key = randomUUID();
+    await db.tenant(b.first).transaction(async (tx) =>
+      mandateActionRequests.record(tx, {
+        mandateId: b.mandateId,
+        mandateInstanceId: b.instanceId,
+        op: 'revoke',
+        idempotencyKey: key,
+        signingRequest: {},
+        instancePlan: null,
+      }),
+    );
+    expect(
+      await asA(async (tx) => mandateActionRequests.find(tx, key, b.instanceId)),
+    ).toBeUndefined();
+  },
+  'mandateActionRequests.createsOf': async () => {
+    await db.tenant(b.first).transaction(async (tx) =>
+      mandateActionRequests.record(tx, {
+        mandateId: b.mandateId,
+        mandateInstanceId: b.instanceId,
+        op: 'create',
+        idempotencyKey: randomUUID(),
+        signingRequest: {},
+        instancePlan: {},
+      }),
+    );
+    expect(await asA(async (tx) => mandateActionRequests.createsOf(tx, b.mandateId))).toEqual([]);
+  },
+  'outbox.append': async () => {
+    const written = await asA(async (tx) =>
+      outbox.append(tx, { eventType: 'payout.held', payload: {} }),
+    );
+    expect(await ownerOf('ujira.outbox_events', 'id', written.id)).toBe(a.first.principalId);
+  },
+  'outbox.after': async () => {
+    // Under A's context nothing of B's is there to read, at any cursor. An event
+    // shows only once every older transaction in the cluster has ended, and the
+    // other test files share the cluster, so this waits as long as theirs take.
+    await vi.waitFor(
+      async () => {
+        const events = await acrossA(async (tx) => outbox.after(tx, 0n, 100));
+        const ids = events.map((event) => event.id);
+        expect(ids).toContain(a.outboxEventId);
+        expect(ids).not.toContain(b.outboxEventId);
+      },
+      { timeout: 30_000, interval: 200 },
+    );
+  },
+  'webhookEndpoints.create': async () => {
+    const created = await asA(async (tx) =>
+      webhookEndpoints.create(tx, {
+        url: `https://example.com/${randomUUID()}`,
+        secretRef: 'ref',
+        eventTypes: ['payout.held'],
+      }),
+    );
+    expect(await ownerOf('ujira.webhook_endpoints', 'id', created.id)).toBe(a.first.principalId);
+  },
+  'webhookEndpoints.get': async () => {
+    expect(await acrossA(async (tx) => webhookEndpoints.get(tx, b.endpointId))).toBeUndefined();
+    expect(await acrossA(async (tx) => webhookEndpoints.get(tx, a.endpointId))).toBeDefined();
+  },
+  'webhookEndpoints.list': async () => {
+    const page = await acrossA(async (tx) => webhookEndpoints.list(tx, { limit: 100 }));
+    const ids = page.items.map((endpoint) => endpoint.id);
+    expect(ids).toContain(a.endpointId);
+    expect(ids).not.toContain(b.endpointId);
+  },
+  'webhookEndpoints.setStatus': async () => {
+    expect(await asA(async (tx) => webhookEndpoints.setStatus(tx, b.endpointId, 'disabled'))).toBe(
+      false,
+    );
+    const row = await admin.query<{ status: string }>(
+      'select status from ujira.webhook_endpoints where id = $1',
+      [b.endpointId],
+    );
+    expect(row.rows[0]?.status).toBe('enabled');
+  },
+  'webhookDeliveries.record': async () => {
+    // B's event is out of sight, so nothing is recorded against it.
+    expect(
+      await asA(async (tx) =>
+        webhookDeliveries.record(tx, {
+          endpointId: a.endpointId,
+          eventId: b.outboxEventId,
+          attempt: 9,
+          status: 'failed',
+        }),
+      ),
+    ).toBeUndefined();
+    // A's own event with B's endpoint fails the composite foreign key.
+    const attempt = asA(async (tx) =>
+      webhookDeliveries.record(tx, {
+        endpointId: b.endpointId,
+        eventId: a.outboxEventId,
+        attempt: 9,
+        status: 'failed',
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'apiTokens.createWithinLimit': async () => {
+    // B holds a key of its own, and none of it counts against A's limit.
+    const token = await asA(async (tx) =>
+      apiTokens.createWithinLimit(
+        tx,
+        {
+          prefix: `uj_case_${randomUUID().slice(0, 8)}`,
+          secretSha256: Buffer.alloc(32, 9),
+          scopes: ['payouts:read'],
+          expiresAt: new Date('2100-01-01T00:00:00Z'),
+        },
+        1000,
+      ),
+    );
+    expect(await ownerOf('ujira.api_tokens', 'id', token?.id ?? '')).toBe(a.first.principalId);
+  },
+  'apiTokens.createSuccessor': async () => {
+    const attempt = asA(async (tx) =>
+      apiTokens.createSuccessor(tx, {
+        prefix: `uj_case_${randomUUID().slice(0, 8)}`,
+        secretSha256: Buffer.alloc(32, 9),
+        scopes: ['payouts:read'],
+        expiresAt: new Date('2100-01-01T00:00:00Z'),
+        rotatedFromId: b.tokenId,
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'webhookDeliveries.forEvent': async () => {
+    expect(
+      await acrossA(async (tx) => webhookDeliveries.forEvent(tx, b.endpointId, b.outboxEventId)),
+    ).toEqual([]);
+    expect(
+      await acrossA(async (tx) => webhookDeliveries.forEvent(tx, a.endpointId, a.outboxEventId)),
+    ).toHaveLength(1);
+  },
+  'idempotencyKeys.reserve': async () => {
+    // The same key in another tenant is a different key, however it was used.
+    const key = randomUUID();
+    const reserve = async (context: ProjectContext) =>
+      db.tenant(context).transaction(async (tx) =>
+        idempotencyKeys.reserve(tx, {
+          key,
+          requestSha256: Buffer.alloc(32, 1),
+          leaseSeconds: 60,
+        }),
+      );
+    expect((await reserve(b.first)).kind).toBe('started');
+    expect((await reserve(a.first)).kind).toBe('started');
+    const owners = await admin.query<{ principal_id: string }>(
+      'select principal_id from ujira.idempotency_keys where idempotency_key = $1 order by 1',
+      [key],
+    );
+    expect(owners.rows.map((row) => row.principal_id)).toEqual(
+      [a.first.principalId, b.first.principalId].sort(),
+    );
+  },
+  'idempotencyKeys.complete': async () => {
+    const key = randomUUID();
+    const held = await db.tenant(b.first).transaction(async (tx) =>
+      idempotencyKeys.reserve(tx, {
+        key,
+        requestSha256: Buffer.alloc(32, 1),
+        leaseSeconds: 60,
+      }),
+    );
+    if (held.kind !== 'started') throw new Error('expected a lease');
+    expect(
+      await asA(async (tx) =>
+        idempotencyKeys.complete(tx, {
+          key,
+          leaseId: held.leaseId,
+          status: 201,
+          requestId: 'req_intruder',
+          body: '{}',
+        }),
+      ),
+    ).toBe(false);
+    const row = await admin.query<{ response_body: string | null }>(
+      'select response_body from ujira.idempotency_keys where idempotency_key = $1',
+      [key],
+    );
+    expect(row.rows).toEqual([{ response_body: null }]);
+  },
+  'idempotencyKeys.release': async () => {
+    const key = randomUUID();
+    const held = await db.tenant(b.first).transaction(async (tx) =>
+      idempotencyKeys.reserve(tx, {
+        key,
+        requestSha256: Buffer.alloc(32, 1),
+        leaseSeconds: 60,
+      }),
+    );
+    if (held.kind !== 'started') throw new Error('expected a lease');
+    expect(
+      await asA(async (tx) => idempotencyKeys.release(tx, { key, leaseId: held.leaseId })),
+    ).toBe(false);
+    const row = await admin.query<{ running: boolean }>(
+      'select lease_expires_at > now() as running from ujira.idempotency_keys where idempotency_key = $1',
+      [key],
+    );
+    expect(row.rows).toEqual([{ running: true }]);
+  },
+  'apiTokens.successorOf': async () => {
+    expect(await acrossA(async (tx) => apiTokens.successorOf(tx, b.tokenId))).toBeUndefined();
+  },
+  'apiTokens.shortenExpiry': async () => {
+    expect(
+      await asA(async (tx) => apiTokens.shortenExpiry(tx, b.tokenId, new Date(0))),
+    ).toBeUndefined();
+  },
+  'apiTokenWarnings.claim': async () => {
+    const attempt = asA(async (tx) =>
+      apiTokenWarnings.claim(tx, { tokenId: b.tokenId, thresholdDays: 30, claimSeconds: 600 }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'apiTokenWarnings.markNotified': async () => {
+    const attempt = asA(async (tx) =>
+      apiTokenWarnings.markNotified(tx, { tokenId: b.tokenId, thresholdDays: 30 }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
   'apiTokens.touchLastUsed': async () => {
     expect(await asA(async (tx) => apiTokens.touchLastUsed(tx, b.tokenId))).toBe(false);
     const bToken = await admin.query<{ last_used_at: Date | null }>(
@@ -772,6 +1100,11 @@ const cases: Record<string, () => Promise<void>> = {
   },
   'mandateInstances.get': async () => {
     expect(await acrossA(async (tx) => mandateInstances.get(tx, b.instanceId))).toBeUndefined();
+  },
+  'mandateInstances.forMandate': async () => {
+    expect(await acrossA(async (tx) => mandateInstances.forMandate(tx, b.mandateId))).toEqual([]);
+    const own = await acrossA(async (tx) => mandateInstances.forMandate(tx, a.mandateId));
+    expect(own.map((instance) => instance.id)).toContain(a.instanceId);
   },
   'mandateInstances.byAddress': async () => {
     const find = (contract: string) =>
@@ -1070,6 +1403,33 @@ const cases: Record<string, () => Promise<void>> = {
     );
     expect(await ownerOf('ujira.recipients', 'id', created.id)).toBe(a.first.principalId);
   },
+  'recipients.createOnce': async () => {
+    // One reference in two tenants is two recipients: the key is per project.
+    const recipientRef = randomBytes(32);
+    const mine = randomUUID();
+    const theirs = randomUUID();
+    expect(
+      await asA(async (tx) => recipients.createOnce(tx, { id: mine, recipientRef, country: 'KE' })),
+    ).toBe(true);
+    expect(
+      await db
+        .tenant(b.first)
+        .transaction(async (tx) =>
+          recipients.createOnce(tx, { id: theirs, recipientRef, country: 'KE' }),
+        ),
+    ).toBe(true);
+    expect(await ownerOf('ujira.recipients', 'id', mine)).toBe(a.first.principalId);
+    expect(await ownerOf('ujira.recipients', 'id', theirs)).toBe(b.first.principalId);
+  },
+  'recipients.getByRef': async () => {
+    const recipientRef = randomBytes(32);
+    await db
+      .tenant(b.first)
+      .transaction(async (tx) =>
+        recipients.createOnce(tx, { id: randomUUID(), recipientRef, country: 'KE' }),
+      );
+    expect(await acrossA(async (tx) => recipients.getByRef(tx, recipientRef))).toBeUndefined();
+  },
   'recipients.setStatus': async () => {
     expect(await asA(async (tx) => recipients.setStatus(tx, b.recipientId, 'erased'))).toBe(false);
   },
@@ -1270,6 +1630,9 @@ const cases: Record<string, () => Promise<void>> = {
   'payoutMethods.get': async () => {
     expect(await acrossA(async (tx) => payoutMethods.get(tx, b.methodId))).toBeUndefined();
   },
+  'payoutMethods.listOf': async () => {
+    expect(await asA(async (tx) => payoutMethods.listOf(tx, b.recipientId))).toEqual([]);
+  },
   'payoutMethods.create': async () => {
     const attempt = asA(async (tx) =>
       payoutMethods.create(tx, {
@@ -1384,6 +1747,17 @@ const cases: Record<string, () => Promise<void>> = {
     expect(await acrossA(async (tx) => payouts.get(tx, b.payoutId))).toBeUndefined();
     expect(await acrossA(async (tx) => payouts.get(tx, a.payoutId))).toBeDefined();
   },
+  'payouts.findByKey': async () => {
+    const keys = await admin.query<{ id: string; idempotency_key: string }>(
+      'select id, idempotency_key from ujira.payouts where id = any($1::uuid[])',
+      [[a.payoutId, b.payoutId]],
+    );
+    const keyOf = (id: string) => keys.rows.find((row) => row.id === id)?.idempotency_key ?? '';
+    expect(await acrossA(async (tx) => payouts.findByKey(tx, keyOf(b.payoutId)))).toBeUndefined();
+    expect((await acrossA(async (tx) => payouts.findByKey(tx, keyOf(a.payoutId))))?.id).toBe(
+      a.payoutId,
+    );
+  },
   'payouts.list': async () => {
     const page = await acrossA(async (tx) => payouts.list(tx, { limit: 100 }));
     const ids = page.items.map((payout) => payout.id);
@@ -1397,6 +1771,23 @@ const cases: Record<string, () => Promise<void>> = {
       ),
     ).toBeUndefined();
     expect(await statusOf('ujira.payouts', b.payoutId)).toBe('received');
+  },
+  'payoutViews.page': async () => {
+    const page = await acrossA(async (tx) => payoutViews.page(tx, {}, { limit: 100 }));
+    const ids = page.items.map((listing) => listing.payout.id);
+    expect(ids).toContain(a.payoutId);
+    expect(ids).not.toContain(b.payoutId);
+    // Naming the other tenant's mandate finds nothing, rather than its payouts.
+    const named = await acrossA(async (tx) =>
+      payoutViews.page(tx, { mandateIds: [b.mandateId] }, { limit: 100 }),
+    );
+    expect(named.items).toEqual([]);
+  },
+  'payoutViews.get': async () => {
+    expect(await acrossA(async (tx) => payoutViews.get(tx, b.payoutId))).toBeUndefined();
+    expect((await acrossA(async (tx) => payoutViews.get(tx, a.payoutId)))?.payout.id).toBe(
+      a.payoutId,
+    );
   },
   'payoutBatches.create': async () => {
     const created = await asA(async (tx) =>

@@ -7,12 +7,20 @@
 
 import type { WalletProofFlow } from '@ujira/identity';
 
+import type { ApiKeyEndpoints } from '../api-key-service.js';
 import type { Route } from '../route.js';
+import { API_KEYS_NOT_CONFIGURED, apiKeyRoutes } from './api-keys.js';
 import { EMBED_NOT_CONFIGURED, embedRoutes } from './embed.js';
 import type { EmbedDependencies } from './embed.js';
 import { healthRoute } from './health.js';
+import { MANDATES_NOT_CONFIGURED, mandateRoutes } from './mandates.js';
+import type { MandateEndpoints } from './mandates.js';
+import { PAYOUTS_NOT_CONFIGURED, payoutRoutes } from './payouts.js';
+import type { PayoutEndpoints } from './payouts.js';
 import { RECEIPTS_NOT_CONFIGURED, receiptRoutes } from './receipts.js';
 import type { ReceiptReads } from './receipts.js';
+import { RECIPIENTS_NOT_CONFIGURED, recipientRoutes } from './recipients.js';
+import type { RecipientEndpoints } from './recipients.js';
 import { SELF_WEBHOOK_NOT_CONFIGURED, selfWebhookRoute } from './self-webhook.js';
 import type { SelfWebhookHandler } from './self-webhook.js';
 import {
@@ -25,10 +33,15 @@ import {
 export interface RouteDependencies {
   readonly selfWebhook: SelfWebhookHandler;
   readonly walletProof: WalletProofFlow;
+  readonly mandates: MandateEndpoints;
+  readonly recipients: RecipientEndpoints;
   /** Refuses everything when left out, until a database is configured. */
   readonly embed?: EmbedDependencies;
   /** Answers 503 when left out, until the receipts tables are in. */
   readonly receipts?: ReceiptReads;
+  /** Answers 503 when left out, until the worker's queue is in. */
+  readonly payouts?: PayoutEndpoints;
+  readonly apiKeys: ApiKeyEndpoints;
 }
 
 export function v1Routes(deps: RouteDependencies): readonly Route[] {
@@ -37,8 +50,12 @@ export function v1Routes(deps: RouteDependencies): readonly Route[] {
     selfWebhookRoute(deps.selfWebhook),
     walletChallengeRoute(deps.walletProof),
     walletProofRoute(deps.walletProof),
+    ...mandateRoutes(deps.mandates),
+    ...recipientRoutes(deps.recipients),
     ...embedRoutes(deps.embed ?? EMBED_NOT_CONFIGURED),
     ...receiptRoutes(deps.receipts ?? RECEIPTS_NOT_CONFIGURED),
+    ...payoutRoutes(deps.payouts ?? PAYOUTS_NOT_CONFIGURED),
+    ...apiKeyRoutes(deps.apiKeys),
   ]);
 }
 
@@ -47,4 +64,7 @@ export function v1Routes(deps: RouteDependencies): readonly Route[] {
 export const V1_ROUTES: readonly Route[] = v1Routes({
   selfWebhook: SELF_WEBHOOK_NOT_CONFIGURED,
   walletProof: WALLET_PROOF_NOT_CONFIGURED,
+  mandates: MANDATES_NOT_CONFIGURED,
+  recipients: RECIPIENTS_NOT_CONFIGURED,
+  apiKeys: API_KEYS_NOT_CONFIGURED,
 });

@@ -313,6 +313,9 @@ importers:
       '@ujira/identity':
         specifier: workspace:*
         version: link:../identity
+      '@ujira/mandates':
+        specifier: workspace:*
+        version: link:../mandates
       '@ujira/receipts':
         specifier: workspace:*
         version: link:../receipts

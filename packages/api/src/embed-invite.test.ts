@@ -16,6 +16,7 @@ import { createApp } from './app.js';
 import type { Authenticate } from './auth.js';
 import { createEmbedAuthenticator } from './embed-auth.js';
 import { issueEmbedCredential } from './embed-token.js';
+import { memoryIdempotencyStore } from './idempotency.js';
 import { memoryLogger } from './log.js';
 import { databaseEmbedStore } from './postgres-stores.js';
 import { allowEveryRequest, allowEveryAddress } from './rate-limit.js';
@@ -117,6 +118,7 @@ beforeAll(async () => {
     authenticate,
     authenticateEmbed: createEmbedAuthenticator({ store, environment: 'test' }),
     rateLimit: allowEveryRequest,
+    idempotency: memoryIdempotencyStore(),
     addressRateLimit: allowEveryAddress,
     logger: memoryLogger(),
   });

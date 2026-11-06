@@ -57,6 +57,8 @@ export interface Member {
 export interface ApiToken {
   readonly id: string;
   readonly projectId: string;
+  // Null only on a token made before tokens had names.
+  readonly name: string | null;
   readonly prefix: string;
   readonly scopes: readonly string[];
   readonly expiresAt: Date;
@@ -68,6 +70,7 @@ export interface ApiToken {
 }
 
 export interface NewApiToken {
+  readonly name?: string;
   readonly prefix: string;
   // SHA-256 of the secret, 32 bytes. The secret itself never reaches here.
   readonly secretSha256: Buffer;
@@ -370,6 +373,7 @@ export const members = {
 const tokenColumns = [
   'id',
   'project_id',
+  'name',
   'prefix',
   'scopes',
   'expires_at',
@@ -382,6 +386,7 @@ const tokenColumns = [
 function toToken(row: {
   id: string;
   project_id: string;
+  name: string | null;
   prefix: string;
   scopes: string[];
   expires_at: Date;
@@ -393,6 +398,7 @@ function toToken(row: {
   return {
     id: row.id,
     projectId: row.project_id,
+    name: row.name,
     prefix: row.prefix,
     scopes: row.scopes,
     expiresAt: row.expires_at,
@@ -430,6 +436,7 @@ export const apiTokens = {
       .values({
         principal_id: CURRENT_PRINCIPAL,
         project_id: CURRENT_PROJECT,
+        name: input.name ?? null,
         prefix: input.prefix,
         secret_sha256: input.secretSha256,
         scopes: [...input.scopes],
@@ -439,6 +446,81 @@ export const apiTokens = {
       .returning(tokenColumns)
       .executeTakeFirstOrThrow();
     return toToken(row);
+  },
+
+  // Undefined when the project already holds `limit` active tokens. A token in its
+  // rotation overlap is not counted, because its successor is: rotating must work
+  // at the limit, and it leaves the project with one key in use, as it had. Two
+  // creates racing are put in order by the lock, so neither can count past the other.
+  createWithinLimit: async (
+    db: Tx,
+    input: NewApiToken,
+    limit: number,
+  ): Promise<ApiToken | undefined> => {
+    await sql`select pg_advisory_xact_lock(hashtextextended(ujira.current_project_id()::text, 178))`.execute(
+      db,
+    );
+    const counted = await sql<{ active: string }>`
+      select count(*) as active
+        from ujira.api_tokens as t
+       where t.revoked_at is null
+         and t.expires_at > now()
+         and not exists (
+           select 1 from ujira.api_tokens as successor where successor.rotated_from_id = t.id
+         )
+    `.execute(db);
+    if (Number(counted.rows[0]?.active ?? 0) >= limit) return undefined;
+    return apiTokens.create(db, input);
+  },
+
+  // Undefined when the token already has a successor, because the unique index
+  // allows it only one. The caller has checked the old token is live.
+  createSuccessor: async (
+    db: Tx,
+    input: NewApiToken & { readonly rotatedFromId: string },
+  ): Promise<ApiToken | undefined> => {
+    const row = await db
+      .insertInto('ujira.api_tokens')
+      .values({
+        principal_id: CURRENT_PRINCIPAL,
+        project_id: CURRENT_PROJECT,
+        name: input.name ?? null,
+        prefix: input.prefix,
+        secret_sha256: input.secretSha256,
+        scopes: [...input.scopes],
+        expires_at: input.expiresAt,
+        rotated_from_id: input.rotatedFromId,
+      })
+      .onConflict((conflict) =>
+        conflict
+          .columns(['principal_id', 'project_id', 'rotated_from_id'])
+          .where('rotated_from_id', 'is not', null)
+          .doNothing(),
+      )
+      .returning(tokenColumns)
+      .executeTakeFirst();
+    return row === undefined ? undefined : toToken(row);
+  },
+
+  successorOf: async (db: Tx, id: string): Promise<ApiToken | undefined> => {
+    const row = await db
+      .selectFrom('ujira.api_tokens')
+      .select(tokenColumns)
+      .where('rotated_from_id', '=', id)
+      .executeTakeFirst();
+    return row === undefined ? undefined : toToken(row);
+  },
+
+  // Only ever earlier: a rotation's overlap must not keep a token alive past the
+  // expiry it was given. The token's expiry afterwards, or undefined if not found.
+  shortenExpiry: async (db: Tx, id: string, expiresAt: Date): Promise<Date | undefined> => {
+    const row = await db
+      .updateTable('ujira.api_tokens')
+      .set({ expires_at: sql<Date>`least(expires_at, ${expiresAt})` })
+      .where('id', '=', id)
+      .returning('expires_at')
+      .executeTakeFirst();
+    return row?.expires_at;
   },
 
   // Records use of a token, at most once per five minutes: the condition is here
@@ -472,6 +554,64 @@ export const apiTokens = {
   },
 };
 
+export const apiTokenWarnings = {
+  // True for the one caller that may send this warning now: the first, or the next
+  // after a claim older than claimSeconds that was never marked as sent.
+  claim: async (
+    db: Tx,
+    input: {
+      readonly tokenId: string;
+      readonly thresholdDays: number;
+      readonly claimSeconds: number;
+    },
+  ): Promise<boolean> => {
+    const row = await db
+      .insertInto('ujira.api_token_expiry_warnings')
+      .values({
+        principal_id: CURRENT_PRINCIPAL,
+        project_id: CURRENT_PROJECT,
+        token_id: input.tokenId,
+        threshold_days: input.thresholdDays,
+      })
+      .onConflict((conflict) =>
+        conflict
+          .columns(['principal_id', 'project_id', 'token_id', 'threshold_days'])
+          .doUpdateSet({ claimed_at: sql<Date>`now()` })
+          .where('ujira.api_token_expiry_warnings.notified_at', 'is', null)
+          .where(
+            'ujira.api_token_expiry_warnings.claimed_at',
+            '<',
+            sql<Date>`now() - make_interval(secs => ${input.claimSeconds})`,
+          ),
+      )
+      .returning('token_id')
+      .executeTakeFirst();
+    return row !== undefined;
+  },
+
+  // Written even with no claim, for a wider window the tightest one covers.
+  markNotified: async (
+    db: Tx,
+    input: { readonly tokenId: string; readonly thresholdDays: number },
+  ): Promise<void> => {
+    await db
+      .insertInto('ujira.api_token_expiry_warnings')
+      .values({
+        principal_id: CURRENT_PRINCIPAL,
+        project_id: CURRENT_PROJECT,
+        token_id: input.tokenId,
+        threshold_days: input.thresholdDays,
+        notified_at: sql<Date>`now()`,
+      })
+      .onConflict((conflict) =>
+        conflict
+          .columns(['principal_id', 'project_id', 'token_id', 'threshold_days'])
+          .doUpdateSet({ notified_at: sql<Date>`now()` }),
+      )
+      .execute();
+  },
+};
+
 // Every tenant repository, for the cross-tenant matrix, which requires a
 // case for each method listed here.
 export const tenancyRepositories = {
@@ -479,5 +619,6 @@ export const tenancyRepositories = {
   projects,
   members,
   apiTokens,
+  apiTokenWarnings,
   managedSigners,
 } as const;

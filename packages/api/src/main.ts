@@ -9,6 +9,9 @@ import { apiAccessFromEnv } from './access.js';
 import { createApp } from './app.js';
 import { loadApiConfig } from './config.js';
 import { stdoutLogger } from './log.js';
+import { API_KEYS_NOT_CONFIGURED } from './routes/api-keys.js';
+import { MANDATES_NOT_CONFIGURED } from './routes/mandates.js';
+import { RECIPIENTS_NOT_CONFIGURED } from './routes/recipients.js';
 import { SELF_WEBHOOK_NOT_CONFIGURED } from './routes/self-webhook.js';
 import { v1Routes } from './routes/index.js';
 import { WALLET_PROOF_NOT_CONFIGURED } from './routes/wallet-proofs.js';
@@ -20,11 +23,15 @@ const app = createApp({
   routes: v1Routes({
     selfWebhook: SELF_WEBHOOK_NOT_CONFIGURED,
     walletProof: WALLET_PROOF_NOT_CONFIGURED,
+    mandates: MANDATES_NOT_CONFIGURED,
+    recipients: RECIPIENTS_NOT_CONFIGURED,
+    apiKeys: API_KEYS_NOT_CONFIGURED,
     embed: access.embed,
   }),
   authenticate: access.authenticate,
   authenticateEmbed: access.authenticateEmbed,
   rateLimit: access.rateLimit,
+  idempotency: access.idempotency,
   addressRateLimit: access.addressRateLimit,
   trustedProxy: config.trustedProxy,
   logger: stdoutLogger,

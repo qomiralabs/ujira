@@ -19,8 +19,16 @@ import type { AuthenticateEmbed } from './embed-auth.js';
 import type { Authenticate } from './auth.js';
 import type { ApiConfig, DeploymentEnvironment } from './config.js';
 import { ApiConfigError } from './errors.js';
+import { memoryIdempotencyStore } from './idempotency.js';
+import type { IdempotencyStore } from './idempotency.js';
 import type { Logger } from './log.js';
-import { databaseBucketStore, databaseEmbedStore, databaseTokenStore } from './postgres-stores.js';
+import {
+  databaseBucketStore,
+  databaseEmbedStore,
+  databaseIdempotencyStore,
+  databaseSecurityEvents,
+  databaseTokenStore,
+} from './postgres-stores.js';
 import {
   allowEveryAddress,
   allowEveryRequest,
@@ -42,6 +50,7 @@ export interface ApiAccess {
   readonly embed: EmbedDependencies;
   readonly rateLimit: RateLimit;
   readonly addressRateLimit: AddressRateLimit;
+  readonly idempotency: IdempotencyStore;
   readonly close: () => Promise<void>;
 }
 
@@ -84,6 +93,8 @@ export function apiAccessFromEnv(
       embed: EMBED_NOT_CONFIGURED,
       rateLimit: allowEveryRequest,
       addressRateLimit: allowEveryAddress,
+      // Never reached, since every key is refused before a write gets this far.
+      idempotency: memoryIdempotencyStore(),
       close: () => Promise.resolve(),
     };
   }
@@ -106,12 +117,14 @@ export function apiAccessFromEnv(
     embed: { store, environment },
     authenticate: createTokenAuthenticator({
       store: databaseTokenStore(db),
+      securityEvents: databaseSecurityEvents(db),
       environment: KEY_ENVIRONMENT[config.environment],
       embedOrigins: config.embedOrigins,
       logger,
     }),
     rateLimit: createRateLimit(buckets),
     addressRateLimit: createAddressRateLimit(buckets, hmacKey),
+    idempotency: databaseIdempotencyStore(db),
     close: () => db.close(),
   };
 }

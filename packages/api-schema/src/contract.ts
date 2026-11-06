@@ -4,7 +4,7 @@
 import type { z } from 'zod';
 
 import { FieldErrorCode, PROBLEM_CODES, PROBLEM_TYPE_BASE, Problem } from './envelope.js';
-import type { ProblemCode } from './envelope.js';
+import type { ProblemCode, ProblemFix } from './envelope.js';
 import { ContractMismatchError, UnknownRouteError } from './errors.js';
 import type { ContractIssue } from './errors.js';
 import { ROUTES } from './routes.js';
@@ -17,6 +17,7 @@ export const PROBLEM_TITLES: Readonly<Record<ProblemCode, string>> = Object.free
   LIMIT_OUT_OF_RANGE: 'The limit must be from 1 to 200',
   INVALID_AMOUNT: 'The amount is not an integer count of minor units',
   INVALID_REQUEST: 'The request is not valid',
+  IDEMPOTENCY_KEY_INVALID: 'The Idempotency-Key header is missing or not valid',
   WEBHOOK_SIGNATURE_INVALID: 'The webhook signature is not valid',
   WEBHOOK_PAYLOAD_INVALID: 'The webhook body is not valid',
   WEBHOOK_REJECTED: 'The webhook is for another environment or flow',
@@ -29,6 +30,7 @@ export const PROBLEM_TITLES: Readonly<Record<ProblemCode, string>> = Object.free
   EMBED_SCOPE_VIOLATION: 'The embed session cannot reach this route',
   NOT_FOUND: 'Not found',
   METHOD_NOT_ALLOWED: 'The route does not accept this method',
+  IDEMPOTENCY_IN_PROGRESS: 'A request with this Idempotency-Key is still running',
   PAYLOAD_TOO_LARGE: 'The request body is too large',
   UNSUPPORTED_MEDIA_TYPE: 'The request body must be application/json',
   DESTINATION_INVALID: 'The destination cannot receive this payout',
@@ -38,12 +40,22 @@ export const PROBLEM_TITLES: Readonly<Record<ProblemCode, string>> = Object.free
   WALLET_PROOF_EXPIRED: 'The wallet proof challenge has expired',
   WALLET_SIGNER_NOT_AUTHORIZED: 'That key cannot sign for this wallet',
   DESTINATION_NOT_RECEIVABLE: 'This destination cannot receive a payout yet',
+  FEE_CAP_INVALID: 'The fee cap can be at most 100 basis points',
+  PRINCIPAL_KEY_RISK: 'Above 50,000 USD a mandate needs a multisig principal or a recovery set',
+  CUSTODY_GUARD: 'A mandate with a UJIRA held agent key must use allowlist or both mode',
+  TRANSFER_FAILED: 'The principal could not receive the transfer',
+  IDEMPOTENCY_KEY_REUSED: 'This Idempotency-Key was used for a different request',
+  STEP_UP_REQUIRED: 'Confirm your second factor to do this',
+  API_KEY_EXPIRY_INVALID: 'An API key needs an expiry within the limit',
+  API_KEY_LIMIT_REACHED: 'This project already has its limit of active API keys',
+  API_KEY_NOT_ROTATABLE: 'Only a live API key that has not been rotated can be rotated',
   RATE_LIMITED: 'Too many requests',
   INTERNAL: 'Something went wrong on our side',
   DB_UNAVAILABLE: 'The service is temporarily unavailable',
   CHAIN_UNAVAILABLE: 'The network is temporarily unavailable',
   REQUEST_TIMEOUT: 'The request took too long',
   WEBHOOK_UNAVAILABLE: 'This webhook cannot be received right now',
+  OPERATIONS_GUARDIAN_NOT_CONFIGURED: 'No operations guardian is set up for this network yet',
 });
 
 export interface FieldError {
@@ -55,7 +67,11 @@ export interface FieldError {
 export function buildProblem(
   code: ProblemCode,
   requestId: string,
-  extra: { readonly detail?: string; readonly errors?: readonly FieldError[] } = {},
+  extra: {
+    readonly detail?: string;
+    readonly errors?: readonly FieldError[];
+    readonly fixes?: readonly ProblemFix[];
+  } = {},
 ): Problem {
   return {
     type: `${PROBLEM_TYPE_BASE}${code}`,
@@ -67,6 +83,7 @@ export function buildProblem(
     ...(extra.errors === undefined || extra.errors.length === 0
       ? {}
       : { errors: [...extra.errors] }),
+    ...(extra.fixes === undefined || extra.fixes.length === 0 ? {} : { fixes: [...extra.fixes] }),
   };
 }
 

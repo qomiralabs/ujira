@@ -17,7 +17,7 @@ import type { ProblemCode } from '@ujira/api-schema';
 import { z } from 'zod';
 
 import { RouteRegistryError } from './errors.js';
-import { definePublicRoute } from './route.js';
+import { definePublicRoute, requiresIdempotencyKey } from './route.js';
 import type { Route } from './route.js';
 
 type JsonObject = Record<string, unknown>;
@@ -87,18 +87,30 @@ function operation(route: Route): JsonObject {
       description: statusDescription(status),
       headers: {
         'Request-Id': headerSchema,
-        ...(status === 429 || status === 503 ? { 'Retry-After': headerSchema } : {}),
+        ...(status === 409 || status === 429 || status === 503
+          ? { 'Retry-After': headerSchema }
+          : {}),
         ...(status === 429 ? limits : {}),
       },
       content: { 'application/problem+json': { schema: { $ref: `${REF}Problem` } } },
     };
   }
   const tenant = route.access.kind === 'tenant';
+  const member = route.access.kind === 'member';
   return {
     operationId: route.id,
     summary: route.summary,
-    security: tenant ? [{ bearer: [] }] : route.access.kind === 'embed' ? [{ embedToken: [] }] : [],
+    security: tenant
+      ? [{ bearer: [] }]
+      : member
+        ? [{ memberSession: [] }]
+        : route.access.kind === 'embed'
+          ? [{ embedToken: [] }]
+          : [],
     ...(route.access.kind === 'tenant' ? { 'x-ujira-scope': route.access.scope } : {}),
+    ...(route.access.kind === 'member'
+      ? { 'x-ujira-roles': [...route.access.roles], 'x-ujira-step-up': route.access.stepUp }
+      : {}),
     parameters: [
       ...openApiParameters('path', route.params),
       ...openApiParameters('query', route.query),
@@ -108,6 +120,19 @@ function operation(route: Route): JsonObject {
         required: true,
         schema: { type: 'string' },
       })),
+      ...(requiresIdempotencyKey(route)
+        ? [
+            {
+              name: 'Idempotency-Key',
+              in: 'header',
+              required: true,
+              description:
+                'Unique per write. A retry with the same key and the same request gets the ' +
+                'first answer for 7 days; the same key on a different request is refused.',
+              schema: { type: 'string', pattern: '^[A-Za-z0-9_.:-]{1,255}$' },
+            },
+          ]
+        : []),
     ],
     // A webhook body is verified as bytes, so the document does not promise
     // a shape UJIRA checks before the signature.
@@ -173,6 +198,12 @@ export function buildOpenApiDocument(routes: readonly Route[]): JsonObject {
       schemas: reachable(paths, schemas),
       securitySchemes: {
         bearer: { type: 'http', scheme: 'bearer' },
+        memberSession: {
+          type: 'apiKey',
+          in: 'cookie',
+          name: 'ujira_session',
+          description: 'A dashboard session. An API key is refused here.',
+        },
         embedToken: { type: 'http', scheme: 'bearer' },
       },
     },

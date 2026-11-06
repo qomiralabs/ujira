@@ -26,6 +26,7 @@ export {
 } from './repositories/page.js';
 export {
   apiTokens,
+  apiTokenWarnings,
   members,
   principals,
   projects,
@@ -51,6 +52,8 @@ export {
   type ToUsd,
 } from './payout-minimum.js';
 export {
+  ALLOWED_BY_VALUES,
+  ALLOWED_STATUS_VALUES,
   ATTEMPT_STATUS_VALUES,
   fundingHolds,
   IdempotencyConflictError,
@@ -63,6 +66,8 @@ export {
   payoutMinimums,
   payouts,
   RequestedAmountModeError,
+  TransitionFactError,
+  type AllowedBy,
   type AttemptStatusValue,
   type BatchItemResult,
   type CashoutCostBearer,
@@ -93,6 +98,18 @@ export {
   type RecordedApproval,
 } from './repositories/payout-legs.js';
 export {
+  PayoutPositionError,
+  payoutViewRepositories,
+  payoutViews,
+  type PayoutAmountBound,
+  type PayoutAttemptSummary,
+  type PayoutListFilter,
+  type PayoutListing,
+  type PayoutListPage,
+  type PayoutPosition,
+  type PayoutView,
+} from './repositories/payout-views.js';
+export {
   managedSigners,
   signingKeys,
   type ManagedSigner,
@@ -111,6 +128,7 @@ export {
 export {
   entryPoints,
   type CreatedPrincipal,
+  type TokenNearingExpiry,
   type NewPrincipal,
   type ResolvedFundingAddress,
   type ResolvedFundingInstance,
@@ -131,8 +149,10 @@ export {
   type PayoutBookingEvent,
 } from './repositories/mandate-registry.js';
 export {
+  AUDIT_ACTIONS,
   audit,
   AuditScopeError,
+  type AuditAction,
   type AuditActor,
   type AuditChainBreak,
   type AuditEntry,
@@ -169,6 +189,22 @@ export {
   type RecipientStatus,
 } from './repositories/recipients.js';
 export {
+  mandateActionRequests,
+  mandateTerms,
+  type MandateActionOp,
+  type MandateActionRequest,
+  type MandateLimitsRecord,
+  type MandateTerms,
+  type NewMandateActionRequest,
+  type NewMandateTerms,
+} from './repositories/mandate-terms.js';
+export {
+  idempotencyKeys,
+  type FinishedRequest,
+  type NewReservation,
+  type Reservation,
+} from './repositories/idempotency.js';
+export {
   agentIdentityLinks,
   attestations,
   destinationVerifications,
@@ -192,6 +228,27 @@ export {
   type WalletChallengeRow,
 } from './repositories/identity-evidence.js';
 export {
+  outbox,
+  webhookDeliveries,
+  webhookEndpoints,
+  type NewOutboxEvent,
+  type NewWebhookDelivery,
+  type NewWebhookEndpoint,
+  type OutboxEvent,
+  type WebhookDelivery,
+  type WebhookDeliveryStatus,
+  type WebhookEndpoint,
+  type WebhookEndpointStatus,
+} from './repositories/outbox.js';
+export {
+  RETENTION_BATCH_SIZE,
+  retention,
+  runRetention,
+  type RetentionCounts,
+  type RetentionTable,
+} from './repositories/retention.js';
+export {
+  SECURITY_EVENT_KINDS,
   alertDeliveryCursors,
   chainCursors,
   emailQuota,
@@ -201,8 +258,11 @@ export {
   type EmailKind,
   type EmailQuotaRequest,
   routingConfig,
+  securityEvents,
   type IdentityProviderEvent,
   type ExecutorLease,
+  type NewSecurityEvent,
+  type SecurityEventKind,
   type RateLimitBucket,
   type RateLimitTaken,
   type RoutingConfig,
