@@ -13,6 +13,7 @@ import {
   apiTokenWarnings,
   apiTokens,
   audit,
+  embedSessions,
   entryPoints,
   IdempotencyConflictError,
   idempotencyKeys,
@@ -50,6 +51,7 @@ import type { NewPayoutRequest, PayoutCreation, PayoutRecords } from './payout-s
 import { requestedMoney } from './payout-wire.js';
 import type { BucketStore } from './rate-limit.js';
 import type { RecipientRecords, StoredMethod, StoredRecipient } from './recipient-service.js';
+import type { EmbedStore } from './routes/embed.js';
 import type { SecurityEventSink, TokenStore } from './token-auth.js';
 
 export function databaseTokenStore(db: Database): TokenStore {
@@ -371,6 +373,31 @@ export function databaseIdempotencyStore(db: Database): IdempotencyStore {
       db.tenant(tenant).transaction((tx) => idempotencyKeys.complete(tx, request)),
     release: (tenant, request) =>
       db.tenant(tenant).transaction((tx) => idempotencyKeys.release(tx, request)),
+  };
+}
+
+export function databaseEmbedStore(db: Database): EmbedStore {
+  return {
+    // Before a tenant is known, so these run through the entry points that can.
+    find: (secretSha256) =>
+      db.unscoped((tx) => entryPoints.authenticateEmbedToken(tx, secretSha256)),
+    exchange: (swap) => db.unscoped((tx) => entryPoints.exchangeEmbedInvite(tx, swap)),
+    recipientExists: async (tenant, recipientId) =>
+      (await db.tenant(tenant).transaction((tx) => recipients.get(tx, recipientId))) !== undefined,
+    create: async (tenant, row) => {
+      await db.tenant(tenant).transaction((tx) =>
+        embedSessions.create(tx, {
+          kind: row.kind,
+          tokenHash: row.secretSha256,
+          tokenPrefix: row.prefix,
+          recipientId: row.recipientId,
+          purpose: row.purpose,
+          allowedOrigins: row.allowedOrigins,
+          createdByToken: row.createdByToken,
+          expiresAt: row.expiresAt,
+        }),
+      );
+    },
   };
 }
 

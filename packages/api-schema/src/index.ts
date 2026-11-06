@@ -7,6 +7,7 @@ export const PACKAGE_NAME = '@ujira/api-schema';
 export * from './approvals.js';
 export * from './common.js';
 export * from './contract.js';
+export * from './embed.js';
 export * from './enums.js';
 export * from './envelope.js';
 export * from './errors.js';

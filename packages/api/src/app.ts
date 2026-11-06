@@ -7,7 +7,8 @@
 //    of every call the handler makes;
 // 2. a deadline, as an AbortSignal the handler passes on;
 // 3. for a tenant route, the credential, the rate limits, then the route's
-//    scope, so a request that will be refused its scope still counts; for a
+//    scope, so a request that will be refused its scope still counts; for an
+//    embed route, the embed token and its origin, then the rate limits; for a
 //    public route that names a group, the limit by client address, so a refused
 //    request costs one bucket and its body is never read;
 // 4. path, query and body, each validated by the route's zod schema, except
@@ -44,6 +45,8 @@ import type {
   Tenant,
 } from './auth.js';
 import { parseJsonBody, readRawBody } from './body.js';
+import { refuseAllEmbedTokens } from './embed-auth.js';
+import type { AuthenticateEmbed, EmbedCaller } from './embed-auth.js';
 import { clientAddress } from './client-address.js';
 import type { TrustedProxy } from './client-address.js';
 import { ApiError, RouteRegistryError, toApiError } from './errors.js';
@@ -78,6 +81,8 @@ export interface ApiDependencies {
   readonly authenticate: Authenticate;
   /** Left out, every member route refuses: sessions are not a way around this. */
   readonly authenticateMember?: AuthenticateMember;
+  /** Who the widget's routes let in. Nobody when left out. */
+  readonly authenticateEmbed?: AuthenticateEmbed;
   /** Required, so a server cannot be built that forgot its limits. */
   readonly rateLimit: RateLimit;
   /** Required, so a server cannot be built whose writes have no replay protection. */
@@ -102,7 +107,8 @@ export function newRequestId(): string {
 const REQUEST_ID = /^[A-Za-z0-9_-]{8,128}$/;
 
 // Headers on every response. The API serves JSON to programs, so nothing is
-// cached, nothing is sniffed and no CORS header is ever sent.
+// cached, nothing is sniffed and no CORS header is sent, except on the widget's own
+// routes under /v1/embed/, which a browser has to be able to read.
 const BASE_HEADERS: Readonly<Record<string, string>> = Object.freeze({
   'cache-control': 'no-store',
   'x-content-type-options': 'nosniff',
@@ -271,6 +277,7 @@ export function createApp(deps: ApiDependencies): Hono {
   const bodyLimit = deps.bodyLimitBytes ?? API_DEFAULTS.bodyLimitBytes;
   const nextId = deps.newRequestId ?? newRequestId;
   const now = deps.now ?? (() => new Date());
+  const authenticateEmbed = deps.authenticateEmbed ?? refuseAllEmbedTokens;
   const patterns = routes.map((route) => ({ route, pattern: pathPattern(route.path) }));
 
   const startRequest = (): { requestId: string; log: RequestLog; started: number } => {
@@ -317,6 +324,9 @@ export function createApp(deps: ApiDependencies): Hono {
     let tenant: Tenant | null = null;
     let member: AuthenticatedMember | null = null;
     let limitHeaders: Record<string, string> = {};
+    let credentialId: string | undefined;
+    let embed: EmbedCaller | undefined;
+    const origin = c.req.raw.headers.get('origin');
     let outcome: Outcome;
     try {
       const response = await underDeadline(
@@ -338,6 +348,25 @@ export function createApp(deps: ApiDependencies): Hono {
             if (!caller.scopes.includes(route.access.scope)) {
               throw new ApiError('INSUFFICIENT_SCOPE', {
                 detail: `This route needs the ${route.access.scope} scope`,
+              });
+            }
+            credentialId = caller.tokenId;
+          } else if (route.access.kind === 'embed') {
+            const result = await authenticateEmbed(
+              { authorization: c.req.raw.headers.get('authorization'), origin },
+              call,
+            );
+            if (!result.ok) throw new ApiError(result.code);
+            embed = result.caller;
+            tenant = { principalId: embed.principalId, projectId: embed.projectId };
+            const decision = await deps.rateLimit(
+              { tenant, tokenId: embed.sessionId, group: null },
+              call,
+            );
+            limitHeaders = rateLimitHeaders(decision);
+            if (!decision.allowed) {
+              throw new ApiError('RATE_LIMITED', {
+                retryAfterSeconds: decision.retryAfterSeconds,
               });
             }
           } else if (
@@ -417,7 +446,16 @@ export function createApp(deps: ApiDependencies): Hono {
           const answer = async (): Promise<Response> => {
             const result = await route.handle(
               { params: params.data, query: query.data, body },
-              { requestId, signal: controller.signal, call, log, idempotencyKey },
+              {
+                requestId,
+                signal: controller.signal,
+                call,
+                log,
+                idempotencyKey,
+                origin,
+                ...(credentialId === undefined ? {} : { credentialId }),
+                ...(embed === undefined ? {} : { embed }),
+              },
               tenant,
               member,
             );
@@ -453,6 +491,12 @@ export function createApp(deps: ApiDependencies): Hono {
     for (const [name, value] of Object.entries(limitHeaders)) {
       outcome.response.headers.set(name, value);
     }
+    // Only an answer that got past the origin check, so a page that is not allowed
+    // cannot read even the refusal.
+    if (origin !== null && outcome.response.ok && readableByBrowser(route)) {
+      outcome.response.headers.set('access-control-allow-origin', origin);
+      outcome.response.headers.set('vary', 'origin');
+    }
     accessLog(log, started, route.method, route.path, outcome);
     return outcome.response;
   };
@@ -461,6 +505,30 @@ export function createApp(deps: ApiDependencies): Hono {
   for (const route of routes) {
     app.on(route.method, honoPath(route.path), (c) => run(route, c));
   }
+
+  // A browser asks before it sends the widget's token. The question carries no
+  // credential, so there is nothing to check yet: the real request is what is refused
+  // if its origin is not allowed, and its answer is what a page can then read.
+  app.options('/v1/embed/*', (c) => {
+    const { requestId } = startRequest();
+    const origin = c.req.raw.headers.get('origin');
+    return new Response(null, {
+      status: 204,
+      headers: {
+        ...BASE_HEADERS,
+        'request-id': requestId,
+        ...(origin === null
+          ? {}
+          : {
+              'access-control-allow-origin': origin,
+              'access-control-allow-methods': 'GET, POST',
+              'access-control-allow-headers': 'authorization, content-type',
+              'access-control-max-age': '600',
+              vary: 'origin',
+            }),
+      },
+    });
+  });
 
   // No route matched. A path that exists under another method is a 405
   // with Allow, so a client learns it used the wrong verb, not a wrong URL.
@@ -617,6 +685,11 @@ function steppedUpRecently(member: AuthenticatedMember, at: Date): boolean {
   const age = at.getTime() - member.steppedUpAt.getTime();
   // Negative is a clock that disagrees, which is not evidence of anything recent.
   return age >= 0 && age <= STEP_UP_MAX_AGE_SECONDS * 1000;
+}
+
+function readableByBrowser(route: Route): boolean {
+  const { access } = route;
+  return access.kind === 'embed' || (access.kind === 'public' && access.browser === true);
 }
 
 async function authenticateRequest(

@@ -14,9 +14,18 @@ import { BUNDLE_PATH, bundleWidget } from './bundle.ts';
 
 export const DEFAULT_PORT = 4178;
 
+/**
+ * The fake UJIRA API, built for the browser. The connected host page hands
+ * it to the widget as its client, so the browser tests run the whole
+ * connected flow with no server behind them. It never ships.
+ */
+export const FAKE_API_PATH = '/fake-api.js';
+const FAKE_API_ENTRY = 'e2e/fake-api.ts';
+
 const PAGES: Readonly<Record<string, string>> = {
   '/': 'e2e/host.html',
   '/host.html': 'e2e/host.html',
+  '/connected.html': 'e2e/connected.html',
 };
 
 export interface Running {
@@ -26,14 +35,20 @@ export interface Running {
 
 export async function startServer(root: string, port = DEFAULT_PORT): Promise<Running> {
   const bundle = await bundleWidget(root);
+  const fake = await bundleWidget(root, 'production', FAKE_API_ENTRY);
+  const scripts: Readonly<Record<string, string>> = {
+    [BUNDLE_PATH]: bundle.code,
+    [FAKE_API_PATH]: fake.code,
+  };
   const server: Server = createServer((request, response) => {
     const path = (request.url ?? '/').split('?')[0] ?? '/';
-    if (path === BUNDLE_PATH) {
+    const script = scripts[path];
+    if (script !== undefined) {
       response.writeHead(200, {
         'content-type': 'text/javascript; charset=utf-8',
         'cache-control': 'no-store',
       });
-      response.end(bundle.code);
+      response.end(script);
       return;
     }
     const page = PAGES[path];

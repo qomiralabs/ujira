@@ -10,6 +10,8 @@ import type { WalletProofFlow } from '@ujira/identity';
 import type { ApiKeyEndpoints } from '../api-key-service.js';
 import type { Route } from '../route.js';
 import { API_KEYS_NOT_CONFIGURED, apiKeyRoutes } from './api-keys.js';
+import { EMBED_NOT_CONFIGURED, embedRoutes } from './embed.js';
+import type { EmbedDependencies } from './embed.js';
 import { healthRoute } from './health.js';
 import { MANDATES_NOT_CONFIGURED, mandateRoutes } from './mandates.js';
 import type { MandateEndpoints } from './mandates.js';
@@ -33,6 +35,8 @@ export interface RouteDependencies {
   readonly walletProof: WalletProofFlow;
   readonly mandates: MandateEndpoints;
   readonly recipients: RecipientEndpoints;
+  /** Refuses everything when left out, until a database is configured. */
+  readonly embed?: EmbedDependencies;
   /** Answers 503 when left out, until the receipts tables are in. */
   readonly receipts?: ReceiptReads;
   /** Answers 503 when left out, until the worker's queue is in. */
@@ -48,6 +52,7 @@ export function v1Routes(deps: RouteDependencies): readonly Route[] {
     walletProofRoute(deps.walletProof),
     ...mandateRoutes(deps.mandates),
     ...recipientRoutes(deps.recipients),
+    ...embedRoutes(deps.embed ?? EMBED_NOT_CONFIGURED),
     ...receiptRoutes(deps.receipts ?? RECEIPTS_NOT_CONFIGURED),
     ...payoutRoutes(deps.payouts ?? PAYOUTS_NOT_CONFIGURED),
     ...apiKeyRoutes(deps.apiKeys),

@@ -236,6 +236,18 @@ const widget = css`
     ${typeStep('data')}
   }
 
+  /* The message a wallet signs, shown whole so nothing has to scroll. */
+  .sign-text {
+    ${typeStep('data')}
+    margin: 0;
+    padding: 12px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: var(--ujira-embed-text);
+    border: 1px solid var(--ujira-embed-rule);
+    border-radius: var(--ujira-embed-radius-control);
+  }
+
   .primary {
     ${typeStep('body')}
     width: 100%;
@@ -338,6 +350,20 @@ const widget = css`
     flex: none;
     width: 16px;
     height: 16px;
+  }
+
+  /*
+   * Text with diacritics gets a line height of 1.6 or more, as the brand
+   * asks. English and Swahili need none. Yoruba, Igbo and Hausa stack a dot
+   * below and a tone mark on one letter, so their headings open up too.
+   */
+  .widget:is(:lang(fr), :lang(pt), :lang(es), :lang(yo), :lang(ig), :lang(ha))
+    :is(.hint, .label, .alert, .status, .choice-line, .statement-line, .answer-value, .footer) {
+    line-height: 1.6;
+  }
+
+  .widget:is(:lang(yo), :lang(ig), :lang(ha)) :is(.heading, .choice-name, .statement-name) {
+    line-height: 1.6;
   }
 
   @media (prefers-reduced-motion: reduce) {

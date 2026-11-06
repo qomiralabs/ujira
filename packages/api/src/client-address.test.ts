@@ -550,13 +550,14 @@ describe('which public routes have a limit', () => {
     for (const id of PUBLIC_ROUTES_WITH_NO_LIMIT) expect(ids.has(id), id).toBe(true);
   });
 
-  it('receipt verification and the Self webhook each have their own group', () => {
+  it('receipt verification, the Self webhook and the invite exchange each have their own group', () => {
     const groupOf = (id: string) => {
       const access = served.find((route) => route.id === id)?.access;
       return access?.kind === 'public' ? access.addressLimit : undefined;
     };
     expect(groupOf('verifyReceipt')).toBe('receipt_verification');
     expect(groupOf('receiveSelfWebhook')).toBe('webhook');
+    expect(groupOf('exchangeEmbedInvite')).toBe('invite_exchange');
   });
 });
 

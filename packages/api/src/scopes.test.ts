@@ -46,7 +46,7 @@ describe('every route in the registry', () => {
         expect(route.access.roles.length).toBeGreaterThan(0);
         // Every member route so far changes something a person must confirm.
         expect(route.access.stepUp).toBe(true);
-      } else {
+      } else if (route.access.kind === 'public') {
         expect(route.access.reason.trim().length).toBeGreaterThanOrEqual(10);
       }
     },

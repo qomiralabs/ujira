@@ -13,6 +13,7 @@
 // - defineMemberRoute: an action a person takes in the dashboard, which no key
 //   can reach.
 // - definePublicRoute: a route with no tenant, which must say why.
+// - defineEmbedRoute: a route the widget calls with an embed token.
 // - defineWebhookRoute: a provider's signed delivery, handed over as the
 //   exact bytes, because parsing first would verify something else.
 
@@ -28,6 +29,7 @@ import { z } from 'zod';
 
 import { API_SCOPES } from './auth.js';
 import type { ApiScope, AuthenticatedMember, CallOptions, MemberRole, Tenant } from './auth.js';
+import type { EmbedCaller } from './embed-auth.js';
 import { ApiError, RouteRegistryError } from './errors.js';
 import type { RequestLog } from './log.js';
 import type { AddressLimitGroup, RateLimitGroup } from './rate-limit.js';
@@ -56,6 +58,12 @@ export interface RequestContext {
    * retry paying twice if a process dies mid request.
    */
   readonly idempotencyKey: string | null;
+  /** The Origin header as sent, or null. */
+  readonly origin: string | null;
+  /** The API key that made this call, on a tenant route. */
+  readonly credentialId?: string;
+  /** Who the embed token lets in, on an embed route. */
+  readonly embed?: EmbedCaller;
 }
 
 export interface TenantRequestContext extends RequestContext {
@@ -66,6 +74,10 @@ export interface TenantRequestContext extends RequestContext {
 export interface MemberRequestContext extends TenantRequestContext {
   /** Who is acting, from the session only. */
   readonly member: AuthenticatedMember;
+}
+
+export interface EmbedRequestContext extends TenantRequestContext {
+  readonly embed: EmbedCaller;
 }
 
 export interface RouteInput<P, Q, B> {
@@ -82,9 +94,12 @@ export type Access =
   | {
       readonly kind: 'public';
       readonly reason: string;
+      /** A browser may read the answer, once the handler has accepted its origin. */
+      readonly browser?: boolean;
       /** Limits by client address, since there is no key to limit by. */
       readonly addressLimit?: AddressLimitGroup;
     }
+  | { readonly kind: 'embed' }
   | {
       readonly kind: 'tenant';
       readonly scope: ApiScope;
@@ -158,6 +173,10 @@ export function routeAccessProblems(routes: readonly Route[]): string[] {
     } else if (access?.kind === 'public') {
       if (access.reason.trim().length < 10) {
         problems.push(`route ${route.id} must say why it needs no key`);
+      }
+    } else if (access?.kind === 'embed') {
+      if (!route.path.startsWith('/v1/embed/')) {
+        problems.push(`route ${route.id} takes an embed token outside /v1/embed/`);
       }
     } else {
       problems.push(`route ${route.id} declares no access`);
@@ -291,6 +310,8 @@ function errorStatuses(
   if (access.kind === 'tenant' || access.kind === 'member') {
     codes.push('TOKEN_INVALID', 'INSUFFICIENT_SCOPE', 'RATE_LIMITED');
   }
+  if (access.kind === 'embed')
+    codes.push('EMBED_TOKEN_INVALID', 'ORIGIN_NOT_ALLOWED', 'RATE_LIMITED');
   if (access.kind === 'public' && access.addressLimit !== undefined) codes.push('RATE_LIMITED');
   if (hasBody) codes.push('INVALID_REQUEST', 'PAYLOAD_TOO_LARGE', 'UNSUPPORTED_MEDIA_TYPE');
   if (write) {
@@ -436,8 +457,17 @@ export function defineDownloadRoute<
   });
 }
 
-function publicAccess(reason: string, addressLimit: AddressLimitGroup | undefined): Access {
-  return { kind: 'public', reason, ...(addressLimit === undefined ? {} : { addressLimit }) };
+function publicAccess(
+  reason: string,
+  addressLimit: AddressLimitGroup | undefined,
+  browser = false,
+): Access {
+  return {
+    kind: 'public',
+    reason,
+    ...(addressLimit === undefined ? {} : { addressLimit }),
+    ...(browser ? { browser: true } : {}),
+  };
 }
 
 /**
@@ -480,6 +510,8 @@ export function definePublicRoute<
 >(
   spec: RouteSpec<P, Q, B, R> & {
     readonly reason: string;
+    /** A browser may read the answer, once the handler has accepted its origin. */
+    readonly browser?: boolean;
     readonly addressLimit?: AddressLimitGroup;
     readonly handler: (input: Input<P, Q, B>, context: RequestContext) => Promise<z.input<R>>;
   },
@@ -487,9 +519,34 @@ export function definePublicRoute<
   if (spec.reason.trim().length < 10) {
     throw new RouteRegistryError(`public route ${spec.id} must say why it needs no key`);
   }
-  return build(spec, publicAccess(spec.reason, spec.addressLimit), (input, context) =>
-    spec.handler(input as Input<P, Q, B>, context),
+  return build(
+    spec,
+    publicAccess(spec.reason, spec.addressLimit, spec.browser === true),
+    (input, context) => spec.handler(input as Input<P, Q, B>, context),
   );
+}
+
+/**
+ * A route the widget calls. Only an embed token gets in, from an origin its session
+ * allows, and the handler must keep it to its own recipient.
+ */
+export function defineEmbedRoute<
+  R extends z.ZodType,
+  P extends z.ZodObject = NoInput,
+  Q extends z.ZodType = NoInput,
+  B extends z.ZodType = z.ZodUndefined,
+>(
+  spec: RouteSpec<P, Q, B, R> & {
+    readonly path: `/v1/embed/${string}`;
+    readonly handler: (input: Input<P, Q, B>, context: EmbedRequestContext) => Promise<z.input<R>>;
+  },
+): Route {
+  return build(spec, { kind: 'embed' }, (input, context, tenant) => {
+    // The pipeline authenticates first, so a gap here is its bug, and it fails closed.
+    const { embed } = context;
+    if (tenant === null || embed === undefined) return Promise.reject(new ApiError('INTERNAL'));
+    return spec.handler(input as Input<P, Q, B>, { ...context, tenant, embed });
+  });
 }
 
 const HEADER_NAME = /^[a-z0-9-]{1,64}$/;

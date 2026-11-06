@@ -208,6 +208,7 @@ export {
   agentIdentityLinks,
   attestations,
   destinationVerifications,
+  embedSessionRetention,
   embedSessions,
   identityEvidenceRepositories,
   walletChallenges,

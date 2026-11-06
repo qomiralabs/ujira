@@ -546,6 +546,7 @@ describe('registry', () => {
           call: { signal: new AbortController().signal, correlationId: 'req_0123456789' },
           log: { info: () => undefined, warn: () => undefined, error: () => undefined },
           idempotencyKey: null,
+          origin: null,
         },
         null,
       ),
