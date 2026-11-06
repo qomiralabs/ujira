@@ -290,6 +290,7 @@ export { DatabaseUnavailableError } from './unavailable.js';
 export { createComplianceStore, type ComplianceStoreOptions } from './compliance-store.js';
 export {
   compliance,
+  type ComplianceCloseReason,
   type ComplianceMarkRow,
   type ComplianceNoticeRow,
   type ComplianceReason,

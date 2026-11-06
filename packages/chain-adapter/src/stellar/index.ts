@@ -6,6 +6,27 @@
 // service that wires up a network loads this one. Nothing exported here
 // names an SDK type.
 
+export {
+  ACCOUNT_LAYOUT,
+  accountLedgerKey,
+  accountSequenceOf,
+  assertTestnet,
+  buildLayoutTransaction,
+  layoutChanges,
+  publicKeyOfSecret,
+  readAccountLayout,
+  resultCodeOf,
+  setUpAccounts,
+  signTestnetTransaction,
+  verifyAccounts,
+} from './account-setup.js';
+export type {
+  AccountLayoutState,
+  AccountReport,
+  AccountSetupPorts,
+  AccountToSet,
+  SignerLayout,
+} from './account-setup.js';
 export { checkStellarDestination } from './check-destination.js';
 export type {
   StellarCheckDestinationRequest,

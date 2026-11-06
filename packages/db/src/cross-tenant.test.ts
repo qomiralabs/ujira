@@ -623,6 +623,11 @@ const cases: Record<string, () => Promise<void>> = {
       false,
     );
   },
+  'compliance.closeOut': async () => {
+    expect(
+      await asA(async (tx) => compliance.closeOut(tx, b.instanceId, 'mandate_revoked')),
+    ).toEqual([]);
+  },
   'compliance.parkedJobs': async () => {
     expect(await acrossA(async (tx) => compliance.parkedJobs(tx, b.instanceId))).toEqual([]);
   },
