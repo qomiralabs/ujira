@@ -85,24 +85,51 @@ export function networksConfig(overrides: {
   });
 }
 
+/** How an account signs: its master weight, thresholds and other signers. */
+export interface AccountSigning {
+  readonly masterWeight: number;
+  readonly low: number;
+  readonly medium: number;
+  readonly high: number;
+  readonly signers: readonly { readonly key: string; readonly weight: number }[];
+}
+
+/** A new account's: the master key alone, every threshold 0. */
+export const DEFAULT_SIGNING: AccountSigning = {
+  masterWeight: 1,
+  low: 0,
+  medium: 0,
+  high: 0,
+  signers: [],
+};
+
 /** Adds an account with this sequence number to the fake ledger. */
 export function addAccount(
   rpc: FakeRpc,
   address: string,
   sequence: bigint,
   balance = 100_000_000n,
+  signing: AccountSigning = DEFAULT_SIGNING,
 ): void {
   const data = xdr.LedgerEntryData.account(
     new xdr.AccountEntry({
       accountId: Keypair.fromPublicKey(address).xdrAccountId(),
       balance,
       seqNum: sequence,
-      numSubEntries: 0,
+      numSubEntries: signing.signers.length,
       inflationDest: null,
       flags: 0,
       homeDomain: '',
-      thresholds: new Uint8Array([1, 0, 0, 0]),
-      signers: [],
+      thresholds: new Uint8Array([signing.masterWeight, signing.low, signing.medium, signing.high]),
+      signers: signing.signers.map(
+        (signer) =>
+          new xdr.Signer({
+            key: xdr.SignerKey.signerKeyTypeEd25519(
+              Keypair.fromPublicKey(signer.key).rawPublicKey(),
+            ),
+            weight: signer.weight,
+          }),
+      ),
       ext: xdr.AccountEntryExt.v0(),
     }),
   );

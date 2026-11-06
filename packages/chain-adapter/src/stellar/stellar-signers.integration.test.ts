@@ -28,13 +28,13 @@ import {
   hash,
   xdr,
 } from '@stellar/stellar-base';
-import type { Transaction } from '@stellar/stellar-base';
+import type { FeeBumpTransaction, Transaction } from '@stellar/stellar-base';
 import { Keypair as SignerKeypair } from '@stellar/stellar-sdk/base';
 import { tokenAmount } from '@ujira/core';
 import { describe, expect, it } from 'vitest';
 
 import { parseNetworksConfig } from '../config.js';
-import { SubmissionRejectedError } from '../errors.js';
+import { SignedPayloadMismatchError, SubmissionRejectedError } from '../errors.js';
 import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
 import type {
   AdapterPorts,
@@ -124,6 +124,7 @@ function outcomeOf(status: string, resultXdr: string | undefined): string {
 interface AccountState {
   readonly sequence: bigint;
   readonly masterWeight: number;
+  readonly high: number;
   readonly signers: ReadonlyMap<string, number>;
 }
 
@@ -279,6 +280,7 @@ function harness(sponsor: Keypair, channel: Keypair) {
     return {
       sequence: BigInt(account.seqNum().toString()),
       masterWeight: account.thresholds()[0] ?? 0,
+      high: account.thresholds()[3] ?? 0,
       signers: new Map(
         account
           .signers()
@@ -312,7 +314,7 @@ function harness(sponsor: Keypair, channel: Keypair) {
     throw new Error(`${label} did not land`);
   }
 
-  async function send(label: string, tx: Transaction): Promise<string> {
+  async function send(label: string, tx: Transaction | FeeBumpTransaction): Promise<string> {
     const sent = await rpc.sendTransaction(tx.toEnvelope().toXDR('base64'), opts);
     if (sent.status === 'ERROR') {
       const result = outcomeOf('ERROR', sent.errorResultXdr);
@@ -323,15 +325,21 @@ function harness(sponsor: Keypair, channel: Keypair) {
   }
 
   /**
-   * Gives the principal its two extra signers and these thresholds, master
-   * weight 1. Signed by every key the account lists now, and only those, since
-   * the network refuses a signature that is not needed.
+   * Gives the principal its extra signers at weight 1 and these thresholds,
+   * master weight 1 unless given. Signed by keys the account lists now, only
+   * until they reach its high threshold: the network refuses a signature it did
+   * not need.
    */
   async function layout(
     label: string,
     principal: Keypair,
     others: readonly Keypair[],
-    thresholds: { readonly low: number; readonly medium: number; readonly high: number },
+    thresholds: {
+      readonly low: number;
+      readonly medium: number;
+      readonly high: number;
+      readonly master?: number;
+    },
   ): Promise<string> {
     const state = await funded(principal);
     const builder = new TransactionBuilder(
@@ -345,16 +353,25 @@ function harness(sponsor: Keypair, channel: Keypair) {
     }
     builder.addOperation(
       Operation.setOptions({
-        masterWeight: 1,
+        masterWeight: thresholds.master ?? 1,
         lowThreshold: thresholds.low,
         medThreshold: thresholds.medium,
         highThreshold: thresholds.high,
       }),
     );
     const tx = builder.setTimeout(120).build();
-    if (state.masterWeight > 0) tx.sign(principal);
-    for (const other of others) {
-      if ((state.signers.get(other.publicKey()) ?? 0) > 0) tx.sign(other);
+    const listed: [Keypair, number][] = [
+      [principal, state.masterWeight],
+      ...others.map((other): [Keypair, number] => [
+        other,
+        state.signers.get(other.publicKey()) ?? 0,
+      ]),
+    ];
+    let weight = 0;
+    for (const [key, keyWeight] of listed) {
+      if (keyWeight === 0 || weight >= Math.max(state.high, 1)) continue;
+      tx.sign(key);
+      weight += keyWeight;
     }
     return send(label, tx);
   }
@@ -366,7 +383,11 @@ function harness(sponsor: Keypair, channel: Keypair) {
     mandate: MandateRef | null,
     action: MandateAction,
     keys: readonly Keypair[],
-  ): Promise<{ readonly result: string; readonly requestId: string }> {
+  ): Promise<{
+    readonly result: string;
+    readonly requestId: string;
+    readonly adapter: 'accepted' | 'refused';
+  }> {
     const request = await adapter.prepareMandateAction(
       {
         scope,
@@ -390,14 +411,24 @@ function harness(sponsor: Keypair, channel: Keypair) {
         },
         opts,
       );
-      return { result: await outcome(label, ref.txHash), requestId: request.requestId };
+      const result = await outcome(label, ref.txHash);
+      return { result, requestId: request.requestId, adapter: 'accepted' };
     } catch (error) {
+      if (error instanceof SignedPayloadMismatchError) {
+        // The adapter refused it before the sponsor paid. The same transaction
+        // goes to the network anyway, fee bumped here, so the run still shows
+        // what the network says of these signatures.
+        const bump = TransactionBuilder.buildFeeBumpTransaction(sponsor, tx.fee, tx, PASSPHRASE);
+        bump.sign(sponsor);
+        const result = await send(`${label}, refused by the adapter, sent directly`, bump);
+        return { result, requestId: request.requestId, adapter: 'refused' };
+      }
       const refused = sends.length > before ? sends.at(-1) : undefined;
       if (!(error instanceof SubmissionRejectedError) || refused?.status !== 'ERROR') throw error;
       // Refused before it reached a ledger: the hash is the fee bump's, never on chain.
       const result = outcomeOf('ERROR', refused.errorResultXdr);
       record.push(`${label}: ${refused.hash} refused ${result}`);
-      return { result, requestId: request.requestId };
+      return { result, requestId: request.requestId, adapter: 'accepted' };
     }
   }
 
@@ -618,16 +649,93 @@ describe.skipIf(!ENABLED)('stellar-signers.integration.test.ts', () => {
     process.stdout.write(
       [`principal ${principal.publicKey()}, mandate ${id}`, ...h.record, ''].join('\n'),
     );
+    const ownTx = [one, two, resumeTwo, resumeThree];
     expect({
-      ownTx: [one.result, two.result, resumeTwo.result, resumeThree.result],
+      ownTx: ownTx.map((r) => r.result),
+      adapter: ownTx.map((r) => r.adapter),
       entry: [entryOne, entryTwo, entryTwoAgain, entryThree],
     }).toEqual({
       // Short of the operation's threshold, the network fails the operation.
       ownTx: ['opBadAuth', 'SUCCESS', 'opBadAuth', 'SUCCESS'],
+      // And the adapter refuses exactly those, before the sponsor pays.
+      adapter: ['refused', 'accepted', 'refused', 'accepted'],
       // Short of it in an auth entry, the host traps the call.
       entry: ['invokeHostFunctionTrapped', 'SUCCESS', 'invokeHostFunctionTrapped', 'SUCCESS'],
     });
     expect(twoOfThree).toEqual({ kind: 'multisig', minSignatures: 2 });
     expect(single).toEqual({ kind: 'single_key' });
+  }, 900_000);
+
+  it('a 2 of 3 principal with its master key off acts through the adapter', async () => {
+    const principal = identity('threshold-multisig');
+    const a = identity('threshold-signer-a');
+    const b = identity('threshold-signer-b');
+    const c = identity('threshold-signer-c');
+    const sponsor = identity('threshold-sponsor');
+    const sender = identity('threshold-sender');
+    const agent = identity('smoke-agent');
+    const approver = identity('smoke-approver');
+    const h = harness(sponsor, sender);
+    await h.funded(sponsor);
+
+    // Master weight 0: only the three signers can sign, any two of them.
+    expect(
+      await h.layout('layout master 0, 1/2/2', principal, [a, b, c], {
+        low: 1,
+        medium: 2,
+        high: 2,
+        master: 0,
+      }),
+    ).toBe('SUCCESS');
+    const create = h.createAction(principal, agent, approver);
+    const created = await h.viaTransaction('create, signed by a and b', principal, null, create, [
+      a,
+      b,
+    ]);
+    const mandate = await h.created(created.requestId);
+    const one = await h.viaTransaction(
+      'pause, signed by a alone',
+      principal,
+      mandate,
+      { op: 'pause' },
+      [a],
+    );
+    const paused = await h.viaTransaction(
+      'pause, signed by a and c',
+      principal,
+      mandate,
+      { op: 'pause' },
+      [a, c],
+    );
+    const resumed = await h.viaTransaction(
+      'resume, signed by b and c',
+      principal,
+      mandate,
+      { op: 'resume' },
+      [b, c],
+    );
+    const signing = await readStellarPrincipalSigning(
+      createStellarLedgerReader(h.rpc),
+      NETWORK,
+      principal.publicKey(),
+      h.opts,
+    );
+
+    process.stdout.write(
+      [
+        `principal ${principal.publicKey()}, mandate ${mandate.address.value}`,
+        ...h.record,
+        '',
+      ].join('\n'),
+    );
+    const calls = [created, one, paused, resumed];
+    expect({
+      result: calls.map((r) => r.result),
+      adapter: calls.map((r) => r.adapter),
+    }).toEqual({
+      result: ['SUCCESS', 'opBadAuth', 'SUCCESS', 'SUCCESS'],
+      adapter: ['accepted', 'refused', 'accepted', 'accepted'],
+    });
+    expect(signing).toEqual({ kind: 'multisig', minSignatures: 2 });
   }, 900_000);
 });
