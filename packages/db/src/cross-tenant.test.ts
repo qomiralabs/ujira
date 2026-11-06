@@ -299,7 +299,10 @@ async function tenant(name: string): Promise<Tenant> {
       destinationTag: null,
       details: null,
     });
-    await audit.record(tx, { action: 'project.created', actor: { kind: 'system' } });
+    await audit.record(tx, {
+      action: 'project.routing_settings_changed',
+      actor: { kind: 'system' },
+    });
     const session = await embedSessions.create(tx, {
       tokenHash: randomBytes(32),
       tokenPrefix: `ujes_test_${randomUUID().slice(0, 8)}`,
@@ -1364,7 +1367,7 @@ const cases: Record<string, () => Promise<void>> = {
       [b.first.principalId],
     );
     const written = await asA(async (tx) =>
-      audit.record(tx, { action: 'project.changed', actor: { kind: 'system' } }),
+      audit.record(tx, { action: 'project.routing_settings_changed', actor: { kind: 'system' } }),
     );
     expect(await ownerOf('ujira.audit_log', 'id', written.id)).toBe(a.first.principalId);
     const after = await admin.query<{ last_seq: string }>(

@@ -234,6 +234,37 @@ const columns: DataColumn<Payout>[] = [
 - `compareMoney` keeps currencies together and orders exactly by amount within one. Sort a column of
   mixed currencies on the USD equivalent.
 
+## Detail sheet, empty state and KPI card
+
+```tsx
+<DetailSheet
+  open={payoutId !== null}
+  onOpenChange={(open) => { if (!open) setPayoutId(null); }}
+  title="Amara Okafor"
+  description="Waiting for approval"
+  amount={<Amount value={payout.amount} size="hero" />}
+  footer={<Button variant="primary">Approve payout</Button>}
+>
+  {timeline}
+</DetailSheet>
+
+<EmptyState variant="no-results" message="No payouts match these filters."
+  action={<Button onClick={clear}>Clear the filters</Button>} />
+
+<KpiCard title="Paid this week" value={{ amount: paid }} period="1 to 7 Nov"
+  delta={{ change: 'up', percent: '12', comparedWith: 'last week' }} />
+```
+
+- `DetailSheet` is controlled, so a screen keeps the open item in the URL. It sits over the list
+  without moving it, leads with the amount and the title, has at most one footer action, fills a
+  phone screen, cannot be dismissed while `pending`, and returns focus to the row that opened it.
+- `EmptyState` needs a message and an action in both variants, `nothing-yet` and `no-results`, so an
+  empty list always says what to do next. Leaving either out does not compile.
+- `KpiCard` shows one value (an amount, a whole count, or a short text such as "4 min") in the mono
+  face, rendered final from the first paint, never counted up. The delta is worded: "Up 12 percent
+  on last week", "No change on last week". It takes no status colour; the word carries it.
+  `sparkline` is a decorative slot for the trend chart, hidden from screen readers.
+
 ## Catalogue
 
 ```sh
