@@ -231,6 +231,7 @@ the package declares for itself.
 | raw-body | 3.0.2 | MIT | https://github.com/stream-utils/raw-body |
 | react | 19.3.1 | MIT | https://github.com/react/react |
 | react-dom | 19.3.1 | MIT | https://github.com/react/react |
+| react-hook-form | 7.89.0 | MIT | https://github.com/react-hook-form/react-hook-form |
 | react-remove-scroll | 2.7.2 | MIT | https://github.com/theKashey/react-remove-scroll |
 | react-remove-scroll-bar | 2.3.8 | MIT | https://github.com/theKashey/react-remove-scroll-bar |
 | react-style-singleton | 2.2.3 | MIT | https://github.com/theKashey/react-style-singleton |
@@ -808,7 +809,6 @@ Used to build and test UJIRA. They are not shipped.
 | raw-body | 2.5.3 | MIT | https://github.com/stream-utils/raw-body |
 | react-docgen | 8.0.4 | MIT | https://github.com/reactjs/react-docgen |
 | react-docgen-typescript | 2.4.0 | MIT | https://github.com/styleguidist/react-docgen-typescript |
-| react-hook-form | 7.89.0 | MIT | https://github.com/react-hook-form/react-hook-form |
 | react-is | 17.0.2 | MIT | https://github.com/facebook/react |
 | readable-stream | 2.3.8 | MIT | https://github.com/nodejs/readable-stream |
 | readable-stream | 3.6.2 | MIT | https://github.com/nodejs/readable-stream |

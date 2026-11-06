@@ -4,7 +4,14 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
+import { serveFakeApi } from './fake-api';
 import { SCHEMES, SECTIONS, settle } from './support';
+
+// Screens that read data get it from the typed fake, so no page here ever
+// reaches for an API that is not running.
+test.beforeEach(async ({ page }) => {
+  await serveFakeApi(page);
+});
 
 // WCAG 2.2 AA, every level and version up to it.
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];

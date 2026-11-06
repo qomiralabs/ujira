@@ -5,6 +5,13 @@
 @import '@ujira/ui/styles/theme.css';
 
 /*
+ * The shared primitives carry their own classes. Tailwind only looks inside
+ * this app by default, and skips anything git ignores, which includes the
+ * package's build output, so it is pointed at the package source.
+ */
+@source '../../../../packages/ui/src';
+
+/*
  * The rail collapses to icons when the root carries data-rail="collapsed".
  * Only elements inside [data-collapsible] react, so the mobile drawer, which
  * reuses the same navigation, always shows labels.

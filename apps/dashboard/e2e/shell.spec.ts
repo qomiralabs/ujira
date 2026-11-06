@@ -3,7 +3,14 @@
 
 import { expect, test } from '@playwright/test';
 
+import { serveFakeApi } from './fake-api';
 import { SCHEMES, SECTIONS, settle, watchConsole, WIDTHS } from './support';
+
+// Screens that read data get it from the typed fake, so no page here ever
+// reaches for an API that is not running.
+test.beforeEach(async ({ page }) => {
+  await serveFakeApi(page);
+});
 
 test.describe('visual snapshots', () => {
   for (const scheme of SCHEMES) {

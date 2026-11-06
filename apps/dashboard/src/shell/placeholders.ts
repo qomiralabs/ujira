@@ -45,7 +45,7 @@ export const PLACEHOLDERS: Record<'overview' | Section, Placeholder> = {
   },
   developers: {
     title: 'No API keys yet',
-    body: 'Create a key so your own software, or an agent, can request payouts. Your webhooks, what they delivered, and your recent requests all appear here.',
+    body: 'Create a key so your own software, or an agent, can request payouts and check on them. You see the whole key once, when you create it, so have somewhere safe ready to keep it.',
   },
   settings: {
     title: 'Your team',

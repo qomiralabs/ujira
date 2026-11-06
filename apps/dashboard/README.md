@@ -1,6 +1,6 @@
 # @ujira/dashboard
 
-The principal dashboard: where mandates are set, funded, approved and watched. This first slice is the shell every screen shares. The sections are in place with what each will show; the screens themselves arrive in later issues.
+The principal dashboard: where mandates are set, funded, approved and watched. It holds the shell every screen shares and the first screen, API keys under Developers. The other sections are in place with what each will show; their screens arrive in later issues.
 
 Next.js App Router, TypeScript strict, Tailwind CSS v4 through the `@ujira/ui` token build, Radix primitives, `cmdk`, `nuqs` and Lucide.
 
@@ -20,7 +20,9 @@ The root gate builds and checks it with everything else: `pnpm typecheck`, `pnpm
 | `src/app/`             | Routes: Overview at `/`, one folder per section, loading, error and not found                                         |
 | `src/shell/`           | The frame: rail, drawer, project switcher, top bar, command palette, theme                                            |
 | `src/shell/nav.ts`     | The ten sections, their icons and one line each on what they are for                                                  |
-| `src/patterns/`        | Page header, empty state, error state, skeletons and button styles                                                    |
+| `src/patterns/`        | Page header, empty state, error state, skeletons, button styles and date formats                                      |
+| `src/data/`            | The one API client, the API key and step up routes with their schemas, and the typed fake API                         |
+| `src/developers/`      | The Developers section: the API keys screen, its dialogs and the step up prompt                                       |
 | `public/brand/`        | The reverse colourway lockup and mark from the brand kit, provenance stripped                                         |
 | `e2e/`                 | Playwright flows, axe checks and visual snapshots, with the Linux baselines                                           |
 | `scripts/e2e-linux.sh` | Runs Playwright in the CI image, or re-renders the baselines with `--update`                                          |
@@ -34,6 +36,18 @@ The root gate builds and checks it with everything else: `pnpm typecheck`, `pnpm
 - **Theme.** Follows the system setting. The switch in the top bar picks light or dark instead, sets `data-theme` on `<html>` and remembers it; "Match system" removes it again.
 - **Command palette.** Cmd K or Ctrl K, or the search button. Jumps to any page today; payout, recipient and receipt search joins it with those screens.
 - **Loading and errors.** `loading.tsx` shows a skeleton the shape of the page. `error.tsx` says what happened and what to do, with the reference to quote to support. `global-error.tsx` covers a failure of the frame itself.
+
+## Data
+
+- **One client.** Every screen reaches the API through `createDataClient` in `src/data/client.ts`, taken from context with `useDataClient()`. It sends the session cookie and the project from the URL, checks every success body against its zod schema, and turns a problem body into an `ApiProblem` with its `code` and `requestId`. It never logs or keeps a body.
+- **The fake API.** `src/data/fake-api.ts` answers the API key and step up routes with the API's rules: a fresh second factor for each change, the expiry limits, 20 live keys a project, one rotation a key, and the whole key in only the answer that creates it. Component tests hand it to the client through `DataClientProvider`; Playwright serves it with `page.route` from `e2e/fake-api.ts`, so the browser makes real requests. It is never imported by a page.
+
+## API keys
+
+- **The list.** Name and prefix, permissions, created, last used, expiry and status. A key that expires within 14 days says so in words. Revoked and expired keys stay listed, in quieter text. It uses the shared `DataTable`, which shows each key as a card on a phone.
+- **Create.** A name, a choice of permissions (a preset or ticked one by one, with no default) and an expiry, a year unless changed. The key is shown once in its own dialog, with a copy button; closing the dialog drops it, and only the prefix remains.
+- **Rotate and revoke.** Both ask for the key's name to be typed. Rotating says when the old key stops, 24 hours on, then shows the new key once.
+- **Step up.** When the API answers `STEP_UP_REQUIRED`, the screen asks for the code from the authenticator app and tries once more. Cancelling changes nothing.
 
 ## Browser checks
 

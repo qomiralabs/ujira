@@ -1,7 +1,8 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
+import { NuqsTestingAdapter } from 'nuqs/adapters/testing';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -19,6 +20,9 @@ import * as payouts from './payouts/page';
 import * as receipts from './receipts/page';
 import * as recipients from './recipients/page';
 import * as settings from './settings/page';
+import { createDataClient } from '../data/client';
+import { createFakeApi } from '../data/fake-api';
+import { DataClientProvider } from '../data/provider';
 import { NAV_ITEMS } from '../shell/nav';
 
 const SECTION_PAGES = Object.fromEntries(
@@ -35,6 +39,11 @@ const SECTION_PAGES = Object.fromEntries(
   }).map(([segment, mod]) => [segment, { Page: mod.default, metadata: mod.metadata }]),
 );
 
+// Sections whose screens are not built yet, which show what will appear.
+const PLACEHOLDER_PAGES = Object.fromEntries(
+  Object.entries(SECTION_PAGES).filter(([segment]) => segment !== 'developers'),
+);
+
 describe('routes', () => {
   it('opens Overview with its one primary action', () => {
     render(<OverviewPage />);
@@ -44,7 +53,29 @@ describe('routes', () => {
     expect(action.className).toContain('bg-accent-fill');
   });
 
-  it.each(Object.entries(SECTION_PAGES))(
+  // A round trip through the fake, so it gets the room a loaded machine needs.
+  it(
+    'opens Developers on the API keys, with creating a key as its one primary action',
+    { timeout: 30_000 },
+    async () => {
+      const fake = createFakeApi();
+      render(
+        <NuqsTestingAdapter searchParams="?project=bounties">
+          <DataClientProvider client={createDataClient({ fetch: fake.fetch })}>
+            <developers.default />
+          </DataClientProvider>
+        </NuqsTestingAdapter>,
+      );
+      expect(screen.getByRole('heading', { level: 1, name: 'Developers' })).toBeTruthy();
+      const table = await screen.findByRole('table', { name: 'API keys' }, { timeout: 10_000 });
+      expect(within(table).getByText('Bounty bot')).toBeTruthy();
+      const action = screen.getByRole('button', { name: 'Create API key' });
+      expect(action.className).toContain('bg-accent-fill');
+      expect(developers.metadata).toEqual({ title: 'Developers' });
+    },
+  );
+
+  it.each(Object.entries(PLACEHOLDER_PAGES))(
     'renders %s with its title, summary and empty state, and no action yet',
     (segment, { Page, metadata }) => {
       const item = NAV_ITEMS.find((i) => i.segment === segment);
