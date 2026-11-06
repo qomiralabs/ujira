@@ -193,7 +193,7 @@ export interface LocalAttesterOptions {
   /** How the attester lays out the message, the same way the adapter does. */
   readonly messageOf: (fields: AttestationFields) => Uint8Array;
   /** Whether the message is pending under the key. Fails closed when it is not. */
-  readonly isPending: (message: Uint8Array, attesterKeyId: string) => boolean;
+  readonly isPending: (message: Uint8Array, attesterKeyId: string) => boolean | Promise<boolean>;
 }
 
 /**
@@ -220,12 +220,12 @@ export class LocalAttester implements AttesterSigner {
     return failOrAnswer(this.keyFailure, () => this.publicKeyBytes);
   }
 
-  signAttestation(fields: AttestationFields): Promise<SignatureResult> {
+  async signAttestation(fields: AttestationFields): Promise<SignatureResult> {
     if (this.signFailure === 'hang') return hang();
-    if (this.signFailure !== null) return Promise.reject(this.signFailure);
+    if (this.signFailure !== null) throw this.signFailure;
     const message = this.#options.messageOf(fields);
-    if (!this.#options.isPending(message, hexOf(this.publicKeyBytes))) {
-      return Promise.reject(new SignerDeniedError());
+    if (!(await this.#options.isPending(message, hexOf(this.publicKeyBytes)))) {
+      throw new SignerDeniedError();
     }
     this.signed.push(fields);
     const result: SignatureResult = {
@@ -233,6 +233,6 @@ export class LocalAttester implements AttesterSigner {
       signature: ed25519Sign(this.#seed, message),
       publicKey: this.publicKeyBytes,
     };
-    return Promise.resolve(this.tamper === null ? result : this.tamper(result));
+    return this.tamper === null ? result : this.tamper(result);
   }
 }

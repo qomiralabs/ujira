@@ -80,6 +80,53 @@ Chose 3. The balance belongs to one instance, so that row and no wider one is wh
 
 **Evidence.** `packages/payouts/src/engine/release.test.ts > two truly concurrent releases against funds for 2 release exactly 2 and leave the third held`, and `> a new payout routed while a release runs cannot take the same funds`, which forces the race with a barrier.
 
+## Only the chain makes a mandate instance active
+
+**Problem.** Eligibility refuses to pay under an instance that is not active, and nothing moved one there. Whatever does has to be something an API call cannot fake, because an active instance is one UJIRA will attest payouts under.
+
+**Options.**
+
+1. The mandate creation flow marks the instance active when its deploy transaction lands. It runs on the API's login and believes its own submission.
+2. The event intake does it, when it reads a trusted factory's `mandate_created` for the contract under the claiming tenant's recomputed tag, and follows the mandate's own `paused`, `resumed` and `revoked` after that.
+
+**Decision.** Option 2. Intake is already the one writer of the mandate registry, with the checks that make a contract a mandate.
+
+- Each move starts only from set states (`INSTANCE_MOVES` in `packages/chain-adapter`), so a replay, or an event read out of turn, changes nothing, and nothing brings a revoked instance back.
+- Only a newly booked event moves an instance, so reading a range again cannot undo a later move.
+- A contract claimed after its creation was read becomes active on its next event.
+- Only the indexer's login may change `mandate_instances.status`, and only under the instance's tenant. No login the API holds may, which the database enforces.
+
+**Trade offs and risks.**
+
+- A mandate claimed after its creation, with no event since, stays `deploying` until it has one.
+- Expiry has no event, so it is not mirrored. The attester reads it from the chain on every attestation, which refuses an expired mandate.
+- A failed deploy is not marked `deploy_failed` yet. A failed deploy has no creation event, so it stays `deploying`, which pays no one either.
+
+**Evidence.** `packages/chain-adapter/src/intake.test.ts`, "the instance that claims a mandate", and `packages/db/src/instance-lifecycle.test.ts` against Postgres.
+
+## What the identity store reads where the tables are silent
+
+**Problem.** The identity service's records carry facts the tables did not hold: whether a mandate instance is active, whether it takes attestations, which network a payout method is paid on, the project's identity settings, and the tenant of an identity row a provider's callback names by id alone.
+
+**Options.**
+
+1. Add a column for each fact and have the services that own them write it.
+2. Derive what the existing rows already imply, and add columns only for what nothing implies.
+
+**Decision.** Option 2.
+
+- `mandate_instances.status` is new: `deploying` until something marks it `active`, so an instance nobody vouched for pays no one. The store reads deploying and a failed deploy as `pending`.
+- The recipient mode comes from the attester key, which is set exactly when a mandate takes attestations. A mandate in `both` mode reads as `attested`. Eligibility treats the two the same, and the attester reads the mode from the chain itself.
+- A method's network is the deployment's per chain, given to the store. A method records only its chain, because an address reads the same on every network of it.
+- `projects.identity_settings` is new, an object or null for the defaults.
+- `ujira.recipient_identity_scope(id)` answers whose an identity row is, for one exact id, owned by a role of its own.
+- Anchor methods read as absent until methods record their anchor, so nothing is paid through an anchor on a guess.
+- A suspended or erased recipient reads as inactive.
+
+**Trade offs and risks.** Something has to move an instance to `active` before it can pay, and no login the API holds may: that is the chain's to say, through the indexer (#609).
+
+**Evidence.** The shared cases in `packages/identity/src/testing/contract.ts` run against memory and against Postgres (`packages/db/src/identity-store.test.ts`).
+
 ## A revoked or expired mandate drops its compliance mark with no notice
 
 **Problem.** A mandate revoked or expired while marked noncompliant is no longer listed among the principal's live instances, so no recheck ever looks at it again. Its mark never cleared, and its parked jobs stayed `blocked_by_policy` for good, behind a policy nobody could fix any more.

@@ -370,6 +370,9 @@ export const destinationVerifications = {
 };
 
 export interface NewAttestation {
+  // The caller's own id, so it can mark the row signed or failed without reading
+  // it back. Left out, the server makes one.
+  readonly id?: string;
   readonly mandateInstanceId: string;
   readonly attemptId: string;
   readonly legIndex: number;
@@ -467,6 +470,7 @@ export const attestations = {
     const row = await db
       .insertInto('ujira.attestations')
       .values({
+        ...(input.id === undefined ? {} : { id: input.id }),
         principal_id: CURRENT_PRINCIPAL,
         project_id: CURRENT_PROJECT,
         mandate_instance_id: input.mandateInstanceId,

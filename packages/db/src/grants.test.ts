@@ -150,6 +150,7 @@ describe('grants on ujira', () => {
       'function ujira.lapsed_cancel_targets(uuid,integer)',
       'function ujira.overdue_fee_refunds(integer)',
       'function ujira.project_scope_all()',
+      'function ujira.recipient_identity_scope(uuid)',
       'function ujira.reconcile_targets(uuid,integer)',
     ]);
     expect(await executable('ujira_auth')).toEqual([
@@ -181,6 +182,7 @@ describe('roles', () => {
       'ujira_app',
       'ujira_auth',
       'ujira_fn_audit',
+      'ujira_fn_identities',
       'ujira_fn_instances',
       'ujira_fn_ledger',
       'ujira_fn_principals',
@@ -200,6 +202,7 @@ describe('roles', () => {
       'ujira_owner',
       'ujira_scheduler',
       'ujira_fn_audit',
+      'ujira_fn_identities',
       'ujira_fn_instances',
       'ujira_fn_ledger',
       'ujira_fn_principals',
@@ -235,6 +238,7 @@ describe('roles', () => {
       { fn: 'ujira.ledger_balanced()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.ledger_stamp()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.overdue_fee_refunds(integer)', owner: 'ujira_scheduler' },
+      { fn: 'ujira.recipient_identity_scope(uuid)', owner: 'ujira_fn_identities' },
       { fn: 'ujira.reconcile_targets(uuid,integer)', owner: 'ujira_scheduler' },
       { fn: 'ujira.resolve_funding_address(text,text)', owner: 'ujira_fn_instances' },
       { fn: 'ujira.resolve_mandate_address(text,text)', owner: 'ujira_fn_instances' },

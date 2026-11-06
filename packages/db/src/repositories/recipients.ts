@@ -136,6 +136,7 @@ export type IdentityAssurance = 'anchor_kyc' | 'document_zk' | 'principal_kyc' |
 // a document, a proof or a personal value.
 export interface RecipientIdentity {
   readonly id: string;
+  readonly projectId: string;
   readonly recipientId: string;
   // Null for a provider that is not per chain.
   readonly chain: string | null;
@@ -183,6 +184,16 @@ export interface IdentityChange {
   readonly expiresAt?: Date | null;
 }
 
+// A row as the identity service makes it, with an id of its own, so a provider's
+// callback can name it before the provider has answered.
+export interface NewIdentityRecord extends IdentityChange {
+  readonly id: string;
+  readonly recipientId: string;
+  readonly provider: string;
+  readonly providerAccount: string | null;
+  readonly state: IdentityState;
+}
+
 export interface IdentityUpdate {
   readonly recipientId: string;
   readonly chain: string;
@@ -193,6 +204,7 @@ export interface IdentityUpdate {
 
 const identityColumns = [
   'id',
+  'project_id',
   'recipient_id',
   'chain',
   'provider',
@@ -215,6 +227,7 @@ const identityColumns = [
 
 function toIdentity(row: {
   id: string;
+  project_id: string;
   recipient_id: string;
   chain: string | null;
   provider: string;
@@ -236,6 +249,7 @@ function toIdentity(row: {
 }): RecipientIdentity {
   return {
     id: row.id,
+    projectId: row.project_id,
     recipientId: row.recipient_id,
     chain: row.chain,
     provider: row.provider,
@@ -359,6 +373,40 @@ export const recipientIdentities = {
       .returning(identityColumns)
       .executeTakeFirst();
     return row === undefined ? undefined : toIdentity(row);
+  },
+
+  // A second row for the same recipient, provider and account is refused with 23505.
+  create: async (db: Tx, input: NewIdentityRecord): Promise<RecipientIdentity> => {
+    const row = await db
+      .insertInto('ujira.recipient_identities')
+      .values({
+        ...identityColumnsOf(input),
+        principal_id: CURRENT_PRINCIPAL,
+        project_id: CURRENT_PROJECT,
+        id: input.id,
+        recipient_id: input.recipientId,
+        provider: input.provider,
+        provider_account: input.providerAccount,
+        state: input.state,
+      })
+      .returning(identityColumns)
+      .executeTakeFirstOrThrow();
+    return toIdentity(row);
+  },
+
+  // Whose a row is, by its id alone, since a provider's callback names nothing else.
+  // Run with no tenant: it answers for one exact id and cannot list anything.
+  scopeOf: async (
+    db: Tx,
+    id: string,
+  ): Promise<{ readonly principalId: string; readonly projectId: string } | undefined> => {
+    const result = await sql<{ principal_id: string; project_id: string }>`
+      select principal_id, project_id from ujira.recipient_identity_scope(${id})
+    `.execute(db);
+    const row = result.rows[0];
+    return row === undefined
+      ? undefined
+      : { principalId: row.principal_id, projectId: row.project_id };
   },
 
   // The verified row holding this nullifier. Run under a principal context to

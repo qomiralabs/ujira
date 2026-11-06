@@ -183,12 +183,13 @@ export type {
   WalletProofResult,
 } from './wallet-proof.js';
 
-export { createEventIntake } from './intake.js';
+export { INSTANCE_MOVES, createEventIntake } from './intake.js';
 export type {
   EventBooking,
   EventIntake,
   EventIntakeOptions,
   EventIntakeStore,
+  InstanceMove,
   MandateFlagReason,
   EventJson,
   IgnoredReason,

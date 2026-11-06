@@ -1631,6 +1631,22 @@ $$;
 ALTER FUNCTION ujira.project_scope_all() OWNER TO ujira_owner;
 
 --
+-- Name: recipient_identity_scope(uuid); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_identities
+--
+
+CREATE FUNCTION ujira.recipient_identity_scope(target_id uuid) RETURNS TABLE(principal_id uuid, project_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select i.principal_id, i.project_id
+    from ujira.recipient_identities as i
+   where i.id = target_id
+$$;
+
+
+ALTER FUNCTION ujira.recipient_identity_scope(target_id uuid) OWNER TO ujira_fn_identities;
+
+--
 -- Name: reconcile_targets(uuid, integer); Type: FUNCTION; Schema: ujira; Owner: ujira_scheduler
 --
 
@@ -2924,11 +2940,13 @@ CREATE TABLE ujira.mandate_instances (
     attester_public_key bytea,
     country_policy_hash ujira.hash32,
     network ujira.network_id NOT NULL,
+    status text DEFAULT 'deploying'::text NOT NULL,
     balance_checked_at timestamp with time zone,
     CONSTRAINT mandate_instances_address_length CHECK (((char_length(contract_address) >= 1) AND (char_length(contract_address) <= 128))),
     CONSTRAINT mandate_instances_attester_key_length CHECK ((octet_length(attester_public_key) = 32)),
     CONSTRAINT mandate_instances_network_on_chain CHECK (((network IS NULL) OR (split_part((network)::text, ':'::text, 1) = chain))),
-    CONSTRAINT mandate_instances_spec_length CHECK (((char_length(spec_version) >= 1) AND (char_length(spec_version) <= 32)))
+    CONSTRAINT mandate_instances_spec_length CHECK (((char_length(spec_version) >= 1) AND (char_length(spec_version) <= 32))),
+    CONSTRAINT mandate_instances_status CHECK ((status = ANY (ARRAY['deploying'::text, 'active'::text, 'paused'::text, 'revoked'::text, 'expired'::text, 'deploy_failed'::text])))
 );
 
 ALTER TABLE ONLY ujira.mandate_instances FORCE ROW LEVEL SECURITY;
@@ -3280,9 +3298,11 @@ CREATE TABLE ujira.projects (
     chain_fallback text DEFAULT 'off'::text NOT NULL,
     funding_hold_max_seconds bigint DEFAULT 1209600 NOT NULL,
     cashout_cost_bearer text DEFAULT 'recipient'::text NOT NULL,
+    identity_settings jsonb,
     CONSTRAINT projects_cashout_cost_bearer CHECK ((cashout_cost_bearer = ANY (ARRAY['recipient'::text, 'principal'::text]))),
     CONSTRAINT projects_chain_fallback CHECK ((chain_fallback = ANY (ARRAY['off'::text, 'verified_methods'::text]))),
     CONSTRAINT projects_funding_hold_range CHECK (((funding_hold_max_seconds >= 3600) AND (funding_hold_max_seconds <= 2592000))),
+    CONSTRAINT projects_identity_settings_object CHECK (((identity_settings IS NULL) OR (jsonb_typeof(identity_settings) = 'object'::text))),
     CONSTRAINT projects_name_length CHECK (((char_length(name) >= 1) AND (char_length(name) <= 200)))
 );
 
@@ -6022,6 +6042,13 @@ ALTER TABLE ujira.funding_sources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ujira.funding_sweeps ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: recipient_identities identity_scope; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY identity_scope ON ujira.recipient_identities FOR SELECT TO ujira_fn_identities USING (true);
+
+
+--
 -- Name: chain_events indexer_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6075,6 +6102,13 @@ CREATE POLICY indexer_insert ON ujira.mandate_state_snapshots FOR INSERT TO ujir
 --
 
 CREATE POLICY indexer_insert ON ujira.payout_bookings FOR INSERT TO ujira_indexer WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: mandate_instances indexer_lifecycle; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY indexer_lifecycle ON ujira.mandate_instances FOR UPDATE TO ujira_indexer USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -7562,6 +7596,7 @@ GRANT USAGE ON SCHEMA ujira TO ujira_signer_attester;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_instances;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_ledger;
 GRANT USAGE ON SCHEMA ujira TO ujira_fn_audit;
+GRANT USAGE ON SCHEMA ujira TO ujira_fn_identities;
 GRANT USAGE ON SCHEMA ujira TO ujira_scheduler;
 
 
@@ -8033,6 +8068,14 @@ GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_reader;
 GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_retention;
 GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_auth;
 GRANT ALL ON FUNCTION ujira.project_scope_all() TO ujira_indexer;
+
+
+--
+-- Name: FUNCTION recipient_identity_scope(target_id uuid); Type: ACL; Schema: ujira; Owner: ujira_fn_identities
+--
+
+REVOKE ALL ON FUNCTION ujira.recipient_identity_scope(target_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.recipient_identity_scope(target_id uuid) TO ujira_app;
 
 
 --
@@ -8537,6 +8580,13 @@ GRANT SELECT(mandate_id) ON TABLE ujira.mandate_instances TO ujira_scheduler;
 
 
 --
+-- Name: COLUMN mandate_instances.status; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(status) ON TABLE ujira.mandate_instances TO ujira_indexer;
+
+
+--
 -- Name: COLUMN mandate_instances.balance_checked_at; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -8799,6 +8849,27 @@ GRANT INSERT ON TABLE ujira.projects TO ujira_fn_principals;
 
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.recipient_identities TO ujira_app;
 GRANT SELECT ON TABLE ujira.recipient_identities TO ujira_reader;
+
+
+--
+-- Name: COLUMN recipient_identities.principal_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(principal_id) ON TABLE ujira.recipient_identities TO ujira_fn_identities;
+
+
+--
+-- Name: COLUMN recipient_identities.project_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(project_id) ON TABLE ujira.recipient_identities TO ujira_fn_identities;
+
+
+--
+-- Name: COLUMN recipient_identities.id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(id) ON TABLE ujira.recipient_identities TO ujira_fn_identities;
 
 
 --

@@ -477,3 +477,90 @@ describe('a tag mismatch', () => {
     expect(await w.intake.ingest(event())).toEqual({ action: 'ignored', reason: 'flagged' });
   });
 });
+
+describe('the instance that claims a mandate', () => {
+  const id = TENANT.mandateInstanceId;
+  const lifecycle = (name: 'paused' | 'resumed' | 'revoked') =>
+    event({ name, key: TAG, fields: { by: 'principal' } });
+
+  it('becomes active when its trusted factory creation is read, and not before', async () => {
+    const w = world();
+    w.store.claim(NETWORK, MANDATE, TENANT);
+    expect(w.store.statusOf(id)).toBe('deploying');
+    await w.intake.ingest(created(MANDATE));
+    expect(w.store.statusOf(id)).toBe('active');
+  });
+
+  it('stays deploying when the creation comes from a factory not on the list', async () => {
+    const w = world([]);
+    w.store.claim(NETWORK, MANDATE, TENANT);
+    await w.intake.ingest(created(MANDATE));
+    expect(w.store.statusOf(id)).toBe('deploying');
+  });
+
+  it("stays deploying when the creation's tag is another tenant's", async () => {
+    const w = world();
+    w.store.claim(NETWORK, MANDATE, TENANT);
+    expect(await w.intake.ingest(created(MANDATE, { key: WRONG_TAG }))).toEqual({
+      action: 'flagged',
+      contractId: MANDATE,
+    });
+    expect(w.store.statusOf(id)).toBe('deploying');
+  });
+
+  it('stays deploying for any event of its contract until a trusted factory created it', async () => {
+    const w = world();
+    w.store.claim(NETWORK, MANDATE, TENANT);
+    await w.intake.ingest(event({ name: 'mandate_initialized', key: TAG, fields: {} }));
+    await w.intake.ingest(lifecycle('resumed'));
+    expect(w.store.statusOf(id)).toBe('deploying');
+  });
+
+  it('is moved once, however often the creation is read again', async () => {
+    const w = world();
+    w.store.claim(NETWORK, MANDATE, TENANT);
+    const creation = created(MANDATE);
+    await w.intake.ingest(creation);
+    await w.intake.ingest(creation);
+    await w.intake.ingest(created(MANDATE));
+    expect(w.store.moves).toEqual([{ mandateInstanceId: id, move: 'created' }]);
+  });
+
+  it('claimed after its creation was read, becomes active on its next event', async () => {
+    const w = world();
+    await w.intake.ingest(created(MANDATE));
+    w.store.claim(NETWORK, MANDATE, TENANT);
+    expect(w.store.statusOf(id)).toBe('deploying');
+    await w.intake.ingest(event({ name: 'mandate_initialized', key: TAG, fields: {} }));
+    expect(w.store.statusOf(id)).toBe('active');
+  });
+
+  it('follows a pause, a resume and a revocation on chain', async () => {
+    const w = await registered();
+    await w.intake.ingest(lifecycle('paused'));
+    expect(w.store.statusOf(id)).toBe('paused');
+    await w.intake.ingest(lifecycle('resumed'));
+    expect(w.store.statusOf(id)).toBe('active');
+    await w.intake.ingest(lifecycle('revoked'));
+    expect(w.store.statusOf(id)).toBe('revoked');
+    // Nothing brings a revoked mandate back.
+    await w.intake.ingest(lifecycle('resumed'));
+    await w.intake.ingest(created(MANDATE));
+    expect(w.store.statusOf(id)).toBe('revoked');
+  });
+
+  it('ignores a pause read again after the resume that followed it', async () => {
+    const w = await registered();
+    const pause = lifecycle('paused');
+    await w.intake.ingest(pause);
+    await w.intake.ingest(lifecycle('resumed'));
+    await w.intake.ingest(pause);
+    expect(w.store.statusOf(id)).toBe('active');
+  });
+
+  it('moves nothing for an event of another contract', async () => {
+    const w = await registered();
+    await w.intake.ingest(event({ contractId: LOOKALIKE, name: 'paused', key: TAG, fields: {} }));
+    expect(w.store.statusOf(id)).toBe('active');
+  });
+});

@@ -82,6 +82,7 @@ describe('the stellar entry', { timeout: 30_000 }, () => {
       'parseForwarderRequest',
       'publicKeyOfSecret',
       'readAccountLayout',
+      'readStellarPrincipalSigning',
       'reflectorOracleSource',
       'resultCodeOf',
       'scanLedgerEvents',

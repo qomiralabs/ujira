@@ -157,7 +157,69 @@ export function liveLegs<L extends Pick<PayoutLeg, 'status'>>(legs: readonly L[]
   return legs.filter((leg) => leg.status !== 'cancelled');
 }
 
+// A leg with what an attestation for it is made from.
+export interface AttestationLeg {
+  readonly attemptId: string;
+  readonly legIndex: number;
+  readonly mandateInstanceId: string;
+  readonly recipientId: string;
+  readonly methodId: string;
+  readonly amount: TokenAmount;
+}
+
 export const payoutLegs = {
+  // The attempt's instance and the payout's recipient come with the leg, read in
+  // one statement, so the three cannot come from different moments.
+  forAttestation: async (
+    db: Tx,
+    attemptId: string,
+    legIndex: number,
+  ): Promise<AttestationLeg | undefined> => {
+    const row = await db
+      .selectFrom('ujira.payout_legs as l')
+      .innerJoin('ujira.payout_attempts as a', (join) =>
+        join
+          .onRef('a.principal_id', '=', 'l.principal_id')
+          .onRef('a.project_id', '=', 'l.project_id')
+          .onRef('a.id', '=', 'l.attempt_id'),
+      )
+      .innerJoin('ujira.payouts as p', (join) =>
+        join
+          .onRef('p.principal_id', '=', 'l.principal_id')
+          .onRef('p.project_id', '=', 'l.project_id')
+          .onRef('p.id', '=', 'l.payout_id'),
+      )
+      .select([
+        'l.attempt_id',
+        'l.leg_index',
+        'a.mandate_instance_id',
+        'p.recipient_id',
+        'l.payout_method_id',
+        'l.amount',
+        'l.asset',
+        'l.chain',
+        'l.scale',
+      ])
+      .where('l.attempt_id', '=', attemptId)
+      .where('l.leg_index', '=', String(legIndex))
+      .executeTakeFirst();
+    if (row === undefined) return undefined;
+    return {
+      attemptId: row.attempt_id,
+      // Checked to be 0 to 3, so this is exact.
+      legIndex: Number(row.leg_index),
+      mandateInstanceId: row.mandate_instance_id,
+      recipientId: row.recipient_id,
+      methodId: row.payout_method_id,
+      amount: tokenFromRow({
+        amount: row.amount,
+        asset: row.asset,
+        chain: row.chain,
+        scale: row.scale,
+      }),
+    };
+  },
+
   forAttempt: async (db: Tx, attemptId: string): Promise<readonly PayoutLeg[]> => {
     const rows = await db
       .selectFrom('ujira.payout_legs')

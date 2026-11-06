@@ -287,6 +287,17 @@ export {
 export { TENANT_SETTINGS, type TenantContext, type TenantScope } from './tenant.js';
 export { DatabaseConfigError, SessionStateError, TenantContextError } from './errors.js';
 export { DatabaseUnavailableError } from './unavailable.js';
+export {
+  databaseAttestationLog,
+  databaseIdentityStore,
+  databasePayoutLegSource,
+  databaseProviderEventStore,
+} from './identity-store.js';
+export type { IdentityStoreOptions } from './identity-store.js';
+export type { AttestationLeg } from './repositories/payout-legs.js';
+export type { MandateInstanceStatus } from './repositories/mandates.js';
+export type { NewIdentityRecord } from './repositories/recipients.js';
+
 export { createComplianceStore, type ComplianceStoreOptions } from './compliance-store.js';
 export {
   compliance,
