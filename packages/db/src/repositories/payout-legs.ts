@@ -6,10 +6,10 @@
 // That the legs of an attempt sum to its total is the database's rule, checked at
 // commit (UJ005).
 
-import type { TokenAmount } from '@ujira/core';
+import type { Money, TokenAmount } from '@ujira/core';
 import { sql, type Kysely } from 'kysely';
 
-import { tokenFromRow } from '../money-mapper.js';
+import { fiatFromRow, tokenFromRow } from '../money-mapper.js';
 import type { Schema } from '../schema.generated.js';
 import { assertTransition, IdempotencyConflictError } from './payouts.js';
 
@@ -30,6 +30,15 @@ export const LEG_STATUS_VALUES = [
 
 export type LegStatusValue = (typeof LEG_STATUS_VALUES)[number];
 
+// What a cash-out delivers: null on a leg paid straight to a wallet.
+export interface LegDelivery {
+  readonly receive: Money;
+  readonly fxNumerator: bigint;
+  readonly fxDenominator: bigint;
+  readonly costBearer: string;
+  readonly quoteId: string;
+}
+
 export interface PayoutLeg {
   readonly id: string;
   readonly payoutId: string;
@@ -37,6 +46,7 @@ export interface PayoutLeg {
   readonly index: number;
   readonly payoutMethodId: string;
   readonly method: string;
+  readonly rail: string | null;
   readonly destinationAddress: string;
   readonly destinationTag: bigint | null;
   readonly amount: TokenAmount;
@@ -44,6 +54,7 @@ export interface PayoutLeg {
   readonly legKey: string;
   readonly chainTxHash: string | null;
   readonly status: string;
+  readonly delivery: LegDelivery | null;
 }
 
 const legColumns = [
@@ -53,6 +64,7 @@ const legColumns = [
   'leg_index',
   'payout_method_id',
   'method',
+  'rail',
   'destination_address',
   'destination_tag',
   'amount',
@@ -63,6 +75,13 @@ const legColumns = [
   'leg_key',
   'chain_tx_hash',
   'status',
+  'receive_amount',
+  'receive_currency',
+  'receive_scale',
+  'fx_numerator',
+  'fx_denominator',
+  'cost_bearer',
+  'quote_id',
 ] as const;
 
 function toLeg(row: {
@@ -72,6 +91,7 @@ function toLeg(row: {
   leg_index: string;
   payout_method_id: string;
   method: string;
+  rail: string | null;
   destination_address: string;
   destination_tag: string | null;
   amount: string;
@@ -82,16 +102,24 @@ function toLeg(row: {
   leg_key: string;
   chain_tx_hash: string | null;
   status: string;
+  receive_amount: string | null;
+  receive_currency: string | null;
+  receive_scale: number | null;
+  fx_numerator: string | null;
+  fx_denominator: string | null;
+  cost_bearer: string | null;
+  quote_id: string | null;
 }): PayoutLeg {
   const unit = { asset: row.asset, chain: row.chain, scale: row.scale };
   return {
     id: row.id,
     payoutId: row.payout_id,
     attemptId: row.attempt_id,
-    // Checked to be 0 to 3, so this is exact.
+    // Checked to be 0 to 7, so this is exact.
     index: Number(row.leg_index),
     payoutMethodId: row.payout_method_id,
     method: row.method,
+    rail: row.rail,
     destinationAddress: row.destination_address,
     destinationTag: row.destination_tag === null ? null : BigInt(row.destination_tag),
     amount: tokenFromRow({ amount: row.amount, ...unit }),
@@ -99,7 +127,34 @@ function toLeg(row: {
     legKey: row.leg_key,
     chainTxHash: row.chain_tx_hash,
     status: row.status,
+    // All or none, by the table's own check.
+    delivery:
+      row.receive_amount === null ||
+      row.receive_currency === null ||
+      row.receive_scale === null ||
+      row.fx_numerator === null ||
+      row.fx_denominator === null ||
+      row.cost_bearer === null ||
+      row.quote_id === null
+        ? null
+        : {
+            receive: fiatFromRow({
+              amount: row.receive_amount,
+              currency: row.receive_currency,
+              scale: row.receive_scale,
+            }),
+            fxNumerator: BigInt(row.fx_numerator),
+            fxDenominator: BigInt(row.fx_denominator),
+            costBearer: row.cost_bearer,
+            quoteId: row.quote_id,
+          },
   };
+}
+
+// A cancelled leg pays nothing and the chain never hears of it. What it hears of is these,
+// in order, numbered from zero, whatever their rows are numbered.
+export function liveLegs<L extends Pick<PayoutLeg, 'status'>>(legs: readonly L[]): readonly L[] {
+  return legs.filter((leg) => leg.status !== 'cancelled');
 }
 
 // A leg with what an attestation for it is made from.

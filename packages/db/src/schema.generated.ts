@@ -395,6 +395,25 @@ export interface UjiraFundingSweeps {
   updated_at: Generated<Timestamp>;
 }
 
+export interface UjiraJobDeadLetters {
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  ids: Json;
+  principal_id: string;
+  project_id: string;
+  reason: string;
+  replayed_at: Timestamp | null;
+  source_job_id: Int8;
+  task: string;
+  tries: number;
+}
+
+export interface UjiraJobsWorkerHeartbeats {
+  last_seen_at: Generated<Timestamp>;
+  started_at: Generated<Timestamp>;
+  worker_id: string;
+}
+
 export interface UjiraLedgerAccounts {
   asset: string;
   balance: Generated<Numeric>;
@@ -476,6 +495,7 @@ export interface UjiraMandateInstanceRoles {
 export interface UjiraMandateInstances {
   asset: string;
   attester_public_key: Buffer | null;
+  balance_checked_at: Timestamp | null;
   chain: string;
   contract_address: string;
   country_policy_hash: Buffer | null;
@@ -528,7 +548,9 @@ export interface UjiraPayoutAttempts {
   created_at: Generated<Timestamp>;
   dead_proof: Json | null;
   deadline: Timestamp;
+  fee_amount: Generated<Numeric>;
   id: Generated<string>;
+  lapse_cancelled_at: Timestamp | null;
   mandate_instance_id: string;
   network: string;
   on_chain_payout_id: string | null;
@@ -583,10 +605,13 @@ export interface UjiraPayoutLegs {
   attempt_id: string;
   chain: string;
   chain_tx_hash: string | null;
+  cost_bearer: string | null;
   created_at: Generated<Timestamp>;
   destination_address: string;
   destination_tag: Numeric | null;
   fee_amount: Generated<Numeric>;
+  fx_denominator: Numeric | null;
+  fx_numerator: Numeric | null;
   id: Generated<string>;
   leg_index: Int8;
   leg_key: Generated<string>;
@@ -595,6 +620,11 @@ export interface UjiraPayoutLegs {
   payout_method_id: string;
   principal_id: string;
   project_id: string;
+  quote_id: string | null;
+  rail: string | null;
+  receive_amount: Numeric | null;
+  receive_currency: string | null;
+  receive_scale: number | null;
   scale: number;
   status: Generated<string>;
   updated_at: Generated<Timestamp>;
@@ -630,6 +660,7 @@ export interface UjiraPayouts {
   project_id: string;
   public_status: Generated<string>;
   recipient_id: string;
+  refusal_code: string | null;
   request_hash: Buffer;
   requested_amount: Numeric;
   requested_asset: string | null;
@@ -779,6 +810,7 @@ export interface Schema {
   'ops.routing_config_active': OpsRoutingConfigActive;
   'ops.routing_config_versions': OpsRoutingConfigVersions;
   'ops.signing_keys': OpsSigningKeys;
+  'ujira_jobs.worker_heartbeats': UjiraJobsWorkerHeartbeats;
   ujira_migrations: UjiraMigrations;
   'ujira.agent_identity_links': UjiraAgentIdentityLinks;
   'ujira.api_tokens': UjiraApiTokens;
@@ -802,6 +834,7 @@ export interface Schema {
   'ujira.funding_accounts': UjiraFundingAccounts;
   'ujira.funding_sources': UjiraFundingSources;
   'ujira.funding_sweeps': UjiraFundingSweeps;
+  'ujira.job_dead_letters': UjiraJobDeadLetters;
   'ujira.ledger_accounts': UjiraLedgerAccounts;
   'ujira.ledger_entries': UjiraLedgerEntries;
   'ujira.ledger_journals': UjiraLedgerJournals;

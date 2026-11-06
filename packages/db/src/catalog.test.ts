@@ -4,7 +4,14 @@
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
-import { catalogProblems } from './testing/catalog.js';
+import { jobPayloadProblems } from './repositories/jobs.js';
+import {
+  catalogProblems,
+  definerProblems,
+  DEFINER_ALLOWLIST,
+  infrastructureProblems,
+  INFRASTRUCTURE_SCHEMAS,
+} from './testing/catalog.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
 
 const adminUrl = inject('dbAdminUrl');
@@ -82,6 +89,16 @@ afterAll(async () => {
   await fixtures.drop();
   await migrated.drop();
 });
+
+async function asMigrated<T>(work: (client: pg.Client) => Promise<T>): Promise<T> {
+  const client = new pg.Client({ connectionString: migrated.url });
+  await client.connect();
+  try {
+    return await work(client);
+  } finally {
+    await client.end();
+  }
+}
 
 function problemsOf(table: string): string[] {
   return fixtureProblems.filter((problem) => problem.startsWith(`ujira.${table}:`));
@@ -208,5 +225,121 @@ describe('catalog', () => {
         (problem) => !named.some((table) => problem.startsWith(`ujira.${table}:`)),
       ),
     ).toEqual([]);
+  });
+});
+
+// The queue schemas are a declared exception to the tenant rules above, so these
+// hold the exception to its word, and any way past row level security to a list.
+describe('the queue schemas', () => {
+  it('graphile_worker and ujira_jobs are infrastructure with no tenant or personal data columns', async () => {
+    await asMigrated(async (client) => {
+      expect(await infrastructureProblems(client)).toEqual([]);
+      // Not vacuous: the worker schema is installed here, and both hold tables.
+      const tables = await client.query<{ schema: string }>(
+        `select distinct n.nspname as schema
+           from pg_class c join pg_namespace n on n.oid = c.relnamespace
+          where n.nspname = any($1::text[]) and c.relkind = 'r'
+          order by 1`,
+        [[...INFRASTRUCTURE_SCHEMAS]],
+      );
+      expect(tables.rows.map((row) => row.schema)).toEqual(['graphile_worker', 'ujira_jobs']);
+    });
+  });
+
+  it.each([
+    ['principal_id', 'infrastructure holds no tenant columns'],
+    ['project_id', 'infrastructure holds no tenant columns'],
+    ['recipient_email', 'reads like personal data, which belongs in recipient_pii'],
+  ])('fails a queue table with a column named %s', async (column, why) => {
+    await fixtureClient.query(`create table ujira_jobs.fixture_column (${column} text)`);
+    try {
+      expect(await infrastructureProblems(fixtureClient)).toEqual([
+        `ujira_jobs.fixture_column.${column}: ${why}`,
+      ]);
+    } finally {
+      await fixtureClient.query('drop table ujira_jobs.fixture_column');
+    }
+  });
+});
+
+describe('security definer functions', () => {
+  it('every one in the database is on the allowlist, and the reverse', async () => {
+    await asMigrated(async (client) => {
+      expect(await definerProblems(client)).toEqual([]);
+    });
+  });
+
+  it('the job queue and the cron fan-out are on it', () => {
+    expect(DEFINER_ALLOWLIST).toEqual(
+      expect.arrayContaining([
+        'ujira_jobs.enqueue(text,jsonb,text,text,timestamp with time zone,integer,text,text)',
+        'ujira.funding_hold_targets(uuid,uuid,text,integer)',
+        'ujira.lapsed_cancel_targets(uuid,integer)',
+        'ujira.reconcile_targets(uuid,integer)',
+        'ujira.due_attempt_deadlines(timestamp with time zone,integer)',
+        'ujira.overdue_fee_refunds(integer)',
+      ]),
+    );
+  });
+
+  it.each(['ujira', 'ujira_jobs', 'ops', 'public'])(
+    'fails a fixture definer function in schema %s that is not on the list',
+    async (schema) => {
+      await fixtureClient.query(
+        `create function ${schema}.fixture_definer() returns void
+           language sql security definer as 'select 1'`,
+      );
+      try {
+        expect(await definerProblems(fixtureClient)).toEqual([
+          `${schema === 'public' ? '' : `${schema}.`}fixture_definer(): a security definer function not on the allowlist`,
+        ]);
+      } finally {
+        await fixtureClient.query(`drop function ${schema}.fixture_definer()`);
+      }
+    },
+  );
+
+  it('fails an allowlist entry that names nothing, so the list cannot go stale', async () => {
+    expect(await definerProblems(fixtureClient, [...DEFINER_ALLOWLIST, 'ujira.gone()'])).toEqual([
+      'ujira.gone(): on the allowlist, and not in the database',
+    ]);
+  });
+
+  it('an invoker function is not its concern', async () => {
+    await fixtureClient.query(
+      `create function ujira.fixture_invoker() returns void language sql as 'select 1'`,
+    );
+    try {
+      expect(await definerProblems(fixtureClient)).toEqual([]);
+    } finally {
+      await fixtureClient.query('drop function ujira.fixture_invoker()');
+    }
+  });
+});
+
+describe('job payload shapes', () => {
+  it('passes ids', () => {
+    expect(
+      jobPayloadProblems({
+        'payout:advance': ['payoutId', 'try'],
+        'mandate:reconcile': ['mandateInstanceId'],
+        'chain:scan': ['network'],
+      }),
+    ).toEqual([]);
+  });
+
+  it.each(['recipientEmail', 'phone', 'fullName', 'nationalId', 'homeAddress', 'amount', 'note'])(
+    'fails a field named %s',
+    (field) => {
+      expect(jobPayloadProblems({ 'payout:advance': ['payoutId', field] })).toEqual([
+        `payout:advance.${field}: a job payload carries ids only`,
+      ]);
+    },
+  );
+
+  it.each(['principalId', 'projectId'])('fails %s, which the database adds itself', (field) => {
+    expect(jobPayloadProblems({ 'payout:advance': [field] })).toEqual([
+      `payout:advance.${field}: the database adds the tenant ids`,
+    ]);
   });
 });

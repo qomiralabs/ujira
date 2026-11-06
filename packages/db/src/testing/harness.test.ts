@@ -77,7 +77,7 @@ describe('harness', () => {
     // developer machine as in CI, which is the failure mode of #337 in
     // reverse. Reading the server version proves the pin is what started,
     // rather than only that a constant says so.
-    const [, version] = /^postgres:(\d+\.\d+)$/.exec(POSTGRES_IMAGE) ?? [];
+    const [, version] = /^postgres:(\d+\.\d+)@sha256:[0-9a-f]{64}$/.exec(POSTGRES_IMAGE) ?? [];
     expect(version).toBeDefined();
     const reported = await client.query<{ version: string }>('select version() as version');
     expect(reported.rows[0]?.version).toContain(`PostgreSQL ${String(version)}`);

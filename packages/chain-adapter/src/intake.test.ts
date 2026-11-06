@@ -373,6 +373,19 @@ describe('booking', () => {
     });
   });
 
+  it('books a lapsed payout cancelled by the executor, with its reason', async () => {
+    const w = await registered();
+    const outcome = await w.intake.ingest(
+      event({ name: 'payout_cancelled', fields: { by: 'GEXECUTOR', reason: '3' } }),
+    );
+    expect(outcome).toEqual({ action: 'booked', created: true });
+    expect(w.store.events[0]).toMatchObject<Partial<EventBooking>>({
+      name: 'payout_cancelled',
+      payoutId: PAYOUT,
+      payload: { by: 'GEXECUTOR', reason: '3', payout_id: PAYOUT },
+    });
+  });
+
   it('keeps a refused batch item on record without making it a payout', async () => {
     const w = await registered();
     await w.intake.ingest(event({ name: 'payout_request_rejected', fields: { code: '4' } }));

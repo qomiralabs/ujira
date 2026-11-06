@@ -139,6 +139,10 @@ export interface Database {
     work: (db: Kysely<Schema>) => Promise<T>,
     role?: 'app' | 'worker' | 'indexer',
   ) => Promise<T>;
+  // The worker login's pool, for the queue library, which brings its own queries.
+  // It is the one pool handed out, because that login holds nothing in schema
+  // ujira, and only this package can build one with the pinned TLS.
+  readonly workerPool: () => pg.Pool;
   readonly close: () => Promise<void>;
 }
 
@@ -316,6 +320,7 @@ export function createDatabase(config: DatabaseConfig, hooks: DatabaseHooks = {}
     unscoped,
     tenant: (context) => sessionFor('app', context, 'project'),
     principal: (context, role = 'reader') => sessionFor(role, context, 'all'),
+    workerPool: () => pools.worker,
     // Idempotent: a teardown path that closes twice, or a test that closes
     // after an error, must not fail on the second call. pg throws on a
     // second end of the same pool.

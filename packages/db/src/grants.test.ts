@@ -153,6 +153,11 @@ describe('grants on ujira', () => {
         ...context,
         'function ujira.exchange_embed_invite(bytea,bytea,text,integer,text)',
         'function ujira.recipient_identity_scope(uuid)',
+        'function ujira.due_attempt_deadlines(timestamp with time zone,integer)',
+        'function ujira.funding_hold_targets(uuid,uuid,text,integer)',
+        'function ujira.lapsed_cancel_targets(uuid,integer)',
+        'function ujira.overdue_fee_refunds(integer)',
+        'function ujira.reconcile_targets(uuid,integer)',
       ].sort(),
     );
     expect(await executable('ujira_auth')).toEqual(
@@ -199,11 +204,14 @@ describe('roles', () => {
       'ujira_owner',
       'ujira_reader',
       'ujira_retention',
+      'ujira_scheduler',
       'ujira_signer_attester',
       'ujira_signer_read',
+      'ujira_worker',
     ]);
     const nologin = new Set([
       'ujira_owner',
+      'ujira_scheduler',
       'ujira_fn_audit',
       'ujira_fn_identities',
       'ujira_fn_instances',
@@ -234,12 +242,20 @@ describe('roles', () => {
       { fn: 'ujira.check_payout_booking()', owner: 'ujira_fn_instances' },
       { fn: 'ujira.create_principal(text,text,uuid,text)', owner: 'ujira_fn_principals' },
       {
+        fn: 'ujira.due_attempt_deadlines(timestamp with time zone,integer)',
+        owner: 'ujira_scheduler',
+      },
+      {
         fn: 'ujira.exchange_embed_invite(bytea,bytea,text,integer,text)',
         owner: 'ujira_fn_tokens',
       },
+      { fn: 'ujira.funding_hold_targets(uuid,uuid,text,integer)', owner: 'ujira_scheduler' },
+      { fn: 'ujira.lapsed_cancel_targets(uuid,integer)', owner: 'ujira_scheduler' },
       { fn: 'ujira.ledger_balanced()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.ledger_stamp()', owner: 'ujira_fn_ledger' },
+      { fn: 'ujira.overdue_fee_refunds(integer)', owner: 'ujira_scheduler' },
       { fn: 'ujira.recipient_identity_scope(uuid)', owner: 'ujira_fn_identities' },
+      { fn: 'ujira.reconcile_targets(uuid,integer)', owner: 'ujira_scheduler' },
       { fn: 'ujira.resolve_funding_address(text,text)', owner: 'ujira_fn_instances' },
       { fn: 'ujira.resolve_mandate_address(text,text)', owner: 'ujira_fn_instances' },
       { fn: 'ujira.resolve_mandate_instance(text,text)', owner: 'ujira_fn_instances' },
@@ -315,6 +331,7 @@ describe('roles', () => {
     expect(settings.rows.map((row) => row.setting)).toEqual([
       'idle_in_transaction_session_timeout=10s',
       'lock_timeout=3s',
+      'search_path=pg_catalog, pg_temp',
       'statement_timeout=5s',
     ]);
   });

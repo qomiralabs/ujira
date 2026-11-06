@@ -5,6 +5,10 @@
 // Each key does one job and the payload must be that job exactly:
 // - an executor calls execute or execute_batch on a mandate the index knows
 //   with this executor in its executor role, with the fee under the cap;
+// - an executor also cancels on such a mandate, which the contract only takes from it
+//   once the payout has lapsed, when it takes it from anyone. Anything that holds the
+//   principal's or an agent's role could cancel a live payout that way, so a key that
+//   does, or that the index cannot rule out, is refused;
 // - an executor also carries a smart wallet's own signed call, under a payload
 //   kind of its own. A wallet cannot be a transaction's source, so a fee bump has
 //   nothing to wrap. The channel account authorizes nothing in it and can only
@@ -42,6 +46,8 @@ import type { MandateIndex, SponsorshipIntent, SponsorshipLedger } from './ports
 
 /** The calls an executor exists to make. */
 export const EXECUTOR_FUNCTIONS: ReadonlySet<string> = new Set(['execute', 'execute_batch']);
+/** What an executor may also send, to release the funds a lapsed payout still holds. */
+export const EXECUTOR_CANCEL_FUNCTIONS: ReadonlySet<string> = new Set(['cancel', 'cancel_batch']);
 /** The longest a reserve sandwich may stay valid. */
 export const MAX_SANDWICH_VALIDITY_SECONDS = 300n;
 /** SEP-10 servers give challenges a 15 minute window. */
@@ -125,12 +131,29 @@ export function chainPolicy(options: ChainPolicyOptions): ServicePolicy {
     ref: SignerRef,
     contract: string,
     executor: string,
+    functionName: string,
     opts: CallOptions,
   ): Promise<TenantScope> => {
     const mandate = await mandates.forExecutor(ref.network, contract, executor, opts);
     if (mandate === null) throw deny(ref);
+    if (EXECUTOR_CANCEL_FUNCTIONS.has(functionName)) {
+      const { principal, agents } = mandate;
+      // The contract would take a live cancel from either role, which is the one thing
+      // this key must never be able to do.
+      if (
+        principal === undefined ||
+        agents === undefined ||
+        principal === executor ||
+        agents.includes(executor)
+      ) {
+        throw deny(ref);
+      }
+    }
     return mandate.tenant;
   };
+
+  const executorCall = (functionName: string): boolean =>
+    EXECUTOR_FUNCTIONS.has(functionName) || EXECUTOR_CANCEL_FUNCTIONS.has(functionName);
 
   /**
    * A wallet's call carried by this channel. The channel must authorize nothing:
@@ -232,13 +255,19 @@ export function chainPolicy(options: ChainPolicyOptions): ServicePolicy {
       if (
         tx.operations.length !== 1 ||
         op?.detail.kind !== 'invoke_contract' ||
-        !EXECUTOR_FUNCTIONS.has(op.detail.functionName) ||
+        !executorCall(op.detail.functionName) ||
         sourceOf(op, tx) !== tx.source.account ||
         tx.fee > network(ref).executorMaxFeeStroops
       ) {
         throw deny(ref);
       }
-      return executorMandate(ref, op.detail.contract, tx.source.account, opts);
+      return executorMandate(
+        ref,
+        op.detail.contract,
+        tx.source.account,
+        op.detail.functionName,
+        opts,
+      );
     }
     if (payload.kind === 'stellar_auth_entry') {
       const entry = read(ref, () =>
@@ -249,12 +278,18 @@ export function chainPolicy(options: ChainPolicyOptions): ServicePolicy {
       if (
         entry.credentials.kind !== 'address' ||
         call.kind !== 'contract_fn' ||
-        !EXECUTOR_FUNCTIONS.has(call.functionName) ||
+        !executorCall(call.functionName) ||
         call.subInvocations.length !== 0
       ) {
         throw deny(ref);
       }
-      return executorMandate(ref, call.contract, entry.credentials.address, opts);
+      return executorMandate(
+        ref,
+        call.contract,
+        entry.credentials.address,
+        call.functionName,
+        opts,
+      );
     }
     throw deny(ref);
   };

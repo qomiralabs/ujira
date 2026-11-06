@@ -48,6 +48,8 @@ import type {
   PayStep,
   PayoutChainStatus,
   PayoutId,
+  CancelLapsedRequest,
+  CancelLapsedStep,
   ProveDeadRequest,
   ReceiptRef,
   ReceiptRequest,
@@ -174,6 +176,7 @@ export type StellarMandateOperations = Pick<
   | 'payBatch'
   | 'status'
   | 'proveDead'
+  | 'cancelLapsed'
   | 'receipt'
   | 'verifyReceipt'
   | 'fundingInstructions'
@@ -314,6 +317,10 @@ export class StellarMandateAdapter implements StellarMandateOperations {
 
   proveDead(req: ProveDeadRequest, opts: CallOptions): Promise<DeadProof | null> {
     return this.#payouts.proveDead(req, opts);
+  }
+
+  cancelLapsed(req: CancelLapsedRequest, opts: CallOptions): Promise<CancelLapsedStep> {
+    return this.#payouts.cancelLapsed(req, opts);
   }
 
   receipt(req: ReceiptRequest, opts: CallOptions): Promise<ChainReceipt> {

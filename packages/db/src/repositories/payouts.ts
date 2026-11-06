@@ -536,6 +536,25 @@ export const payoutBatches = {
     };
   },
 
+  // The payouts of one batch on one mandate.
+  items: async (
+    db: Tx,
+    batchId: string,
+    mandateId: string,
+    page: PageRequest,
+  ): Promise<Page<Payout>> => {
+    const limit = checkedLimit(page.limit);
+    let query = db
+      .selectFrom('ujira.payouts')
+      .select(payoutColumns)
+      .where('batch_id', '=', batchId)
+      .where('mandate_id', '=', mandateId)
+      .orderBy('id')
+      .limit(limit + 1);
+    if (page.after !== undefined) query = query.where('id', '>', page.after);
+    return pageOf((await query.execute()).map(toPayout), limit, (payout) => payout.id);
+  },
+
   get: async (db: Tx, id: string): Promise<PayoutBatch | undefined> => {
     const row = await db
       .selectFrom('ujira.payout_batches')
@@ -553,12 +572,24 @@ export type NetworkId = string;
 export interface NewPayoutLeg {
   readonly payoutMethodId: string;
   readonly method: PayoutMinimumMethod;
+  // As the chain adapter names it.
+  readonly rail?: string;
   readonly destinationAddress: string;
   readonly destinationTag?: bigint | null;
   // In the attempt's unit, so raw token units.
   readonly amount: bigint;
   // What the rail charges on this leg, in the same unit.
   readonly fee?: bigint;
+  // What a cash-out delivers, for a leg an anchor pays out.
+  readonly delivery?: NewLegDelivery;
+}
+
+export interface NewLegDelivery {
+  readonly receive: Money;
+  readonly fxNumerator: bigint;
+  readonly fxDenominator: bigint;
+  readonly costBearer: CashoutCostBearer;
+  readonly quoteId: string;
 }
 
 export interface NewPayoutAttempt {
@@ -567,6 +598,8 @@ export interface NewPayoutAttempt {
   // Must be on the total's chain, or the database refuses it.
   readonly network: NetworkId;
   readonly total: TokenAmount;
+  // The take, on top of the total and in its unit. Zero when absent.
+  readonly fee?: TokenAmount;
   readonly deadline: Date;
   readonly onChainPayoutId?: string | null;
   // In leg order. They must sum to the total, or the commit is refused (UJ005).
@@ -580,6 +613,7 @@ export interface PayoutAttempt {
   readonly network: NetworkId;
   readonly mandateInstanceId: string;
   readonly total: TokenAmount;
+  readonly fee: TokenAmount;
   readonly onChainPayoutId: string | null;
   readonly deadline: Date;
   readonly deadProof: unknown;
@@ -595,6 +629,7 @@ const attemptColumns = [
   'network',
   'mandate_instance_id',
   'total_amount',
+  'fee_amount',
   'asset',
   'scale',
   'on_chain_payout_id',
@@ -612,6 +647,7 @@ function toAttempt(row: {
   network: string;
   mandate_instance_id: string;
   total_amount: string;
+  fee_amount: string;
   asset: string;
   scale: number;
   on_chain_payout_id: string | null;
@@ -633,6 +669,12 @@ function toAttempt(row: {
       chain: row.chain,
       scale: row.scale,
     }),
+    fee: tokenFromRow({
+      amount: row.fee_amount,
+      asset: row.asset,
+      chain: row.chain,
+      scale: row.scale,
+    }),
     onChainPayoutId: row.on_chain_payout_id,
     deadline: row.deadline,
     deadProof: row.dead_proof,
@@ -646,6 +688,39 @@ function proofJson(proof: Readonly<Record<string, unknown>>): string {
   return JSON.stringify(proof, (_key, value: unknown) =>
     typeof value === 'bigint' ? value.toString() : value,
   );
+}
+
+function legRow(
+  payoutId: string,
+  attemptId: string,
+  total: TokenAmount,
+  leg: NewPayoutLeg,
+  index: number,
+) {
+  return {
+    principal_id: CURRENT_PRINCIPAL,
+    project_id: CURRENT_PROJECT,
+    payout_id: payoutId,
+    attempt_id: attemptId,
+    leg_index: index,
+    payout_method_id: leg.payoutMethodId,
+    method: leg.method,
+    rail: leg.rail ?? null,
+    destination_address: leg.destinationAddress,
+    destination_tag: leg.destinationTag?.toString() ?? null,
+    amount: leg.amount.toString(),
+    chain: total.chain,
+    asset: total.asset,
+    scale: total.scale,
+    fee_amount: (leg.fee ?? 0n).toString(),
+    receive_amount: leg.delivery === undefined ? null : amountParam(leg.delivery.receive),
+    receive_currency: leg.delivery?.receive.currency ?? null,
+    receive_scale: leg.delivery?.receive.scale ?? null,
+    fx_numerator: leg.delivery?.fxNumerator.toString() ?? null,
+    fx_denominator: leg.delivery?.fxDenominator.toString() ?? null,
+    cost_bearer: leg.delivery?.costBearer ?? null,
+    quote_id: leg.delivery?.quoteId ?? null,
+  };
 }
 
 export const payoutAttempts = {
@@ -668,6 +743,7 @@ export const payoutAttempts = {
         network: input.network,
         mandate_instance_id: input.mandateInstanceId,
         total_amount: amountParam(input.total),
+        fee_amount: input.fee === undefined ? '0' : amountParam(input.fee),
         asset: input.total.asset,
         scale: input.total.scale,
         on_chain_payout_id: input.onChainPayoutId ?? null,
@@ -687,25 +763,50 @@ export const payoutAttempts = {
     await db
       .insertInto('ujira.payout_legs')
       .values(
-        input.legs.map((leg, index) => ({
-          principal_id: CURRENT_PRINCIPAL,
-          project_id: CURRENT_PROJECT,
-          payout_id: input.payoutId,
-          attempt_id: row.id,
-          leg_index: index,
-          payout_method_id: leg.payoutMethodId,
-          method: leg.method,
-          destination_address: leg.destinationAddress,
-          destination_tag: leg.destinationTag?.toString() ?? null,
-          amount: leg.amount.toString(),
-          chain: input.total.chain,
-          asset: input.total.asset,
-          scale: input.total.scale,
-          fee_amount: (leg.fee ?? 0n).toString(),
-        })),
+        input.legs.map((leg, index) => legRow(input.payoutId, row.id, input.total, leg, index)),
       )
       .execute();
     return toAttempt(row);
+  },
+
+  // A split that cannot go as planned, while nothing has been requested. The old legs
+  // are cancelled, since a leg is never deleted, and the new ones follow them. False when
+  // the attempt has moved on, which means the chain may know its legs by now.
+  replaceLegs: async (
+    db: Tx,
+    attempt: Pick<PayoutAttempt, 'id' | 'payoutId' | 'total'>,
+    legs: readonly NewPayoutLeg[],
+  ): Promise<boolean> => {
+    if (legs.length === 0) throw new AttemptWithoutLegsError();
+    const held = await db
+      .selectFrom('ujira.payout_attempts')
+      .select('id')
+      .where('id', '=', attempt.id)
+      .where('status', '=', 'created')
+      .forUpdate()
+      .executeTakeFirst();
+    if (held === undefined) return false;
+    const existing = await db
+      .selectFrom('ujira.payout_legs')
+      .select('leg_index')
+      .where('attempt_id', '=', attempt.id)
+      .execute();
+    await db
+      .updateTable('ujira.payout_legs')
+      .set({ status: 'cancelled' })
+      .where('attempt_id', '=', attempt.id)
+      .where('status', '=', 'planned')
+      .execute();
+    const next = existing.reduce((high, row) => Math.max(high, Number(row.leg_index) + 1), 0);
+    await db
+      .insertInto('ujira.payout_legs')
+      .values(
+        legs.map((leg, index) =>
+          legRow(attempt.payoutId, attempt.id, attempt.total, leg, next + index),
+        ),
+      )
+      .execute();
+    return true;
   },
 
   get: async (db: Tx, id: string): Promise<PayoutAttempt | undefined> => {

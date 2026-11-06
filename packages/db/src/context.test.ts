@@ -17,6 +17,7 @@ import {
   type ProjectContext,
   type TenantSession,
 } from './database.js';
+import { SessionStateError } from './errors.js';
 import { createTestDatabase, roleUrl, type TestDatabase } from './testing/harness.js';
 
 const adminUrl = inject('dbAdminUrl');
@@ -287,5 +288,75 @@ describe('pooled connections', () => {
     } finally {
       await single.close();
     }
+  });
+});
+
+// Last in the file: it gives the app login defaults in this database, and takes
+// them away again, so nothing else here runs while they are in place.
+describe('session level settings', () => {
+  const enqueue = "select ujira_jobs.enqueue('test:context', '{}'::jsonb)";
+
+  it('a session-level SET of ujira.principal_id makes enqueue and repository calls fail', async () => {
+    // Set on the connection, outside any transaction, the way a leak on a pooled
+    // backend would look to the next transaction.
+    await asApp(async (client) => {
+      await client.query(`set ujira.principal_id = '${A1.principalId}'`);
+      await client.query(
+        `select set_config('ujira.project_id', $1, false),
+                set_config('ujira.scope', 'project', false),
+                set_config('ujira.txid', txid_current()::text, false)`,
+        [A1.projectId],
+      );
+      await client.query('begin');
+      expect(await codeOf(client.query('select * from ujira.notes'))).toBe('UJ001');
+      await client.query('rollback');
+      await client.query('begin');
+      expect(await codeOf(client.query(enqueue))).toBe('UJ001');
+      await client.query('rollback');
+    });
+
+    // The same values as defaults of the login in this database: every new
+    // session starts with them, and a transaction that binds only ujira.txid
+    // would otherwise run under them.
+    const admin = new pg.Client({ connectionString: database.url });
+    await admin.connect();
+    const name = database.name;
+    try {
+      await admin.query(
+        `alter role ujira_app in database "${name}" set ujira.principal_id = '${A1.principalId}'`,
+      );
+      await admin.query(
+        `alter role ujira_app in database "${name}" set ujira.project_id = '${A1.projectId}'`,
+      );
+      await admin.query(`alter role ujira_app in database "${name}" set ujira.scope = 'project'`);
+      await asApp(async (client) => {
+        for (const statement of ['select * from ujira.notes', enqueue]) {
+          await client.query('begin');
+          await client.query(`select set_config('ujira.txid', txid_current()::text, true)`);
+          expect(await codeOf(client.query(statement)), statement).toBe('UJ001');
+          await client.query('rollback');
+        }
+      });
+      // A repository transaction sets all four itself, and is refused all the
+      // same while a default is there to fall back on.
+      const fresh = databaseFor('1');
+      try {
+        expect(await codeOf(notes(fresh.tenant(A1)))).toBe('UJ001');
+      } finally {
+        await fresh.close();
+      }
+    } finally {
+      await admin.query(`alter role ujira_app in database "${name}" reset all`);
+      await admin.end();
+    }
+
+    // And the repository never sends a session level SET in the first place.
+    const sent = db.tenant(A1).transaction(async (kysely) => {
+      await sql`set ujira.principal_id = ${B1.principalId}`.execute(kysely);
+    });
+    await expect(sent).rejects.toBeInstanceOf(SessionStateError);
+
+    // With the defaults gone, the same call works again.
+    expect((await notes(db.tenant(A1))).map((row) => row.body)).toContain('a1 first');
   });
 });

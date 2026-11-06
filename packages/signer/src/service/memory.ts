@@ -38,6 +38,8 @@ export function memoryMandateIndex(mandates: readonly MemoryMandate[] = []): Man
           factory: m.factory,
           settlementAsset: m.settlementAsset,
           assetIssuer: m.assetIssuer,
+          ...(m.principal === undefined ? {} : { principal: m.principal }),
+          ...(m.agents === undefined ? {} : { agents: m.agents }),
         };
   return {
     forExecutor: (network, contract, executor) => {

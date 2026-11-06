@@ -511,6 +511,22 @@ function toMethod(row: {
 }
 
 export const payoutMethods = {
+  // Every method of one recipient.
+  forRecipient: async (
+    db: Tx,
+    recipientId: string,
+    limit: number,
+  ): Promise<readonly PayoutMethod[]> => {
+    const rows = await db
+      .selectFrom('ujira.payout_methods')
+      .select(methodColumns)
+      .where('recipient_id', '=', recipientId)
+      .orderBy('id')
+      .limit(checkedLimit(limit))
+      .execute();
+    return rows.map(toMethod);
+  },
+
   list: async (db: Tx, page: PageRequest): Promise<Page<PayoutMethod>> => {
     const limit = checkedLimit(page.limit);
     let query = db

@@ -21,6 +21,8 @@
 
 import type pg from 'pg';
 
+import { readsLikePersonalData } from './pii-columns.js';
+
 export const CATALOG_SCHEMA = 'ujira';
 
 // Reference data, the same for every tenant and writable only by the owner.
@@ -239,4 +241,109 @@ export async function catalogProblems(
   }
 
   return problems;
+}
+
+// The queue's schemas hold no tenant data, so they sit outside the tenant rules
+// above. That is a declared exception, and this holds it to its word: no tenant
+// columns and no personal data by name. Payloads carry ids only, which
+// jobPayloadProblems checks for the task registry.
+export const INFRASTRUCTURE_SCHEMAS: readonly string[] = ['graphile_worker', 'ujira_jobs'];
+
+export async function infrastructureProblems(
+  client: pg.ClientBase,
+  schemas: readonly string[] = INFRASTRUCTURE_SCHEMAS,
+): Promise<string[]> {
+  const columns = (
+    await client.query<{ name: string; column_name: string }>(
+      `select format('%I.%I', n.nspname, c.relname) as name, a.attname as column_name
+         from pg_class c
+         join pg_namespace n on n.oid = c.relnamespace
+         join pg_attribute a on a.attrelid = c.oid
+        where n.nspname = any($1::text[])
+          and c.relkind in ('r', 'p', 'v', 'm')
+          and a.attnum > 0
+          and not a.attisdropped
+        order by 1, a.attnum`,
+      [[...schemas]],
+    )
+  ).rows;
+  const problems: string[] = [];
+  for (const { name, column_name: column } of columns) {
+    if (column === 'principal_id' || column === 'project_id') {
+      problems.push(`${name}.${column}: infrastructure holds no tenant columns`);
+    }
+    if (readsLikePersonalData(column)) {
+      problems.push(`${name}.${column}: reads like personal data, which belongs in recipient_pii`);
+    }
+  }
+  return problems;
+}
+
+// Every function that runs with its owner's rights. A definer function is a way
+// past row level security, so each is a decision someone made, and one not listed
+// here fails the catalog test. The last four are the job queue's cross-tenant
+// paths: the one way into the queue, and the cron fan-out.
+export const DEFINER_ALLOWLIST: readonly string[] = [
+  'ops.active_routing_config()',
+  'ops.active_signing_keys(text[])',
+  'ops.chain_cursor(text)',
+  'ops.advance_chain_cursor(text,text)',
+  'ops.email_quota_take(text,text,integer,integer)',
+  'ops.flag_mandate(text,text)',
+  'ops.flag_mandate(text,text,text)',
+  'ops.identity_provider_event_seen(text,text,text)',
+  'ops.mandate_alerts_after(bigint,integer)',
+  'ops.register_mandate(text,text,text,bytea,bytea,bigint,bigint)',
+  'ops.registered_mandate(text,text)',
+  'ops.take_rate_limit_tokens(text[],integer[],integer[])',
+  'ujira.check_payout_booking()',
+  'ops.advance_alert_delivery_cursor(text,bigint)',
+  'ops.alert_delivery_cursor(text)',
+  'ops.lease_executor(text,text,integer)',
+  'ops.record_identity_provider_event(text,text,text,bytea)',
+  'ops.release_executor(text,text,text,bigint)',
+  'ujira.attestation_pending(bytea)',
+  'ujira.audit_chain()',
+  'ujira.authenticate_embed_token(bytea)',
+  'ujira.authenticate_token(text)',
+  'ujira.exchange_embed_invite(bytea,bytea,text,integer,text)',
+  'ujira.create_principal(text,text,uuid,text)',
+  'ujira.ledger_balanced()',
+  'ujira.ledger_stamp()',
+  'ujira.recipient_identity_scope(uuid)',
+  'ujira.resolve_mandate_address(text,text)',
+  'ujira.resolve_mandate_instance(text,text)',
+  'ujira.due_attempt_deadlines(timestamp with time zone,integer)',
+  'ujira.overdue_fee_refunds(integer)',
+  'ujira.funding_hold_targets(uuid,uuid,text,integer)',
+  'ujira.lapsed_cancel_targets(uuid,integer)',
+  'ujira.reconcile_targets(uuid,integer)',
+  'ujira.resolve_funding_address(text,text)',
+  'ujira_jobs.enqueue(text,jsonb,text,text,timestamp with time zone,integer,text,text)',
+];
+
+export async function definerProblems(
+  client: pg.ClientBase,
+  allowlist: readonly string[] = DEFINER_ALLOWLIST,
+): Promise<string[]> {
+  const found = (
+    await client.query<{ fn: string }>(
+      `select p.oid::regprocedure::text as fn
+         from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+        where p.prosecdef
+          and n.nspname not in ('pg_catalog', 'information_schema')
+        order by 1`,
+    )
+  ).rows.map((row) => row.fn);
+  const listed = new Set(allowlist);
+  const present = new Set(found);
+  return [
+    ...found
+      .filter((fn) => !listed.has(fn))
+      .map((fn) => `${fn}: a security definer function not on the allowlist`),
+    ...allowlist
+      .filter((fn) => !present.has(fn))
+      .map((fn) => `${fn}: on the allowlist, and not in the database`),
+  ];
 }

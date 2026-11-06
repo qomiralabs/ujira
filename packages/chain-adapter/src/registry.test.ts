@@ -59,6 +59,7 @@ function fakeAdapter(network: NetworkId, overrides: Partial<ChainAdapter> = {}):
     payBatch: unsupported,
     status: unsupported,
     proveDead: unsupported,
+    cancelLapsed: unsupported,
     receipt: unsupported,
     verifyReceipt: unsupported,
     ...overrides,
