@@ -3,7 +3,7 @@
 
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import type { z } from 'zod';
+import type * as z from 'zod/mini';
 
 import { ApiKeyIssued, ApiKeyPage, ApiKeyRotated, ApiKeyView } from '../src/data/api-keys';
 import { FAKE_STEP_UP_CODE, type FakeApi, type FakeApiOptions } from '../src/data/fake-api';
@@ -245,7 +245,7 @@ test.describe('api-keys.spec.ts', () => {
     await revoke.getByRole('button', { name: 'Revoke key' }).click();
     await expect(row(page, 'Reporting')).toContainText('Revoked');
 
-    const schemaFor = (method: string, path: string): z.ZodType | null => {
+    const schemaFor = (method: string, path: string): z.ZodMiniType | null => {
       if (method === 'GET' && path === '/v1/api-keys') return ApiKeyPage;
       if (method === 'POST' && path === '/v1/api-keys') return ApiKeyIssued;
       if (path.endsWith('/rotate')) return ApiKeyRotated;

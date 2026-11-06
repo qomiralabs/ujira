@@ -8,7 +8,8 @@
 // A new key's whole text arrives in exactly one answer, the one that creates
 // or rotates it. The list never carries it.
 
-import { z } from 'zod';
+// The functional build of zod, so a page carries only the checks it uses.
+import * as z from 'zod/mini';
 
 import type { DataClient } from './client';
 
@@ -48,28 +49,25 @@ const Timestamp = z.iso.datetime();
 /** What a person calls a key. Control characters would break a log line or a screen. */
 export const ApiKeyName = z
   .string()
-  .trim()
-  .min(1)
-  .max(API_KEY_NAME_MAX)
-  .regex(/^\P{Cc}+$/u);
+  .check(z.trim(), z.minLength(1), z.maxLength(API_KEY_NAME_MAX), z.regex(/^\P{Cc}+$/u));
 
 // `ujk_<env>_<id>`, the public part that names a key.
-const KeyPrefix = z.string().regex(/^ujk_(live|test)_[a-z2-7]{16}$/);
+const KeyPrefix = z.string().check(z.regex(/^ujk_(live|test)_[a-z2-7]{16}$/));
 // The prefix, the secret and its checksum.
-const KeyText = z.string().regex(/^ujk_(live|test)_[a-z2-7]{16}_[a-z2-7]{59}$/);
+const KeyText = z.string().check(z.regex(/^ujk_(live|test)_[a-z2-7]{16}_[a-z2-7]{59}$/));
 
 const viewFields = {
   principalId: Uuid,
   projectId: Uuid,
   id: Uuid,
   /** Null only on a key made before keys had names. */
-  name: z.string().nullable(),
+  name: z.nullable(z.string()),
   prefix: KeyPrefix,
   // Plain strings: a scope added to the API later must not break the list.
   scopes: z.array(z.string()),
   expiresAt: Timestamp,
-  revokedAt: Timestamp.nullable(),
-  rotatedFromId: Uuid.nullable(),
+  revokedAt: z.nullable(Timestamp),
+  rotatedFromId: z.nullable(Uuid),
   createdAt: Timestamp,
 };
 
@@ -79,7 +77,7 @@ export type ApiKeyView = z.infer<typeof ApiKeyView>;
 export const ApiKeyListItem = z.strictObject({
   ...viewFields,
   /** Accurate to about five minutes. Null for a key never used. */
-  lastUsedAt: Timestamp.nullable(),
+  lastUsedAt: z.nullable(Timestamp),
 });
 export type ApiKeyListItem = z.infer<typeof ApiKeyListItem>;
 
@@ -88,44 +86,40 @@ const keyMatchesPrefix = (value: { key: string; prefix: string }) =>
 
 export const ApiKeyIssued = z
   .strictObject({ ...viewFields, key: KeyText })
-  .refine(keyMatchesPrefix, { path: ['key'] });
+  .check(z.refine(keyMatchesPrefix, { path: ['key'] }));
 export type ApiKeyIssued = z.infer<typeof ApiKeyIssued>;
 
 export const ApiKeyRotated = z
   .strictObject({ ...viewFields, key: KeyText, previousKeyExpiresAt: Timestamp })
-  .refine(keyMatchesPrefix, { path: ['key'] });
+  .check(z.refine(keyMatchesPrefix, { path: ['key'] }));
 export type ApiKeyRotated = z.infer<typeof ApiKeyRotated>;
 
-const Cursor = z
-  .string()
-  .min(1)
-  .max(1024)
-  .regex(/^[A-Za-z0-9_-]+$/);
+const Cursor = z.string().check(z.minLength(1), z.maxLength(1024), z.regex(/^[A-Za-z0-9_-]+$/));
 
 export const ApiKeyPage = z.strictObject({
   items: z.array(ApiKeyListItem),
-  nextCursor: Cursor.nullable(),
+  nextCursor: z.nullable(Cursor),
 });
 export type ApiKeyPage = z.infer<typeof ApiKeyPage>;
 
-const Scopes = z
-  .array(z.enum(API_SCOPES))
-  .min(1)
-  .max(API_SCOPES.length)
-  .refine((scopes) => new Set(scopes).size === scopes.length);
+const Scopes = z.array(z.enum(API_SCOPES)).check(
+  z.minLength(1),
+  z.maxLength(API_SCOPES.length),
+  z.refine((scopes) => new Set(scopes).size === scopes.length),
+);
 
 export const CreateApiKeyRequest = z.union([
-  z.strictObject({ name: ApiKeyName, scopes: Scopes, expiresInDays: z.number().int() }),
+  z.strictObject({ name: ApiKeyName, scopes: Scopes, expiresInDays: z.int() }),
   z.strictObject({
     name: ApiKeyName,
     preset: z.enum(API_KEY_PRESET_IDS),
-    expiresInDays: z.number().int(),
+    expiresInDays: z.int(),
   }),
 ]);
 export type CreateApiKeyRequest = z.infer<typeof CreateApiKeyRequest>;
 
 export const RotateApiKeyRequest = z.strictObject({
-  overlapHours: z.number().int().min(0).max(API_KEY_MAX_OVERLAP_HOURS),
+  overlapHours: z.int().check(z.minimum(0), z.maximum(API_KEY_MAX_OVERLAP_HOURS)),
 });
 
 export interface ListOptions {

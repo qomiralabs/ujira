@@ -10,7 +10,7 @@
 // secret that may be shown once (a new API key), so a body is never put into
 // an error, a message or a cache.
 
-import { z } from 'zod';
+import * as z from 'zod/mini';
 
 export type Method = 'GET' | 'POST';
 
@@ -22,7 +22,8 @@ export interface RequestSpec<T> {
   project: string;
   query?: Readonly<Record<string, string | undefined>>;
   body?: unknown;
-  schema: z.ZodType<T>;
+  /** Any zod schema, the full build or the functional one. */
+  schema: z.core.$ZodType<T>;
   signal?: AbortSignal | undefined;
 }
 
@@ -93,13 +94,19 @@ export function referenceOf(error: unknown): string | undefined {
 // Lenient on purpose: the API adds codes over time, and a code this build has
 // never seen must still read as a problem, not as a broken answer.
 const ProblemBody = z.object({
-  status: z.number().int().min(400).max(599),
-  code: z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/),
-  requestId: z.string().regex(/^[A-Za-z0-9_-]{8,128}$/),
-  errors: z
-    .array(z.object({ field: z.string().min(1).max(200), code: z.string().min(1).max(64) }))
-    .max(50)
-    .optional(),
+  status: z.int().check(z.minimum(400), z.maximum(599)),
+  code: z.string().check(z.regex(/^[A-Z][A-Z0-9_]{1,63}$/)),
+  requestId: z.string().check(z.regex(/^[A-Za-z0-9_-]{8,128}$/)),
+  errors: z.optional(
+    z
+      .array(
+        z.object({
+          field: z.string().check(z.minLength(1), z.maxLength(200)),
+          code: z.string().check(z.minLength(1), z.maxLength(64)),
+        }),
+      )
+      .check(z.maxLength(50)),
+  ),
 });
 
 function urlFor(spec: RequestSpec<unknown>, baseUrl: string): URL {
@@ -168,7 +175,7 @@ export function createDataClient(options: DataClientOptions = {}): DataClient {
       }
 
       if (!body.ok) throw new DataError('invalid_response', response.status, headerId);
-      const parsed = spec.schema.safeParse(body.value);
+      const parsed = z.safeParse(spec.schema, body.value);
       // The issues are dropped, not attached: they can quote the input, and
       // the input can be a secret.
       if (!parsed.success) throw new DataError('invalid_response', response.status, headerId);

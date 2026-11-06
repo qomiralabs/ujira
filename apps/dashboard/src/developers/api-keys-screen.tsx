@@ -5,7 +5,16 @@
 
 import { AlertDialog, Button } from '@ujira/ui';
 import { Ban, CircleAlert, CircleCheck, KeyRound, Plus, RotateCw } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type Ref,
+} from 'react';
 
 import { apiKeysApi, type ApiKeyListItem } from '../data/api-keys';
 import { referenceOf } from '../data/client';
@@ -16,12 +25,17 @@ import { ErrorState } from '../patterns/error-state';
 import { PageHeader } from '../patterns/page-header';
 import { NAV_ITEMS } from '../shell/nav';
 import { PLACEHOLDERS } from '../shell/placeholders';
-import { CreateKeyDialog } from './create-key-dialog';
 import { keyLabel, overlapEnds } from './key-status';
 import { KeysList, KeysListSkeleton, type KeyAction } from './keys-list';
 import { RevealKeyDialog, type RevealedKey } from './reveal-key-dialog';
 import { StepUpCancelled, StepUpProvider, useStepUp } from './step-up';
 import { useApiKeys } from './use-api-keys';
+
+// The form and its controls load when someone opens it, so the list itself
+// stays within the page budget.
+const CreateKeyDialog = lazy(() =>
+  import('./create-key-dialog').then((loaded) => ({ default: loaded.CreateKeyDialog })),
+);
 
 /** How long a rotated key keeps working, so software can move to its successor. */
 export const ROTATION_OVERLAP_HOURS = 24;
@@ -289,20 +303,22 @@ function Screen({ project }: { project: string }) {
       </section>
 
       {creating ? (
-        <CreateKeyDialog
-          api={api}
-          project={project}
-          now={now}
-          onCancel={() => {
-            setCreating(false);
-          }}
-          onCreated={(issued) => {
-            setCreating(false);
-            setRevealFocus('create');
-            setRevealed({ secret: issued.key, label: `Key for ${keyLabel(issued)}` });
-            reload();
-          }}
-        />
+        <Suspense fallback={null}>
+          <CreateKeyDialog
+            api={api}
+            project={project}
+            now={now}
+            onCancel={() => {
+              setCreating(false);
+            }}
+            onCreated={(issued) => {
+              setCreating(false);
+              setRevealFocus('create');
+              setRevealed({ secret: issued.key, label: `Key for ${keyLabel(issued)}` });
+              reload();
+            }}
+          />
+        </Suspense>
       ) : null}
 
       {target?.action === 'revoke' ? (

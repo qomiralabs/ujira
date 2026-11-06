@@ -6,7 +6,7 @@
 // key. It answers STEP_UP_REQUIRED until one has been given in the last five
 // minutes.
 
-import { z } from 'zod';
+import * as z from 'zod/mini';
 
 import { ApiProblem, type DataClient } from './client';
 
@@ -15,7 +15,7 @@ export const STEP_UP_REQUIRED = 'STEP_UP_REQUIRED';
 /** The code was wrong or too old. */
 export const STEP_UP_CODE_INVALID = 'STEP_UP_CODE_INVALID';
 
-export const StepUpCode = z.string().regex(/^[0-9]{6}$/);
+export const StepUpCode = z.string().check(z.regex(/^[0-9]{6}$/));
 
 export function needsStepUp(error: unknown): boolean {
   return error instanceof ApiProblem && error.code === STEP_UP_REQUIRED;
