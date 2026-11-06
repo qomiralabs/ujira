@@ -295,3 +295,14 @@ export {
   type InstanceOfMandate,
   type UsableMethod,
 } from './repositories/routing.js';
+export {
+  FeeAttemptLandedError,
+  FeeAttemptUnknownError,
+  FeeResendNotDecidedError,
+  feeAddressAlarms,
+  feeFallback,
+  type FeeAddressAlarmReason,
+  type FeeResend,
+  type NewFeeResend,
+  type UnpaidFeeItem,
+} from './repositories/fee-fallback.js';

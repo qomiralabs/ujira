@@ -63,6 +63,11 @@ import {
   tenancyRepositories,
 } from './repositories/tenancy.js';
 import { payoutBookings } from './repositories/mandate-registry.js';
+import {
+  FeeAttemptUnknownError,
+  feeFallback,
+  feeFallbackRepositories,
+} from './repositories/fee-fallback.js';
 import { caseProblems, methodNames } from './testing/cross-tenant.js';
 import { databaseAsServiceRoles } from './testing/databases.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
@@ -99,6 +104,7 @@ interface Tenant {
   readonly payoutId: string;
   readonly batchId: string;
   readonly attemptId: string;
+  readonly attemptChainId: string;
   readonly heldPayoutId: string;
   readonly legId: string;
   readonly sessionId: string;
@@ -120,6 +126,7 @@ const REPOSITORIES = {
   ...payoutRepositories,
   ...routingRepositories,
   ...legRepositories,
+  ...feeFallbackRepositories,
   payoutBookings,
 };
 
@@ -361,6 +368,7 @@ async function tenant(name: string): Promise<Tenant> {
       agentLinkId: agentLink.id,
     };
   });
+  const attemptChainId = randomUUID();
   const { payoutId, batchId, attemptId, heldPayoutId, legId } = await db
     .tenant(first)
     .transaction(async (tx) => {
@@ -385,6 +393,7 @@ async function tenant(name: string): Promise<Tenant> {
         network: 'stellar:testnet',
         total: tokenAmount(50_000_000n, 'USDC', 'stellar'),
         deadline: new Date(Date.now() + 3_600_000),
+        onChainPayoutId: attemptChainId,
         legs: [
           {
             payoutMethodId: evidence.methodId,
@@ -449,6 +458,7 @@ async function tenant(name: string): Promise<Tenant> {
     payoutId,
     batchId,
     attemptId,
+    attemptChainId,
     heldPayoutId,
     legId,
   };
@@ -1431,6 +1441,32 @@ const cases: Record<string, () => Promise<void>> = {
   'payoutAttempts.get': async () => {
     expect(await acrossA(async (tx) => payoutAttempts.get(tx, b.attemptId))).toBeUndefined();
     expect(await acrossA(async (tx) => payoutAttempts.get(tx, a.attemptId))).toBeDefined();
+  },
+  'feeFallback.decide': async () => {
+    await expect(asA((tx) => feeFallback.decide(tx, b.attemptChainId))).rejects.toBeInstanceOf(
+      FeeAttemptUnknownError,
+    );
+  },
+  'feeFallback.decided': async () => {
+    await expect(
+      acrossA((tx) => feeFallback.decided(tx, b.attemptChainId)),
+    ).rejects.toBeInstanceOf(FeeAttemptUnknownError);
+  },
+  'feeFallback.resend': async () => {
+    await expect(
+      asA((tx) =>
+        feeFallback.resend(tx, {
+          failedOnChainId: b.attemptChainId,
+          proof: { kind: 'payout_lapsed' },
+          fee: tokenAmount(1n, 'USDC', 'stellar'),
+          deadline: new Date(Date.now() + 3_600_000),
+          chainIdFor: () => randomUUID(),
+        }),
+      ),
+    ).rejects.toBeInstanceOf(FeeAttemptUnknownError);
+  },
+  'feeFallback.unpaidForPayout': async () => {
+    expect(await acrossA((tx) => feeFallback.unpaidForPayout(tx, b.payoutId))).toBeUndefined();
   },
   'payoutAttempts.forPayout': async () => {
     expect(await acrossA(async (tx) => payoutAttempts.forPayout(tx, b.payoutId))).toEqual([]);
