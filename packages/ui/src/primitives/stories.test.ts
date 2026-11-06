@@ -8,23 +8,58 @@ import { join } from 'node:path';
 import { composeStories } from '@storybook/react-vite';
 import { cleanup, render } from '@testing-library/react';
 import { createElement } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { THEMES } from '../../.storybook/modes.ts';
 import preview from '../../.storybook/preview.tsx';
+import * as alertDialog from '../../stories/alert-dialog.stories.tsx';
 import * as button from '../../stories/button.stories.tsx';
 import * as checkbox from '../../stories/checkbox.stories.tsx';
+import * as command from '../../stories/command.stories.tsx';
+import * as dialog from '../../stories/dialog.stories.tsx';
+import * as dropdownMenu from '../../stories/dropdown-menu.stories.tsx';
 import * as field from '../../stories/field.stories.tsx';
 import * as input from '../../stories/input.stories.tsx';
 import * as label from '../../stories/label.stories.tsx';
 import * as radioGroup from '../../stories/radio-group.stories.tsx';
 import * as select from '../../stories/select.stories.tsx';
 import * as separator from '../../stories/separator.stories.tsx';
+import * as sheet from '../../stories/sheet.stories.tsx';
 import * as skeleton from '../../stories/skeleton.stories.tsx';
 import * as switchStories from '../../stories/switch.stories.tsx';
 import * as textarea from '../../stories/textarea.stories.tsx';
 import * as tooltip from '../../stories/tooltip.stories.tsx';
 
 afterEach(cleanup);
+
+// The command list measures itself with ResizeObserver and scrolls its
+// selected item into view, and jsdom has neither. Nothing here depends on a
+// size or a scroll position, so stand-ins that do nothing are enough.
+class StillObserver {
+  observe(): void {
+    // jsdom lays nothing out, so there is nothing to report.
+  }
+  unobserve(): void {
+    // Nothing was observed.
+  }
+  disconnect(): void {
+    // Nothing was observed.
+  }
+}
+
+beforeAll(() => {
+  if (!Reflect.has(globalThis, 'ResizeObserver')) {
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      value: StillObserver,
+      configurable: true,
+    });
+  }
+  if (!Reflect.has(Element.prototype, 'scrollIntoView')) {
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      value: () => undefined,
+      configurable: true,
+    });
+  }
+});
 
 type StoryModule = Record<string, unknown> & { default: Record<string, unknown> };
 
@@ -33,14 +68,22 @@ type StoryModule = Record<string, unknown> & { default: Record<string, unknown> 
 const CONTROL = ['Default', 'Hover', 'Focus', 'Disabled', 'Invalid'];
 
 const CATALOGUE: Record<string, { module: StoryModule; required: string[] }> = {
+  'alert-dialog': {
+    module: alertDialog,
+    required: ['Default', 'Open', 'OpenTypedConfirmation', 'OpenPending'],
+  },
   button: { module: button, required: ['Default', 'Hover', 'Focus', 'Disabled', 'Loading'] },
   checkbox: { module: checkbox, required: CONTROL },
+  command: { module: command, required: ['Default', 'NoResults'] },
+  dialog: { module: dialog, required: ['Default', 'Open', 'OpenPending'] },
+  'dropdown-menu': { module: dropdownMenu, required: ['Default', 'Open'] },
   field: { module: field, required: ['Default', 'Focus', 'Disabled', 'Invalid'] },
   input: { module: input, required: CONTROL },
   label: { module: label, required: ['Default', 'Disabled'] },
   'radio-group': { module: radioGroup, required: CONTROL },
   select: { module: select, required: [...CONTROL, 'Open'] },
   separator: { module: separator, required: ['Default'] },
+  sheet: { module: sheet, required: ['Default', 'Open'] },
   skeleton: { module: skeleton, required: ['Default'] },
   switch: { module: switchStories, required: CONTROL },
   textarea: { module: textarea, required: CONTROL },

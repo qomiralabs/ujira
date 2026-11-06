@@ -74,7 +74,9 @@ import type {
 } from '../types.js';
 import { isUnpayableAddress, settlementAddressesOf } from '../unpayable.js';
 import { addressXdr } from './address-xdr.js';
+import { signaturesAuthorize } from './account-signers.js';
 import { invocationOf } from './calls.js';
+import type { StellarLedgerReader } from './check-destination.js';
 import type { Invocation } from './calls.js';
 import { wrapInFeeBump } from './contract-call.js';
 import { ExecutorSession, sendAndRecord } from './executor.js';
@@ -92,6 +94,7 @@ import type { ReconcileResult, SweepOptions } from './lifecycle.js';
 import type { DestinationState } from './destination-check.js';
 import { mandateAddressOf } from './mandate-address.js';
 import { StellarFunding } from './funding.js';
+import { createStellarLedgerReader } from './ledger-reader.js';
 import { StellarPayouts } from './pay.js';
 import type { ExecutionMirror } from './pay.js';
 import type { PayoutMethodSource } from '../types.js';
@@ -116,7 +119,7 @@ import {
   parseEnvelope,
   readTx,
   returned,
-  signedBy,
+  signaturesBy,
   simulate,
   simulatedData,
   txHash,
@@ -218,6 +221,7 @@ function stroops(network: StellarNetworkId, amount: bigint): NativeAmount {
 export class StellarMandateAdapter implements StellarMandateOperations {
   readonly network: StellarNetworkId;
   readonly #rpc: StellarRpc;
+  readonly #ledger: StellarLedgerReader;
   readonly #ports: AdapterPorts;
   readonly #requests: SigningRequestStore;
   readonly #trust: MandateTrust;
@@ -233,6 +237,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
   constructor(options: StellarMandateAdapterOptions) {
     this.network = options.network;
     this.#rpc = options.rpc;
+    this.#ledger = createStellarLedgerReader(options.rpc);
     this.#ports = options.ports;
     this.#requests = options.requests;
     this.#trust = new MandateTrust(
@@ -689,7 +694,7 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     }
     const signed =
       request.kind === 'stellar_transaction'
-        ? { kind: 'tx' as const, tx: this.#checkedTransaction(request, req.signed) }
+        ? { kind: 'tx' as const, tx: await this.#checkedTransaction(request, req.signed, opts) }
         : { kind: 'entry' as const, entry: this.#checkedEntry(request, req.signed) };
     const earlier = await this.#requests.claim(req.scope, request.requestId, req.signed);
     if (earlier !== null) return this.#replay(earlier, req.signed, opts);
@@ -841,17 +846,39 @@ export class StellarMandateAdapter implements StellarMandateOperations {
     };
   }
 
-  /** The signed transaction, if its body is byte for byte the one built and the signer signed it. */
-  #checkedTransaction(request: StoredSigningRequest, signedXdr: string): Transaction {
+  /**
+   * The signed transaction, if its body is byte for byte the one built and its
+   * signatures authorize the signer's account as it stands on the ledger now.
+   * Any of the account's signers can make up the weight, so a multisig whose
+   * master key is off can act; anything short of the threshold, or carrying a
+   * signature the account does not list, is refused before the sponsor pays.
+   */
+  async #checkedTransaction(
+    request: StoredSigningRequest,
+    signedXdr: string,
+    opts: CallOptions,
+  ): Promise<Transaction> {
     const { network } = this;
     const signed = parseEnvelope(signedXdr, network);
     const built = parseEnvelope(request.payload, network);
     if (
       'innerTransaction' in signed ||
       'innerTransaction' in built ||
-      signed.tx.toXdr('base64') !== built.tx.toXdr('base64') ||
-      !signedBy(signed, request.signer)
+      signed.tx.toXdr('base64') !== built.tx.toXdr('base64')
     ) {
+      throw new SignedPayloadMismatchError({ network });
+    }
+    const [entry] = await this.#ledger.getLedgerEntries(
+      network,
+      [{ kind: 'account', accountId: request.signer }],
+      opts,
+    );
+    if (entry?.kind !== 'account') throw new SignedPayloadMismatchError({ network });
+    const keys = [
+      entry.accountId,
+      ...entry.signers.filter((s) => s.kind === 'ed25519').map((s) => s.key),
+    ];
+    if (!signaturesAuthorize(entry, signaturesBy(signed, keys))) {
       throw new SignedPayloadMismatchError({ network });
     }
     return signed;

@@ -10,7 +10,8 @@
 // the mirror of what happened on chain, chain events, roles and deposits. The
 // grants enforce that split, whichever method is called.
 
-import type { CountryCode } from '@ujira/chain-adapter';
+import { INSTANCE_MOVES } from '@ujira/chain-adapter';
+import type { CountryCode, InstanceMove } from '@ujira/chain-adapter';
 import type { TokenAmount } from '@ujira/core';
 import { countryPolicyHash } from '@ujira/identity';
 import { sql, type Kysely, type UpdateObject } from 'kysely';
@@ -151,6 +152,8 @@ export interface NewMandateInstance {
   readonly asset: string;
   readonly scale: number;
   readonly attesterPublicKey?: Buffer | null;
+  // From the config the contract was created with. Fixed once known.
+  readonly recipientMode?: 'allowlist' | 'attested' | 'both' | null;
 }
 
 const instanceColumns = [
@@ -268,10 +271,42 @@ export const mandateInstances = {
         scale: input.scale,
         attester_public_key: input.attesterPublicKey ?? null,
         country_policy_hash: hash,
+        recipient_mode: input.recipientMode ?? null,
       })
       .returning(instanceColumns)
       .executeTakeFirstOrThrow();
     return toInstance(row);
+  },
+
+  // For an instance recorded before its mode was known, such as one claimed after the
+  // chain was read. False when it was already set, to this or any other value: the
+  // contract never changes it, and neither does this.
+  setRecipientMode: async (
+    db: Tx,
+    id: string,
+    mode: 'allowlist' | 'attested' | 'both',
+  ): Promise<boolean> => {
+    const result = await db
+      .updateTable('ujira.mandate_instances')
+      .set({ recipient_mode: mode })
+      .where('id', '=', id)
+      .where('recipient_mode', 'is', null)
+      .executeTakeFirst();
+    return result.numUpdatedRows > 0n;
+  },
+
+  // As the chain said, and only from a state the move starts from, so a replayed or
+  // out of turn event changes nothing. True when it moved. Only the indexer's login
+  // may change an instance's status; any other is refused (42501).
+  move: async (db: Tx, id: string, move: InstanceMove): Promise<boolean> => {
+    const { from, to } = INSTANCE_MOVES[move];
+    const result = await db
+      .updateTable('ujira.mandate_instances')
+      .set({ status: to })
+      .where('id', '=', id)
+      .where('status', 'in', [...from])
+      .executeTakeFirst();
+    return result.numUpdatedRows > 0n;
   },
 };
 

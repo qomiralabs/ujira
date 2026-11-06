@@ -9,9 +9,22 @@ import { typeScale } from '../tokens/index.js';
 const HERE = import.meta.dirname;
 const THEME_CSS = join(HERE, '..', '..', 'styles', 'theme.css');
 
-const sources = readdirSync(HERE)
-  .filter((file) => /\.tsx?$/.test(file) && !file.includes('.test.'))
-  .map((file) => ({ file, text: readFileSync(join(HERE, file), 'utf8') }));
+// The primitives, and every other folder of components that draws colour.
+const COMPONENT_DIRS = [
+  HERE,
+  join(HERE, '..', 'money'),
+  join(HERE, '..', 'payments'),
+  join(HERE, '..', 'patterns'),
+  join(HERE, '..', 'patterns', 'data-table'),
+];
+
+const sources = COMPONENT_DIRS.flatMap((dir) =>
+  readdirSync(dir)
+    .filter(
+      (file) => /\.tsx?$/.test(file) && !file.includes('.test.') && !file.includes('.test-d.'),
+    )
+    .map((file) => ({ file, text: readFileSync(join(dir, file), 'utf8') })),
+);
 
 const RAW_COLOUR = [/#[0-9a-f]{3,8}\b/gi, /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/gi];
 
@@ -25,8 +38,21 @@ const themeColours = new Set(
 );
 
 // Suffixes of colour prefixes that are not colours.
-const NOT_COLOURS = new Set([...Object.keys(typeScale), 'transparent', 'left', 'center', 'right']);
-const NOT_COLOUR_PREFIX = /^(?:offset|none|hidden|solid|dashed|dotted)/;
+// Text alignment (text-start, text-end) and table borders (border-separate,
+// border-collapse, border-spacing-0) share the colour prefixes too.
+const NOT_COLOURS = new Set([
+  ...Object.keys(typeScale),
+  'transparent',
+  'left',
+  'center',
+  'right',
+  'start',
+  'end',
+  'justify',
+  'separate',
+  'collapse',
+]);
+const NOT_COLOUR_PREFIX = /^(?:offset|none|hidden|solid|dashed|dotted|spacing)/;
 // A per edge border width such as border-r-2 or border-y-0, and a bare edge
 // such as border-x: widths, not colours.
 const EDGE_WIDTH = /^[xytrbl](?:-\d+(?:\.\d+)?)?$/;
@@ -59,6 +85,8 @@ describe('no raw colours', () => {
     expect(unknownColours('transition-[color,border-color]')).toEqual([]);
     expect(unknownColours('border-r-2 border-y-0 border-x border-2 border-dashed')).toEqual([]);
     expect(unknownColours('border-r-2 border-fuchsia-500')).toEqual(['fuchsia-500']);
+    expect(unknownColours('text-start text-end border-separate border-spacing-0')).toEqual([]);
+    expect(unknownColours('text-end-500 border-spacious')).toEqual(['end-500', 'spacious']);
     expect(foreignVariables('bg-(--tw-foo) bg-(--ujira-saffron-lift)')).toEqual(['--tw-foo']);
   });
 

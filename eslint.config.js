@@ -196,6 +196,79 @@ const noNumberConversion = {
   },
 };
 
+// Props that carry an amount on an amount component, and the functions whose
+// first argument is one.
+const AMOUNT_PROPS = new Set(['value', 'minor', 'secondary']);
+const AMOUNT_COMPONENT = /(?:^|\.)(?:Amount|TokenAmount)$/;
+const AMOUNT_FUNCTIONS = new Set(['formatMoney', 'money', 'moneyAt', 'tokenAmount']);
+
+/**
+ * An amount on screen is a Money or integer minor units, never a number. The
+ * component and formatter types already refuse one; this catches a number
+ * that gets there through a cast or an any. Every layer of a type assertion
+ * is checked, so `96 as unknown as bigint` is still a number.
+ * @type {import('eslint').Rule.RuleModule}
+ */
+const noNumberAmount = {
+  meta: {
+    type: 'problem',
+    docs: { description: 'Disallow a number as an amount on an amount component or formatter' },
+    schema: [],
+    messages: {
+      number: 'An amount is never a number. Pass a Money or bigint minor units.',
+    },
+  },
+  create(context) {
+    const isNumber = numberTypeOracle(context, 'ujira/no-number-amount');
+    /** @param {unknown} node */
+    const holdsNumber = (node) => {
+      let current = isNode(node) ? node : undefined;
+      while (current !== undefined) {
+        if (isNumber(current)) return true;
+        current = WRAPPERS.has(current.type) ? child(current, 'expression') : undefined;
+      }
+      return false;
+    };
+    /** @param {unknown} name @returns {string} */
+    const elementName = (name) => {
+      if (field(name, 'type') === 'JSXMemberExpression') {
+        return `${elementName(field(name, 'object'))}.${String(field(child(name, 'property'), 'name'))}`;
+      }
+      return String(field(name, 'name'));
+    };
+    return {
+      /** @param {unknown} node */
+      JSXAttribute(node) {
+        const name = field(child(node, 'name'), 'name');
+        if (typeof name !== 'string' || !AMOUNT_PROPS.has(name)) return;
+        const element = elementName(field(field(node, 'parent'), 'name'));
+        if (!AMOUNT_COMPONENT.test(element)) return;
+        const value = child(node, 'value');
+        if (value?.type !== 'JSXExpressionContainer') return;
+        const expression = child(value, 'expression');
+        if (expression !== undefined && holdsNumber(expression)) {
+          context.report({
+            node: /** @type {import('eslint').Rule.Node} */ (node),
+            messageId: 'number',
+          });
+        }
+      },
+      CallExpression(node) {
+        const callee = unwrap(node.callee);
+        const name =
+          callee?.type === 'MemberExpression'
+            ? field(child(callee, 'property'), 'name')
+            : field(callee, 'name');
+        if (typeof name !== 'string' || !AMOUNT_FUNCTIONS.has(name)) return;
+        const [first] = node.arguments;
+        if (first !== undefined && first.type !== 'SpreadElement' && holdsNumber(first)) {
+          context.report({ node, messageId: 'number' });
+        }
+      },
+    };
+  },
+};
+
 const STRING_TESTS = new Set(['startsWith', 'endsWith', 'includes', 'match', 'search']);
 
 /** @param {string} text */
@@ -789,6 +862,7 @@ export default defineConfig(
           'license-header': licenseHeader,
           'no-number-arithmetic': noNumberArithmetic,
           'no-number-conversion': noNumberConversion,
+          'no-number-amount': noNumberAmount,
           'no-chain-branching': noChainBranching,
         },
       },
@@ -913,6 +987,16 @@ export default defineConfig(
         ...NETWORK_GLOBAL_PROPERTIES,
       ],
       'no-restricted-globals': ['error', ...NETWORK_GLOBALS],
+    },
+  },
+  {
+    // An amount reaches the screen as a Money or integer minor units. Tests
+    // are exempt because they pass numbers in to prove they are refused.
+    files: ['packages/**/*.{ts,tsx,mts,cts}', 'apps/**/*.{ts,tsx,mts,cts}'],
+    ignores: ['**/*.{test,spec}.{ts,tsx,mts,cts}', '**/*.test-d.ts'],
+    linterOptions: { noInlineConfig: true },
+    rules: {
+      'ujira/no-number-amount': 'error',
     },
   },
   {

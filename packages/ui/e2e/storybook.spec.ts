@@ -8,13 +8,20 @@ import { loadStories, openStory, SNAPSHOTS } from './stories.ts';
 
 const WCAG_AA = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
-// An open select is modal: it hides the rest of the page from assistive
-// technology and keeps focus inside its list. axe still reports the hidden
-// trigger as focusable, so a story showing an open list checks the list only.
-// The closed trigger is checked by every other story of the component.
-// Detected from the page rather than named, so a new story that opens a list
-// cannot miss the exclusion and fail for a reason that is not its own.
-const OPEN_SELECT = '[data-slot="select-content"][data-state="open"]';
+// An open select, dialog, alert dialog, sheet or menu is modal: it hides the
+// rest of the page from assistive technology and keeps focus inside itself.
+// axe still reports the hidden trigger as focusable, so a story showing an
+// open overlay checks the overlay only. The closed trigger is checked by
+// every other story of the component. Detected from the page rather than
+// named, so a new story that opens one cannot miss the exclusion and fail for
+// a reason that is not its own.
+const OPEN_SELECT = [
+  '[data-slot="select-content"][data-state="open"]',
+  '[data-slot="dialog-content"][data-state="open"]',
+  '[data-slot="alert-dialog"][data-state="open"]',
+  '[data-slot="sheet-content"][data-state="open"]',
+  '[data-slot="dropdown-menu-content"][data-state="open"]',
+].join(', ');
 
 // Stories whose layout actually changes with the width: a row of buttons
 // wraps, a field and its hint reflow, an option list with descriptions grows.
@@ -25,6 +32,20 @@ const OPEN_SELECT = '[data-slot="select-content"][data-state="open"]';
 // it, so the extra images would show a closed control instead of the thing
 // the story exists for.
 const RESPONSIVE = new Set([
+  // The rendered amount in the four currencies whose sign comes from the
+  // second mono face, and a column of amounts: a font or alignment change
+  // shows here before it shows anywhere else.
+  'money-amount--alignment',
+  'money-amount--launch-signs',
+  // The table becomes stacked cards below the tablet width.
+  'patterns-datatable--default',
+  // The four overview cards go from one column to two to four.
+  'patterns-kpicard--overview',
+  // The meter legend stacks on a phone; the cards go from one column to two;
+  // the badges wrap.
+  'payments-mandatemeter--default',
+  'payments-payoutcard--list',
+  'payments-statusbadge--every-status',
   'primitives-button--variants',
   'primitives-button--with-icon',
   'primitives-field--with-react-hook-form',
