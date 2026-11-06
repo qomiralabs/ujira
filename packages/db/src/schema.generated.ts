@@ -479,6 +479,7 @@ export interface UjiraMandateInstances {
   network: string;
   principal_id: string;
   project_id: string;
+  recipient_mode: string | null;
   scale: number;
   spec_version: string;
   status: Generated<string>;
