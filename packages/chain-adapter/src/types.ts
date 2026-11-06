@@ -140,6 +140,18 @@ export interface ChainAdapter {
   ): Promise<MandateSnapshot>;
   prepareMandateAction(req: MandateActionRequest, opts: CallOptions): Promise<SigningRequest>;
   submitSigned(req: SignedSubmission, opts: CallOptions): Promise<SubmissionRef>;
+  /**
+   * Returns a closed mandate's whole balance to its principal: a sweep sent and
+   * paid for by UJIRA from one of its executor accounts. It takes no
+   * destination, because the contract pays only the principal it holds. A
+   * sweep the contract refuses (MANDATE_ACTIVE, NOTHING_TO_SWEEP,
+   * SWEEP_GRACE_PERIOD, PRINCIPAL_CHANGE_PENDING, TRANSFER_FAILED) throws
+   * MandateRuleError with nothing sent.
+   */
+  sweepToPrincipal(
+    req: { readonly scope: TenantScope; readonly mandate: MandateRef },
+    opts: CallOptions,
+  ): Promise<SubmissionRef>;
 
   fundingInstructions(
     req: { readonly scope: TenantScope; readonly mandate: MandateRef },

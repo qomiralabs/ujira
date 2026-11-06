@@ -2,6 +2,31 @@
 
 Smaller design decisions, each with what it was choosing between. Newest first.
 
+## A closed mandate's funds go back through a sweep that names no destination
+
+**Problem.** After a revoke or expiry the whole balance waits in the mandate for its principal, and UJIRA must return it without ever being able to send it anywhere else. The adapter had no way for UJIRA to send a mandate call itself: `prepareMandateAction` hands back something to sign, and on Stellar `submitSigned` only takes a member's signed transaction.
+
+**Options.**
+
+1. Prepare a sweep for a key UJIRA holds and submit the payload unchanged, as the fake adapter already allows. On Stellar the stored request would have to remember which key signs, and the call would be built from that key's account, outside the channel leases that keep two jobs off one sequence.
+2. A dedicated adapter call, `sweepToPrincipal({ scope, mandate })`, sent from a leased executor account that names itself as the caller, the way an execute is.
+
+**Decision.** Option 2.
+
+- The call takes no address at all. The contract pays only the principal it holds, so no input to the job can redirect the money.
+- The return job (`mandate:return_funds`, keyed per instance) reads the chain first and acts only on what it finds:
+  - a zero balance ends it
+  - a pending principal change, the grace after expiry, or an uncleared third-party inflow makes it wait
+  - TRANSFER_FAILED retries it on its own curve
+- A sweep is booked from its `swept` event, never from the job's own submission, so it is booked once whoever sent it.
+
+**Trade offs and risks.**
+
+- One more method on the chain-neutral interface, which every adapter must implement and the conformance suite now checks.
+- The third-party inflow state and the notices are ports with memory versions. Their stores arrive with the indexer's attribution.
+
+**Evidence.** The conformance suite checks the adapter call: the principal gets the whole balance and nobody else, and an open mandate, the grace, a pending change and a refused transfer are each refused before anything is sent. `return-funds.test.ts` covers the job, and `mandate-returns.test.ts` covers the booking against Postgres. `sweep.integration.test.ts` runs the call on Stellar testnet.
+
 ## Who hears of a flagged mandate, and what its deposits do
 
 **Problem.** Intake flags a mandate whose tag does not match its tenant, or whose attester key is one anyone can rebuild, and records why in `ops.mandate_alerts`. From then on it reads none of the mandate's events. Nobody read the alerts, so the mirror went quiet with nobody told.

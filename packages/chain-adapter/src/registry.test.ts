@@ -51,6 +51,7 @@ function fakeAdapter(network: NetworkId, overrides: Partial<ChainAdapter> = {}):
     readMandate: unsupported,
     prepareMandateAction: unsupported,
     submitSigned: unsupported,
+    sweepToPrincipal: unsupported,
     fundingInstructions: unsupported,
     prepareFunding: unsupported,
     scanDeposits: unsupported,

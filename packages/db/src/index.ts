@@ -151,6 +151,11 @@ export {
   type Reconciliation,
 } from './repositories/ledger.js';
 export {
+  SweepBookingConflictError,
+  mandateReturns,
+  type SweptEventInput,
+} from './repositories/returns.js';
+export {
   payoutMethods,
   recipientIdentities,
   recipientPii,

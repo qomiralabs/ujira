@@ -170,6 +170,7 @@ export type StellarMandateOperations = Pick<
   | 'readMandate'
   | 'prepareMandateAction'
   | 'submitSigned'
+  | 'sweepToPrincipal'
   | 'pay'
   | 'payBatch'
   | 'status'
@@ -422,6 +423,63 @@ export class StellarMandateAdapter implements StellarMandateOperations {
 
   prepareMandateAction(req: MandateActionRequest, opts: CallOptions): Promise<SigningRequest> {
     return this.#prepare(req, opts, 0);
+  }
+
+  /**
+   * A sweep of a closed mandate, sent from a leased executor account that names
+   * itself as the caller, so UJIRA pays the fee and no member has to sign. The
+   * call carries no destination; the contract pays its own principal. A refusal
+   * comes back from the simulation, before anything is signed or sent.
+   */
+  async sweepToPrincipal(
+    req: { readonly scope: TenantScope; readonly mandate: MandateRef },
+    opts: CallOptions,
+  ): Promise<SubmissionRef> {
+    const { network } = this;
+    const config = this.#config();
+    const target = await this.#trust.verify(req.scope, req.mandate, opts);
+    return ExecutorSession.run(this.#executor, opts, async (session) => {
+      const inv = invocationOf(
+        { op: 'sweep' },
+        {
+          mandate: target.address,
+          tenantTag: target.tenantTag,
+          caller: session.address,
+          assetContract: config.assets.USDC.sac,
+        },
+      );
+      const build = {
+        network,
+        source: session.address,
+        sequence: session.sequence,
+        maxTime: this.#ports.clock.nowSeconds() + BigInt(config.executor.txValiditySeconds),
+      };
+      const first = await simulate(this.#rpc, network, invokeTx(inv, build), inv.contract, opts);
+      const auth = first.result?.auth ?? [];
+      // Again with the authorization in place, so the footprint covers what it reads.
+      const sim = await simulate(
+        this.#rpc,
+        network,
+        invokeTx(inv, build, auth),
+        inv.contract,
+        opts,
+      );
+      const assembled = invokeTx(inv, { ...build, sorobanData: simulatedData(sim) }, auth);
+      const { hash } = await session.send(
+        assembled,
+        {
+          scope: req.scope,
+          mandate: inv.contract,
+          correlationId: opts.correlationId,
+          op: 'sweep',
+          payoutId: null,
+          attempt: null,
+        },
+        opts,
+        false,
+      );
+      return { network, txHash: hash, finality: 'none' };
+    });
   }
 
   async #prepare(
