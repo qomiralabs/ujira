@@ -37,12 +37,16 @@ export interface ComplianceNoticeRow extends NewComplianceNotice {
   readonly createdAt: Date;
 }
 
+export type ComplianceCloseReason = 'mandate_revoked' | 'mandate_expired';
+
 export interface ParkedJob {
   readonly instanceId: string;
   readonly jobId: string;
-  readonly status: 'parked' | 'resumed';
+  readonly status: 'parked' | 'resumed' | 'closed';
   readonly parkedAt: Date;
   readonly resumedAt: Date | null;
+  readonly closedAt: Date | null;
+  readonly closeReason: ComplianceCloseReason | null;
 }
 
 async function lockInstance(db: Tx, instanceId: string): Promise<void> {
@@ -133,16 +137,53 @@ export const compliance = {
       .onConflict((conflict) =>
         conflict
           .columns(['principal_id', 'project_id', 'mandate_instance_id', 'job_id'])
-          .doUpdateSet({ status: 'parked', parked_at: sql<Date>`now()`, resumed_at: null }),
+          .doUpdateSet({
+            status: 'parked',
+            parked_at: sql<Date>`now()`,
+            resumed_at: null,
+            closed_at: null,
+            close_reason: null,
+          }),
       )
       .execute();
     return true;
   },
 
+  // Under the same lock as the mark, so a job is parked before this and closed by it, or
+  // finds no mark after it and is not parked. The mark goes with no notice: the mandate
+  // stopped, it did not become compliant. In job order, so a replay reads the same.
+  closeOut: async (
+    db: Tx,
+    instanceId: string,
+    reason: ComplianceCloseReason,
+  ): Promise<readonly string[]> => {
+    await lockInstance(db, instanceId);
+    await db
+      .deleteFrom('ujira.compliance_marks')
+      .where('mandate_instance_id', '=', instanceId)
+      .execute();
+    const rows = await db
+      .updateTable('ujira.compliance_parked_jobs')
+      .set({ status: 'closed', closed_at: sql<Date>`now()`, close_reason: reason })
+      .where('mandate_instance_id', '=', instanceId)
+      .where('status', '=', 'parked')
+      .returning('job_id')
+      .execute();
+    return rows.map((row) => row.job_id).sort();
+  },
+
   parkedJobs: async (db: Tx, instanceId: string): Promise<readonly ParkedJob[]> => {
     const rows = await db
       .selectFrom('ujira.compliance_parked_jobs')
-      .select(['mandate_instance_id', 'job_id', 'status', 'parked_at', 'resumed_at'])
+      .select([
+        'mandate_instance_id',
+        'job_id',
+        'status',
+        'parked_at',
+        'resumed_at',
+        'closed_at',
+        'close_reason',
+      ])
       .where('mandate_instance_id', '=', instanceId)
       .orderBy('parked_at')
       .orderBy('job_id')
@@ -153,6 +194,8 @@ export const compliance = {
       status: row.status as ParkedJob['status'],
       parkedAt: row.parked_at,
       resumedAt: row.resumed_at,
+      closedAt: row.closed_at,
+      closeReason: row.close_reason as ComplianceCloseReason | null,
     }));
   },
 

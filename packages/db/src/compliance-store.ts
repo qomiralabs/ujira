@@ -39,6 +39,13 @@ export function createComplianceStore(options: ComplianceStoreOptions): Complian
       );
     },
 
+    async closeOut(key, reason, opts) {
+      opts.signal.throwIfAborted();
+      return sessionOf(db, key).transaction((tx) =>
+        compliance.closeOut(tx, key.instanceId, reason),
+      );
+    },
+
     async parkIfNoncompliant(key, jobId, opts) {
       opts.signal.throwIfAborted();
       return sessionOf(db, key).transaction((tx) =>
