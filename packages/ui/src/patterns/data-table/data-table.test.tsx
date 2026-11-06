@@ -66,6 +66,13 @@ function bodyRows(): HTMLElement[] {
 // The first render loads TanStack and the primitives, which is slow on a
 // loaded runner.
 describe('DataTable', { timeout: 30_000 }, () => {
+  it('keeps a minimum width, so a narrow frame scrolls instead of crushing a column', () => {
+    const { rerender } = render(table());
+    expect(screen.getByRole('table').style.minWidth).toBe('56rem');
+    rerender(table({ minWidth: '40rem' }));
+    expect(screen.getByRole('table').style.minWidth).toBe('40rem');
+  });
+
   it('renders a captioned table with a header per visible column', () => {
     render(table());
     const grid = screen.getByRole('table', { name: 'Payouts' });

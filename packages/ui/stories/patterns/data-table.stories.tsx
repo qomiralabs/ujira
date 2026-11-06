@@ -53,7 +53,8 @@ const COLUMNS: DataColumn<SamplePayout>[] = [
   {
     id: 'created',
     header: 'Created',
-    width: '10rem',
+    // The full date and time in the mono face: 18 characters and the padding.
+    width: '12rem',
     cell: (row) => <span className="font-mono text-data tabular-nums">{row.created}</span>,
   },
 ];

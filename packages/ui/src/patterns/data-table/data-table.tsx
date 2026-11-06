@@ -84,6 +84,12 @@ export interface DataTableProps<Row> {
   noResults?: ReactNode;
   /** A row as a stacked card. When given, phones see cards instead of the table. */
   renderCard?: (row: Row) => ReactNode;
+  /**
+   * The narrowest the table draws. Below it the frame scrolls sideways, so the
+   * columns without a fixed width, such as the recipient, are never crushed
+   * to nothing by the ones with one.
+   */
+  minWidth?: string;
   className?: string;
 }
 
@@ -121,6 +127,7 @@ export function DataTable<Row>({
   empty,
   noResults,
   renderCard,
+  minWidth = '56rem',
   className,
 }: DataTableProps<Row>) {
   const [ownSorting, setOwnSorting] = useState<SortingState>([]);
@@ -312,6 +319,7 @@ export function DataTable<Row>({
         aria-label={caption}
         aria-rowcount={rows.length + 1}
         aria-busy={loading || undefined}
+        style={{ minWidth }}
         className="w-full table-fixed border-separate border-spacing-0 text-body-s text-text"
       >
         <colgroup>
