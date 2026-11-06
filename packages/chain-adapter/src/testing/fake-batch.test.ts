@@ -162,6 +162,7 @@ describe('execute batches in the fake adapter', () => {
         signer: h.world.signer,
         sponsorship: h.world.sponsorship,
         alerts: h.world.alerts,
+        methods: h.world.methods,
       },
       { maxBisectRounds: 0 },
     );

@@ -20,6 +20,7 @@ import { FakeNetwork } from './fake-network.js';
 import type { FakeNetworkOptions } from './fake-network.js';
 import { FakeAlerts, FakeSigner, FakeSponsorship } from './fake-ports.js';
 import { FakeAdapterStore } from './fake-store.js';
+import { MemoryPayoutMethods } from './payout-methods.js';
 import type { StoreRule } from './fake-store.js';
 
 export interface FakeWorldOptions extends FakeNetworkOptions {
@@ -33,6 +34,8 @@ export interface FakeWorld {
   readonly signer: FakeSigner;
   readonly sponsorship: FakeSponsorship;
   readonly alerts: FakeAlerts;
+  /** The recipients' payout methods, which the adapter reads each leg's destination from. */
+  readonly methods: MemoryPayoutMethods;
   readonly adapter: FakeChainAdapter;
   /** A new adapter on the same network and ports, as after a process restart. */
   restart(): FakeChainAdapter;
@@ -67,13 +70,15 @@ export function createFakeWorld(options: FakeWorldOptions = {}): FakeWorld {
   signer.addFeeSponsorKey(net.network, net.feeSponsor.seed);
   const sponsorship = new FakeSponsorship(net.faults);
   const alerts = new FakeAlerts();
-  const ports = { store, signer, sponsorship, alerts };
+  const methods = new MemoryPayoutMethods();
+  const ports = { store, signer, sponsorship, alerts, methods };
   return {
     net,
     store,
     signer,
     sponsorship,
     alerts,
+    methods,
     adapter: new FakeChainAdapter(net, ports),
     restart: () => new FakeChainAdapter(net, ports),
   };
@@ -117,7 +122,6 @@ export function fakeAdapterHarness(options: FakeWorldOptions = {}): AdapterHarne
   const agent = net.account('managed-agent');
   world.signer.addManagedAgentKey(network, SCOPE, AGENT_ID, agent.seed);
   const seeds = new Map<string, Uint8Array>();
-  let methods = 0;
   const wallet = (name: string): ChainAddress => {
     const made = net.account(`wallet:${name}`);
     seeds.set(made.address, made.seed);
@@ -155,12 +159,7 @@ export function fakeAdapterHarness(options: FakeWorldOptions = {}): AdapterHarne
       net.advance(seconds);
       return Promise.resolve();
     },
-    recipientMethod: (destination: Destination) => {
-      methods += 1;
-      const id = `00000000-0000-4000-9000-${methods.toString().padStart(12, '0')}` as Uuid;
-      net.registerRecipientMethod(id, destination);
-      return id;
-    },
+    recipientMethod: (destination: Destination) => world.methods.add(destination),
     mandateAddress: (principal, salt) => ({
       network,
       value: net.factory.mandateAddress(principal.value, salt),

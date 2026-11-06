@@ -154,6 +154,67 @@ describe('payout method destinations', () => {
   });
 });
 
+// What the chain adapter may send a payout leg to. Anything it cannot answer for, it
+// answers nothing for, and the adapter refuses the leg rather than guess.
+describe('what a payout can be sent to', () => {
+  const payable = (id: string, chain = 'stellar') =>
+    db.tenant(tenant).transaction(async (tx) => payoutMethods.payable(tx, id, chain));
+
+  it('answers for an active wallet method on the chain, with its tag', async () => {
+    const created = await create(method({ destinationTag: 7n }));
+    expect(await payable(created.id)).toEqual({
+      destinationAddress: created.destinationAddress,
+      destinationTag: 7n,
+    });
+  });
+
+  it('answers nothing for a disabled method', async () => {
+    const created = await create(method());
+    await db.tenant(tenant).transaction(async (tx) => payoutMethods.disable(tx, created.id));
+    expect(await payable(created.id)).toBeUndefined();
+  });
+
+  it('answers nothing for an anchor method, which no wallet leg can reach', async () => {
+    const created = await create(method({ method: 'bank', rail: 'anchor' }));
+    expect(await payable(created.id)).toBeUndefined();
+  });
+
+  it('answers nothing on another chain than the method is on', async () => {
+    const created = await create(method());
+    expect(await payable(created.id, 'celo')).toBeUndefined();
+  });
+
+  it('answers nothing once its recipient is no longer active', async () => {
+    const other = await db
+      .tenant(tenant)
+      .transaction(async (tx) =>
+        recipients.create(tx, { recipientRef: randomBytes(32), country: 'NG' }),
+      );
+    const created = await create(method({ recipientId: other.id }));
+    expect(await payable(created.id)).toBeDefined();
+    await db
+      .tenant(tenant)
+      .transaction(async (tx) => recipients.setStatus(tx, other.id, 'suspended'));
+    expect(await payable(created.id)).toBeUndefined();
+  });
+
+  it("answers nothing for another tenant's method", async () => {
+    const created = await create(method());
+    const stranger = await db.unscoped(async (tx) =>
+      entryPoints.createPrincipal(tx, {
+        name: 'Other',
+        projectName: 'Main',
+        ownerUserId: randomUUID(),
+      }),
+    );
+    expect(
+      await db
+        .tenant(stranger)
+        .transaction(async (tx) => payoutMethods.payable(tx, created.id, 'stellar')),
+    ).toBeUndefined();
+  });
+});
+
 describe('recipients', () => {
   it('holds one recipient per ref in a project, and checks the country', async () => {
     const recipientRef = randomBytes(32);

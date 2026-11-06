@@ -126,6 +126,43 @@ describe('an allowlist entry that can never pay out', () => {
   });
 });
 
+// The fake reads a leg's destination where the real adapter does, through the method
+// source it is given, so nothing it pays to can come from a registry of its own.
+describe('leg destinations', () => {
+  it('come from the method source the adapter is given, for the tenant paying', async () => {
+    const { h, m, net } = await world();
+    const asked: (readonly [string, string])[] = [];
+    const adapter = new FakeChainAdapter(net, {
+      store: h.world.store,
+      signer: h.world.signer,
+      sponsorship: h.world.sponsorship,
+      alerts: h.world.alerts,
+      methods: {
+        destination: (scope, id) => {
+          asked.push([scope.projectId, id]);
+          return h.world.methods.destination(scope, id);
+        },
+      },
+    });
+    const req = await payRequest(h, m, 'from the source');
+    expect((await drive(adapter, req)).at(-1)?.kind).toBe('final');
+    expect(asked).toContainEqual([h.scope.projectId, must(req.legs[0], 'a leg').recipientMethodId]);
+  });
+
+  it('refuse a leg whose method the source does not know', async () => {
+    const { h, m, net } = await world();
+    const adapter = new FakeChainAdapter(net, {
+      store: h.world.store,
+      signer: h.world.signer,
+      sponsorship: h.world.sponsorship,
+      alerts: h.world.alerts,
+      methods: { destination: () => Promise.resolve(null) },
+    });
+    const req = await payRequest(h, m, 'unknown method');
+    expect((await refusalOf(adapter.pay(req, OPTS))).code).toBe('INVALID_INPUT');
+  });
+});
+
 describe('leases and signers', () => {
   function storeWith(store: AdapterStore, release: AdapterStore['releaseExecutor']): AdapterStore {
     return {
@@ -144,20 +181,32 @@ describe('leases and signers', () => {
 
   it('skips the write-back when its lease was taken over, and rethrows anything else', async () => {
     const { h, m, net } = await world();
-    const { signer, sponsorship, alerts } = h.world;
+    const { signer, sponsorship, alerts, methods } = h.world;
     const stale = storeWith(h.store, (lease: ExecutorLease) =>
       Promise.reject(new InvalidInputError({ issues: ['lease.leaseId (stale)'] })).finally(() =>
         h.store.releaseExecutor(lease, { sequenceOrNonce: lease.sequenceOrNonce + 1n }),
       ),
     );
-    const adapter = new FakeChainAdapter(net, { store: stale, signer, sponsorship, alerts });
+    const adapter = new FakeChainAdapter(net, {
+      store: stale,
+      signer,
+      sponsorship,
+      alerts,
+      methods,
+    });
     const req = await payRequest(h, m, 'stale');
     expect((await drive(adapter, req)).at(-1)?.kind).toBe('final');
     expect(net.faults.trace).toContain('lease stale');
     const broken = storeWith(h.store, () =>
       Promise.reject(new InvalidInputError({ issues: ['lease (not_found)'] })),
     );
-    const other = new FakeChainAdapter(net, { store: broken, signer, sponsorship, alerts });
+    const other = new FakeChainAdapter(net, {
+      store: broken,
+      signer,
+      sponsorship,
+      alerts,
+      methods,
+    });
     const next = await payRequest(h, m, 'broken');
     await other.pay(next, OPTS);
     expect((await refusalOf(other.pay(next, OPTS))).code).toBe('INVALID_INPUT');
@@ -180,6 +229,7 @@ describe('leases and signers', () => {
       signer,
       sponsorship: h.world.sponsorship,
       alerts: h.world.alerts,
+      methods: h.world.methods,
     });
     const req = await payRequest(h, m, 'mismatch');
     await adapter.pay(req, OPTS);

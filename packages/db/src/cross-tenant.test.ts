@@ -1270,6 +1270,11 @@ const cases: Record<string, () => Promise<void>> = {
   'payoutMethods.get': async () => {
     expect(await acrossA(async (tx) => payoutMethods.get(tx, b.methodId))).toBeUndefined();
   },
+  'payoutMethods.payable': async () => {
+    expect(
+      await acrossA(async (tx) => payoutMethods.payable(tx, b.methodId, 'stellar')),
+    ).toBeUndefined();
+  },
   'payoutMethods.create': async () => {
     const attempt = asA(async (tx) =>
       payoutMethods.create(tx, {

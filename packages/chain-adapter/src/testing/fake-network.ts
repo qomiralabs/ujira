@@ -18,13 +18,7 @@ import { InvalidInputError } from '../errors.js';
 import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
 import type { NetworkId } from '../networks.js';
 import type { SignerRef } from '../signer.js';
-import type {
-  Destination,
-  SigningRequest,
-  SubmissionOp,
-  TenantScope,
-  UnixSeconds,
-} from '../types.js';
+import type { SigningRequest, SubmissionOp, TenantScope, UnixSeconds } from '../types.js';
 
 import { TRUSTLINE_AUTHORIZED } from '../stellar/account-rules.js';
 import type { StellarAccountEntry, StellarTrustlineEntry } from '../stellar/account-rules.js';
@@ -174,7 +168,6 @@ export class FakeNetwork {
   readonly #dropped = new Map<string, FakeTx>();
   readonly #deposits: FakeDeposit[] = [];
   readonly #sequences = new Map<string, bigint>();
-  readonly #methods = new Map<string, Destination>();
   #drops = 0;
   #finalFloor = 1n;
   #ids = 0;
@@ -354,15 +347,6 @@ export class FakeNetwork {
     const next = (this.#sequences.get(address) ?? 0n) + 1n;
     this.#sequences.set(address, next);
     return next;
-  }
-
-  /** A recipient method's destination, standing in for the recipient lookup. */
-  registerRecipientMethod(id: string, destination: Destination): void {
-    this.#methods.set(id, destination);
-  }
-
-  recipientMethod(id: string): Destination | undefined {
-    return this.#methods.get(id);
   }
 
   /** Runs `run` and puts every contract back, as a simulation does. */
