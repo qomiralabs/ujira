@@ -2,6 +2,29 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 export {
+  RECONCILE_SWEEP_TASK,
+  RECONCILE_TASK,
+  ReconcilePayloadError,
+  reconcileBeforeTraffic,
+  reconcileJobKey,
+  runReconcile,
+  runReconcileSweep,
+} from './reconcile.js';
+export type {
+  DivergenceAlert,
+  ReconcileAlerts,
+  ReconcileDeps,
+  ReconcileFigures,
+  ReconcileJob,
+  ReconcileOutcome,
+  ReconcilePayload,
+  ReconcileRecord,
+  ReconcileStore,
+  ReconcileTarget,
+  ReconcileTargets,
+  RestoreCheck,
+} from './reconcile.js';
+export {
   FEE_OUTCOMES,
   FeeNotUnderpaidError,
   FeeReconciliationNotFoundError,

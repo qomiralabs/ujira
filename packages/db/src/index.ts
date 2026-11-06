@@ -114,6 +114,7 @@ export {
   type NewPrincipal,
   type ResolvedFundingAddress,
   type ResolvedFundingInstance,
+  type ReconcileTarget,
   type ResolvedInstance,
   type TokenRecord,
 } from './repositories/entry-points.js';
@@ -150,6 +151,13 @@ export {
   type PostResult,
   type Reconciliation,
 } from './repositories/ledger.js';
+export {
+  ReconciliationNotVisibleError,
+  reconciliations,
+  type InstanceReconciliation,
+  type ReconcileFigures,
+  type ReconciliationResult,
+} from './repositories/reconciliations.js';
 export {
   payoutMethods,
   recipientIdentities,

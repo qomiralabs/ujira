@@ -1531,6 +1531,25 @@ $$;
 ALTER FUNCTION ujira.recipient_identity_scope(target_id uuid) OWNER TO ujira_fn_identities;
 
 --
+-- Name: reconcile_targets(uuid, integer); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_instances
+--
+
+CREATE FUNCTION ujira.reconcile_targets(after_id uuid, max_rows integer) RETURNS TABLE(principal_id uuid, project_id uuid, mandate_instance_id uuid, network text, contract_address text)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select i.principal_id, i.project_id, i.id, i.network, i.contract_address
+    from ujira.mandate_instances as i
+   where i.status in ('active', 'paused')
+     and (after_id is null or i.id > after_id)
+   order by i.id
+   limit least(greatest(max_rows, 1), 1000)
+$$;
+
+
+ALTER FUNCTION ujira.reconcile_targets(after_id uuid, max_rows integer) OWNER TO ujira_fn_instances;
+
+--
 -- Name: resolve_funding_address(text, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_instances
 --
 
@@ -2459,6 +2478,28 @@ ALTER TABLE ONLY ujira.funding_sweeps FORCE ROW LEVEL SECURITY;
 
 
 ALTER TABLE ujira.funding_sweeps OWNER TO ujira_owner;
+
+--
+-- Name: instance_reconciliations; Type: TABLE; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TABLE ujira.instance_reconciliations (
+    principal_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    mandate_instance_id uuid NOT NULL,
+    ledger bigint NOT NULL,
+    matches boolean NOT NULL,
+    checked_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_reconciled_at timestamp with time zone,
+    diverged_since timestamp with time zone,
+    CONSTRAINT instance_reconciliations_divergence CHECK (((diverged_since IS NULL) = matches)),
+    CONSTRAINT instance_reconciliations_ledger_positive CHECK ((ledger >= 0))
+);
+
+ALTER TABLE ONLY ujira.instance_reconciliations FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE ujira.instance_reconciliations OWNER TO ujira_owner;
 
 --
 -- Name: ledger_accounts; Type: TABLE; Schema: ujira; Owner: ujira_owner
@@ -3651,6 +3692,14 @@ ALTER TABLE ONLY ujira.funding_sweeps
 
 ALTER TABLE ONLY ujira.funding_sweeps
     ADD CONSTRAINT funding_sweeps_tenant_key UNIQUE (principal_id, project_id, id);
+
+
+--
+-- Name: instance_reconciliations instance_reconciliations_pkey; Type: CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.instance_reconciliations
+    ADD CONSTRAINT instance_reconciliations_pkey PRIMARY KEY (principal_id, project_id, mandate_instance_id);
 
 
 --
@@ -5234,6 +5283,14 @@ ALTER TABLE ONLY ujira.funding_sweeps
 
 
 --
+-- Name: instance_reconciliations instance_reconciliations_principal_id_project_id_mandate_i_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ujira.instance_reconciliations
+    ADD CONSTRAINT instance_reconciliations_principal_id_project_id_mandate_i_fkey FOREIGN KEY (principal_id, project_id, mandate_instance_id) REFERENCES ujira.mandate_instances(principal_id, project_id, id);
+
+
+--
 -- Name: ledger_accounts ledger_accounts_principal_id_project_id_mandate_instance_i_fkey; Type: FK CONSTRAINT; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5763,6 +5820,13 @@ CREATE POLICY indexer_insert ON ujira.deposits FOR INSERT TO ujira_indexer WITH 
 
 
 --
+-- Name: instance_reconciliations indexer_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY indexer_insert ON ujira.instance_reconciliations FOR INSERT TO ujira_indexer WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: ledger_accounts indexer_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5826,6 +5890,13 @@ CREATE POLICY indexer_read ON ujira.deposits FOR SELECT TO ujira_indexer USING (
 
 
 --
+-- Name: instance_reconciliations indexer_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY indexer_read ON ujira.instance_reconciliations FOR SELECT TO ujira_indexer USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: ledger_accounts indexer_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5875,6 +5946,13 @@ CREATE POLICY indexer_read ON ujira.payout_bookings FOR SELECT TO ujira_indexer 
 
 
 --
+-- Name: instance_reconciliations indexer_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY indexer_update ON ujira.instance_reconciliations FOR UPDATE TO ujira_indexer USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: mandate_instance_roles indexer_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5887,6 +5965,12 @@ CREATE POLICY indexer_update ON ujira.mandate_instance_roles FOR UPDATE TO ujira
 
 CREATE POLICY indexer_update ON ujira.payout_bookings FOR UPDATE TO ujira_indexer USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
+
+--
+-- Name: instance_reconciliations; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
+--
+
+ALTER TABLE ujira.instance_reconciliations ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: ledger_accounts; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
@@ -6081,6 +6165,13 @@ CREATE POLICY owner_all ON ujira.funding_sources TO ujira_owner USING (true) WIT
 --
 
 CREATE POLICY owner_all ON ujira.funding_sweeps TO ujira_owner USING (true) WITH CHECK (true);
+
+
+--
+-- Name: instance_reconciliations owner_all; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY owner_all ON ujira.instance_reconciliations TO ujira_owner USING (true) WITH CHECK (true);
 
 
 --
@@ -6515,6 +6606,13 @@ CREATE POLICY tenant_insert ON ujira.funding_sweeps FOR INSERT TO ujira_app WITH
 
 
 --
+-- Name: instance_reconciliations tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_insert ON ujira.instance_reconciliations FOR INSERT TO ujira_app WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
 -- Name: ledger_accounts tenant_insert; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -6795,6 +6893,13 @@ CREATE POLICY tenant_read ON ujira.funding_sweeps FOR SELECT TO ujira_app, ujira
 
 
 --
+-- Name: instance_reconciliations tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_read ON ujira.instance_reconciliations FOR SELECT TO ujira_app, ujira_reader USING (((principal_id = ujira.current_principal_id()) AND (ujira.project_scope_all() OR (project_id = ujira.current_project_id()))));
+
+
+--
 -- Name: ledger_accounts tenant_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -7072,6 +7177,13 @@ CREATE POLICY tenant_update ON ujira.funding_sources FOR UPDATE TO ujira_app USI
 --
 
 CREATE POLICY tenant_update ON ujira.funding_sweeps FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
+
+
+--
+-- Name: instance_reconciliations tenant_update; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY tenant_update ON ujira.instance_reconciliations FOR UPDATE TO ujira_app USING (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id()))) WITH CHECK (((principal_id = ujira.current_principal_id()) AND (project_id = ujira.current_project_id())));
 
 
 --
@@ -7737,6 +7849,14 @@ GRANT ALL ON FUNCTION ujira.recipient_identity_scope(target_id uuid) TO ujira_ap
 
 
 --
+-- Name: FUNCTION reconcile_targets(after_id uuid, max_rows integer); Type: ACL; Schema: ujira; Owner: ujira_fn_instances
+--
+
+REVOKE ALL ON FUNCTION ujira.reconcile_targets(after_id uuid, max_rows integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.reconcile_targets(after_id uuid, max_rows integer) TO ujira_indexer;
+
+
+--
 -- Name: FUNCTION resolve_funding_address(target_network text, target_address text); Type: ACL; Schema: ujira; Owner: ujira_fn_instances
 --
 
@@ -8160,6 +8280,15 @@ GRANT SELECT ON TABLE ujira.funding_sources TO ujira_reader;
 
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.funding_sweeps TO ujira_app;
 GRANT SELECT ON TABLE ujira.funding_sweeps TO ujira_reader;
+
+
+--
+-- Name: TABLE instance_reconciliations; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT ON TABLE ujira.instance_reconciliations TO ujira_app;
+GRANT SELECT ON TABLE ujira.instance_reconciliations TO ujira_reader;
+GRANT SELECT,INSERT,UPDATE ON TABLE ujira.instance_reconciliations TO ujira_indexer;
 
 
 --

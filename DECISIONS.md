@@ -2,6 +2,31 @@
 
 Smaller design decisions, each with what it was choosing between. Newest first.
 
+## Drift between the books and a contract is reported, never corrected
+
+**Problem.** The ledger mirrors each mandate's contract, and the contract is the authority. A missed event, a reorganization or a bug can leave the two apart, and that has to be found before a principal notices it.
+
+**Options.**
+
+1. On a mismatch, post a correcting journal so the books match state() again. The dashboard would always agree with the chain, but it would hide the cause, and a wrong correction moves the mirror of someone's money with nobody looking.
+2. Record the comparison and mark the instance. Raise one alert when it first falls apart, and leave the books as they are for a person to resolve.
+
+**Decision.** Option 2.
+
+- `mandate:reconcile` reads state(), stores it beside the books through `ledger_reconciliation`, and writes the outcome to `ujira.instance_reconciliations`:
+  - `last_reconciled_at` while the two agree
+  - `diverged_since` from the first comparison that found them apart
+- The alert goes once per episode, not on every run, and the mark clears when the books agree again.
+- `reconcile:sweep` pages `ujira.reconcile_targets`, which names active and paused instances with their tenants and nothing else, and enqueues one job each under its own tenant.
+- After a restore, `reconcileBeforeTraffic` runs every instance inline, and traffic waits until all of them agree.
+
+**Trade offs and risks.**
+
+- Revoked and expired instances are not compared, because their state only changes by a return of funds, which is booked from its own event. A mandate whose contract moved anyway would go unseen until it is next active.
+- The alert and the queue are ports. Delivering the alert, and adding the job in the tenant's transaction, belong to the queue runner when it lands.
+
+**Evidence.** `reconcile.test.ts` covers the job against the fake chain, and `reconciliations.test.ts` the store and the target list against Postgres. Both cross-tenant cases are in the matrix.
+
 ## Who hears of a flagged mandate, and what its deposits do
 
 **Problem.** Intake flags a mandate whose tag does not match its tenant, or whose attester key is one anyone can rebuild, and records why in `ops.mandate_alerts`. From then on it reads none of the mandate's events. Nobody read the alerts, so the mirror went quiet with nobody told.

@@ -166,6 +166,7 @@ describe('grants on ujira', () => {
     expect(await executable('ujira_reader')).toEqual([auditHash, ...context]);
     expect(await executable('ujira_indexer')).toEqual([
       ...context,
+      'function ujira.reconcile_targets(uuid,integer)',
       'function ujira.resolve_funding_address(text,text)',
       'function ujira.resolve_mandate_address(text,text)',
       'function ujira.resolve_mandate_instance(text,text)',
@@ -240,6 +241,7 @@ describe('roles', () => {
       { fn: 'ujira.ledger_balanced()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.ledger_stamp()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.recipient_identity_scope(uuid)', owner: 'ujira_fn_identities' },
+      { fn: 'ujira.reconcile_targets(uuid,integer)', owner: 'ujira_fn_instances' },
       { fn: 'ujira.resolve_funding_address(text,text)', owner: 'ujira_fn_instances' },
       { fn: 'ujira.resolve_mandate_address(text,text)', owner: 'ujira_fn_instances' },
       { fn: 'ujira.resolve_mandate_instance(text,text)', owner: 'ujira_fn_instances' },

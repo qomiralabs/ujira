@@ -395,6 +395,17 @@ export interface UjiraFundingSweeps {
   updated_at: Generated<Timestamp>;
 }
 
+export interface UjiraInstanceReconciliations {
+  checked_at: Generated<Timestamp>;
+  diverged_since: Timestamp | null;
+  last_reconciled_at: Timestamp | null;
+  ledger: Int8;
+  mandate_instance_id: string;
+  matches: boolean;
+  principal_id: string;
+  project_id: string;
+}
+
 export interface UjiraLedgerAccounts {
   asset: string;
   balance: Generated<Numeric>;
@@ -802,6 +813,7 @@ export interface Schema {
   'ujira.funding_accounts': UjiraFundingAccounts;
   'ujira.funding_sources': UjiraFundingSources;
   'ujira.funding_sweeps': UjiraFundingSweeps;
+  'ujira.instance_reconciliations': UjiraInstanceReconciliations;
   'ujira.ledger_accounts': UjiraLedgerAccounts;
   'ujira.ledger_entries': UjiraLedgerEntries;
   'ujira.ledger_journals': UjiraLedgerJournals;
