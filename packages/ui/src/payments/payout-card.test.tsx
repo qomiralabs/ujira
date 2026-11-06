@@ -60,6 +60,8 @@ describe('PayoutCard', () => {
       expect.arrayContaining(['border', 'border-rule', 'rounded-card', 'bg-surface']),
     );
     expect(classes.filter((name) => name.startsWith('shadow'))).toEqual([]);
+    // A long name truncates in a narrow grid column instead of widening the card.
+    expect(classes).toContain('min-w-0');
   });
 
   it('carries one action at most, after the details', () => {

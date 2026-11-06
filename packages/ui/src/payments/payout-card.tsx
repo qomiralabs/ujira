@@ -50,8 +50,10 @@ export function PayoutCard({
     <article
       data-slot="payout-card"
       aria-labelledby={heading}
+      // min-w-0 lets the card narrow in a grid or flex row: the name then
+      // truncates instead of pushing a phone screen sideways.
       className={cn(
-        'flex flex-col gap-3 rounded-card border border-rule bg-surface p-4',
+        'flex min-w-0 flex-col gap-3 rounded-card border border-rule bg-surface p-4',
         className,
       )}
       {...rest}
