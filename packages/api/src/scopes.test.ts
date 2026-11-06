@@ -14,7 +14,7 @@ import { memoryIdempotencyStore } from './idempotency.js';
 import { memoryLogger } from './log.js';
 import { withOpenApiRoute } from './openapi.js';
 import { allowEveryAddress, allowEveryRequest } from './rate-limit.js';
-import { defineTenantRoute, routeAccessProblems } from './route.js';
+import { defineTenantRoute, requiresIdempotencyKey, routeAccessProblems } from './route.js';
 import type { Route } from './route.js';
 import { V1_ROUTES } from './routes/index.js';
 
@@ -60,6 +60,29 @@ describe('the check', () => {
       access: { kind: 'member', roles: [], stepUp: true },
     } as unknown as Route;
     expect(routeAccessProblems([noRole])).toEqual([`route ${noRole.id} allows no role`]);
+  });
+
+  it('refuses a payout write that skips its Idempotency-Key', () => {
+    const skipping = {
+      ...thing,
+      method: 'POST',
+      access: { kind: 'tenant', scope: 'payouts:write', noReplay: true },
+    } as unknown as Route;
+    expect(routeAccessProblems([skipping])).toEqual([
+      `route ${skipping.id} can move money, so it cannot skip its Idempotency-Key`,
+    ]);
+  });
+
+  it('lets only the writes that answer with a credential skip their key', () => {
+    const skipping = V1_ROUTES.filter(
+      (route) => route.access.kind === 'tenant' && route.access.noReplay === true,
+    )
+      .map((route) => route.id)
+      .sort();
+    expect(skipping).toEqual(['createEmbedInvite', 'createEmbedSession']);
+    for (const route of V1_ROUTES.filter((one) => skipping.includes(one.id))) {
+      expect(requiresIdempotencyKey(route), route.id).toBe(false);
+    }
   });
 
   const noScope = { ...thing, access: { kind: 'tenant' } } as unknown as Route;

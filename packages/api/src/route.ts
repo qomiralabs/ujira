@@ -105,6 +105,12 @@ export type Access =
       readonly scope: ApiScope;
       /** A tighter limit on top of the ones every tenant route has. */
       readonly rateLimit?: RateLimitGroup;
+      /**
+       * The answer carries a credential, which must not sit in clear in the replay
+       * store, so this write takes no Idempotency-Key. Refused on a route that can
+       * move money.
+       */
+      readonly noReplay?: true;
     }
   | {
       readonly kind: 'member';
@@ -168,6 +174,10 @@ export function routeAccessProblems(routes: readonly Route[]): string[] {
       if (!KNOWN_SCOPES.has(access.scope)) {
         problems.push(`route ${route.id} has no scope from the closed list`);
       }
+      // A write that moves money needs its key, whatever its answer holds.
+      if (access.noReplay === true && access.scope === 'payouts:write') {
+        problems.push(`route ${route.id} can move money, so it cannot skip its Idempotency-Key`);
+      }
     } else if (access?.kind === 'member') {
       if (access.roles.length === 0) problems.push(`route ${route.id} allows no role`);
     } else if (access?.kind === 'public') {
@@ -187,7 +197,7 @@ export function routeAccessProblems(routes: readonly Route[]): string[] {
 
 /** Every write a tenant route takes needs an Idempotency-Key. */
 export function requiresIdempotencyKey(route: Pick<Route, 'access' | 'method'>): boolean {
-  return route.access.kind === 'tenant' && route.method !== 'GET';
+  return route.access.kind === 'tenant' && route.method !== 'GET' && route.access.noReplay !== true;
 }
 
 // The names that say personal data whatever they hold, matching the check on the
@@ -404,6 +414,7 @@ export function defineTenantRoute<
   spec: RouteSpec<P, Q, B, R> & {
     readonly scope: ApiScope;
     readonly rateLimit?: RateLimitGroup;
+    readonly noReplay?: true;
     readonly handler: (input: Input<P, Q, B>, context: TenantRequestContext) => Promise<z.input<R>>;
   },
 ): Route {
@@ -411,6 +422,7 @@ export function defineTenantRoute<
     kind: 'tenant',
     scope: spec.scope,
     ...(spec.rateLimit === undefined ? {} : { rateLimit: spec.rateLimit }),
+    ...(spec.noReplay === undefined ? {} : { noReplay: spec.noReplay }),
   };
   return build(spec, access, (input, context, tenant) =>
     asTenant(context, tenant, (scoped) => spec.handler(input as Input<P, Q, B>, scoped)),

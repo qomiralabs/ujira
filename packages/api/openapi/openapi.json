@@ -1962,15 +1962,7 @@
         "summary": "Mint a short lived token for the widget to touch one recipient",
         "security": [{ "bearer": [] }],
         "x-ujira-scope": "recipients:write",
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "description": "Unique per write. A retry with the same key and the same request gets the first answer for 7 days; the same key on a different request is refused.",
-            "schema": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,255}$" }
-          }
-        ],
+        "parameters": [],
         "requestBody": {
           "required": true,
           "content": {
@@ -2040,16 +2032,6 @@
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
             }
           },
-          "409": {
-            "description": "IDEMPOTENCY_IN_PROGRESS: A request with this Idempotency-Key is still running",
-            "headers": {
-              "Request-Id": { "schema": { "type": "string" } },
-              "Retry-After": { "schema": { "type": "string" } }
-            },
-            "content": {
-              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
-            }
-          },
           "413": {
             "description": "PAYLOAD_TOO_LARGE: The request body is too large",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
@@ -2059,13 +2041,6 @@
           },
           "415": {
             "description": "UNSUPPORTED_MEDIA_TYPE: The request body must be application/json",
-            "headers": { "Request-Id": { "schema": { "type": "string" } } },
-            "content": {
-              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
-            }
-          },
-          "422": {
-            "description": "DESTINATION_INVALID: The destination cannot receive this payout. MANDATE_REFUSED: The mandate does not allow this. QUOTE_UNAVAILABLE: No quote is available for this payout right now. WALLET_PROOF_INVALID: The wallet proof is not valid. WALLET_PROOF_EXPIRED: The wallet proof challenge has expired. WALLET_SIGNER_NOT_AUTHORIZED: That key cannot sign for this wallet. DESTINATION_NOT_RECEIVABLE: This destination cannot receive a payout yet. FEE_CAP_INVALID: The fee cap can be at most 100 basis points. PRINCIPAL_KEY_RISK: Above 50,000 USD a mandate needs a multisig principal or a recovery set. CUSTODY_GUARD: A mandate with a UJIRA held agent key must use allowlist or both mode. TRANSFER_FAILED: The principal could not receive the transfer. IDEMPOTENCY_KEY_REUSED: This Idempotency-Key was used for a different request. API_KEY_EXPIRY_INVALID: An API key needs an expiry within the limit. API_KEY_LIMIT_REACHED: This project already has its limit of active API keys. API_KEY_NOT_ROTATABLE: Only a live API key that has not been rotated can be rotated",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
@@ -2110,15 +2085,7 @@
         "summary": "Make a single use invite the widget can exchange for a token",
         "security": [{ "bearer": [] }],
         "x-ujira-scope": "recipients:write",
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "description": "Unique per write. A retry with the same key and the same request gets the first answer for 7 days; the same key on a different request is refused.",
-            "schema": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,255}$" }
-          }
-        ],
+        "parameters": [],
         "requestBody": {
           "required": true,
           "content": {
@@ -2188,16 +2155,6 @@
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
             }
           },
-          "409": {
-            "description": "IDEMPOTENCY_IN_PROGRESS: A request with this Idempotency-Key is still running",
-            "headers": {
-              "Request-Id": { "schema": { "type": "string" } },
-              "Retry-After": { "schema": { "type": "string" } }
-            },
-            "content": {
-              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
-            }
-          },
           "413": {
             "description": "PAYLOAD_TOO_LARGE: The request body is too large",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
@@ -2207,13 +2164,6 @@
           },
           "415": {
             "description": "UNSUPPORTED_MEDIA_TYPE: The request body must be application/json",
-            "headers": { "Request-Id": { "schema": { "type": "string" } } },
-            "content": {
-              "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
-            }
-          },
-          "422": {
-            "description": "DESTINATION_INVALID: The destination cannot receive this payout. MANDATE_REFUSED: The mandate does not allow this. QUOTE_UNAVAILABLE: No quote is available for this payout right now. WALLET_PROOF_INVALID: The wallet proof is not valid. WALLET_PROOF_EXPIRED: The wallet proof challenge has expired. WALLET_SIGNER_NOT_AUTHORIZED: That key cannot sign for this wallet. DESTINATION_NOT_RECEIVABLE: This destination cannot receive a payout yet. FEE_CAP_INVALID: The fee cap can be at most 100 basis points. PRINCIPAL_KEY_RISK: Above 50,000 USD a mandate needs a multisig principal or a recovery set. CUSTODY_GUARD: A mandate with a UJIRA held agent key must use allowlist or both mode. TRANSFER_FAILED: The principal could not receive the transfer. IDEMPOTENCY_KEY_REUSED: This Idempotency-Key was used for a different request. API_KEY_EXPIRY_INVALID: An API key needs an expiry within the limit. API_KEY_LIMIT_REACHED: This project already has its limit of active API keys. API_KEY_NOT_ROTATABLE: Only a live API key that has not been rotated can be rotated",
             "headers": { "Request-Id": { "schema": { "type": "string" } } },
             "content": {
               "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } }
