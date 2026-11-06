@@ -392,6 +392,9 @@ importers:
       '@ujira/api-schema':
         specifier: workspace:*
         version: link:../api-schema
+      '@ujira/mandates':
+        specifier: workspace:*
+        version: link:../mandates
       fast-check:
         specifier: 4.10.2
         version: 4.10.2
@@ -475,6 +478,10 @@ importers:
       '@ujira/db':
         specifier: workspace:*
         version: link:../db
+    devDependencies:
+      '@ujira/funding':
+        specifier: workspace:*
+        version: link:../funding
 
   packages/mandates:
     dependencies:

@@ -1,6 +1,6 @@
 {
   "repository": "qomiralabs/ujira-contracts",
-  "commit": "16b48a7cb52c2a2c6fa6315677aadc5ec3db73c1",
+  "commit": "914600e52737973f178f582404f7e4eaa355adfc",
   "note": "Copied byte for byte from spec/ at this commit. Moves to the spec-v1 tag once it is cut.",
   "files": [
     {

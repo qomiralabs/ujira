@@ -80,9 +80,10 @@ describe('a mandate address', () => {
       mandate: { network: NETWORK, address: asMandate, specVersion: 1 },
       asset: 'USDC',
     });
-    expect(repo.resolveMandateInstance).toHaveBeenCalledWith(w.tx, 'stellar', CONTRACT);
+    // The network, not its chain, so an address on one network never matches another.
+    expect(repo.resolveMandateInstance).toHaveBeenCalledWith(w.tx, NETWORK, CONTRACT);
     expect(repo.resolveFundingAddress).not.toHaveBeenCalled();
-    expect(w.roles).toEqual(['worker']);
+    expect(w.roles).toEqual(['indexer']);
   });
 
   it('is refused and reported in an asset that is no token', async () => {
@@ -115,7 +116,7 @@ describe('a forwarding account', () => {
       },
     });
     expect(repo.resolveFundingAddress).toHaveBeenCalledWith(w.tx, NETWORK, ADDRESS);
-    expect(w.roles).toEqual(['worker', 'worker']);
+    expect(w.roles).toEqual(['indexer', 'indexer']);
     expect(w.refused).toEqual([]);
   });
 

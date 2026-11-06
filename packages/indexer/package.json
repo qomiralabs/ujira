@@ -23,5 +23,8 @@
     "@ujira/chain-adapter": "workspace:*",
     "@ujira/core": "workspace:*",
     "@ujira/db": "workspace:*"
+  },
+  "devDependencies": {
+    "@ujira/funding": "workspace:*"
   }
 }

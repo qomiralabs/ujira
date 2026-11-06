@@ -63,6 +63,12 @@ export default defineConfig({
           testTimeout: 60_000,
           globalSetup: ['../db/src/testing/global-setup.ts'],
         },
+        // A deposit's attribution is only shown across the real keys and policies.
+        '@ujira/indexer': {
+          hookTimeout: 180_000,
+          testTimeout: 60_000,
+          globalSetup: ['../db/src/testing/global-setup.ts'],
+        },
         // The conformance suites sign and verify hundreds of times.
         '@ujira/signer': { testTimeout: 60_000, hookTimeout: 60_000 },
         '@ujira/payouts': {

@@ -17,7 +17,11 @@ import type {
 } from '@ujira/chain-adapter';
 import type { FundingSweep, FundingSweepMove, NewFundingSweep } from '@ujira/db';
 
-import { FundingAccountConflictError, SweepStateError } from './errors.js';
+import {
+  FundingAccountConflictError,
+  FundingAccountInUseError,
+  SweepStateError,
+} from './errors.js';
 import type { FundingInstance, FundingSourceStore } from './funding-account.js';
 import { FAILED_EXPIRY_MARGIN_MS } from './sweep.js';
 import type {
@@ -46,6 +50,10 @@ interface Stored {
 
 function isScope(a: SweepScope, b: SweepScope): boolean {
   return a.principalId === b.principalId && a.projectId === b.projectId;
+}
+
+function accountKey(scope: SweepScope, network: NetworkId): string {
+  return `${scope.principalId}|${scope.projectId}|${network}`;
 }
 
 export class MemorySweepStore implements SweepStore {
@@ -157,8 +165,8 @@ export class MemorySweepStore implements SweepStore {
 /**
  * What funding_accounts and funding_account_sources hold: one account per
  * principal and network, no address held twice, one source per mandate instance,
- * and only an active account of this project attached to this project's instance
- * on the same network.
+ * one mandate instance per account, and only an active account of this project
+ * attached to this project's instance on the same network.
  */
 export class MemoryFundingAccounts implements FundingAccountStore, FundingSourceStore {
   /** The next attach throws this, as a crash after the chain step would. */
@@ -169,6 +177,8 @@ export class MemoryFundingAccounts implements FundingAccountStore, FundingSource
     { readonly scope: TenantScope; readonly instance: FundingInstance }
   >();
   readonly #sources = new Map<string, string>();
+  /** The instance each account funds, by principal and network. */
+  readonly #funding = new Map<string, string>();
 
   /** A mandate instance that exists for this tenant. */
   addInstance(scope: TenantScope, mandateInstanceId: string, instance: FundingInstance): void {
@@ -184,12 +194,12 @@ export class MemoryFundingAccounts implements FundingAccountStore, FundingSource
     return Promise.resolve(held !== undefined && isScope(held.scope, scope) ? held.instance : null);
   }
 
-  forPrincipal(scope: TenantScope, network: NetworkId): Promise<FundingAccountRecord | null> {
-    return Promise.resolve(this.#accounts.get(`${scope.principalId}|${network}`) ?? null);
+  forProject(scope: TenantScope, network: NetworkId): Promise<FundingAccountRecord | null> {
+    return Promise.resolve(this.#accounts.get(accountKey(scope, network)) ?? null);
   }
 
   record(row: FundingAccountRecord): Promise<void> {
-    const key = `${row.principalId}|${row.network}`;
+    const key = accountKey(row, row.network);
     const held = this.#accounts.get(key);
     const taken = [...this.#accounts.values()].some(
       (other) =>
@@ -205,7 +215,7 @@ export class MemoryFundingAccounts implements FundingAccountStore, FundingSource
   }
 
   recordCheck(row: FundingAccountRecord): Promise<void> {
-    this.#accounts.set(`${row.principalId}|${row.network}`, row);
+    this.#accounts.set(accountKey(row, row.network), row);
     return Promise.resolve();
   }
 
@@ -218,11 +228,11 @@ export class MemoryFundingAccounts implements FundingAccountStore, FundingSource
       this.failNextAttach = null;
       return Promise.reject(error);
     }
-    const account = this.#accounts.get(`${scope.principalId}|${input.network}`);
+    const key = accountKey(scope, input.network);
+    const account = this.#accounts.get(key);
     const held = this.#instances.get(input.mandateInstanceId);
     if (
       account?.status !== 'active' ||
-      account.projectId !== scope.projectId ||
       held === undefined ||
       !isScope(held.scope, scope) ||
       held.instance.network !== input.network
@@ -231,6 +241,8 @@ export class MemoryFundingAccounts implements FundingAccountStore, FundingSource
     }
     const existing = this.#sources.get(input.mandateInstanceId);
     if (existing !== undefined) return Promise.resolve(existing);
+    if (this.#funding.has(key)) return Promise.reject(new FundingAccountInUseError());
+    this.#funding.set(key, input.mandateInstanceId);
     const id = randomUUID();
     this.#sources.set(input.mandateInstanceId, id);
     return Promise.resolve(id);

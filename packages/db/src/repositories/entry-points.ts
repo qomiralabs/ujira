@@ -61,12 +61,13 @@ export interface ResolvedFundingAddress {
 }
 
 export const entryPoints = {
-  // The tenant of a deployed contract, or undefined when it is not one of
-  // ours. This is how the indexer learns which context to write an event under,
-  // so only the indexer's login may call it.
+  // The tenant of a deployed contract on one network, or undefined when it is not
+  // one of ours there. This is how the indexer learns which context to write an
+  // event under, so only the indexer's login may call it. The network, not its
+  // chain, so a record on testnet can never answer for mainnet or the other way.
   resolveMandateInstance: async (
     db: Tx,
-    chain: string,
+    network: string,
     contractAddress: string,
   ): Promise<ResolvedInstance | undefined> => {
     const result = await sql<{
@@ -77,7 +78,7 @@ export const entryPoints = {
       scale: number;
     }>`
       select principal_id, project_id, mandate_instance_id, asset, scale
-        from ujira.resolve_mandate_instance(${chain}, ${contractAddress})
+        from ujira.resolve_mandate_address(${network}, ${contractAddress})
     `.execute(db);
     const row = result.rows[0];
     if (row === undefined) return undefined;

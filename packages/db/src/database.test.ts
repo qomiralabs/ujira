@@ -34,6 +34,7 @@ function environmentFor(url: string): DatabaseEnvironment {
     // The container is not the transaction pooler, so the worker and the
     // migrator may use it: the config refuses port 6543, not every port.
     UJIRA_DB_WORKER_URL: url,
+    UJIRA_DB_INDEXER_URL: url,
     UJIRA_DB_MIGRATION_URL: url,
     // The container is a plain Postgres on a loopback host with no TLS, so
     // the pin is turned off here. config.test.ts checks that this is
@@ -218,7 +219,7 @@ describe('withTenant', () => {
 
   it('hands each role its own pool, reaching the same server here', async () => {
     const seen = await Promise.all(
-      (['app', 'reader', 'worker'] as const).map(async (role) =>
+      (['app', 'reader', 'worker', 'indexer'] as const).map(async (role) =>
         db.withTenant(
           role,
           { principalId: PRINCIPAL, projectId: PROJECT, scope: 'project' },
