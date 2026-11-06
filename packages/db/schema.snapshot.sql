@@ -1078,6 +1078,47 @@ $$;
 ALTER FUNCTION ujira.due_attempt_deadlines(p_before timestamp with time zone, p_limit integer) OWNER TO ujira_scheduler;
 
 --
+-- Name: exchange_embed_invite(bytea, bytea, text, integer, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_tokens
+--
+
+CREATE FUNCTION ujira.exchange_embed_invite(invite_sha256 bytea, new_token_sha256 bytea, new_token_prefix text, token_seconds integer, request_origin text) RETURNS TABLE(session_id uuid, recipient_id uuid, expires_at timestamp with time zone)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  spent ujira.embed_sessions%rowtype;
+begin
+  if token_seconds is null or token_seconds < 1 then
+    raise exception using errcode = '22023', message = 'a token lasts at least a second';
+  end if;
+  update ujira.embed_sessions as s
+     set consumed_at = now()
+   where s.token_hash = invite_sha256::ujira.hash32
+     and s.kind = 'invite'
+     and s.consumed_at is null
+     and s.expires_at > now()
+     and request_origin = any (s.allowed_origins)
+  returning s.* into spent;
+  if not found then
+    return;
+  end if;
+  return query
+    insert into ujira.embed_sessions as s (
+      principal_id, project_id, token_hash, token_prefix, recipient_id, purpose,
+      allowed_origins, created_by_token, expires_at, kind
+    ) values (
+      spent.principal_id, spent.project_id, new_token_sha256::ujira.hash32, new_token_prefix,
+      spent.recipient_id, spent.purpose, spent.allowed_origins, null,
+      now() + make_interval(secs => token_seconds), 'token'
+    )
+    returning s.id, s.recipient_id, s.expires_at;
+end
+$$;
+
+
+ALTER FUNCTION ujira.exchange_embed_invite(invite_sha256 bytea, new_token_sha256 bytea, new_token_prefix text, token_seconds integer, request_origin text) OWNER TO ujira_fn_tokens;
+
+--
 -- Name: forbid_mutation(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1464,6 +1505,27 @@ $$;
 
 
 ALTER FUNCTION ujira.legs_match_attempt() OWNER TO ujira_owner;
+
+--
+-- Name: mandate_instance_recipient_mode_once(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.mandate_instance_recipient_mode_once() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if old.recipient_mode is not null and new.recipient_mode is distinct from old.recipient_mode then
+    raise exception using
+      errcode = 'UJ022',
+      message = 'a mandate''s recipient mode is fixed once it is known';
+  end if;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.mandate_instance_recipient_mode_once() OWNER TO ujira_owner;
 
 --
 -- Name: overdue_fee_refunds(integer); Type: FUNCTION; Schema: ujira; Owner: ujira_scheduler
@@ -2960,6 +3022,7 @@ CREATE TABLE ujira.mandate_instances (
     country_policy_hash ujira.hash32,
     network ujira.network_id NOT NULL,
     status text DEFAULT 'deploying'::text NOT NULL,
+    recipient_mode text,
     balance_checked_at timestamp with time zone,
     CONSTRAINT mandate_instances_address_length CHECK (((char_length(contract_address) >= 1) AND (char_length(contract_address) <= 128))),
     CONSTRAINT mandate_instances_attester_key_length CHECK ((octet_length(attester_public_key) = 32)),
@@ -6732,6 +6795,31 @@ CREATE POLICY resolve_instance ON ujira.mandate_instances FOR SELECT TO ujira_fn
 
 
 --
+-- Name: embed_sessions retention_delete; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY retention_delete ON ujira.embed_sessions FOR DELETE TO ujira_retention USING (((expires_at < (now() - '7 days'::interval)) AND (NOT (EXISTS ( SELECT
+   FROM ujira.destination_verifications v
+  WHERE ((v.principal_id = embed_sessions.principal_id) AND (v.project_id = embed_sessions.project_id) AND (v.embed_session_id = embed_sessions.id)))))));
+
+
+--
+-- Name: destination_verifications retention_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY retention_read ON ujira.destination_verifications FOR SELECT TO ujira_retention USING ((embed_session_id IS NOT NULL));
+
+
+--
+-- Name: embed_sessions retention_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY retention_read ON ujira.embed_sessions FOR SELECT TO ujira_retention USING (((expires_at < (now() - '7 days'::interval)) AND (NOT (EXISTS ( SELECT
+   FROM ujira.destination_verifications v
+  WHERE ((v.principal_id = embed_sessions.principal_id) AND (v.project_id = embed_sessions.project_id) AND (v.embed_session_id = embed_sessions.id)))))));
+
+
+--
 -- Name: mandate_instances scheduler_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -8016,6 +8104,15 @@ GRANT ALL ON FUNCTION ujira.due_attempt_deadlines(p_before timestamp with time z
 
 
 --
+-- Name: FUNCTION exchange_embed_invite(invite_sha256 bytea, new_token_sha256 bytea, new_token_prefix text, token_seconds integer, request_origin text); Type: ACL; Schema: ujira; Owner: ujira_fn_tokens
+--
+
+REVOKE ALL ON FUNCTION ujira.exchange_embed_invite(invite_sha256 bytea, new_token_sha256 bytea, new_token_prefix text, token_seconds integer, request_origin text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.exchange_embed_invite(invite_sha256 bytea, new_token_sha256 bytea, new_token_prefix text, token_seconds integer, request_origin text) TO ujira_app;
+GRANT ALL ON FUNCTION ujira.exchange_embed_invite(invite_sha256 bytea, new_token_sha256 bytea, new_token_prefix text, token_seconds integer, request_origin text) TO ujira_auth;
+
+
+--
 -- Name: FUNCTION forbid_mutation(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -8099,6 +8196,13 @@ REVOKE ALL ON FUNCTION ujira.ledger_stamp() FROM PUBLIC;
 --
 
 REVOKE ALL ON FUNCTION ujira.legs_match_attempt() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION mandate_instance_recipient_mode_once(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.mandate_instance_recipient_mode_once() FROM PUBLIC;
 
 
 --
@@ -8714,6 +8818,13 @@ GRANT SELECT(mandate_id) ON TABLE ujira.mandate_instances TO ujira_scheduler;
 --
 
 GRANT UPDATE(status) ON TABLE ujira.mandate_instances TO ujira_indexer;
+
+
+--
+-- Name: COLUMN mandate_instances.recipient_mode; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(recipient_mode) ON TABLE ujira.mandate_instances TO ujira_app;
 
 
 --
