@@ -30,7 +30,7 @@ import { NETWORK, OPTS, addAccount, setup } from './test-adapter.js';
 import type { TestSetup } from './test-adapter.js';
 import { failedFeeBumpResult, failedResult } from './test-results.js';
 import { invoked } from './test-rpc.js';
-import { PASSPHRASES } from './tx.js';
+import { PASSPHRASES, accountKey } from './tx.js';
 
 const at = (value: string): ChainAddress => ({ network: NETWORK, value });
 const passphrase = PASSPHRASES[NETWORK];
@@ -48,9 +48,13 @@ async function prepare(t: TestSetup, action: MandateAction, signer = t.principal
 }
 
 function sign(request: SigningRequest, key: Keypair): string {
+  return signAll(request, [key]);
+}
+
+function signAll(request: SigningRequest, keys: readonly Keypair[]): string {
   if (request.kind !== 'stellar_transaction') throw new Error('expected a transaction');
   const tx = TransactionBuilder.fromXdr(request.xdr, passphrase);
-  tx.sign(key);
+  for (const key of keys) tx.sign(key);
   return tx.toXdr();
 }
 
@@ -135,6 +139,74 @@ describe('submitSigned for an account signer', { timeout: 30_000 }, () => {
     await expect(submit(t, request.requestId, 'not xdr')).rejects.toBeInstanceOf(InvalidInputError);
     // None of these used the request up.
     await submit(t, request.requestId, sign(request, t.principal));
+  });
+
+  it('takes a multisig principal with its master key off, signed by enough of its signers', async () => {
+    const t = setup();
+    const [a, b, c] = [Keypair.random(), Keypair.random(), Keypair.random()];
+    // Two of three: the network authorizes the call at medium, and the
+    // envelope at low.
+    addAccount(t.rpc, t.principal.publicKey(), 100n, undefined, {
+      masterWeight: 0,
+      low: 1,
+      medium: 2,
+      high: 2,
+      signers: [a, b, c].map((key) => ({ key: key.publicKey(), weight: 1 })),
+    });
+    const request = await prepare(t, { op: 'pause' });
+    const refused = [
+      [t.principal], // the master key, at weight 0
+      [a], // one signature short
+      [a, Keypair.random()], // a stranger makes up the weight
+      [a, a], // one signer counted twice
+      [t.principal, a], // the master key adds nothing
+    ];
+    for (const keys of refused) {
+      await expect(submit(t, request.requestId, signAll(request, keys))).rejects.toBeInstanceOf(
+        SignedPayloadMismatchError,
+      );
+    }
+    expect(t.rpc.sent).toHaveLength(0);
+    const signed = signAll(request, [a, c]);
+    const ref = await submit(t, request.requestId, signed);
+    const [sent] = t.rpc.sent;
+    const bump = TransactionBuilder.fromXdr(sent ?? '', passphrase) as FeeBumpTransaction;
+    expect(bump.innerTransaction.toXdr()).toBe(signed);
+    expect(Buffer.from(bump.hash()).toString('hex')).toBe(ref.txHash);
+  });
+
+  it('counts weights against the higher of low and medium, read when the signature arrives', async () => {
+    const t = setup();
+    const [a, b] = [Keypair.random(), Keypair.random()];
+    const request = await prepare(t, { op: 'pause' });
+    // Changed after the request was made: what counts is the account now.
+    const signers = [a, b].map((key) => ({ key: key.publicKey(), weight: 1 }));
+    addAccount(t.rpc, t.principal.publicKey(), 100n, undefined, {
+      masterWeight: 1,
+      low: 2,
+      medium: 1,
+      high: 3,
+      signers,
+    });
+    // Medium is met, but the envelope needs low as well.
+    await expect(submit(t, request.requestId, sign(request, a))).rejects.toBeInstanceOf(
+      SignedPayloadMismatchError,
+    );
+    // An account that is gone cannot authorize anything.
+    t.rpc.entries.delete(accountKey(t.principal.publicKey()));
+    await expect(
+      submit(t, request.requestId, signAll(request, [t.principal, a])),
+    ).rejects.toBeInstanceOf(SignedPayloadMismatchError);
+    expect(t.rpc.sent).toHaveLength(0);
+    addAccount(t.rpc, t.principal.publicKey(), 100n, undefined, {
+      masterWeight: 1,
+      low: 2,
+      medium: 1,
+      high: 3,
+      signers,
+    });
+    await submit(t, request.requestId, signAll(request, [t.principal, a]));
+    expect(t.rpc.sent).toHaveLength(1);
   });
 
   it('refuses an unknown request, another tenant and an expired request', async () => {

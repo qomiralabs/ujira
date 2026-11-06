@@ -182,6 +182,7 @@ export {
   agentIdentityLinks,
   attestations,
   destinationVerifications,
+  embedSessionRetention,
   embedSessions,
   identityEvidenceRepositories,
   walletChallenges,
@@ -310,3 +311,14 @@ export {
   type ParkedJob,
 } from './repositories/compliance.js';
 export { withWorkerInstallGrant } from './worker-install.js';
+export {
+  SeatRecipientModeUnknownError,
+  createManagedAgentPorts,
+  type ManagedAgentPorts,
+} from './managed-agent-ports.js';
+export {
+  managedAgents,
+  type ManagedAgentSeat,
+  type SeatRecipientMode,
+} from './repositories/managed-agents.js';
+export { RoleEventMalformedError } from './repositories/mandate-registry.js';

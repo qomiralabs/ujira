@@ -318,6 +318,7 @@ export interface UjiraEmbedSessions {
   created_by_token: string | null;
   expires_at: Timestamp;
   id: Generated<string>;
+  kind: Generated<string>;
   principal_id: string;
   project_id: string;
   purpose: string;
@@ -498,6 +499,7 @@ export interface UjiraMandateInstances {
   network: string;
   principal_id: string;
   project_id: string;
+  recipient_mode: string | null;
   scale: number;
   spec_version: string;
   status: Generated<string>;

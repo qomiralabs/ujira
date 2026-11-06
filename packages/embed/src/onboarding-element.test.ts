@@ -6,9 +6,12 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { encodeAccountAddress } from './destination.js';
 import { en } from './i18n/en.js';
+import { fr } from './i18n/fr.js';
+import { sw } from './i18n/sw.js';
 import { define, TAG_NAME } from './index.js';
 import {
   COMPLETE_EVENT,
@@ -18,7 +21,7 @@ import {
   type StepChangeDetail,
 } from './onboarding-element.js';
 
-const WALLET = `G${'A'.repeat(55)}`;
+const WALLET = encodeAccountAddress(new Uint8Array(32).fill(7));
 
 let widget: UjiraOnboarding;
 
@@ -176,7 +179,7 @@ describe('ujira-onboarding', () => {
     });
     await fillInEverything();
     await submit();
-    expect(seen).toEqual([{ name: 'Amara Eze', method: 'wallet', destination: WALLET }]);
+    expect(seen).toEqual([{ name: 'Amara Eze', method: 'wallet', destination: WALLET, memo: '' }]);
     expect(widget.currentStep).toBe('done');
     expect(text()).toContain(en['method.wallet.name']);
     expect(root().querySelector('.progress')).toBeNull();
@@ -212,7 +215,12 @@ describe('ujira-onboarding', () => {
     widget.reset();
     await widget.updateComplete;
     expect(widget.currentStep).toBe('name');
-    expect(widget.currentAnswers).toEqual({ name: '', method: 'wallet', destination: '' });
+    expect(widget.currentAnswers).toEqual({
+      name: '',
+      method: 'wallet',
+      destination: '',
+      memo: '',
+    });
   });
 
   it('hands out a copy of the answers, not the answers themselves', async () => {
@@ -254,7 +262,7 @@ describe('ujira-onboarding', () => {
     // this one.
     const section = readme.slice(readme.indexOf('## Attributes and properties'));
     const table = section.slice(0, section.indexOf('\n\n', section.indexOf('|')));
-    const rows = [...table.matchAll(/^\| `([a-z]+)` *\| [^|]+\| ([^|]+)\|/gm)].map(
+    const rows = [...table.matchAll(/^\| `([a-zA-Z]+)` *\| [^|]+\| ([^|]+)\|/gm)].map(
       (m) => [m[1] ?? '', (m[2] ?? '').trim().replaceAll('`', '')] as const,
     );
     const declared = Object.entries(UjiraOnboarding.properties)
@@ -264,18 +272,77 @@ describe('ujira-onboarding', () => {
     expect(rows.map(([name]) => name).sort()).toEqual(declared);
     expect(Object.fromEntries(rows)).toEqual({
       mode: 'light',
-      locale: 'en',
+      locale: 'empty',
       busy: 'false',
       error: 'empty',
+      sessionToken: 'empty',
+      apiBase: 'empty',
+      client: 'none',
+      wallet: 'none',
     });
     // The documented defaults are the ones a fresh element really has.
     expect(widget.mode).toBe('light');
-    expect(widget.locale).toBe('en');
+    expect(widget.locale).toBe('');
     expect(widget.busy).toBe(false);
     expect(widget.error).toBe('');
+    expect(widget.sessionToken).toBe('');
+    expect(widget.apiBase).toBe('');
+    expect(widget.client).toBeUndefined();
+    expect(widget.wallet).toBeUndefined();
   });
 });
 
 function readmeText(): string {
   return readFileSync(join(import.meta.dirname, '..', 'README.md'), 'utf8');
 }
+
+describe('the language it speaks', () => {
+  it('speaks the language the page asks for, and says which it is', async () => {
+    const widget = document.createElement(TAG_NAME);
+    widget.setAttribute('locale', 'sw');
+    document.body.replaceChildren(widget);
+    await widget.updateComplete;
+    const shadow = widget.shadowRoot;
+    expect(shadow?.querySelector('.heading')?.textContent).toBe(sw['name.heading']);
+    expect(shadow?.querySelector('section')?.getAttribute('lang')).toBe('sw');
+  });
+
+  it('follows the browser when the page does not choose', async () => {
+    const languages = vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['de-DE', 'fr-FR']);
+    try {
+      const widget = document.createElement(TAG_NAME);
+      document.body.replaceChildren(widget);
+      await widget.updateComplete;
+      expect(widget.shadowRoot?.querySelector('.heading')?.textContent).toBe(fr['name.heading']);
+      expect(widget.shadowRoot?.querySelector('section')?.getAttribute('lang')).toBe('fr');
+    } finally {
+      languages.mockRestore();
+    }
+  });
+
+  it('speaks English, and says so, for a language still waiting for a translator', async () => {
+    const widget = document.createElement(TAG_NAME);
+    widget.setAttribute('locale', 'yo');
+    document.body.replaceChildren(widget);
+    await widget.updateComplete;
+    expect(widget.shadowRoot?.querySelector('section')?.getAttribute('lang')).toBe('en');
+    expect(widget.shadowRoot?.querySelector('.heading')?.textContent).toBe(en['name.heading']);
+  });
+});
+
+describe('when the page takes its language choice away', () => {
+  it('goes back to following the browser', async () => {
+    const languages = vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['fr-FR']);
+    try {
+      const widget = document.createElement(TAG_NAME);
+      widget.setAttribute('locale', 'sw');
+      document.body.replaceChildren(widget);
+      await widget.updateComplete;
+      widget.removeAttribute('locale');
+      await widget.updateComplete;
+      expect(widget.shadowRoot?.querySelector('.heading')?.textContent).toBe(fr['name.heading']);
+    } finally {
+      languages.mockRestore();
+    }
+  });
+});

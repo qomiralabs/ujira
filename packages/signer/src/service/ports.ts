@@ -109,3 +109,15 @@ export interface AttestationLog {
   /** The pending row for exactly this 47 byte message, else null. */
   pending(message: Uint8Array, opts: CallOptions): Promise<PendingAttestation | null>;
 }
+
+/**
+ * The recipient modes of every mandate a managed agent key is seated on, as the chain's
+ * role events say. A mode not known yet is an error, not a guess.
+ */
+export interface ManagedAgentSeats {
+  recipientModesOf(
+    scope: TenantScope,
+    agentId: string,
+    opts: { readonly signal: AbortSignal },
+  ): Promise<readonly RecipientMode[]>;
+}
