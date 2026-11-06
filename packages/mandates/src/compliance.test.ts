@@ -42,6 +42,7 @@ import {
   createMemoryPrincipalKeyReader,
   guardSubmission,
   onMandateEvent,
+  onMandateRetired,
   recheckPrincipal,
   servableInstances,
 } from './index.js';
@@ -270,5 +271,115 @@ describe('compliance', () => {
     await recheckPrincipal(PRINCIPAL_ID, deps);
     expect(w.ledger.events).toHaveLength(before);
     expect(mandate.state().paused).toBe(false);
+  });
+});
+
+describe('a retired mandate', () => {
+  const OPTS = { signal: new AbortController().signal };
+
+  async function markedWithJobs() {
+    const s = setup();
+    const mandate = mandateOf(s.w, 60_000n);
+    s.instances.put(PRINCIPAL_ID, instanceOf(mandate, 'a'));
+    await recheckPrincipal(PRINCIPAL_ID, s.deps);
+    await guardSubmission(keyOf('a'), 'job-1', s.deps);
+    await guardSubmission(keyOf('a'), 'job-2', s.deps);
+    return s;
+  }
+
+  it('revoking a marked mandate closes out its parked jobs', async () => {
+    const { instances, compliance, deps } = await markedWithJobs();
+    instances.remove(PRINCIPAL_ID, 'a');
+
+    const outcome = await onMandateRetired(keyOf('a'), 'mandate_revoked', deps);
+
+    expect(outcome.closedJobs).toEqual(['job-1', 'job-2']);
+    expect(compliance.closed).toEqual([
+      { jobId: 'job-1', reason: 'mandate_revoked' },
+      { jobId: 'job-2', reason: 'mandate_revoked' },
+    ]);
+    expect(compliance.parked(keyOf('a'))).toEqual([]);
+    expect(compliance.resumed).toEqual([]);
+    expect(await compliance.read(keyOf('a'), OPTS)).toBeNull();
+  });
+
+  it('no compliant notice is sent for a revoked mandate', async () => {
+    const { instances, compliance, deps } = await markedWithJobs();
+    instances.remove(PRINCIPAL_ID, 'a');
+
+    const outcome = await onMandateRetired(keyOf('a'), 'mandate_revoked', deps);
+
+    expect(outcome.notices).toEqual([]);
+    expect(compliance.notices.map((n) => [n.key.instanceId, n.to])).toEqual([
+      ['a', 'noncompliant'],
+    ]);
+  });
+
+  it('revoking one mandate can clear another mark when the total falls under the line', async () => {
+    const { w, instances, compliance, deps } = setup();
+    const first = mandateOf(w, 30_000n, 'first');
+    const second = mandateOf(w, 30_000n, 'second');
+    instances.put(PRINCIPAL_ID, instanceOf(first, 'first'));
+    instances.put(PRINCIPAL_ID, instanceOf(second, 'second'));
+    await recheckPrincipal(PRINCIPAL_ID, deps);
+    expect(await compliance.read(keyOf('second'), OPTS)).not.toBeNull();
+    await guardSubmission(keyOf('second'), 'job-9', deps);
+
+    instances.remove(PRINCIPAL_ID, 'first');
+    const outcome = await onMandateRetired(keyOf('first'), 'mandate_revoked', deps);
+
+    expect(outcome.notices).toEqual([
+      { key: keyOf('second'), to: 'compliant', at: WHEN, fixes: [] },
+    ]);
+    expect(await compliance.read(keyOf('second'), OPTS)).toBeNull();
+    expect(compliance.resumed).toEqual(['job-9']);
+  });
+
+  it('expiry behaves the same way', async () => {
+    const { instances, compliance, deps } = await markedWithJobs();
+    instances.remove(PRINCIPAL_ID, 'a');
+
+    const outcome = await onMandateRetired(keyOf('a'), 'mandate_expired', deps);
+
+    expect(outcome).toEqual({ closedJobs: ['job-1', 'job-2'], notices: [] });
+    expect(compliance.closed.map((c) => c.reason)).toEqual(['mandate_expired', 'mandate_expired']);
+  });
+
+  it('closes nothing twice when the event is replayed', async () => {
+    const { instances, compliance, deps } = await markedWithJobs();
+    instances.remove(PRINCIPAL_ID, 'a');
+    await onMandateRetired(keyOf('a'), 'mandate_revoked', deps);
+    expect(await onMandateRetired(keyOf('a'), 'mandate_revoked', deps)).toEqual({
+      closedJobs: [],
+      notices: [],
+    });
+    expect(compliance.closed).toHaveLength(2);
+  });
+
+  it('does not park a job that arrives after the mandate retired', async () => {
+    const { instances, deps } = await markedWithJobs();
+    instances.remove(PRINCIPAL_ID, 'a');
+    await onMandateRetired(keyOf('a'), 'mandate_revoked', deps);
+    expect(await guardSubmission(keyOf('a'), 'job-3', deps)).toEqual({ action: 'submit' });
+  });
+
+  it('changes nothing when the recheck cannot read the chain, and can be run again', async () => {
+    const { instances, compliance, deps } = await markedWithJobs();
+    instances.remove(PRINCIPAL_ID, 'a');
+    const down = new Error('rpc down');
+    const failing = {
+      ...deps,
+      instances: { list: () => Promise.reject(down) },
+    };
+    await expect(onMandateRetired(keyOf('a'), 'mandate_revoked', failing)).rejects.toMatchObject({
+      code: 'POLICY_STORE_FAILED',
+      cause: down,
+    });
+    // The close out is kept, so the retry only has the recheck left to do.
+    expect(compliance.closed).toHaveLength(2);
+    expect(await onMandateRetired(keyOf('a'), 'mandate_revoked', deps)).toEqual({
+      closedJobs: [],
+      notices: [],
+    });
   });
 });

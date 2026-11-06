@@ -10,7 +10,9 @@
 // the mirror of what happened on chain, chain events, roles and deposits. The
 // grants enforce that split, whichever method is called.
 
+import type { CountryCode } from '@ujira/chain-adapter';
 import type { TokenAmount } from '@ujira/core';
+import { countryPolicyHash } from '@ujira/identity';
 import { sql, type Kysely, type UpdateObject } from 'kysely';
 
 import { amountParam, tokenFromRow } from '../money-mapper.js';
@@ -118,6 +120,10 @@ export const mandates = {
   },
 };
 
+// Where an instance is in its life. Deploying and a failed deploy cannot pay yet.
+export type MandateInstanceStatus =
+  'deploying' | 'active' | 'paused' | 'revoked' | 'expired' | 'deploy_failed';
+
 export interface MandateInstance {
   readonly id: string;
   readonly mandateId: string;
@@ -128,6 +134,7 @@ export interface MandateInstance {
   readonly asset: string;
   readonly scale: number;
   readonly createdAt: Date;
+  readonly status: string;
   // 32 bytes of ed25519; null in allowlist mode.
   readonly attesterPublicKey: Buffer | null;
   readonly countryPolicyHash: Buffer | null;
@@ -144,7 +151,6 @@ export interface NewMandateInstance {
   readonly asset: string;
   readonly scale: number;
   readonly attesterPublicKey?: Buffer | null;
-  readonly countryPolicyHash?: Buffer | null;
 }
 
 const instanceColumns = [
@@ -157,6 +163,7 @@ const instanceColumns = [
   'asset',
   'scale',
   'created_at',
+  'status',
   'attester_public_key',
   'country_policy_hash',
 ] as const;
@@ -171,6 +178,7 @@ function toInstance(row: {
   asset: string;
   scale: number;
   created_at: Date;
+  status: string;
   attester_public_key: Buffer | null;
   country_policy_hash: Buffer | null;
 }): MandateInstance {
@@ -184,6 +192,7 @@ function toInstance(row: {
     asset: row.asset,
     scale: row.scale,
     createdAt: row.created_at,
+    status: row.status,
     attesterPublicKey: row.attester_public_key,
     countryPolicyHash: row.country_policy_hash,
   };
@@ -230,6 +239,21 @@ export const mandateInstances = {
   // is refused by the foreign key (23503). A network that is not on the chain is
   // refused by a check (23514).
   create: async (db: Tx, input: NewMandateInstance): Promise<MandateInstance> => {
+    // The hash is built here from the mandate's own list, the way the attester
+    // rebuilds it, so the two cannot drift. A mandate this tenant cannot see has no
+    // list, and the foreign key refuses the row.
+    const policy = await db
+      .selectFrom('ujira.mandates')
+      .select('country_policy_list')
+      .where('id', '=', input.mandateId)
+      .executeTakeFirst();
+    const hash =
+      policy === undefined
+        ? null
+        : Buffer.from(
+            countryPolicyHash(policy.country_policy_list as CountryCode[]).slice(2),
+            'hex',
+          );
     const row = await db
       .insertInto('ujira.mandate_instances')
       .values({
@@ -243,7 +267,7 @@ export const mandateInstances = {
         asset: input.asset,
         scale: input.scale,
         attester_public_key: input.attesterPublicKey ?? null,
-        country_policy_hash: input.countryPolicyHash ?? null,
+        country_policy_hash: hash,
       })
       .returning(instanceColumns)
       .executeTakeFirstOrThrow();

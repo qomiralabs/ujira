@@ -2,6 +2,69 @@
 
 Smaller design decisions, each with what it was choosing between. Newest first.
 
+## What the identity store reads where the tables are silent
+
+**Problem.** The identity service's records carry facts the tables did not hold: whether a mandate instance is active, whether it takes attestations, which network a payout method is paid on, the project's identity settings, and the tenant of an identity row a provider's callback names by id alone.
+
+**Options.**
+
+1. Add a column for each fact and have the services that own them write it.
+2. Derive what the existing rows already imply, and add columns only for what nothing implies.
+
+**Decision.** Option 2.
+
+- `mandate_instances.status` is new: `deploying` until something marks it `active`, so an instance nobody vouched for pays no one. The store reads deploying and a failed deploy as `pending`.
+- The recipient mode comes from the attester key, which is set exactly when a mandate takes attestations. A mandate in `both` mode reads as `attested`. Eligibility treats the two the same, and the attester reads the mode from the chain itself.
+- A method's network is the deployment's per chain, given to the store. A method records only its chain, because an address reads the same on every network of it.
+- `projects.identity_settings` is new, an object or null for the defaults.
+- `ujira.recipient_identity_scope(id)` answers whose an identity row is, for one exact id, owned by a role of its own.
+- Anchor methods read as absent until methods record their anchor, so nothing is paid through an anchor on a guess.
+- A suspended or erased recipient reads as inactive.
+
+**Trade offs and risks.** Something has to move an instance to `active` before it can pay, and no login the API holds may: that is the chain's to say, through the indexer (#609).
+
+**Evidence.** The shared cases in `packages/identity/src/testing/contract.ts` run against memory and against Postgres (`packages/db/src/identity-store.test.ts`).
+
+## A revoked or expired mandate drops its compliance mark with no notice
+
+**Problem.** A mandate revoked or expired while marked noncompliant is no longer listed among the principal's live instances, so no recheck ever looks at it again. Its mark never cleared, and its parked jobs stayed `blocked_by_policy` for good, behind a policy nobody could fix any more.
+
+**Options.**
+
+1. Clear the mark through `applyMark`, as a recheck would. It is one path, but it sends the principal a "compliant" notice for a mandate that did not become compliant, and it resumes jobs onto a mandate that cannot pay them.
+2. Keep the mark as history, and mark the instance as retired. The record stays in one place, but every reader of marks has to learn to skip retired ones, and a forgotten reader would treat a dead mandate as still blocked.
+3. Drop the mark with no notice, and close the parked jobs with the reason. The history stays in the notices, which are append only and still hold the "noncompliant" one.
+
+We chose option 3.
+
+- A closed job keeps its row, as `closed` with `mandate_revoked` or `mandate_expired`, so the payouts it belongs to can be reported with that reason.
+- The close out takes the same lock as marking and parking. A job being parked as the revocation arrives is either parked first and closed by it, or finds no mark and is not parked, and its submission then meets the chain's own refusal.
+- The principal is checked again without the retired mandate, because its budget no longer counts toward the line. Another mandate that only failed because of the total then clears in the normal way, with its notice and its resumed jobs.
+- The retired instance is left out of that check even if the list of live instances has not caught up, so it can never be marked again.
+
+**Evidence.** `packages/mandates/src/compliance.test.ts` (`a retired mandate`) and `packages/db/src/compliance-store.test.ts` (`closing out a retired mandate`), the second against real Postgres with parks racing the revocation.
+
+## A rotated operations guardian is still the guardian
+
+**Problem.** Reconciliation knew only the operations guardian's current address. After a rotation every existing mandate still holds the old one, so it was reported as having no guardian, and an opt out the principal never made was recorded for good, which left every later instance of that mandate without the default protection.
+
+**Options.**
+
+1. Recognise only the current address, and rotate by asking every principal to update their mandates first. Nothing in UJIRA's hands decides when that is done.
+2. Name the past addresses in the network configuration, and treat any of them as the operations guardian.
+
+**Decision.** Option 2.
+
+- `retiredOperationsGuardians` in a network section lists every address the guardian had before. The configuration refuses one that is the current address, listed twice, or a key UJIRA signs with.
+- Reconciliation reports `present` when the current address is on chain, `outdated` when only a past one is, and `absent`, recording the opt out, only when none is.
+- Removing a past address is the principal removing the guardian, unless the guardians left afterwards still include one of UJIRA's addresses, which is the principal moving to the current one.
+- New mandates get only the current address.
+- `outdated` tells the principal to move. UJIRA cannot change a mandate's roles, so moving is theirs: add the current address, then remove the old one.
+
+**Trade offs and risks.** An address leaves the list only when no mandate holds it any more, or its removal would be read as an opt out again. Opt outs live only in memory so far, so there were none recorded to check before this ships; when they are stored, any recorded during a rotation window need checking against this list.
+
+**Evidence.** `packages/mandates/src/guardian-removal.test.ts`, the cases under "after the operations guardian address is rotated".
+
 ## Which database logins exist, and which have a connection
 
 **Problem.** The migrations create seven login roles, and `packages/db` had a connection for only some of them. The indexer wrote tenant rows through the worker's pool, which in tests logged in as `ujira_indexer`, while the worker's own login holds no rights on tenant tables. A deploy could not tell which logins to provision, or which URL each process needs.
