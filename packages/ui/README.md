@@ -155,6 +155,55 @@ import { MandateMeter, PayoutCard, StatusBadge } from '@ujira/ui';
   coloured. Screen readers hear one sentence with every amount, and how far over an overrun budget
   is.
 
+## Data table
+
+```tsx
+import { ColumnChooser, DataTable, DensityToggle, compareMoney, type DataColumn } from '@ujira/ui';
+
+const columns: DataColumn<Payout>[] = [
+  { id: 'recipient', header: 'Recipient', hideable: false, cell: (p) => p.name },
+  {
+    id: 'amount',
+    header: 'Amount',
+    align: 'end',
+    width: '11rem',
+    cell: (p) => <Amount value={p.amount} size="data" />,
+    compare: (a, b) => compareMoney(a.usd, b.usd),
+  },
+];
+
+<DataTable
+  caption="Payouts"
+  data={payouts}
+  columns={columns}
+  getRowId={(p) => p.id}
+  rowLabel={(p) => p.name}
+  sorting={sorting}
+  onSortingChange={setSorting}
+  density={density}
+  onRowOpen={open}
+  activeRowId={openId}
+  renderCard={(p) => <PayoutCard {...cardProps(p)} />}
+/>;
+```
+
+- Columns are `DataColumn`: an id, a header in plain words (also the sort button's name and the
+  column chooser's label), a cell, and optionally `align: 'end'` for figures, `compare` to make it
+  sortable, `hideable: false` and a fixed `width`. Every sortable column sorts ascending, then
+  descending, then not at all.
+- Sort, column visibility, density and selection can each be passed in with their change handler,
+  so a screen keeps them in the URL. Leave sort or selection out and the table keeps its own.
+  `ColumnChooser` and `DensityToggle` only report, so they sit wherever the screen's toolbar is.
+- Above 100 rows (`VIRTUALIZE_ABOVE`) only the rows in view are in the page. The table stays a real
+  table, with `aria-rowcount` and `aria-rowindex`.
+- One row is in the tab order. The arrow keys, Home, End, Page Up and Page Down move it; Enter and a
+  click call `onRowOpen`. A click on a selection checkbox never opens the row.
+- `loading` draws skeleton rows in the final layout. With no rows, `empty` shows, or `noResults`
+  when `filtered` is set; both should say what to do next.
+- With `renderCard`, phones (below 768px) get the rows as stacked cards instead of the table.
+- `compareMoney` keeps currencies together and orders exactly by amount within one. Sort a column of
+  mixed currencies on the USD equivalent.
+
 ## Catalogue
 
 ```sh
