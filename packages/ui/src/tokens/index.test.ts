@@ -18,6 +18,8 @@ describe('token exports', () => {
 
   it('exposes the tokens, icons and primitives from the package entry', () => {
     expect(Object.keys(ui).sort()).toEqual([
+      'Amount',
+      'AmountProvider',
       'BrandIcon',
       'Button',
       'Checkbox',
@@ -39,6 +41,7 @@ describe('token exports', () => {
       'Skeleton',
       'Switch',
       'Textarea',
+      'TokenAmount',
       'Tooltip',
       'TooltipContent',
       'TooltipProvider',
@@ -50,6 +53,8 @@ describe('token exports', () => {
       'density',
       'focus',
       'fonts',
+      'formatMoney',
+      'localeDirection',
       'modes',
       'motion',
       'palette',
@@ -57,6 +62,7 @@ describe('token exports', () => {
       'shadow',
       'status',
       'typeScale',
+      'useAmountSettings',
       'useFieldControl',
       'viz',
     ]);
