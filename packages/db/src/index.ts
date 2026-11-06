@@ -192,6 +192,7 @@ export {
   type WalletChallengeRow,
 } from './repositories/identity-evidence.js';
 export {
+  alertDeliveryCursors,
   chainCursors,
   emailQuota,
   executors,
@@ -306,3 +307,14 @@ export {
   type NewFeeResend,
   type UnpaidFeeItem,
 } from './repositories/fee-fallback.js';
+export {
+  SeatRecipientModeUnknownError,
+  createManagedAgentPorts,
+  type ManagedAgentPorts,
+} from './managed-agent-ports.js';
+export {
+  managedAgents,
+  type ManagedAgentSeat,
+  type SeatRecipientMode,
+} from './repositories/managed-agents.js';
+export { RoleEventMalformedError } from './repositories/mandate-registry.js';

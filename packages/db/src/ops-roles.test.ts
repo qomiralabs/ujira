@@ -17,6 +17,7 @@ const adminUrl = inject('dbAdminUrl');
 const roleUrls = inject('dbRoleUrls');
 
 const TABLES = [
+  'ops.alert_delivery_cursors',
   'ops.chain_cursors',
   'ops.executor_accounts',
   'ops.routing_config_versions',

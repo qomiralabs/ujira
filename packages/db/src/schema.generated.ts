@@ -29,6 +29,12 @@ export type Numeric = ColumnType<string, number | string, number | string>;
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
+export interface OpsAlertDeliveryCursors {
+  last_alert_id: Int8;
+  sink: string;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface OpsChainCursors {
   cursor: string;
   network: string;
@@ -492,6 +498,7 @@ export interface UjiraMandateInstances {
   network: string;
   principal_id: string;
   project_id: string;
+  recipient_mode: string | null;
   scale: number;
   spec_version: string;
   status: Generated<string>;
@@ -786,6 +793,7 @@ export interface UjiraWalletProofChallenges {
 }
 
 export interface Schema {
+  'ops.alert_delivery_cursors': OpsAlertDeliveryCursors;
   'ops.chain_cursors': OpsChainCursors;
   'ops.email_quota_usage': OpsEmailQuotaUsage;
   'ops.executor_accounts': OpsExecutorAccounts;

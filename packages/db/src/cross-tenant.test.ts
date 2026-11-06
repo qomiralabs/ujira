@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
 import type { Database, ProjectContext } from './database.js';
 import type { Schema } from './schema.generated.js';
+import { managedAgentRepositories, managedAgents } from './repositories/managed-agents.js';
 import { compliance, complianceRepositories } from './repositories/compliance.js';
 import { audit, auditRepositories } from './repositories/audit.js';
 import { routing, routingRepositories } from './repositories/routing.js';
@@ -115,6 +116,7 @@ interface Tenant {
 }
 
 const REPOSITORIES = {
+  ...managedAgentRepositories,
   ...complianceRepositories,
   ...tenancyRepositories,
   ...mandateRepositories,
@@ -538,6 +540,19 @@ const acrossA = async <T>(work: (tx: Kysely<Schema>) => Promise<T>): Promise<T> 
 
 // One case per repository method, each run as tenant A.
 const cases: Record<string, () => Promise<void>> = {
+  'managedAgents.seats': async () => {
+    expect(await acrossA(async (tx) => managedAgents.seats(tx, randomUUID()))).toEqual([]);
+  },
+  'managedAgents.isManaged': async () => {
+    expect(
+      await acrossA(async (tx) => managedAgents.isManaged(tx, 'stellar:testnet', 'GNONE')),
+    ).toBe(false);
+  },
+  'mandateInstances.setRecipientMode': async () => {
+    expect(
+      await asA(async (tx) => mandateInstances.setRecipientMode(tx, b.instanceId, 'attested')),
+    ).toBe(false);
+  },
   'compliance.mark': async () => {
     expect(await acrossA(async (tx) => compliance.mark(tx, b.instanceId))).toBeUndefined();
   },
