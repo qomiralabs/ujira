@@ -101,6 +101,16 @@ export const rateLimits = {
       tokens: Number(row.remaining),
     }));
   },
+
+  // Deletes up to maxRows buckets that have refilled completely and says how many. A
+  // missing bucket starts full, so no caller can tell. A bucket in use right now is
+  // skipped rather than waited on.
+  pruneRefilled: async (db: Tx, maxRows: number): Promise<number> => {
+    const result = await sql<{ removed: number }>`
+      select ops.prune_rate_limit_buckets(${maxRows}::integer) as removed
+    `.execute(db);
+    return result.rows[0]?.removed ?? 0;
+  },
 };
 
 export const routingConfig = {
