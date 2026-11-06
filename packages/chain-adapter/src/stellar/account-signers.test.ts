@@ -12,7 +12,11 @@ import { describe, expect, it } from 'vitest';
 
 import { InvalidInputError } from '../errors.js';
 import type { StellarAccountEntry, StellarSignerKind } from './account-rules.js';
-import { readStellarPrincipalSigning, stellarMinimumSignatures } from './account-signers.js';
+import {
+  readStellarPrincipalSigning,
+  signaturesAuthorize,
+  stellarMinimumSignatures,
+} from './account-signers.js';
 import type { StellarLedgerKey, StellarLedgerReader } from './check-destination.js';
 
 const signer = (key: string, weight: number) => ({ key, weight });
@@ -45,6 +49,44 @@ function readerOf(entry: StellarAccountEntry | null): StellarLedgerReader & {
     },
   };
 }
+
+describe('signaturesAuthorize', () => {
+  // Master off, three signers of 1, low 1 and medium 2.
+  const twoOfThree = account(0, 2, [signer('GA', 1), signer('GB', 1), signer('GC', 1)]);
+
+  it('takes signers whose weights reach medium, whichever they are', () => {
+    expect(signaturesAuthorize(twoOfThree, ['GA', 'GC'])).toBe(true);
+    expect(signaturesAuthorize(twoOfThree, ['GC', 'GB', 'GA'])).toBe(true);
+    expect(signaturesAuthorize(account(1, 0), [PRINCIPAL])).toBe(true);
+  });
+
+  it('refuses short of the threshold, and nothing at all', () => {
+    expect(signaturesAuthorize(twoOfThree, ['GA'])).toBe(false);
+    expect(signaturesAuthorize(twoOfThree, [])).toBe(false);
+    expect(signaturesAuthorize(account(1, 0), [])).toBe(false);
+  });
+
+  it('refuses a signature no listed signer of weight made, or one signer twice', () => {
+    expect(signaturesAuthorize(twoOfThree, ['GA', 'GB', null])).toBe(false);
+    expect(signaturesAuthorize(twoOfThree, ['GA', 'GA'])).toBe(false);
+    // The master key is listed, but at weight 0 it signs for nothing.
+    expect(signaturesAuthorize(twoOfThree, ['GA', 'GB', PRINCIPAL])).toBe(false);
+  });
+
+  it('needs low as well as medium, since the envelope is checked at low', () => {
+    const lowAbove = {
+      ...account(1, 1, [signer('GA', 1)]),
+      thresholds: { low: 2, medium: 1, high: 3 },
+    };
+    expect(signaturesAuthorize(lowAbove, ['GA'])).toBe(false);
+    expect(signaturesAuthorize(lowAbove, ['GA', PRINCIPAL])).toBe(true);
+  });
+
+  it('ignores signers that are not keys, which no signature here can match', () => {
+    const hashX = account(0, 1, [{ kind: 'hash_x', key: 'GA', weight: 1 }]);
+    expect(signaturesAuthorize(hashX, ['GA'])).toBe(false);
+  });
+});
 
 describe('readStellarPrincipalSigning', () => {
   const read = (entry: StellarAccountEntry | null) =>

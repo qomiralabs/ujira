@@ -203,6 +203,15 @@ export function signedBy(tx: Transaction, address: string): boolean {
   return tx.signatures.some((s) => key.verify(hash, s.signature.value));
 }
 
+/** For each decorated signature on `tx`, which of `addresses` made it, or null for none. */
+export function signaturesBy(tx: Transaction, addresses: readonly string[]): (string | null)[] {
+  const keys = addresses.map((address) => ({ address, key: Keypair.fromPublicKey(address) }));
+  const hash = tx.hash();
+  return tx.signatures.map(
+    (s) => keys.find(({ key }) => key.verify(hash, s.signature.value))?.address ?? null,
+  );
+}
+
 export function parseEnvelope(
   envelopeXdr: string,
   network: StellarNetworkId,
