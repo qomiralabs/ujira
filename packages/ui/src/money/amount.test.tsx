@@ -52,6 +52,48 @@ describe('localeDirection', () => {
   ] as const)('%s is %s', (locale, direction) => {
     expect(localeDirection(locale)).toBe(direction);
   });
+
+  // Engines differ: some have getTextInfo, some only the older textInfo
+  // accessor, some neither. Each is replaced on the prototype for one call.
+  function withTextInfo(
+    method: PropertyDescriptor,
+    accessor: PropertyDescriptor,
+    run: () => void,
+  ): void {
+    // The DOM library types the prototype as any.
+    const proto = Intl.Locale.prototype as object;
+    const saved = ['getTextInfo', 'textInfo'].map(
+      (key) => [key, Object.getOwnPropertyDescriptor(proto, key)] as const,
+    );
+    Object.defineProperty(proto, 'getTextInfo', { ...method, configurable: true });
+    Object.defineProperty(proto, 'textInfo', { ...accessor, configurable: true });
+    try {
+      run();
+    } finally {
+      for (const [key, descriptor] of saved) {
+        if (descriptor === undefined) Reflect.deleteProperty(proto, key);
+        else Object.defineProperty(proto, key, descriptor);
+      }
+    }
+  }
+
+  const throwing = () => {
+    throw new Error('no text info');
+  };
+
+  it('falls back to the likely script on an engine without text info', () => {
+    withTextInfo({ value: throwing }, { get: throwing }, () => {
+      expect(localeDirection('ar')).toBe('rtl');
+      expect(localeDirection('he')).toBe('rtl');
+      expect(localeDirection('en')).toBe('ltr');
+    });
+  });
+
+  it('reads the older text info accessor when the method is missing', () => {
+    withTextInfo({ value: undefined }, { get: () => ({ direction: 'rtl' }) }, () => {
+      expect(localeDirection('en')).toBe('rtl');
+    });
+  });
 });
 
 describe('Amount', () => {
