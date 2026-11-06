@@ -84,10 +84,16 @@ function readyFor(tag: string): Locale | undefined {
 
 /**
  * The language to show: the page's choice when it made one we can show,
- * then the reader's browser languages in their order, then English.
+ * then the reader's browser languages in their order, then English. A page
+ * that removes the attribute leaves null behind, which counts as no choice.
  */
-export function resolveLocale(chosen: string, browser: readonly string[] = []): Locale {
-  if (chosen.trim() !== '') return readyFor(chosen) ?? DEFAULT_LOCALE;
+export function resolveLocale(
+  chosen: string | null | undefined,
+  browser: readonly string[] = [],
+): Locale {
+  if (typeof chosen === 'string' && chosen.trim() !== '') {
+    return readyFor(chosen) ?? DEFAULT_LOCALE;
+  }
   for (const tag of browser) {
     const found = readyFor(tag);
     if (found !== undefined) return found;

@@ -329,3 +329,20 @@ describe('the language it speaks', () => {
     expect(widget.shadowRoot?.querySelector('.heading')?.textContent).toBe(en['name.heading']);
   });
 });
+
+describe('when the page takes its language choice away', () => {
+  it('goes back to following the browser', async () => {
+    const languages = vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['fr-FR']);
+    try {
+      const widget = document.createElement(TAG_NAME);
+      widget.setAttribute('locale', 'sw');
+      document.body.replaceChildren(widget);
+      await widget.updateComplete;
+      widget.removeAttribute('locale');
+      await widget.updateComplete;
+      expect(widget.shadowRoot?.querySelector('.heading')?.textContent).toBe(fr['name.heading']);
+    } finally {
+      languages.mockRestore();
+    }
+  });
+});

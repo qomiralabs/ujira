@@ -53,6 +53,9 @@ describe('catalogue', () => {
     // not the browser's, since the page chose on purpose.
     expect(resolveLocale('yo', ['fr'])).toBe('en');
     expect(resolveLocale('klingon', ['fr'])).toBe('en');
+    // Removing the attribute leaves null on the property, which is no choice.
+    expect(resolveLocale(null, ['fr-FR'])).toBe('fr');
+    expect(resolveLocale(undefined, ['sw'])).toBe('sw');
   });
 
   it('falls back to English rather than showing a key', () => {
