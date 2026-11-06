@@ -21,6 +21,7 @@ function envFor(harness: HarnessDatabase): WorkerInstallEnvironment {
   return {
     UJIRA_DB_APP_URL: harness.loginUrl('ujira_app'),
     UJIRA_DB_READER_URL: harness.loginUrl('ujira_reader'),
+    UJIRA_DB_INDEXER_URL: harness.loginUrl('ujira_indexer'),
     UJIRA_DB_WORKER_URL: harness.loginUrl('ujira_worker'),
     UJIRA_DB_MIGRATION_URL: harness.database.url,
     UJIRA_DB_ADMIN_URL: harness.database.url,

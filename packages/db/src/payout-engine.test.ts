@@ -190,7 +190,10 @@ describe('what the job reads', () => {
         ],
       }),
     }));
-    expect(page.methods.map((method) => method.id)).toEqual([fixture.methodId]);
+    // The fixture gives its recipient a method for each possible leg.
+    expect(page.methods.map((method) => method.id)).toEqual(
+      fixture.methods.map((method) => method.id).sort(),
+    );
     const first = await db
       .tenant(fixture.tenant)
       .transaction(async (tx) =>

@@ -306,6 +306,8 @@ export const DEFINER_ALLOWLIST: readonly string[] = [
   'ujira.create_principal(text,text,uuid,text)',
   'ujira.ledger_balanced()',
   'ujira.ledger_stamp()',
+  'ujira.recipient_identity_scope(uuid)',
+  'ujira.resolve_mandate_address(text,text)',
   'ujira.resolve_mandate_instance(text,text)',
   'ujira.due_attempt_deadlines(timestamp with time zone,integer)',
   'ujira.overdue_fee_refunds(integer)',
