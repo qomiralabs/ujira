@@ -30,6 +30,8 @@ const RESPONSIVE = new Set([
   // shows here before it shows anywhere else.
   'money-amount--alignment',
   'money-amount--launch-signs',
+  // The table becomes stacked cards below the tablet width.
+  'patterns-datatable--default',
   // The meter legend stacks on a phone; the cards go from one column to two;
   // the badges wrap.
   'payments-mandatemeter--default',
