@@ -44,6 +44,8 @@ function statusDescription(status: number): string {
 function components(routes: readonly Route[]): (readonly [string, z.ZodType])[] {
   const list: (readonly [string, z.ZodType])[] = [...OPENAPI_COMPONENTS];
   for (const route of routes) {
+    // A file is described by its media type, and has no JSON schema to list.
+    if (route.response.download !== undefined) continue;
     const { name, schema } = route.response;
     const same = list.find(([id]) => id === name);
     if (same === undefined) list.push([name, schema]);
@@ -56,12 +58,28 @@ function components(routes: readonly Route[]): (readonly [string, z.ZodType])[] 
 
 const headerSchema = { schema: { type: 'string' } };
 
+const RATE_LIMIT_HEADERS = {
+  'RateLimit-Limit': headerSchema,
+  'RateLimit-Remaining': headerSchema,
+  'RateLimit-Reset': headerSchema,
+};
+
 function operation(route: Route): JsonObject {
+  // A key or a session is always limited; a public route only when it names a group.
+  const limited = route.access.kind !== 'public' || route.access.addressLimit !== undefined;
+  const limits = limited ? RATE_LIMIT_HEADERS : {};
   const responses: JsonObject = {
     [String(route.response.status)]: {
       description: 'OK',
-      headers: { 'Request-Id': headerSchema },
-      content: { 'application/json': { schema: { $ref: `${REF}${route.response.name}` } } },
+      headers: { 'Request-Id': headerSchema, ...limits },
+      content:
+        route.response.download === undefined
+          ? { 'application/json': { schema: { $ref: `${REF}${route.response.name}` } } }
+          : {
+              [route.response.download.contentType]: {
+                schema: { type: 'string', format: 'binary' },
+              },
+            },
     },
   };
   for (const status of route.errorStatuses) {
@@ -70,6 +88,7 @@ function operation(route: Route): JsonObject {
       headers: {
         'Request-Id': headerSchema,
         ...(status === 429 || status === 503 ? { 'Retry-After': headerSchema } : {}),
+        ...(status === 429 ? limits : {}),
       },
       content: { 'application/problem+json': { schema: { $ref: `${REF}Problem` } } },
     };
@@ -78,7 +97,7 @@ function operation(route: Route): JsonObject {
   return {
     operationId: route.id,
     summary: route.summary,
-    security: tenant ? [{ bearer: [] }] : [],
+    security: tenant ? [{ bearer: [] }] : route.access.kind === 'embed' ? [{ embedToken: [] }] : [],
     ...(route.access.kind === 'tenant' ? { 'x-ujira-scope': route.access.scope } : {}),
     parameters: [
       ...openApiParameters('path', route.params),
@@ -152,7 +171,10 @@ export function buildOpenApiDocument(routes: readonly Route[]): JsonObject {
     paths,
     components: {
       schemas: reachable(paths, schemas),
-      securitySchemes: { bearer: { type: 'http', scheme: 'bearer' } },
+      securitySchemes: {
+        bearer: { type: 'http', scheme: 'bearer' },
+        embedToken: { type: 'http', scheme: 'bearer' },
+      },
     },
   };
 }

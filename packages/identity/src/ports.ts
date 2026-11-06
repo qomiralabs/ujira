@@ -199,6 +199,16 @@ export interface AttestationLog {
   markFailed(scope: TenantScope, attestationId: Uuid, failureCode: string): Promise<void>;
 }
 
+/**
+ * Each network's attestation calls, from the registry. A registry's adapter has
+ * readMandate, attestationMessage and checkDestination, so it serves as it is.
+ */
+export function attestationChainsFromRegistry(
+  registry: ChainAdapterRegistry,
+): (network: NetworkId) => AttestationChain {
+  return (network) => registry.get(network);
+}
+
 /** The payouts service's record of each attempt's legs. */
 export interface PayoutLegSource {
   leg(scope: TenantScope, attemptId: Uuid, legIndex: number): Promise<AttemptLegRecord | null>;

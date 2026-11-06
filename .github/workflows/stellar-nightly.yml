@@ -1,0 +1,98 @@
+name: Stellar testnet nightly
+
+# Runs the mandate operations against the factory deployed on testnet, with real
+# transactions, and reports their hashes. A pull request cannot run this: it would
+# spend testnet funds on every push and fail whenever testnet is down, and it needs
+# keys a pull request must never see. These identities exist only on testnet and
+# hold nothing of value.
+#
+# It stays off until the variable UJIRA_TESTNET_NIGHTLY is set to on, because the
+# keys have to be added to the repository first. Skipped, rather than failing every
+# night, so a red run always means something.
+
+on:
+  schedule:
+    - cron: '43 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  # Same pins as the CI workflow; bump them together.
+  PNPM_VERSION: 12.14.0
+  PNPM_EXE_SHA512: '17a2bc7bf8d6c62b84609690b514541bdca70524c41dafadecb7fce8c2ae38ee5403b59554c6e2fa807c9d8ea2296fbe9dc592db21ba4fd7da5d91b1a8db1fa1'
+  PNPM_BINARY_SHA512: '31d634f13f80f983b91922b35388744a11f5a3909f14b104f2aabb71cbff135e6ffc4db68f1192641da41a52f9296fb8377cd6d66bc009b73d0e4d54fc87df3d'
+
+jobs:
+  testnet:
+    name: Mandate operations on testnet
+    if: ${{ vars.UJIRA_TESTNET_NIGHTLY == 'on' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        run: |
+          curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 20 --max-time 180 -o pnpm.tgz "https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-${PNPM_VERSION}.tgz"
+          echo "${PNPM_EXE_SHA512}  pnpm.tgz" | sha512sum --check --strict
+          mkdir -p "${RUNNER_TEMP}/pnpm"
+          tar -xzf pnpm.tgz -C "${RUNNER_TEMP}/pnpm" --strip-components 1 package/pnpm
+          rm pnpm.tgz
+          echo "${RUNNER_TEMP}/pnpm" >> "${GITHUB_PATH}"
+          PATH="${RUNNER_TEMP}/pnpm:${PATH}" scripts/assert-pnpm.sh
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build what the test imports
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/core build
+
+      # Only this step sees the keys. The test holds them in memory and never prints
+      # them, and the hashes it does print are public.
+      - name: Run against testnet
+        env:
+          UJIRA_STELLAR_TESTNET: '1'
+          UJIRA_TESTNET_KEY_DEPLOYER: ${{ secrets.UJIRA_TESTNET_KEY_DEPLOYER }}
+          UJIRA_TESTNET_KEY_ISSUER: ${{ secrets.UJIRA_TESTNET_KEY_ISSUER }}
+          UJIRA_TESTNET_KEY_NT_PRINCIPAL: ${{ secrets.UJIRA_TESTNET_KEY_NT_PRINCIPAL }}
+          UJIRA_TESTNET_KEY_SMOKE_AGENT: ${{ secrets.UJIRA_TESTNET_KEY_SMOKE_AGENT }}
+          UJIRA_TESTNET_KEY_SMOKE_APPROVER: ${{ secrets.UJIRA_TESTNET_KEY_SMOKE_APPROVER }}
+          UJIRA_TESTNET_KEY_SMOKE_PRINCIPAL: ${{ secrets.UJIRA_TESTNET_KEY_SMOKE_PRINCIPAL }}
+          UJIRA_TESTNET_KEY_SMOKE_RECIPIENT: ${{ secrets.UJIRA_TESTNET_KEY_SMOKE_RECIPIENT }}
+        run: |
+          scripts/assert-pnpm.sh
+          pnpm --filter @ujira/chain-adapter exec vitest run src/stellar/mandate.integration.test.ts --no-file-parallelism \
+            | tee "${RUNNER_TEMP}/testnet.txt"
+
+      - name: Report the transaction hashes
+        if: ${{ !cancelled() }}
+        run: |
+          {
+            echo '### Testnet transactions'
+            echo '```'
+            grep -E 'principal, mandate |^[a-z_]+ [0-9a-f]{64}$' "${RUNNER_TEMP}/testnet.txt" || echo 'none recorded'
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"

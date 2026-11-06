@@ -5,12 +5,12 @@
 // later change, kept in one place so create, the constructor and the
 // administrative calls can never disagree on a domain or a role conflict.
 
-import { accountKeyOf } from './address.js';
+import { feeCap } from '../fee-cap.js';
+import { accountAddress, accountKeyOf, contractAddress } from './address.js';
 import { equalBytes } from './bytes.js';
 import { refusal } from './failures.js';
 import {
   ATTESTER_KEY_BYTES,
-  BPS_DENOMINATOR,
   MAX_AGENTS,
   MAX_APPROVERS,
   MAX_EXECUTORS,
@@ -46,6 +46,16 @@ const DISJOINT: Readonly<Record<RoleCode, readonly RoleCode[]>> = Object.freeze(
 
 // The principal may also approve or guard, never spend, submit or vote.
 const NEVER_PRINCIPAL: ReadonlySet<RoleCode> = new Set([ROLE.AGENT, ROLE.EXECUTOR, ROLE.RECOVERY]);
+
+// Stellar has no zero address, but these two are valid addresses nobody holds a key
+// to. As a role member one would count toward a threshold without ever being able to
+// act, and a transfer to one burns the amount.
+const ZERO_ACCOUNT = accountAddress(new Uint8Array(ATTESTER_KEY_BYTES));
+const ZERO_CONTRACT = contractAddress(new Uint8Array(ATTESTER_KEY_BYTES));
+
+export function isZeroAddress(address: string): boolean {
+  return address === ZERO_ACCOUNT || address === ZERO_CONTRACT;
+}
 
 export function isRoleCode(code: number): code is RoleCode {
   return Number.isInteger(code) && code >= ROLE.AGENT && code <= ROLE.RECOVERY;
@@ -120,11 +130,7 @@ export function recoveryFits(threshold: number, members: number): boolean {
   return threshold >= 1 && threshold <= members;
 }
 
-/** floor(total * bps / 10000) without ever forming total * bps. */
-export function feeCap(total: bigint, maxFeeBps: number): bigint {
-  const bps = BigInt(maxFeeBps);
-  return (total / BPS_DENOMINATOR) * bps + ((total % BPS_DENOMINATOR) * bps) / BPS_DENOMINATOR;
-}
+export { feeCap };
 
 function hasRepeat(list: readonly string[]): boolean {
   return new Set(list).size !== list.length;
@@ -164,6 +170,9 @@ export function validateConfig(c: EngineConfig, feeAddress: string, now: bigint)
     throw refusal('CONFIG_INVALID');
   }
   if (!attesterFitsMode(c.recipientMode, c.attester)) throw refusal('CONFIG_INVALID');
+  if ([c.principal, ...ROLE_CODES.flatMap((role) => sets[role])].some(isZeroAddress)) {
+    throw refusal('CONFIG_INVALID');
+  }
   const conflict = ROLE_CODES.some((role) =>
     sets[role].some((account) => joinConflicts(role, account, sets, c.principal, feeAddress)),
   );

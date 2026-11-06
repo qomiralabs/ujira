@@ -5,12 +5,20 @@
 // Each key does one job and the payload must be that job exactly:
 // - an executor calls execute or execute_batch on a mandate the index knows
 //   with this executor in its executor role, with the fee under the cap;
+// - an executor also carries a smart wallet's own signed call, under a payload
+//   kind of its own. A wallet cannot be a transaction's source, so a fee bump has
+//   nothing to wrap. The channel account authorizes nothing in it and can only
+//   lose the fee, and each one needs a reservation, so the sponsor's limits hold;
+// - an executor also restores and extends entries, under a kind of its own, since
+//   that changes no contract's state and its cost is bounded by the fee cap;
 // - the fee sponsor wraps a transaction the payouts worker reserved a
 //   sponsorship for, or opens and activates an account through a reserve
 //   sandwich of exactly the expected operations, again only with a
 //   reservation, and never above either fee cap;
 // - a SEP-10 key signs only a challenge from the anchor it logs in to.
 // Anything else is refused before the backend is asked.
+
+import { createHash } from 'node:crypto';
 
 import { InvalidInputError } from '@ujira/chain-adapter';
 import type {
@@ -24,6 +32,7 @@ import {
   decodeAuthEntry,
   decodeFeeBumpEnvelope,
   decodeTransactionEnvelope,
+  invocationAuthEntries,
 } from '@ujira/chain-adapter/codecs';
 import type { DecodedOperation, DecodedTransaction } from '@ujira/chain-adapter/codecs';
 
@@ -54,6 +63,8 @@ export interface ChainNetworkPolicy {
   readonly payoutAsset: { readonly code: string; readonly issuer: string };
   /** By anchor id. */
   readonly sep10: Readonly<Record<string, Sep10Anchor>>;
+  /** Token contracts a wallet's own call may be relayed to, for funding a mandate. */
+  readonly relayTokens?: readonly string[];
 }
 
 export interface ChainPolicyOptions {
@@ -65,6 +76,25 @@ export interface ChainPolicyOptions {
 const SANDWICH_INTENTS: ReadonlySet<SponsorshipIntent> = new Set([
   'create_funding_account',
   'recipient_activation',
+]);
+
+/**
+ * What a principal's or agent's own transaction is reserved under. It is the
+ * ledger's list, less what is not a transaction of theirs: an activation goes
+ * through a sandwich, and an executor's own spend is never reserved at all.
+ */
+export const SIGNED_CALL_INTENTS: ReadonlySet<SponsorshipIntent> = new Set<SponsorshipIntent>([
+  'fund',
+  'create_mandate',
+  'pause',
+  'resume',
+  'revoke',
+  'approve',
+  'reject',
+  'cancel',
+  'withdraw',
+  'admin',
+  'trustline',
 ]);
 
 /** The decoded payload, with a codec refusal turned into a denial. */
@@ -102,11 +132,99 @@ export function chainPolicy(options: ChainPolicyOptions): ServicePolicy {
     return mandate.tenant;
   };
 
+  /**
+   * A wallet's call carried by this channel. The channel must authorize nothing:
+   * source account credentials would let the call spend as the channel, so every
+   * entry has to be someone else's own signature. The reservation is what the
+   * adapter wrote after matching the entry to the request it handed out, so this
+   * key cannot be pointed at a call nobody asked for.
+   */
+  const relayedCall = async (
+    ref: SignerRef,
+    payload: Extract<SignPayload, { kind: 'stellar_relayed_call' }>,
+    opts: CallOptions,
+  ): Promise<TenantScope> => {
+    const tx = read(ref, () => decodeTransactionEnvelope(payload.xdr, payload.network));
+    const entries = read(ref, () => invocationAuthEntries(payload.xdr, payload.network));
+    const [op] = tx.operations;
+    const [entryXdr] = entries;
+    if (
+      tx.operations.length !== 1 ||
+      op?.detail.kind !== 'invoke_contract' ||
+      sourceOf(op, tx) !== tx.source.account ||
+      entries.length !== 1 ||
+      entryXdr === undefined
+    ) {
+      throw deny(ref);
+    }
+    const { contract, functionName } = op.detail;
+    // Only the credentials and the call are read, so the ledger here is immaterial.
+    const entry = read(ref, () => decodeAuthEntry(entryXdr, payload.network, 1));
+    const call = entry.invocation;
+    if (
+      entry.credentials.kind !== 'address' ||
+      !entry.credentials.signed ||
+      entry.credentials.address === tx.source.account ||
+      entry.credentials.address === tx.source.address ||
+      call.kind !== 'contract_fn' ||
+      call.contract !== contract ||
+      call.functionName !== functionName
+    ) {
+      throw deny(ref);
+    }
+    // Keyed on the signed entry, since the channel's transaction is only built at
+    // send time. The fee is bounded by the network's cap and not the reservation's:
+    // the reservation was sized before the wallet's signature check was simulated.
+    const row = await sponsorships.reserved(
+      ref.network,
+      createHash('sha256').update(Buffer.from(entryXdr, 'base64')).digest(),
+      opts,
+    );
+    const limits = network(ref);
+    if (
+      row === null ||
+      !SIGNED_CALL_INTENTS.has(row.intent) ||
+      tx.fee > limits.sponsorMaxFeeStroops
+    ) {
+      throw deny(ref);
+    }
+    if (limits.relayTokens?.includes(contract) === true) return row.tenant;
+    const mandate = await mandates.find(ref.network, contract, opts);
+    if (
+      mandate?.tenant.principalId !== row.tenant.principalId ||
+      mandate.tenant.projectId !== row.tenant.projectId
+    ) {
+      throw deny(ref);
+    }
+    return row.tenant;
+  };
+
+  const footprint = (
+    ref: SignerRef,
+    payload: Extract<SignPayload, { kind: 'stellar_footprint' }>,
+  ): void => {
+    const tx = read(ref, () => decodeTransactionEnvelope(payload.xdr, payload.network));
+    const [op] = tx.operations;
+    if (
+      tx.operations.length !== 1 ||
+      (op?.detail.kind !== 'restore_footprint' && op?.detail.kind !== 'extend_footprint') ||
+      sourceOf(op, tx) !== tx.source.account ||
+      tx.fee > network(ref).executorMaxFeeStroops
+    ) {
+      throw deny(ref);
+    }
+  };
+
   const executor = async (
     ref: SignerRef,
     payload: SignPayload,
     opts: CallOptions,
-  ): Promise<TenantScope> => {
+  ): Promise<TenantScope | null> => {
+    if (payload.kind === 'stellar_relayed_call') return relayedCall(ref, payload, opts);
+    if (payload.kind === 'stellar_footprint') {
+      footprint(ref, payload);
+      return null;
+    }
     if (payload.kind === 'stellar_tx') {
       const tx = read(ref, () => decodeTransactionEnvelope(payload.xdr, payload.network));
       // A Soroban transaction holds exactly one host function call.
@@ -207,7 +325,7 @@ export function chainPolicy(options: ChainPolicyOptions): ServicePolicy {
   ): Promise<TenantScope> => {
     if (payload.kind === 'stellar_fee_bump') {
       const bump = read(ref, () => decodeFeeBumpEnvelope(payload.xdr, payload.network));
-      return reservation(ref, bump.inner.hash, new Set(['fee_bump']), bump.fee, opts);
+      return reservation(ref, bump.inner.hash, SIGNED_CALL_INTENTS, bump.fee, opts);
     }
     if (payload.kind === 'stellar_reserve_sandwich') {
       const tx = read(ref, () => decodeTransactionEnvelope(payload.xdr, payload.network));

@@ -10,7 +10,7 @@ import { SorobanDataBuilder, xdr } from '@stellar/stellar-sdk/base';
 import type { SubmissionOp } from '../types.js';
 
 import { extendTtl, restoreArchived } from './contract-call.js';
-import { ExecutorSession } from './executor.js';
+import { ExecutorSession, sendFresh } from './executor.js';
 import type { ExecutorContext } from './executor.js';
 import { preparedFootprintTx } from './restore.js';
 import type { StellarRpc } from './rpc.js';
@@ -60,12 +60,12 @@ export function ttlSubmitterFromExecutor(
   ): Promise<{ readonly txHash: string }> => {
     const opts = { signal, correlationId };
     return ExecutorSession.run(ctx, opts, async (session) => {
-      const tx = await preparedFootprintTx(ctx, session, req.mandate, call, data, opts);
-      const { hash } = await session.send(
-        tx,
+      const { hash } = await sendFresh(
+        ctx,
+        session,
+        () => preparedFootprintTx(ctx, session, req.mandate, call, data, opts),
         { scope: req.scope, op, mandate: req.mandate, correlationId },
         opts,
-        true,
       );
       return { txHash: hash };
     });

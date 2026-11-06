@@ -286,6 +286,21 @@ export const STORE_CHECKS: readonly StoreCheck[] = Object.freeze([
     },
   },
   {
+    name: 'finds a record in any state, for its own tenant only',
+    rules: ['tenant_scope'],
+    run: async (h) => {
+      const r = submission(h, 'find-me');
+      expect(await h.store.findSubmission(r.scope, r.network, r.txHash)).toBeNull();
+      await h.store.recordSubmission(r);
+      await walk(h, r, 'landed');
+      expect(await h.store.findSubmission(r.scope, r.network, r.txHash)).toMatchObject({
+        txHash: r.txHash,
+        state: 'landed',
+      });
+      expect(await h.store.findSubmission(h.otherScope, r.network, r.txHash)).toBeNull();
+    },
+  },
+  {
     name: 'lists unresolved submissions of every tenant, oldest first',
     rules: [],
     async run(h) {

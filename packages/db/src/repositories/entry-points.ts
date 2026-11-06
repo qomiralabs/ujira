@@ -8,6 +8,7 @@
 import { sql, type Kysely } from 'kysely';
 
 import type { Schema } from '../schema.generated.js';
+import type { FundingAccountStatus } from './funding-accounts.js';
 
 type Tx = Kysely<Schema>;
 
@@ -31,7 +32,7 @@ export interface TokenRecord {
   readonly projectId: string;
   readonly secretSha256: Buffer;
   readonly scopes: readonly string[];
-  readonly expiresAt: Date | null;
+  readonly expiresAt: Date;
   readonly revokedAt: Date | null;
 }
 
@@ -43,13 +44,99 @@ export interface ResolvedInstance {
   readonly scale: number;
 }
 
+export interface ResolvedFundingInstance {
+  readonly fundingSourceId: string;
+  readonly mandateInstanceId: string;
+  readonly contractAddress: string;
+  readonly asset: string;
+}
+
+export interface ResolvedFundingAddress {
+  readonly principalId: string;
+  readonly projectId: string;
+  readonly fundingAccountId: string;
+  readonly status: FundingAccountStatus;
+  // Every mandate instance the account funds, which can be none or several.
+  readonly instances: readonly ResolvedFundingInstance[];
+}
+
+export interface EmbedTokenRecord {
+  readonly sessionId: string;
+  readonly principalId: string;
+  readonly projectId: string;
+  readonly recipientId: string;
+  readonly purpose: string;
+  readonly allowedOrigins: readonly string[];
+  readonly expiresAt: Date;
+  readonly consumedAt: Date | null;
+}
+
+export interface EmbedInviteExchangeInput {
+  readonly inviteSha256: Buffer;
+  readonly tokenSha256: Buffer;
+  readonly tokenPrefix: string;
+  readonly tokenSeconds: number;
+  readonly origin: string;
+}
+
 export const entryPoints = {
-  // The tenant of a deployed contract, or undefined when it is not one of
-  // ours. This is how the indexer learns which context to write an event under,
-  // so only the indexer's login may call it.
+  // The embed token a hash names, whatever its tenant, or undefined. The caller
+  // checks expiry, use and the origin.
+  authenticateEmbedToken: async (
+    db: Tx,
+    tokenSha256: Buffer,
+  ): Promise<EmbedTokenRecord | undefined> => {
+    const result = await sql<{
+      session_id: string;
+      principal_id: string;
+      project_id: string;
+      recipient_id: string;
+      purpose: string;
+      allowed_origins: string[];
+      expires_at: Date;
+      consumed_at: Date | null;
+    }>`
+      select session_id, principal_id, project_id, recipient_id, purpose, allowed_origins,
+             expires_at, consumed_at
+        from ujira.authenticate_embed_token(${tokenSha256})
+    `.execute(db);
+    const row = result.rows[0];
+    if (row === undefined) return undefined;
+    return {
+      sessionId: row.session_id,
+      principalId: row.principal_id,
+      projectId: row.project_id,
+      recipientId: row.recipient_id,
+      purpose: row.purpose,
+      allowedOrigins: row.allowed_origins,
+      expiresAt: row.expires_at,
+      consumedAt: row.consumed_at,
+    };
+  },
+
+  // Spends an invite and makes its token, or undefined when it cannot be spent.
+  exchangeEmbedInvite: async (
+    db: Tx,
+    input: EmbedInviteExchangeInput,
+  ): Promise<{ readonly expiresAt: Date } | undefined> => {
+    const result = await sql<{ expires_at: Date }>`
+      select expires_at
+        from ujira.exchange_embed_invite(
+          ${input.inviteSha256}, ${input.tokenSha256}, ${input.tokenPrefix},
+          ${input.tokenSeconds}::integer, ${input.origin}
+        )
+    `.execute(db);
+    const row = result.rows[0];
+    return row === undefined ? undefined : { expiresAt: row.expires_at };
+  },
+
+  // The tenant of a deployed contract on one network, or undefined when it is not
+  // one of ours there. This is how the indexer learns which context to write an
+  // event under, so only the indexer's login may call it. The network, not its
+  // chain, so a record on testnet can never answer for mainnet or the other way.
   resolveMandateInstance: async (
     db: Tx,
-    chain: string,
+    network: string,
     contractAddress: string,
   ): Promise<ResolvedInstance | undefined> => {
     const result = await sql<{
@@ -60,7 +147,7 @@ export const entryPoints = {
       scale: number;
     }>`
       select principal_id, project_id, mandate_instance_id, asset, scale
-        from ujira.resolve_mandate_instance(${chain}, ${contractAddress})
+        from ujira.resolve_mandate_address(${network}, ${contractAddress})
     `.execute(db);
     const row = result.rows[0];
     if (row === undefined) return undefined;
@@ -70,6 +157,57 @@ export const entryPoints = {
       mandateInstanceId: row.mandate_instance_id,
       asset: row.asset,
       scale: row.scale,
+    };
+  },
+
+  // The tenant of a forwarding account, by its exact address, or undefined when it
+  // is not one of ours. A deposit arrives before anyone knows whose it is, so only
+  // the indexer's login may call it, and it cannot list anything.
+  resolveFundingAddress: async (
+    db: Tx,
+    network: string,
+    address: string,
+  ): Promise<ResolvedFundingAddress | undefined> => {
+    const result = await sql<{
+      principal_id: string;
+      project_id: string;
+      funding_account_id: string;
+      account_status: FundingAccountStatus;
+      funding_source_id: string | null;
+      mandate_instance_id: string | null;
+      contract_address: string | null;
+      asset: string | null;
+    }>`
+      select principal_id, project_id, funding_account_id, account_status,
+             funding_source_id, mandate_instance_id, contract_address, asset
+        from ujira.resolve_funding_address(${network}, ${address})
+    `.execute(db);
+    const [first] = result.rows;
+    if (first === undefined) return undefined;
+    const instances: ResolvedFundingInstance[] = [];
+    for (const row of result.rows) {
+      // The join brings all four or none, so an account with no instance has one row
+      // with none of them.
+      if (
+        row.funding_source_id !== null &&
+        row.mandate_instance_id !== null &&
+        row.contract_address !== null &&
+        row.asset !== null
+      ) {
+        instances.push({
+          fundingSourceId: row.funding_source_id,
+          mandateInstanceId: row.mandate_instance_id,
+          contractAddress: row.contract_address,
+          asset: row.asset,
+        });
+      }
+    }
+    return {
+      principalId: first.principal_id,
+      projectId: first.project_id,
+      fundingAccountId: first.funding_account_id,
+      status: first.account_status,
+      instances,
     };
   },
 
@@ -96,7 +234,7 @@ export const entryPoints = {
       project_id: string;
       secret_sha256: Buffer;
       scopes: string[];
-      expires_at: Date | null;
+      expires_at: Date;
       revoked_at: Date | null;
     }>`
       select token_id, principal_id, project_id, secret_sha256, scopes, expires_at, revoked_at

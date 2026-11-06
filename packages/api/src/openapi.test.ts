@@ -17,6 +17,7 @@ import { createApp } from './app.js';
 import { refuseAllCredentials } from './auth.js';
 import { RouteRegistryError } from './errors.js';
 import { memoryLogger } from './log.js';
+import { allowEveryAddress, allowEveryRequest } from './rate-limit.js';
 import { OPENAPI_PATH, buildOpenApiDocument, withOpenApiRoute } from './openapi.js';
 import { contractRoute, definePublicRoute, defineTenantRoute } from './route.js';
 import { V1_ROUTES } from './routes/index.js';
@@ -53,6 +54,8 @@ describe('OpenAPI document', () => {
     const app = createApp({
       routes: V1_ROUTES,
       authenticate: refuseAllCredentials,
+      rateLimit: allowEveryRequest,
+      addressRateLimit: allowEveryAddress,
       logger: memoryLogger(),
     });
     const response = await app.request(OPENAPI_PATH);
@@ -64,9 +67,18 @@ describe('OpenAPI document', () => {
     const doc = withOpenApiRoute(V1_ROUTES).document as unknown as Document;
     expect(doc.openapi).toBe('3.1.1');
     expect(Object.keys(doc.paths).sort()).toEqual([
+      '/v1/embed/invites',
+      '/v1/embed/invites/exchange',
+      '/v1/embed/recipients/{id}',
+      '/v1/embed/sessions',
       '/v1/health',
       '/v1/identity/self-webhook',
       OPENAPI_PATH,
+      '/v1/payouts/{id}/receipt',
+      '/v1/receipt-exports',
+      '/v1/receipt-verifications/{receiptNumber}',
+      '/v1/receipts/{id}',
+      '/v1/receipts/{id}/pdf',
       '/v1/recipients/{id}/methods/{methodId}/wallet-challenges',
       '/v1/recipients/{id}/methods/{methodId}/wallet-proofs',
     ]);
@@ -81,10 +93,20 @@ describe('OpenAPI document', () => {
     for (const ref of refs) expect(doc.components.schemas[ref], ref).toBeDefined();
     // Only what the routes reach: no contract shape the server does not send yet.
     expect(Object.keys(doc.components.schemas).sort()).toEqual([
+      'EmbedInviteCreated',
+      'EmbedRecipient',
+      'EmbedSessionCreated',
       'Health',
+      'Money',
       'OpenApiDocument',
+      'PrincipalReceipt',
       'Problem',
+      'PublicReceiptVerification',
+      'Rate',
+      'ReceiptView',
+      'RecipientReceipt',
       'SelfWebhookAck',
+      'TokenAmount',
       'WalletChallenge',
       'WalletProofAccepted',
     ]);

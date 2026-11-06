@@ -6,6 +6,8 @@
 // this mounts a route built the way they will be, on the real pipeline, so
 // what a client sees for each kind of destination is pinned now.
 
+import { randomUUID } from 'node:crypto';
+
 import { Problem } from '@ujira/api-schema';
 import {
   InvalidInputError,
@@ -20,6 +22,7 @@ import type { Authenticate } from './auth.js';
 import { RecipientDestinationBody, readRecipientDestination } from './destination.js';
 import { toApiError } from './errors.js';
 import { memoryLogger } from './log.js';
+import { allowEveryRequest } from './rate-limit.js';
 import { defineTenantRoute } from './route.js';
 
 const TENANT = {
@@ -28,12 +31,13 @@ const TENANT = {
 };
 
 const ACCOUNT = 'GA3D5KRYM6CB7OWQ6TWYRR3Z4T7GNZLKERYNZGGA5SOAOPIFY6YQHES5';
+const ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 const MUXED_123456 = 'MA3D5KRYM6CB7OWQ6TWYRR3Z4T7GNZLKERYNZGGA5SOAOPIFY6YQGAAAAAAAAAPCICBKU';
 
 const authenticate: Authenticate = (credentials) =>
   Promise.resolve(
     credentials.authorization === 'Bearer writer'
-      ? { ok: true, tenant: { ...TENANT, scopes: ['payouts:write'] } }
+      ? { ok: true, tenant: { ...TENANT, tokenId: randomUUID(), scopes: ['payouts:write'] } }
       : { ok: false, code: 'TOKEN_INVALID' },
   );
 
@@ -55,11 +59,16 @@ const recipientDestination = defineTenantRoute({
   response: { status: 201, name: 'BoundDestination', schema: Bound },
   errors: ['DESTINATION_INVALID'],
   handler: ({ body }, context) =>
-    Promise.resolve({ ...context.tenant, ...readRecipientDestination(body) }),
+    Promise.resolve({ ...context.tenant, ...readRecipientDestination(body, [ISSUER]) }),
 });
 
 function post(body: unknown): Promise<Response> {
-  const app = createApp({ routes: [recipientDestination], authenticate, logger: memoryLogger() });
+  const app = createApp({
+    routes: [recipientDestination],
+    authenticate,
+    rateLimit: allowEveryRequest,
+    logger: memoryLogger(),
+  });
   return Promise.resolve(
     app.request('/v1/recipients/destination', {
       method: 'POST',
@@ -74,6 +83,14 @@ async function problemOf(response: Response): Promise<Problem> {
 }
 
 describe('recipients.destination.test.ts', () => {
+  it('POST with the asset issuer, where a payout would be burned, returns 422', async () => {
+    const response = await post({ network: 'stellar:testnet', address: ISSUER });
+    expect(response.status).toBe(422);
+    const problem = await problemOf(response);
+    expect(problem.code).toBe('DESTINATION_INVALID');
+    expect(problem.errors).toEqual([{ field: 'destination', code: 'invalid_value' }]);
+  });
+
   it('POST with a hash memo destination returns 422', async () => {
     const response = await post({
       network: 'stellar:testnet',

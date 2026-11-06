@@ -1,10 +1,11 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-// Where the database lives and how hard this process may lean on it. Four
+// Where the database lives and how hard this process may lean on it. Five
 // roles, each with its own login and its own pool: the app writes through
 // the transaction pooler, the worker listens through the session pooler, the
-// reader reads, and the migrator runs migrations.
+// reader reads, the indexer writes the mirror of what happened on chain, and
+// the migrator runs migrations.
 //
 // TLS is pinned by default: the server is verified against the certificate
 // in tls.ts, and a URL may not carry an ssl parameter, because pg would let
@@ -28,10 +29,12 @@ export interface DatabaseEnvironment {
   UJIRA_DB_WORKER_URL?: string | undefined;
   UJIRA_DB_READER_URL?: string | undefined;
   UJIRA_DB_MIGRATION_URL?: string | undefined;
+  UJIRA_DB_INDEXER_URL?: string | undefined;
   UJIRA_DB_APP_POOL_SIZE?: string | undefined;
   UJIRA_DB_WORKER_POOL_SIZE?: string | undefined;
   UJIRA_DB_READER_POOL_SIZE?: string | undefined;
   UJIRA_DB_MIGRATION_POOL_SIZE?: string | undefined;
+  UJIRA_DB_INDEXER_POOL_SIZE?: string | undefined;
   UJIRA_DB_ACQUIRE_TIMEOUT_MS?: string | undefined;
   UJIRA_DB_STATEMENT_TIMEOUT_MS?: string | undefined;
   UJIRA_DB_LOCK_TIMEOUT_MS?: string | undefined;
@@ -50,10 +53,12 @@ const ENVIRONMENT_KEY_MAP = {
   UJIRA_DB_WORKER_URL: true,
   UJIRA_DB_READER_URL: true,
   UJIRA_DB_MIGRATION_URL: true,
+  UJIRA_DB_INDEXER_URL: true,
   UJIRA_DB_APP_POOL_SIZE: true,
   UJIRA_DB_WORKER_POOL_SIZE: true,
   UJIRA_DB_READER_POOL_SIZE: true,
   UJIRA_DB_MIGRATION_POOL_SIZE: true,
+  UJIRA_DB_INDEXER_POOL_SIZE: true,
   UJIRA_DB_ACQUIRE_TIMEOUT_MS: true,
   UJIRA_DB_STATEMENT_TIMEOUT_MS: true,
   UJIRA_DB_LOCK_TIMEOUT_MS: true,
@@ -79,6 +84,7 @@ export interface DatabaseConfig {
   readonly worker: RoleConnection;
   readonly reader: RoleConnection;
   readonly migration: RoleConnection;
+  readonly indexer: RoleConnection;
   readonly acquireTimeoutMs: number;
   readonly statementTimeoutMs: number;
   readonly lockTimeoutMs: number;
@@ -99,6 +105,8 @@ export const POOL_DEFAULTS = Object.freeze({
   worker: 4,
   reader: 4,
   migration: 1,
+  // The indexer's writes are short, one block of events at a time.
+  indexer: 2,
 });
 
 // Under the pooler's 8s, so a statement here is cut by our limit and not by
@@ -124,6 +132,7 @@ const URL_KEYS: Readonly<Record<Role, keyof DatabaseEnvironment>> = {
   worker: 'UJIRA_DB_WORKER_URL',
   reader: 'UJIRA_DB_READER_URL',
   migration: 'UJIRA_DB_MIGRATION_URL',
+  indexer: 'UJIRA_DB_INDEXER_URL',
 };
 
 const POOL_KEYS: Readonly<Record<Role, keyof DatabaseEnvironment>> = {
@@ -131,6 +140,7 @@ const POOL_KEYS: Readonly<Record<Role, keyof DatabaseEnvironment>> = {
   worker: 'UJIRA_DB_WORKER_POOL_SIZE',
   reader: 'UJIRA_DB_READER_POOL_SIZE',
   migration: 'UJIRA_DB_MIGRATION_POOL_SIZE',
+  indexer: 'UJIRA_DB_INDEXER_POOL_SIZE',
 };
 
 // The only query parameters a database URL may carry. `options` is
@@ -145,7 +155,8 @@ const ALLOWED_URL_PARAMETERS: ReadonlySet<string> = new Set([
 // container, never anything reachable over a network.
 const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
-// Roles that must reach the session pooler.
+// Roles that must reach the session pooler. The indexer is not one: it reads a
+// stored cursor and writes in short transactions, and listens for nothing.
 const SESSION_ONLY: readonly Role[] = ['worker', 'migration'];
 
 function fail(message: string): never {
@@ -271,6 +282,7 @@ export function loadDatabaseConfig(env: DatabaseEnvironment): DatabaseConfig {
     worker: roles.worker,
     reader: roles.reader,
     migration: roles.migration,
+    indexer: roles.indexer,
     acquireTimeoutMs,
     statementTimeoutMs,
     lockTimeoutMs,

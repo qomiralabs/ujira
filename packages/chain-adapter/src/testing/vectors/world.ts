@@ -62,6 +62,7 @@ const STATE_FIELDS = [
 const CONFIG_FIELDS = [
   'recovery_epoch',
   'agent_epoch',
+  'approver_epoch',
   'approvals_required',
   'recovery_threshold',
   'max_fee_bps',
@@ -107,6 +108,12 @@ const ACTOR_LISTS: ReadonlySet<string> = new Set([
   'approvals',
 ]);
 const NOT_ACTORS: ReadonlySet<string> = new Set(['mandate', 'asset', 'other_token']);
+
+// Valid addresses nobody holds a key to, which the vectors name directly.
+const ZERO_ADDRESSES: ReadonlyMap<string, string> = new Map([
+  ['zero_account', accountAddress(new Uint8Array(32))],
+  ['zero_contract', contractAddress(new Uint8Array(32))],
+]);
 
 // The order of the ed25519 group, little endian, for the non_canonical_s tamper.
 const GROUP_ORDER_LE = Uint8Array.from([
@@ -219,9 +226,9 @@ export class VectorWorld {
         .map(([name]) => name),
     );
     for (const name of [...actors].filter((n) => !NOT_ACTORS.has(n)).sort()) {
-      const address = contracts.has(name)
-        ? contractAddress(actorSeed(name))
-        : accountAddress(actorKey(name));
+      const address =
+        ZERO_ADDRESSES.get(name) ??
+        (contracts.has(name) ? contractAddress(actorSeed(name)) : accountAddress(actorKey(name)));
       this.#bind(name, address);
     }
     for (const name of TOKENS) {

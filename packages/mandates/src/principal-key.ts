@@ -228,6 +228,7 @@ export function cachePrincipalKeyReader(
 
 export function createMemoryPrincipalInstances(): PrincipalInstances & {
   put(principalId: Uuid, instance: InstanceView): void;
+  remove(principalId: Uuid, instanceId: string): void;
 } {
   const held = new Map<string, Map<string, InstanceView>>();
   return {
@@ -238,6 +239,9 @@ export function createMemoryPrincipalInstances(): PrincipalInstances & {
       const instances = held.get(principalId) ?? new Map<string, InstanceView>();
       instances.set(instance.instanceId, instance);
       held.set(principalId, instances);
+    },
+    remove(principalId, instanceId) {
+      held.get(principalId)?.delete(instanceId);
     },
   };
 }

@@ -11,6 +11,7 @@ export const CHAIN_ADAPTER_ERROR_CODES = Object.freeze([
   'UNSUPPORTED',
   'TENANT_MISMATCH',
   'MANDATE_UNTRUSTED',
+  'MANDATE_PENDING',
   'MANDATE_RULE',
   'CHAIN_UNAVAILABLE',
   'RPC_TIMEOUT',
@@ -31,6 +32,7 @@ export const CHAIN_ADAPTER_ERROR_CODES = Object.freeze([
   'QUOTE_EXPIRED',
   'QUOTE_UNAVAILABLE',
   'LIQUIDITY_UNAVAILABLE',
+  'RATE_UNAVAILABLE',
   'RAIL_UNAVAILABLE',
   'RAIL_REJECTED',
   'RAIL_TIMEOUT',
@@ -45,7 +47,9 @@ export type ChainAdapterErrorCode = (typeof CHAIN_ADAPTER_ERROR_CODES)[number];
 /**
  * Why a destination was refused. The set is the same on every chain, and a
  * chain need not produce every reason: Stellar addresses name no network,
- * so Stellar never gives WRONG_NETWORK.
+ * so Stellar never gives WRONG_NETWORK. UNPAYABLE_ADDRESS is a well formed
+ * address that can never pay anyone out, which reading the text alone cannot
+ * tell, so onboarding gives it rather than the parser.
  */
 export const DESTINATION_PARSE_REASONS = Object.freeze([
   'MALFORMED',
@@ -55,6 +59,7 @@ export const DESTINATION_PARSE_REASONS = Object.freeze([
   'TAG_NOT_SUPPORTED',
   'TAG_OUT_OF_RANGE',
   'WRONG_NETWORK',
+  'UNPAYABLE_ADDRESS',
 ] as const);
 
 export type DestinationParseReason = (typeof DESTINATION_PARSE_REASONS)[number];
@@ -109,6 +114,11 @@ const DEFAULTS: Readonly<Record<ChainAdapterErrorCode, Defaults>> = {
   INVALID_INPUT: { retryable: false, landed: 'no', message: 'Invalid input' },
   UNSUPPORTED: { retryable: false, landed: 'no', message: 'Not supported on this network' },
   TENANT_MISMATCH: { retryable: false, landed: 'no', message: 'Mandate belongs to another tenant' },
+  MANDATE_PENDING: {
+    retryable: true,
+    landed: 'no',
+    message: 'Mandate is not registered yet',
+  },
   MANDATE_UNTRUSTED: {
     retryable: false,
     landed: 'no',
@@ -157,6 +167,7 @@ const DEFAULTS: Readonly<Record<ChainAdapterErrorCode, Defaults>> = {
   QUOTE_EXPIRED: { retryable: true, landed: 'no', message: 'Quote expired' },
   QUOTE_UNAVAILABLE: { retryable: false, landed: 'no', message: 'Quote unavailable' },
   LIQUIDITY_UNAVAILABLE: { retryable: false, landed: 'no', message: 'Liquidity unavailable' },
+  RATE_UNAVAILABLE: { retryable: true, landed: 'no', message: 'No fresh native asset rate' },
   RAIL_UNAVAILABLE: { retryable: true, landed: 'no', message: 'Delivery rail unavailable' },
   RAIL_REJECTED: { retryable: false, landed: 'no', message: 'Delivery rail rejected the transfer' },
   RAIL_TIMEOUT: { retryable: true, landed: 'no', message: 'Delivery rail timed out' },
@@ -241,6 +252,7 @@ const ADAPTER_ERROR_NAMES = [
   'UnsupportedError',
   'TenantMismatchError',
   'MandateUntrustedError',
+  'MandatePendingError',
   'MandateRuleError',
   'ChainUnavailableError',
   'RpcTimeoutError',
@@ -262,6 +274,7 @@ const ADAPTER_ERROR_NAMES = [
   'QuoteExpiredError',
   'QuoteUnavailableError',
   'LiquidityUnavailableError',
+  'RateUnavailableError',
   'RailUnavailableError',
   'RailRejectedError',
   'RailTimeoutError',
@@ -524,6 +537,18 @@ export class MandateUntrustedError extends ChainAdapterError {
   }
 }
 
+/**
+ * A mandate this tenant created whose creation the indexer has not read yet. It is
+ * refused like any unregistered contract, but as something to wait for, not as a
+ * look-alike: it becomes readable once its mandate_created is registered.
+ */
+export class MandatePendingError extends ChainAdapterError {
+  override readonly name = 'MandatePendingError';
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('MANDATE_PENDING', options, { waitFor: 'chain' });
+  }
+}
+
 export class ChainUnavailableError extends ChainAdapterError {
   override readonly name = 'ChainUnavailableError';
   constructor(options?: ChainAdapterErrorOptions) {
@@ -698,6 +723,14 @@ export class LiquidityUnavailableError extends ChainAdapterError {
   override readonly name = 'LiquidityUnavailableError';
   constructor(options?: ChainAdapterErrorOptions) {
     super('LIQUIDITY_UNAVAILABLE', options);
+  }
+}
+
+/** No source gave a fresh price for the native asset. A rate is never guessed. */
+export class RateUnavailableError extends ChainAdapterError {
+  override readonly name = 'RateUnavailableError';
+  constructor(options?: ChainAdapterErrorOptions) {
+    super('RATE_UNAVAILABLE', options);
   }
 }
 

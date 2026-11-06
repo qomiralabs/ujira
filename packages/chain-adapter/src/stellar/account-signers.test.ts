@@ -11,9 +11,123 @@
 import { describe, expect, it } from 'vitest';
 
 import { InvalidInputError } from '../errors.js';
-import { stellarMinimumSignatures } from './account-signers.js';
+import type { StellarAccountEntry, StellarSignerKind } from './account-rules.js';
+import {
+  readStellarPrincipalSigning,
+  signaturesAuthorize,
+  stellarMinimumSignatures,
+} from './account-signers.js';
+import type { StellarLedgerKey, StellarLedgerReader } from './check-destination.js';
 
 const signer = (key: string, weight: number) => ({ key, weight });
+
+const PRINCIPAL = 'GBM2UM2TYRI3VYPL3IHIVLJVWL7MZCIJ5JTRTKMOZDTLQORXPG7FFRGP';
+const OPTS = { correlationId: 'test' };
+
+function account(
+  masterWeight: number,
+  medium: number,
+  signers: readonly { kind?: StellarSignerKind; key: string; weight: number }[] = [],
+): StellarAccountEntry {
+  return {
+    accountId: PRINCIPAL,
+    masterWeight,
+    thresholds: { low: 1, medium, high: 3 },
+    signers: signers.map((s) => ({ kind: s.kind ?? 'ed25519', key: s.key, weight: s.weight })),
+  };
+}
+
+function readerOf(entry: StellarAccountEntry | null): StellarLedgerReader & {
+  asked: (readonly StellarLedgerKey[])[];
+} {
+  const asked: (readonly StellarLedgerKey[])[] = [];
+  return {
+    asked,
+    getLedgerEntries(_network, keys) {
+      asked.push(keys);
+      return Promise.resolve([entry === null ? null : { kind: 'account', ...entry }]);
+    },
+  };
+}
+
+describe('signaturesAuthorize', () => {
+  // Master off, three signers of 1, low 1 and medium 2.
+  const twoOfThree = account(0, 2, [signer('GA', 1), signer('GB', 1), signer('GC', 1)]);
+
+  it('takes signers whose weights reach medium, whichever they are', () => {
+    expect(signaturesAuthorize(twoOfThree, ['GA', 'GC'])).toBe(true);
+    expect(signaturesAuthorize(twoOfThree, ['GC', 'GB', 'GA'])).toBe(true);
+    expect(signaturesAuthorize(account(1, 0), [PRINCIPAL])).toBe(true);
+  });
+
+  it('refuses short of the threshold, and nothing at all', () => {
+    expect(signaturesAuthorize(twoOfThree, ['GA'])).toBe(false);
+    expect(signaturesAuthorize(twoOfThree, [])).toBe(false);
+    expect(signaturesAuthorize(account(1, 0), [])).toBe(false);
+  });
+
+  it('refuses a signature no listed signer of weight made, or one signer twice', () => {
+    expect(signaturesAuthorize(twoOfThree, ['GA', 'GB', null])).toBe(false);
+    expect(signaturesAuthorize(twoOfThree, ['GA', 'GA'])).toBe(false);
+    // The master key is listed, but at weight 0 it signs for nothing.
+    expect(signaturesAuthorize(twoOfThree, ['GA', 'GB', PRINCIPAL])).toBe(false);
+  });
+
+  it('needs low as well as medium, since the envelope is checked at low', () => {
+    const lowAbove = {
+      ...account(1, 1, [signer('GA', 1)]),
+      thresholds: { low: 2, medium: 1, high: 3 },
+    };
+    expect(signaturesAuthorize(lowAbove, ['GA'])).toBe(false);
+    expect(signaturesAuthorize(lowAbove, ['GA', PRINCIPAL])).toBe(true);
+  });
+
+  it('ignores signers that are not keys, which no signature here can match', () => {
+    const hashX = account(0, 1, [{ kind: 'hash_x', key: 'GA', weight: 1 }]);
+    expect(signaturesAuthorize(hashX, ['GA'])).toBe(false);
+  });
+});
+
+describe('readStellarPrincipalSigning', () => {
+  const read = (entry: StellarAccountEntry | null) =>
+    readStellarPrincipalSigning(readerOf(entry), 'stellar:testnet', PRINCIPAL, OPTS);
+
+  it('reads a 2 of 3 account as a multisig of two', async () => {
+    const two = account(1, 2, [signer('GA', 1), signer('GB', 1)]);
+    await expect(read(two)).resolves.toEqual({ kind: 'multisig', minSignatures: 2 });
+  });
+
+  it('reads an account whose master key alone meets the threshold as one key', async () => {
+    const master = account(2, 2, [signer('GA', 1), signer('GB', 1)]);
+    await expect(read(master)).resolves.toEqual({ kind: 'single_key' });
+    await expect(read(account(1, 0))).resolves.toEqual({ kind: 'single_key' });
+  });
+
+  it('counts a signer of any kind, since each can authorize on its own', async () => {
+    const hashX = account(0, 2, [{ kind: 'hash_x', key: 'X', weight: 2 }, signer('GA', 1)]);
+    await expect(read(hashX)).resolves.toEqual({ kind: 'single_key' });
+  });
+
+  it('reads a missing account, or one nothing can authorize for, as unverified', async () => {
+    await expect(read(null)).resolves.toEqual({ kind: 'unverified' });
+    await expect(read(account(0, 2, [signer('GA', 1)]))).resolves.toEqual({ kind: 'unverified' });
+  });
+
+  it('asks for the principal account on the ledger', async () => {
+    const reader = readerOf(account(1, 0));
+    await readStellarPrincipalSigning(reader, 'stellar:testnet', PRINCIPAL, OPTS);
+    expect(reader.asked).toEqual([[{ kind: 'account', accountId: PRINCIPAL }]]);
+  });
+
+  it('refuses a contract address, which has no thresholds to read', async () => {
+    const contract = 'CB4AYBA5NVQPVPNOWUCSZQK6ZIGOF7KSCS6SF6UV6D2OKPDXLHEPD4V7';
+    const reader = readerOf(null);
+    await expect(
+      readStellarPrincipalSigning(reader, 'stellar:testnet', contract, OPTS),
+    ).rejects.toBeInstanceOf(InvalidInputError);
+    expect(reader.asked).toEqual([]);
+  });
+});
 
 describe('stellarMinimumSignatures', () => {
   it('needs two of three when each signer holds one of a threshold of two', () => {

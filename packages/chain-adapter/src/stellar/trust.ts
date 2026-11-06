@@ -1,26 +1,38 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-// Whether a mandate can be trusted, read from its own ledger entry. A mandate
-// cannot prove who deployed it: its constructor takes the factory as an
-// argument, and anyone could deploy the same code naming a trusted factory.
-// So the factory it names is only the start. A mandate is trusted when it
-// names a factory in the trusted list, runs exactly the code that factory
-// deploys, pays fees to that factory's fee address and settles in an asset
-// that factory supports. Such a contract runs the reviewed rules whoever
-// deployed it, which is what a call against it needs to know. It says nothing
-// about the contract's events: one deployed directly never got a mandate_created
-// from the factory, so only registration from that event may book events.
-// Factory facts are fixed for the factory's life, so they are read once and
-// kept.
+// Whether a contract is a mandate. It cannot prove who deployed it: its
+// constructor takes the factory as an argument, and anyone can deploy the same
+// code with no signature from the principal it names, storing a trusted
+// factory, that factory's fee address and a supported asset. So nothing it
+// stores or runs is a reason to trust it. It is trusted only when it was
+// registered from a trusted factory's mandate_created. A direct deploy never
+// gets one, which is what tells the two apart. The stored facts are still
+// compared, since a mandate that disagrees with its factory is wrong either
+// way, but passing them proves nothing. Factory facts are fixed for the
+// factory's life, so they are read once and kept.
 
 import { Address, xdr } from '@stellar/stellar-sdk/base';
 
-import { InvalidInputError, MandateUntrustedError, TenantMismatchError } from '../errors.js';
+import {
+  InternalError,
+  InvalidInputError,
+  MandatePendingError,
+  MandateUntrustedError,
+  TenantMismatchError,
+} from '../errors.js';
 import type { NetworkId } from '../networks.js';
 import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
-import type { Bytes32, CallOptions, MandateRef, TenantScope } from '../types.js';
+import type {
+  Bytes32,
+  CallOptions,
+  MandateRef,
+  MandateRegistry,
+  TenantScope,
+  UnixSeconds,
+} from '../types.js';
 import { addressXdr } from './address-xdr.js';
+import { approverEpochsOf } from './payout-views.js';
 import type { StellarRpc } from './rpc.js';
 import { asAddress, asBytes32, asU32, asVec, field, fieldsOf, unit } from './scval.js';
 
@@ -80,7 +92,23 @@ export class MandateTrust {
     private readonly network: NetworkId,
     private readonly rpc: StellarRpc,
     private readonly trusted: () => readonly string[],
+    private readonly registry: MandateRegistry,
+    private readonly clock: { nowSeconds(): UnixSeconds },
+    private readonly pendingMaxAgeSeconds: () => number,
   ) {}
+
+  /**
+   * Each approver's current epoch. The mandate's config view lists approvers without
+   * their epochs, so this reads its storage, as verify does. A mandate that does not
+   * hold roles the way this expects fails here rather than giving a count nobody can
+   * trust, so call it only for a mandate that has been verified.
+   */
+  async approverEpochs(contract: string, opts: CallOptions): Promise<ReadonlyMap<string, number>> {
+    const instance = await this.#instance(contract, 'mandate.address', opts);
+    const roles = instance === null ? undefined : stored(instance, 'Roles');
+    if (roles === undefined) throw new InternalError({ network: this.network });
+    return approverEpochsOf(roles);
+  }
 
   /** The mandate's fixed facts, after the tenant and trust checks. */
   async verify(scope: TenantScope, ref: MandateRef, opts: CallOptions): Promise<MandateInstance> {
@@ -108,14 +136,36 @@ export class MandateTrust {
     // mandate, not even whether it is trusted.
     // The tag is recomputed for this address, so one copied from another
     // mandate of the same tenant does not pass either.
-    if (facts.tenantTag !== tenantTagOf(tenantRefOf(scope), addressXdr(mandate))) {
-      throw new TenantMismatchError({ network });
+    const tag = tenantTagOf(tenantRefOf(scope), addressXdr(mandate));
+    if (facts.tenantTag !== tag) throw new TenantMismatchError({ network });
+    const registration = await this.registry.registered(network, mandate, opts);
+    if (registration === null) await this.#refuseIfPending(scope, mandate, opts);
+    if (
+      registration === null ||
+      registration.flagged ||
+      registration.tenantTag !== tag ||
+      registration.factory !== facts.factory ||
+      !(await this.#agreesWithFactory(facts, opts))
+    ) {
+      throw new MandateUntrustedError({ network });
     }
-    if (!(await this.isTrusted(facts, opts))) throw new MandateUntrustedError({ network });
     return facts;
   }
 
-  async isTrusted(facts: MandateInstance, opts: CallOptions): Promise<boolean> {
+  // A tenant's own recent claim makes this something to wait for. An old one does
+  // not: a real create registers within minutes, so a contract still unregistered
+  // after the limit is treated as what it most likely is, and a payout held on it
+  // resolves. A registration arriving later still counts, since this reads no claim
+  // once a contract is registered.
+  async #refuseIfPending(scope: TenantScope, mandate: string, opts: CallOptions): Promise<void> {
+    const { network } = this;
+    const claimedAt = await this.registry.claimedAt(scope, network, mandate, opts);
+    if (claimedAt === null) return;
+    const age = this.clock.nowSeconds() - claimedAt;
+    if (age <= BigInt(this.pendingMaxAgeSeconds())) throw new MandatePendingError({ network });
+  }
+
+  async #agreesWithFactory(facts: MandateInstance, opts: CallOptions): Promise<boolean> {
     if (!this.trusted().includes(facts.factory)) return false;
     const factory = await this.factory(facts.factory, opts);
     return (

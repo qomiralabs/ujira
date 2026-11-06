@@ -1,12 +1,20 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-import { Address, Keypair, Memo, TransactionBuilder, xdr } from '@stellar/stellar-sdk/base';
+import {
+  Address,
+  Keypair,
+  Memo,
+  SorobanDataBuilder,
+  TransactionBuilder,
+  xdr,
+} from '@stellar/stellar-sdk/base';
 import type { FeeBumpTransaction, Transaction } from '@stellar/stellar-sdk/base';
 import { describe, expect, it } from 'vitest';
 
 import {
   InvalidInputError,
+  MandateRuleError,
   MemoOnContractCallError,
   RpcRateLimitedError,
   RpcTimeoutError,
@@ -18,10 +26,11 @@ import {
 } from '../errors.js';
 import type { ChainAddress, MandateAction, SigningRequest } from '../types.js';
 import { reservationIdOf } from '../sponsorship/policy.js';
-import { NETWORK, OPTS, setup } from './test-adapter.js';
+import { NETWORK, OPTS, addAccount, setup } from './test-adapter.js';
 import type { TestSetup } from './test-adapter.js';
+import { failedFeeBumpResult, failedResult } from './test-results.js';
 import { invoked } from './test-rpc.js';
-import { PASSPHRASES } from './tx.js';
+import { PASSPHRASES, accountKey } from './tx.js';
 
 const at = (value: string): ChainAddress => ({ network: NETWORK, value });
 const passphrase = PASSPHRASES[NETWORK];
@@ -39,9 +48,13 @@ async function prepare(t: TestSetup, action: MandateAction, signer = t.principal
 }
 
 function sign(request: SigningRequest, key: Keypair): string {
+  return signAll(request, [key]);
+}
+
+function signAll(request: SigningRequest, keys: readonly Keypair[]): string {
   if (request.kind !== 'stellar_transaction') throw new Error('expected a transaction');
   const tx = TransactionBuilder.fromXdr(request.xdr, passphrase);
-  tx.sign(key);
+  for (const key of keys) tx.sign(key);
   return tx.toXdr();
 }
 
@@ -126,6 +139,74 @@ describe('submitSigned for an account signer', { timeout: 30_000 }, () => {
     await expect(submit(t, request.requestId, 'not xdr')).rejects.toBeInstanceOf(InvalidInputError);
     // None of these used the request up.
     await submit(t, request.requestId, sign(request, t.principal));
+  });
+
+  it('takes a multisig principal with its master key off, signed by enough of its signers', async () => {
+    const t = setup();
+    const [a, b, c] = [Keypair.random(), Keypair.random(), Keypair.random()];
+    // Two of three: the network authorizes the call at medium, and the
+    // envelope at low.
+    addAccount(t.rpc, t.principal.publicKey(), 100n, undefined, {
+      masterWeight: 0,
+      low: 1,
+      medium: 2,
+      high: 2,
+      signers: [a, b, c].map((key) => ({ key: key.publicKey(), weight: 1 })),
+    });
+    const request = await prepare(t, { op: 'pause' });
+    const refused = [
+      [t.principal], // the master key, at weight 0
+      [a], // one signature short
+      [a, Keypair.random()], // a stranger makes up the weight
+      [a, a], // one signer counted twice
+      [t.principal, a], // the master key adds nothing
+    ];
+    for (const keys of refused) {
+      await expect(submit(t, request.requestId, signAll(request, keys))).rejects.toBeInstanceOf(
+        SignedPayloadMismatchError,
+      );
+    }
+    expect(t.rpc.sent).toHaveLength(0);
+    const signed = signAll(request, [a, c]);
+    const ref = await submit(t, request.requestId, signed);
+    const [sent] = t.rpc.sent;
+    const bump = TransactionBuilder.fromXdr(sent ?? '', passphrase) as FeeBumpTransaction;
+    expect(bump.innerTransaction.toXdr()).toBe(signed);
+    expect(Buffer.from(bump.hash()).toString('hex')).toBe(ref.txHash);
+  });
+
+  it('counts weights against the higher of low and medium, read when the signature arrives', async () => {
+    const t = setup();
+    const [a, b] = [Keypair.random(), Keypair.random()];
+    const request = await prepare(t, { op: 'pause' });
+    // Changed after the request was made: what counts is the account now.
+    const signers = [a, b].map((key) => ({ key: key.publicKey(), weight: 1 }));
+    addAccount(t.rpc, t.principal.publicKey(), 100n, undefined, {
+      masterWeight: 1,
+      low: 2,
+      medium: 1,
+      high: 3,
+      signers,
+    });
+    // Medium is met, but the envelope needs low as well.
+    await expect(submit(t, request.requestId, sign(request, a))).rejects.toBeInstanceOf(
+      SignedPayloadMismatchError,
+    );
+    // An account that is gone cannot authorize anything.
+    t.rpc.entries.delete(accountKey(t.principal.publicKey()));
+    await expect(
+      submit(t, request.requestId, signAll(request, [t.principal, a])),
+    ).rejects.toBeInstanceOf(SignedPayloadMismatchError);
+    expect(t.rpc.sent).toHaveLength(0);
+    addAccount(t.rpc, t.principal.publicKey(), 100n, undefined, {
+      masterWeight: 1,
+      low: 2,
+      medium: 1,
+      high: 3,
+      signers,
+    });
+    await submit(t, request.requestId, signAll(request, [t.principal, a]));
+    expect(t.rpc.sent).toHaveLength(1);
   });
 
   it('refuses an unknown request, another tenant and an expired request', async () => {
@@ -405,5 +486,167 @@ describe('submitSigned for a smart wallet', { timeout: 30_000 }, () => {
     await expect(submit(t, request.requestId, signed)).rejects.toBeInstanceOf(SponsorDeniedError);
     expect(t.store.releases).toHaveLength(1);
     expect(t.sponsorship.calls.map((c) => c.kind)).toEqual(['reserve', 'release']);
+  });
+});
+
+describe('re-simulating after a resource failure', { timeout: 30_000 }, () => {
+  const pauseReq = (t: TestSetup) =>
+    ({
+      scope: t.scope,
+      mandate: t.mandate,
+      action: { op: 'pause' },
+      signer: {
+        kind: 'external',
+        network: NETWORK,
+        role: 'principal',
+        address: at(t.principal.publicKey()),
+      },
+    }) as const;
+
+  // A simulation that reports archived entries, so the adapter runs its own
+  // restore transaction, which is sent from a channel account and waited for.
+  function archivedOnce(t: TestSetup): void {
+    const keys = [
+      xdr.LedgerKey.contractCode(
+        new xdr.LedgerKeyContractCode({ hash: new Uint8Array(32).fill(1) }),
+      ),
+    ];
+    let first = true;
+    t.rpc.onSimulate = (tx) => {
+      if (tx.operations[0]?.type !== 'invokeHostFunction' || !first) return undefined;
+      first = false;
+      return {
+        ...t.rpc.success(tx, xdr.ScVal.scvVoid()),
+        restorePreamble: {
+          minResourceFee: '1000',
+          transactionData: new SorobanDataBuilder().setReadWrite(keys).build().toXdr('base64'),
+        },
+      };
+    };
+  }
+
+  it('ResourceLimitExceeded is re-simulated, never a MandateRuleError', async () => {
+    const t = setup();
+    archivedOnce(t);
+    const failures = [failedResult('resource_limit'), failedResult('entry_archived')];
+    const getTransaction = t.rpc.getTransaction.bind(t.rpc);
+    t.rpc.getTransaction = (hash) => {
+      const resultXdr = failures.shift();
+      return resultXdr === undefined
+        ? getTransaction(hash)
+        : Promise.resolve({ status: 'FAILED', resultXdr });
+    };
+    const simulatedBefore = t.rpc.simulated.length;
+    const request = await t.adapter.prepareMandateAction(pauseReq(t), OPTS);
+    expect(request.kind).toBe('stellar_transaction');
+    const sent = t.rpc.sent.map(
+      (e) => (TransactionBuilder.fromXdr(e, passphrase) as Transaction).operations[0]?.type,
+    );
+    // Two tries refused for resources, then the third landed.
+    expect(sent.filter((type) => type === 'restoreFootprint')).toHaveLength(3);
+    // Every try was built from a simulation of its own, on the next sequence.
+    const restores = t.rpc.sent
+      .map((e) => TransactionBuilder.fromXdr(e, passphrase) as Transaction)
+      .filter((tx) => tx.operations[0]?.type === 'restoreFootprint');
+    const sequences = restores.map((tx) => BigInt(tx.sequence));
+    expect(sequences).toEqual([901n, 902n, 903n]);
+    expect(
+      t.rpc.simulated
+        .slice(simulatedBefore)
+        .filter((tx) => tx.operations[0]?.type === 'restoreFootprint'),
+    ).toHaveLength(3);
+  });
+
+  it('after the retries it fails as SUBMISSION_REJECTED with nothing landed', async () => {
+    const t = setup();
+    archivedOnce(t);
+    t.rpc.getTransaction = () =>
+      Promise.resolve({ status: 'FAILED', resultXdr: failedResult('resource_limit') });
+    const failure: unknown = await t.adapter
+      .prepareMandateAction(pauseReq(t), OPTS)
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(SubmissionRejectedError);
+    expect(failure).not.toBeInstanceOf(MandateRuleError);
+    expect(failure).toMatchObject({ code: 'SUBMISSION_REJECTED', landed: 'no' });
+    // The first try and two retries.
+    expect(t.rpc.sent).toHaveLength(3);
+  });
+
+  it('a failure that is not about resources is not retried', async () => {
+    const t = setup();
+    archivedOnce(t);
+    t.rpc.getTransaction = () =>
+      Promise.resolve({ status: 'FAILED', resultXdr: failedResult('trapped') });
+    await expect(t.adapter.prepareMandateAction(pauseReq(t), OPTS)).rejects.toMatchObject({
+      code: 'SUBMISSION_REJECTED',
+      landed: 'yes',
+    });
+    expect(t.rpc.sent).toHaveLength(1);
+  });
+
+  it('reads a failed outcome again, and one the sweep already closed, without a store error', async () => {
+    const t = setup();
+    const req = pauseReq(t);
+    const first = await t.adapter.prepareMandateAction(req, OPTS);
+    const ref = await submit(t, first.requestId, sign(first, t.principal));
+    t.rpc.txs.set(ref.txHash, { status: 'FAILED', resultXdr: failedResult('trapped') });
+    const rejected = { code: 'SUBMISSION_REJECTED', landed: 'yes' };
+    await expect(t.adapter.signedOutcome(req, first.requestId, OPTS)).rejects.toMatchObject(
+      rejected,
+    );
+    await expect(t.adapter.signedOutcome(req, first.requestId, OPTS)).rejects.toMatchObject(
+      rejected,
+    );
+  });
+
+  it('a re-simulated principal action returns a new signing request with reason RESIMULATED', async () => {
+    const t = setup();
+    const req = pauseReq(t);
+    const first = await t.adapter.prepareMandateAction(req, OPTS);
+    expect(first).not.toHaveProperty('reason');
+    const ref = await submit(t, first.requestId, sign(first, t.principal));
+    t.rpc.txs.set(ref.txHash, {
+      status: 'FAILED',
+      resultXdr: failedFeeBumpResult('resource_limit'),
+    });
+    const sentBefore = t.rpc.sent.length;
+    const simulatedBefore = t.rpc.simulated.length;
+
+    const outcome = await t.adapter.signedOutcome(req, first.requestId, OPTS);
+    if (outcome.status !== 'resimulated') throw new Error('expected a new signing request');
+    expect(outcome.signingRequest).toMatchObject({ reason: 'RESIMULATED' });
+    expect(outcome.signingRequest.requestId).not.toBe(first.requestId);
+    // Handed back to sign, with a fresh simulation, and not submitted.
+    expect(t.rpc.sent).toHaveLength(sentBefore);
+    expect(t.rpc.simulated.length).toBeGreaterThan(simulatedBefore);
+  });
+
+  it('gives up on a principal action after the retries, never as a mandate rule', async () => {
+    const t = setup();
+    const req = pauseReq(t);
+    let request = await t.adapter.prepareMandateAction(req, OPTS);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const ref = await submit(t, request.requestId, sign(request, t.principal));
+      t.rpc.txs.set(ref.txHash, {
+        status: 'FAILED',
+        resultXdr: failedFeeBumpResult('entry_archived'),
+      });
+      // A failed transaction still uses up its sequence on the chain.
+      addAccount(t.rpc, t.principal.publicKey(), 101n + BigInt(attempt));
+      const outcome = await t.adapter.signedOutcome(req, request.requestId, OPTS);
+      if (outcome.status !== 'resimulated') throw new Error('expected a new signing request');
+      request = outcome.signingRequest;
+    }
+    const ref = await submit(t, request.requestId, sign(request, t.principal));
+    t.rpc.txs.set(ref.txHash, {
+      status: 'FAILED',
+      resultXdr: failedFeeBumpResult('entry_archived'),
+    });
+    const failure: unknown = await t.adapter
+      .signedOutcome(req, request.requestId, OPTS)
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(SubmissionRejectedError);
+    expect(failure).not.toBeInstanceOf(MandateRuleError);
+    expect(failure).toMatchObject({ landed: 'no' });
   });
 });

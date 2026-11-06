@@ -58,10 +58,11 @@ test('every control is big enough to hit with a thumb', async ({ page }) => {
   const controls = page.locator(
     `${WIDGET} input.input, ${WIDGET} .primary, ${WIDGET} .text-button`,
   );
-  // The destination step has exactly these three: back, the field and the
-  // action. A count keeps this from passing while finding nothing.
+  // The destination step has exactly these four: back, the address, the
+  // memo and the action. A count keeps this from passing while finding
+  // nothing.
   const count = await controls.count();
-  expect(count).toBe(3);
+  expect(count).toBe(4);
   for (let index = 0; index < count; index++) {
     const box = await controls.nth(index).boundingBox();
     expect(box?.height ?? 0, `control ${String(index)} is too short`).toBeGreaterThanOrEqual(44);

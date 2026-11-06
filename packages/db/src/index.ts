@@ -102,12 +102,34 @@ export {
   type SigningKeyPurpose,
 } from './repositories/signers.js';
 export {
+  FundingAccountInUse,
+  fundingAccounts,
+  type FundingAccount,
+  type FundingAccountStatus,
+  type NewFundingAccount,
+} from './repositories/funding-accounts.js';
+export {
   entryPoints,
   type CreatedPrincipal,
   type NewPrincipal,
+  type ResolvedFundingAddress,
+  type ResolvedFundingInstance,
   type ResolvedInstance,
   type TokenRecord,
 } from './repositories/entry-points.js';
+export {
+  mandateEventStore,
+  mandateRegistry,
+  payoutBookings,
+  type IntakeBooking,
+  type IntakeTenant,
+  type MandateAlert,
+  type MandateFlagReason,
+  type MandateRegistryRow,
+  type NewMandateRegistration,
+  type PayoutBooking,
+  type PayoutBookingEvent,
+} from './repositories/mandate-registry.js';
 export {
   audit,
   AuditScopeError,
@@ -147,25 +169,41 @@ export {
   type RecipientStatus,
 } from './repositories/recipients.js';
 export {
-  HeldPayoutUnreadableError,
-  RouteLegMethodError,
-  UnsupportedSpecVersionError,
-  createRouteStores,
-  type RouteStoreOptions,
-  type RouteStores,
-} from './route-stores.js';
+  agentIdentityLinks,
+  attestations,
+  destinationVerifications,
+  embedSessionRetention,
+  embedSessions,
+  identityEvidenceRepositories,
+  walletChallenges,
+  type AgentIdentityLink,
+  type AgentLinkStatus,
+  type Attestation,
+  type DestinationVerification,
+  type EmbedSession,
+  type EmbedSessionPurpose,
+  type NewAgentIdentityLink,
+  type NewAttestation,
+  type NewDestinationVerification,
+  type NewEmbedSession,
+  type NewWalletChallenge,
+  type VerificationLevel,
+  type WalletChallengePurpose,
+  type WalletChallengeRow,
+} from './repositories/identity-evidence.js';
 export {
-  routing,
-  type HeldRow,
-  type InstanceOfMandate,
-  type UsableMethod,
-} from './repositories/routing.js';
-export {
+  chainCursors,
+  emailQuota,
   executors,
   identityProviderEvents,
+  rateLimits,
+  type EmailKind,
+  type EmailQuotaRequest,
   routingConfig,
   type IdentityProviderEvent,
   type ExecutorLease,
+  type RateLimitBucket,
+  type RateLimitTaken,
   type RoutingConfig,
 } from './repositories/ops.js';
 export {
@@ -221,3 +259,25 @@ export {
 export { TENANT_SETTINGS, type TenantContext, type TenantScope } from './tenant.js';
 export { DatabaseConfigError, SessionStateError, TenantContextError } from './errors.js';
 export { DatabaseUnavailableError } from './unavailable.js';
+export {
+  databaseAttestationLog,
+  databaseIdentityStore,
+  databasePayoutLegSource,
+  databaseProviderEventStore,
+} from './identity-store.js';
+export type { IdentityStoreOptions } from './identity-store.js';
+export type { AttestationLeg } from './repositories/payout-legs.js';
+export type { MandateInstanceStatus } from './repositories/mandates.js';
+export type { NewIdentityRecord } from './repositories/recipients.js';
+
+export { createComplianceStore, type ComplianceStoreOptions } from './compliance-store.js';
+export {
+  compliance,
+  type ComplianceCloseReason,
+  type ComplianceMarkRow,
+  type ComplianceNoticeRow,
+  type ComplianceReason,
+  type ComplianceTransition,
+  type NewComplianceNotice,
+  type ParkedJob,
+} from './repositories/compliance.js';

@@ -1,21 +1,32 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
-// Runs the API locally: `pnpm --filter @ujira/api build`, then
-// `pnpm --filter @ujira/api start`. Until token authentication lands, every
-// tenant route refuses every key; health and the OpenAPI document answer.
+// Runs the API: `pnpm --filter @ujira/api build`, then
+// `pnpm --filter @ujira/api start`. With no database configured, every tenant
+// route refuses every key; health and the OpenAPI document answer.
 
+import { apiAccessFromEnv } from './access.js';
 import { createApp } from './app.js';
-import { refuseAllCredentials } from './auth.js';
 import { loadApiConfig } from './config.js';
 import { stdoutLogger } from './log.js';
-import { V1_ROUTES } from './routes/index.js';
+import { SELF_WEBHOOK_NOT_CONFIGURED } from './routes/self-webhook.js';
+import { v1Routes } from './routes/index.js';
+import { WALLET_PROOF_NOT_CONFIGURED } from './routes/wallet-proofs.js';
 import { startServer } from './serve.js';
 
 const config = loadApiConfig(process.env);
+const access = apiAccessFromEnv(config, process.env, stdoutLogger);
 const app = createApp({
-  routes: V1_ROUTES,
-  authenticate: refuseAllCredentials,
+  routes: v1Routes({
+    selfWebhook: SELF_WEBHOOK_NOT_CONFIGURED,
+    walletProof: WALLET_PROOF_NOT_CONFIGURED,
+    embed: access.embed,
+  }),
+  authenticate: access.authenticate,
+  authenticateEmbed: access.authenticateEmbed,
+  rateLimit: access.rateLimit,
+  addressRateLimit: access.addressRateLimit,
+  trustedProxy: config.trustedProxy,
   logger: stdoutLogger,
   requestTimeoutMs: config.requestTimeoutMs,
   bodyLimitBytes: config.bodyLimitBytes,
@@ -29,7 +40,7 @@ stdoutLogger.write({
 });
 
 const stop = (): void => {
-  server.close().then(
+  Promise.all([server.close(), access.close()]).then(
     () => process.exit(0),
     () => process.exit(1),
   );

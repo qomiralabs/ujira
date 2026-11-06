@@ -45,6 +45,11 @@ overrides:
   # points load. The adapter talks to RPC with fetch, so production carries no
   # second HTTP client, and none of its advisories.
   '@stellar/stellar-sdk>axios': '-'
+  # The MCP SDK lists express for its HTTP transport. The MCP server is stdio only and
+  # never loads it, so production carries no web server it does not run, and none of
+  # its advisories. An SDK import that came to need it fails the server's tests.
+  '@modelcontextprotocol/sdk>express': '-'
+  '@modelcontextprotocol/sdk>express-rate-limit': '-'
 
 # Supply chain: a version must be 14 days old (in minutes) before it can be
 # installed or locked. `pnpm install --frozen-lockfile` re-checks every

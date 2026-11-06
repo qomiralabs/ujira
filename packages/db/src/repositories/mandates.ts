@@ -10,7 +10,10 @@
 // the mirror of what happened on chain, chain events, roles and deposits. The
 // grants enforce that split, whichever method is called.
 
+import { INSTANCE_MOVES } from '@ujira/chain-adapter';
+import type { CountryCode, InstanceMove } from '@ujira/chain-adapter';
 import type { TokenAmount } from '@ujira/core';
+import { countryPolicyHash } from '@ujira/identity';
 import { sql, type Kysely, type UpdateObject } from 'kysely';
 
 import { amountParam, tokenFromRow } from '../money-mapper.js';
@@ -118,15 +121,21 @@ export const mandates = {
   },
 };
 
+// Where an instance is in its life. Deploying and a failed deploy cannot pay yet.
+export type MandateInstanceStatus =
+  'deploying' | 'active' | 'paused' | 'revoked' | 'expired' | 'deploy_failed';
+
 export interface MandateInstance {
   readonly id: string;
   readonly mandateId: string;
   readonly chain: string;
+  readonly network: string;
   readonly contractAddress: string;
   readonly specVersion: string;
   readonly asset: string;
   readonly scale: number;
   readonly createdAt: Date;
+  readonly status: string;
   // 32 bytes of ed25519; null in allowlist mode.
   readonly attesterPublicKey: Buffer | null;
   readonly countryPolicyHash: Buffer | null;
@@ -135,23 +144,27 @@ export interface MandateInstance {
 export interface NewMandateInstance {
   readonly mandateId: string;
   readonly chain: string;
+  // Required, with no default. An address reads the same on every network, so a
+  // default here is how a test account comes to be offered for real money.
+  readonly network: string;
   readonly contractAddress: string;
   readonly specVersion: string;
   readonly asset: string;
   readonly scale: number;
   readonly attesterPublicKey?: Buffer | null;
-  readonly countryPolicyHash?: Buffer | null;
 }
 
 const instanceColumns = [
   'id',
   'mandate_id',
   'chain',
+  'network',
   'contract_address',
   'spec_version',
   'asset',
   'scale',
   'created_at',
+  'status',
   'attester_public_key',
   'country_policy_hash',
 ] as const;
@@ -160,11 +173,13 @@ function toInstance(row: {
   id: string;
   mandate_id: string;
   chain: string;
+  network: string;
   contract_address: string;
   spec_version: string;
   asset: string;
   scale: number;
   created_at: Date;
+  status: string;
   attester_public_key: Buffer | null;
   country_policy_hash: Buffer | null;
 }): MandateInstance {
@@ -172,11 +187,13 @@ function toInstance(row: {
     id: row.id,
     mandateId: row.mandate_id,
     chain: row.chain,
+    network: row.network,
     contractAddress: row.contract_address,
     specVersion: row.spec_version,
     asset: row.asset,
     scale: row.scale,
     createdAt: row.created_at,
+    status: row.status,
     attesterPublicKey: row.attester_public_key,
     countryPolicyHash: row.country_policy_hash,
   };
@@ -203,9 +220,41 @@ export const mandateInstances = {
     return row === undefined ? undefined : toInstance(row);
   },
 
+  // This tenant's instance at a contract. Another tenant's stays out of sight, so
+  // this cannot tell anyone that an address is taken.
+  byAddress: async (
+    db: Tx,
+    chain: string,
+    contractAddress: string,
+  ): Promise<MandateInstance | undefined> => {
+    const row = await db
+      .selectFrom('ujira.mandate_instances')
+      .select(instanceColumns)
+      .where('chain', '=', chain)
+      .where('contract_address', '=', contractAddress)
+      .executeTakeFirst();
+    return row === undefined ? undefined : toInstance(row);
+  },
+
   // A chain and asset the settlement tokens do not list, or the wrong scale,
-  // is refused by the foreign key (23503).
+  // is refused by the foreign key (23503). A network that is not on the chain is
+  // refused by a check (23514).
   create: async (db: Tx, input: NewMandateInstance): Promise<MandateInstance> => {
+    // The hash is built here from the mandate's own list, the way the attester
+    // rebuilds it, so the two cannot drift. A mandate this tenant cannot see has no
+    // list, and the foreign key refuses the row.
+    const policy = await db
+      .selectFrom('ujira.mandates')
+      .select('country_policy_list')
+      .where('id', '=', input.mandateId)
+      .executeTakeFirst();
+    const hash =
+      policy === undefined
+        ? null
+        : Buffer.from(
+            countryPolicyHash(policy.country_policy_list as CountryCode[]).slice(2),
+            'hex',
+          );
     const row = await db
       .insertInto('ujira.mandate_instances')
       .values({
@@ -213,16 +262,31 @@ export const mandateInstances = {
         project_id: CURRENT_PROJECT,
         mandate_id: input.mandateId,
         chain: input.chain,
+        network: input.network,
         contract_address: input.contractAddress,
         spec_version: input.specVersion,
         asset: input.asset,
         scale: input.scale,
         attester_public_key: input.attesterPublicKey ?? null,
-        country_policy_hash: input.countryPolicyHash ?? null,
+        country_policy_hash: hash,
       })
       .returning(instanceColumns)
       .executeTakeFirstOrThrow();
     return toInstance(row);
+  },
+
+  // As the chain said, and only from a state the move starts from, so a replayed or
+  // out of turn event changes nothing. True when it moved. Only the indexer's login
+  // may change an instance's status; any other is refused (42501).
+  move: async (db: Tx, id: string, move: InstanceMove): Promise<boolean> => {
+    const { from, to } = INSTANCE_MOVES[move];
+    const result = await db
+      .updateTable('ujira.mandate_instances')
+      .set({ status: to })
+      .where('id', '=', id)
+      .where('status', 'in', [...from])
+      .executeTakeFirst();
+    return result.numUpdatedRows > 0n;
   },
 };
 
@@ -673,6 +737,9 @@ export interface FundingSweep {
   readonly sweepTxHash: Buffer | null;
   readonly validUntil: Date | null;
   readonly failedLedger: bigint | null;
+  // The ledger the attempt's signed authorization entry is good until, or null when
+  // it carried none. Kept through a failure, which leaves the entry usable.
+  readonly authExpiresLedger: bigint | null;
   readonly createdAt: Date;
   readonly updatedAt: Date;
 }
@@ -680,7 +747,8 @@ export interface FundingSweep {
 export interface NewFundingSweep {
   readonly fundingSourceId: string;
   readonly mandateInstanceId: string;
-  // The chain's id for the deposit. This is the idempotency key of the sweep.
+  // The chain's id for the deposit: its operation and its event's index in that
+  // operation, since one operation can pay twice. This is the sweep's idempotency key.
   readonly depositOperationId: string;
   readonly amount: TokenAmount;
 }
@@ -695,6 +763,8 @@ export type FundingSweepMove =
       readonly sweepTxHash: Buffer;
       // The last moment the transaction can be applied, from its time bounds.
       readonly validUntil: Date;
+      // From the signed envelope. Required, so no caller forgets the entry exists.
+      readonly authExpiresLedger: bigint | null;
     }
   | { readonly status: 'failed'; readonly failedLedger: bigint | null }
   | { readonly status: 'settled' | 'cancelled' | 'awaiting_signature' };
@@ -712,6 +782,7 @@ const sweepColumns = [
   'sweep_tx_hash',
   'sweep_valid_until',
   'failed_ledger',
+  'auth_expires_ledger',
   'created_at',
   'updated_at',
 ] as const;
@@ -729,6 +800,7 @@ function toSweep(row: {
   sweep_tx_hash: Buffer | null;
   sweep_valid_until: Date | null;
   failed_ledger: string | null;
+  auth_expires_ledger: string | null;
   created_at: Date;
   updated_at: Date;
 }): FundingSweep {
@@ -742,6 +814,7 @@ function toSweep(row: {
     sweepTxHash: row.sweep_tx_hash,
     validUntil: row.sweep_valid_until,
     failedLedger: row.failed_ledger === null ? null : BigInt(row.failed_ledger),
+    authExpiresLedger: row.auth_expires_ledger === null ? null : BigInt(row.auth_expires_ledger),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -754,6 +827,7 @@ function sweepChange(move: FundingSweepMove): UpdateObject<Schema, 'ujira.fundin
         status: move.status,
         sweep_tx_hash: move.sweepTxHash,
         sweep_valid_until: move.validUntil,
+        auth_expires_ledger: move.authExpiresLedger,
       };
     case 'failed':
       return { status: move.status, failed_ledger: move.failedLedger };
@@ -763,6 +837,7 @@ function sweepChange(move: FundingSweepMove): UpdateObject<Schema, 'ujira.fundin
         sweep_tx_hash: null,
         sweep_valid_until: null,
         failed_ledger: null,
+        auth_expires_ledger: null,
       };
     default:
       return { status: move.status };
