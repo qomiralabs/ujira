@@ -50,8 +50,8 @@ import type { ReleaseDeps, ReleaseJobSpec, ReleaseQueue, RouteRequest } from './
 
 const payoutId = (n: number): Uuid =>
   `50000000-0000-4000-8000-${String(n).padStart(12, '0')}` as Uuid;
-const TARGET_TEST = { principalId: SCOPE.principalId, network: TEST_NET };
-const TARGET_PUB = { principalId: SCOPE.principalId, network: PUB_NET };
+const TARGET_TEST = { ...SCOPE, network: TEST_NET };
+const TARGET_PUB = { ...SCOPE, network: PUB_NET };
 const HOUR = 3_600_000;
 
 function recordingQueue(): ReleaseQueue & { readonly jobs: ReleaseJobSpec[] } {
@@ -175,6 +175,7 @@ describe('hold', () => {
     await store.hold(
       SCOPE,
       payoutId(1),
+      usdc(100n),
       [{ network: TEST_NET, mandateInstanceId: 'instance-test', needed: usdc(100n) }],
       { signal: new AbortController().signal },
     );
@@ -295,19 +296,14 @@ describe('hold', () => {
     expect(spec.jobKey).toBe(releaseJobSpec(TARGET_TEST).jobKey);
     expect(spec.queueName).toBe(spec.jobKey);
     expect(spec.jobKey).not.toBe(releaseJobSpec(TARGET_PUB).jobKey);
-    expect(spec.jobKey).not.toBe(
-      releaseJobSpec({ principalId: OTHER_SCOPE.principalId, network: TEST_NET }).jobKey,
-    );
+    expect(spec.jobKey).not.toBe(releaseJobSpec({ ...OTHER_SCOPE, network: TEST_NET }).jobKey);
   });
 
   it('never releases one tenant holds for another', async () => {
     const w = await emptyWorld();
     await held(w, 1, 100n);
     await w.test.fund(w.testMandate.ref.address, 1_000n);
-    const summary = await runReleaseHeld(
-      { principalId: OTHER_SCOPE.principalId, network: TEST_NET },
-      releaseDeps(w),
-    );
+    const summary = await runReleaseHeld({ ...OTHER_SCOPE, network: TEST_NET }, releaseDeps(w));
     expect(summary.released).toEqual([]);
     expect(w.store.payout(SCOPE, payoutId(1))?.status).toBe('received');
     expect(w.store.payout(OTHER_SCOPE, payoutId(1))).toBeUndefined();
@@ -375,6 +371,6 @@ describe('hold', () => {
     await expect(store.instanceOf(SCOPE, 'nope', opts)).rejects.toThrow(RangeError);
     expect(await store.release(SCOPE, payoutId(9), {} as never, opts)).toBe(false);
     expect(await store.expire(SCOPE, payoutId(9), opts)).toBe(false);
-    expect(await store.hold(SCOPE, payoutId(9), [], opts)).toBe(false);
+    expect(await store.hold(SCOPE, payoutId(9), usdc(1n), [], opts)).toBe(false);
   });
 });

@@ -91,3 +91,5 @@ export type {
   ResendIdentity,
   ZeroFeeResend,
 } from './fee-fallback.js';
+export { FeeResendPayoutMismatchError, createFeeFallbackStore } from './fee-fallback-store.js';
+export type { FeeAddressAlerts, FeeFallbackStoreOptions } from './fee-fallback-store.js';
