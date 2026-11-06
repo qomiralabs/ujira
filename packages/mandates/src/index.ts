@@ -94,3 +94,5 @@ export type {
   PrincipalReadOptions,
   PrincipalSigning,
 } from './principal-key.js';
+export { CUSTODY_VECTORS } from './custody-vectors.js';
+export type { CustodyVector } from './custody-vectors.js';
