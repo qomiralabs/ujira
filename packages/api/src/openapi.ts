@@ -44,6 +44,8 @@ function statusDescription(status: number): string {
 function components(routes: readonly Route[]): (readonly [string, z.ZodType])[] {
   const list: (readonly [string, z.ZodType])[] = [...OPENAPI_COMPONENTS];
   for (const route of routes) {
+    // A file is described by its media type, and has no JSON schema to list.
+    if (route.response.download !== undefined) continue;
     const { name, schema } = route.response;
     const same = list.find(([id]) => id === name);
     if (same === undefined) list.push([name, schema]);
@@ -63,12 +65,21 @@ const RATE_LIMIT_HEADERS = {
 };
 
 function operation(route: Route): JsonObject {
-  const limits = route.access.kind === 'public' ? {} : RATE_LIMIT_HEADERS;
+  // A key or a session is always limited; a public route only when it names a group.
+  const limited = route.access.kind !== 'public' || route.access.addressLimit !== undefined;
+  const limits = limited ? RATE_LIMIT_HEADERS : {};
   const responses: JsonObject = {
     [String(route.response.status)]: {
       description: 'OK',
       headers: { 'Request-Id': headerSchema, ...limits },
-      content: { 'application/json': { schema: { $ref: `${REF}${route.response.name}` } } },
+      content:
+        route.response.download === undefined
+          ? { 'application/json': { schema: { $ref: `${REF}${route.response.name}` } } }
+          : {
+              [route.response.download.contentType]: {
+                schema: { type: 'string', format: 'binary' },
+              },
+            },
     },
   };
   for (const status of route.errorStatuses) {

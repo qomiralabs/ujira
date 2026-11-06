@@ -12,19 +12,26 @@ import type { Database, FundingAccount } from '@ujira/db';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDbFundingAccountStores } from './db-store.js';
-import { FundingAccountConflictError } from './errors.js';
+import { FundingAccountConflictError, FundingAccountInUseError } from './errors.js';
+
+const inUse = vi.hoisted(() => ({
+  FundingAccountInUse: class FundingAccountInUse extends Error {},
+}));
 
 const repo = vi.hoisted(() => ({
   forNetwork: vi.fn(),
   record: vi.fn(),
+  recordCheck: vi.fn(),
   attach: vi.fn(),
   getInstance: vi.fn(),
 }));
 
 vi.mock('@ujira/db', () => ({
+  FundingAccountInUse: inUse.FundingAccountInUse,
   fundingAccounts: {
     forNetwork: repo.forNetwork,
     record: repo.record,
+    recordCheck: repo.recordCheck,
     attach: repo.attach,
   },
   mandateInstances: { get: repo.getInstance },
@@ -88,22 +95,20 @@ beforeEach(() => {
 });
 
 describe('db-store.test.ts', () => {
-  describe('accounts.forPrincipal', () => {
-    it('reads across the principal on the app connection, and maps the row', async () => {
+  describe('accounts.forProject', () => {
+    it("reads under the project's own session, and maps the row", async () => {
       const { db, opened } = database();
       repo.forNetwork.mockResolvedValue(row);
-      const found = await createDbFundingAccountStores(db).accounts.forPrincipal(scope, NETWORK);
+      const found = await createDbFundingAccountStores(db).accounts.forProject(scope, NETWORK);
       expect(found).toEqual(record);
-      expect(opened).toEqual([{ session: 'principal', context: scope, role: 'app' }]);
+      expect(opened).toEqual([{ session: 'tenant', context: scope }]);
       expect(repo.forNetwork).toHaveBeenCalledWith('tx', NETWORK);
     });
 
     it('answers null where there is no account', async () => {
       const { db } = database();
       repo.forNetwork.mockResolvedValue(undefined);
-      expect(
-        await createDbFundingAccountStores(db).accounts.forPrincipal(scope, NETWORK),
-      ).toBeNull();
+      expect(await createDbFundingAccountStores(db).accounts.forProject(scope, NETWORK)).toBeNull();
     });
   });
 
@@ -156,43 +161,106 @@ describe('db-store.test.ts', () => {
     });
   });
 
+  describe('sources.instance', () => {
+    const instance = randomUUID();
+
+    it('reads the network and address under the tenant', async () => {
+      const { db, opened } = database();
+      repo.getInstance.mockResolvedValue({
+        network: 'stellar:pubnet',
+        contractAddress: 'CMANDATE',
+      });
+      expect(await createDbFundingAccountStores(db).sources.instance(scope, instance)).toEqual({
+        network: 'stellar:pubnet',
+        contractAddress: 'CMANDATE',
+      });
+      expect(opened).toEqual([{ session: 'tenant', context: scope }]);
+      expect(repo.getInstance).toHaveBeenCalledWith('tx', instance);
+    });
+
+    it('answers null for an instance this tenant cannot see', async () => {
+      const { db } = database();
+      repo.getInstance.mockResolvedValue(undefined);
+      expect(await createDbFundingAccountStores(db).sources.instance(scope, instance)).toBeNull();
+    });
+
+    it.each([null, 'stellar:futurenet'])('reads %s as a network not known', async (network) => {
+      const { db } = database();
+      repo.getInstance.mockResolvedValue({ network, contractAddress: 'CMANDATE' });
+      expect(await createDbFundingAccountStores(db).sources.instance(scope, instance)).toEqual({
+        network: null,
+        contractAddress: 'CMANDATE',
+      });
+    });
+  });
+
+  describe('accounts.recordCheck', () => {
+    const later: FundingAccountRecord = { ...record, status: 'changed', faults: ['extra_signer'] };
+
+    it("writes the finding under the row's own tenant, against its account", async () => {
+      const { db, opened } = database();
+      repo.forNetwork.mockResolvedValue(row);
+      await createDbFundingAccountStores(db).accounts.recordCheck(later);
+      expect(opened).toEqual([
+        {
+          session: 'tenant',
+          context: { principalId: scope.principalId, projectId: scope.projectId },
+        },
+      ]);
+      expect(repo.recordCheck).toHaveBeenCalledWith('tx', {
+        accountId: row.id,
+        faults: ['extra_signer'],
+      });
+    });
+
+    it.each([
+      ['no account', undefined],
+      ['another account', { ...row, address: 'GOTHER' }],
+    ])('surfaces a finding for %s', async (_name, found) => {
+      const { db } = database();
+      repo.forNetwork.mockResolvedValue(found);
+      await expect(
+        createDbFundingAccountStores(db).accounts.recordCheck(later),
+      ).rejects.toBeInstanceOf(FundingAccountConflictError);
+      expect(repo.recordCheck).not.toHaveBeenCalled();
+    });
+  });
+
   describe('sources.attach', () => {
     const instance = randomUUID();
     const input = { network: NETWORK, mandateInstanceId: instance };
 
-    it('attaches the project account to the instance, under the tenant', async () => {
+    it('attaches the account on that network to the instance, under the tenant', async () => {
       const { db, opened } = database();
       repo.forNetwork.mockResolvedValue(row);
-      repo.getInstance.mockResolvedValue({ id: instance, chain: 'stellar' });
       repo.attach.mockResolvedValue({ id: 'source-1' });
       expect(await createDbFundingAccountStores(db).sources.attach(scope, input)).toBe('source-1');
       expect(opened).toEqual([{ session: 'tenant', context: scope }]);
+      expect(repo.forNetwork).toHaveBeenCalledWith('tx', NETWORK);
       expect(repo.attach).toHaveBeenCalledWith('tx', {
         accountId: row.id,
         mandateInstanceId: instance,
       });
     });
 
+    it('says the account funds another mandate, and passes anything else on', async () => {
+      const { db } = database();
+      repo.forNetwork.mockResolvedValue(row);
+      repo.getInstance.mockResolvedValue({ id: instance, chain: 'stellar' });
+      repo.attach.mockRejectedValueOnce(new inUse.FundingAccountInUse());
+      await expect(createDbFundingAccountStores(db).sources.attach(scope, input)).rejects.toThrow(
+        FundingAccountInUseError,
+      );
+      const other = new Error('connection lost');
+      repo.attach.mockRejectedValueOnce(other);
+      await expect(createDbFundingAccountStores(db).sources.attach(scope, input)).rejects.toBe(
+        other,
+      );
+    });
+
     it('answers null with no account in this project', async () => {
       const { db } = database();
       repo.forNetwork.mockResolvedValue(undefined);
-      repo.getInstance.mockResolvedValue({ id: instance, chain: 'stellar' });
-      expect(await createDbFundingAccountStores(db).sources.attach(scope, input)).toBeNull();
-      expect(repo.attach).not.toHaveBeenCalled();
-    });
-
-    it('answers null for an instance this tenant cannot see', async () => {
-      const { db } = database();
-      repo.forNetwork.mockResolvedValue(row);
-      repo.getInstance.mockResolvedValue(undefined);
-      expect(await createDbFundingAccountStores(db).sources.attach(scope, input)).toBeNull();
-      expect(repo.attach).not.toHaveBeenCalled();
-    });
-
-    it('answers null for an instance on another chain', async () => {
-      const { db } = database();
-      repo.forNetwork.mockResolvedValue(row);
-      repo.getInstance.mockResolvedValue({ id: instance, chain: 'elsewhere' });
       expect(await createDbFundingAccountStores(db).sources.attach(scope, input)).toBeNull();
       expect(repo.attach).not.toHaveBeenCalled();
     });
@@ -200,7 +268,6 @@ describe('db-store.test.ts', () => {
     it('answers null when the repository refuses', async () => {
       const { db } = database();
       repo.forNetwork.mockResolvedValue(row);
-      repo.getInstance.mockResolvedValue({ id: instance, chain: 'stellar' });
       repo.attach.mockResolvedValue(undefined);
       expect(await createDbFundingAccountStores(db).sources.attach(scope, input)).toBeNull();
     });

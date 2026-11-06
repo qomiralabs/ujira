@@ -25,11 +25,15 @@ export type RecipientDestinationBody = z.infer<typeof RecipientDestinationBody>;
 /**
  * The destination to store for a validated body. Throws the adapter's
  * UnsupportedMemoDestinationError or InvalidInputError, which the pipeline
- * answers as DESTINATION_INVALID.
+ * answers as DESTINATION_INVALID. `neverPayable` is what the body's network
+ * settles through, from settlementAddressesOf.
  */
-export function readRecipientDestination(body: RecipientDestinationBody): CapturedDestination {
+export function readRecipientDestination(
+  body: RecipientDestinationBody,
+  neverPayable: readonly string[],
+): CapturedDestination {
   const { network, address, memoType, memo } = body;
-  return captureDestination(network, {
+  return captureDestination(network, neverPayable, {
     address,
     ...(memoType === undefined ? {} : { memoType }),
     ...(memo === undefined ? {} : { memo }),

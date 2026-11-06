@@ -152,6 +152,7 @@ describe('grants on ujira', () => {
         'function ujira.create_principal(text,text,uuid,text)',
         ...context,
         'function ujira.exchange_embed_invite(bytea,bytea,text,integer,text)',
+        'function ujira.recipient_identity_scope(uuid)',
       ].sort(),
     );
     expect(await executable('ujira_auth')).toEqual(
@@ -165,6 +166,8 @@ describe('grants on ujira', () => {
     expect(await executable('ujira_reader')).toEqual([auditHash, ...context]);
     expect(await executable('ujira_indexer')).toEqual([
       ...context,
+      'function ujira.resolve_funding_address(text,text)',
+      'function ujira.resolve_mandate_address(text,text)',
       'function ujira.resolve_mandate_instance(text,text)',
     ]);
   });
@@ -185,6 +188,7 @@ describe('roles', () => {
       'ujira_app',
       'ujira_auth',
       'ujira_fn_audit',
+      'ujira_fn_identities',
       'ujira_fn_instances',
       'ujira_fn_ledger',
       'ujira_fn_principals',
@@ -201,6 +205,7 @@ describe('roles', () => {
     const nologin = new Set([
       'ujira_owner',
       'ujira_fn_audit',
+      'ujira_fn_identities',
       'ujira_fn_instances',
       'ujira_fn_ledger',
       'ujira_fn_principals',
@@ -226,6 +231,7 @@ describe('roles', () => {
       { fn: 'ujira.audit_chain()', owner: 'ujira_fn_audit' },
       { fn: 'ujira.authenticate_embed_token(bytea)', owner: 'ujira_fn_tokens' },
       { fn: 'ujira.authenticate_token(text)', owner: 'ujira_fn_tokens' },
+      { fn: 'ujira.check_payout_booking()', owner: 'ujira_fn_instances' },
       { fn: 'ujira.create_principal(text,text,uuid,text)', owner: 'ujira_fn_principals' },
       {
         fn: 'ujira.exchange_embed_invite(bytea,bytea,text,integer,text)',
@@ -233,6 +239,9 @@ describe('roles', () => {
       },
       { fn: 'ujira.ledger_balanced()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.ledger_stamp()', owner: 'ujira_fn_ledger' },
+      { fn: 'ujira.recipient_identity_scope(uuid)', owner: 'ujira_fn_identities' },
+      { fn: 'ujira.resolve_funding_address(text,text)', owner: 'ujira_fn_instances' },
+      { fn: 'ujira.resolve_mandate_address(text,text)', owner: 'ujira_fn_instances' },
       { fn: 'ujira.resolve_mandate_instance(text,text)', owner: 'ujira_fn_instances' },
     ]);
     // Each holds only what its one function needs, and never CREATE.
@@ -249,6 +258,8 @@ describe('roles', () => {
       { grantee: 'ujira_fn_audit', object: 'audit_heads', privilege: 'SELECT' },
       { grantee: 'ujira_fn_audit', object: 'audit_heads', privilege: 'UPDATE' },
       { grantee: 'ujira_fn_audit', object: 'audit_metadata_keys', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_instances', object: 'funding_account_sources', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_instances', object: 'funding_accounts', privilege: 'SELECT' },
       { grantee: 'ujira_fn_instances', object: 'mandate_instances', privilege: 'SELECT' },
       { grantee: 'ujira_fn_ledger', object: 'ledger_accounts', privilege: 'SELECT' },
       { grantee: 'ujira_fn_ledger', object: 'ledger_accounts', privilege: 'UPDATE' },

@@ -8,26 +8,25 @@
 // account when it is the transaction's source and with its own address
 // credentials otherwise. Test code only.
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { Address, SorobanDataBuilder, TransactionBuilder, xdr } from '@stellar/stellar-sdk/base';
 import type { Transaction } from '@stellar/stellar-sdk/base';
 
-import { tenantRefOf, tenantTagOf } from '../tenant-ref.js';
-import type { Bytes32, CallOptions, TenantScope } from '../types.js';
-import { addressXdr } from './address-xdr.js';
+import type { Bytes32, CallOptions } from '../types.js';
 import { mandateAddressOf } from './mandate-address.js';
 import type {
   RawSimulation,
+  RpcEventPage,
+  RpcEventRequest,
   RpcLatestLedger,
   RpcLedgerEntry,
   RpcSendResult,
   RpcTransaction,
   StellarRpc,
 } from './rpc.js';
-import { asAddress, asBytes, bytes32, field, fieldsOf, struct, unit } from './scval.js';
-import { instanceKey } from './trust.js';
+import { asAddress, asBytes, field, fieldsOf } from './scval.js';
 import { PASSPHRASES, txHash } from './tx.js';
 
 interface RecordedCall {
@@ -42,71 +41,16 @@ export interface ReadFixture {
   readonly calls: readonly RecordedCall[];
 }
 
-export const FIXTURE_FACTORY = 'CAAVOGDGGM7JOLDS3CIQNPGSJOYFI54CJSAQQEFQKW7CES5UYIAZOYUQ';
+export const FIXTURE_FACTORY = 'CB4AYBA5NVQPVPNOWUCSZQK6ZIGOF7KSCS6SF6UV6D2OKPDXLHEPD4V7';
 export const FIXTURE_USDC = 'CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA';
+/** The one approver the recorded mandate stores, at epoch 0. */
+export const FIXTURE_APPROVER = 'GBSWX5EGQ4PO34WLVAK5GS46G5WHNEAMOE6OI4CSK2D2CQSWAEVWMLWH';
 
 export function loadReadFixture(): ReadFixture {
-  return JSON.parse(
-    readFileSync(path.join(import.meta.dirname, 'fixtures', 'testnet-read.json'), 'utf8'),
-  ) as ReadFixture;
-}
-
-/** A recorded struct with its stored tenant reference replaced by the tag. */
-function withTenantTag(value: xdr.ScVal, tag: Bytes32): xdr.ScVal {
-  const kept = [...fieldsOf(value)].filter(([name]) => name !== 'tenant_ref');
-  return struct({ ...Object.fromEntries(kept), tenant_tag: bytes32('tenantTag', tag) });
-}
-
-/**
- * The fixture was recorded from the mandate wasm that stored the tenant
- * reference itself, and testnet still runs that wasm. The two places it shows
- * are moved to the tag here, as the loader's own step, so the file stays what
- * the chain answered and nothing passes as recorded that was not. Delete this
- * once the fixture is recorded again from the redeployed wasm.
- */
-function upgradeRecorded(rpc: FakeRpc, fixture: ReadFixture): void {
-  const tag = tenantTagOf(tenantRefOf(fixture.scope as TenantScope), addressXdr(fixture.mandate));
-  const key = instanceKey(fixture.mandate).toXdr('base64');
-  const entry = rpc.entries.get(key);
-  if (entry === undefined) throw new Error('the fixture has no mandate instance');
-  const data = xdr.LedgerEntryData.fromXdr(entry.xdr, 'base64');
-  if (data.type !== 'contractData' || data.contractData.val.type !== 'scvContractInstance') {
-    throw new Error('the fixture mandate entry is not an instance');
-  }
-  const { contractData: cd } = data;
-  const { instance } = cd.val as Extract<xdr.ScVal, { type: 'scvContractInstance' }>;
-  const fixedKey = unit('Fixed').toXdr('base64');
-  const upgraded = xdr.LedgerEntryData.contractData(
-    new xdr.ContractDataEntry({
-      ext: cd.ext,
-      contract: cd.contract,
-      key: cd.key,
-      durability: cd.durability,
-      val: xdr.ScVal.scvContractInstance(
-        new xdr.ScContractInstance({
-          executable: instance.executable,
-          storage: (instance.storage ?? []).map((e) =>
-            e.key.toXdr('base64') === fixedKey
-              ? new xdr.ScMapEntry({ key: e.key, val: withTenantTag(e.val, tag) })
-              : e,
-          ),
-        }),
-      ),
-    }),
-  );
-  rpc.entries.set(key, { ...entry, xdr: upgraded.toXdr('base64') });
-  const config = rpc.reads.get('config');
-  const [result] = config?.results ?? [];
-  if (config === undefined || result === undefined) throw new Error('the fixture has no config');
-  rpc.reads.set('config', {
-    ...config,
-    results: [
-      {
-        ...result,
-        xdr: withTenantTag(xdr.ScVal.fromXdr(result.xdr, 'base64'), tag).toXdr('base64'),
-      },
-    ],
-  });
+  // Beside this file in the source, and back in the source when run from a build.
+  const here = path.join(import.meta.dirname, 'fixtures', 'testnet-read.json');
+  const source = path.join(import.meta.dirname, '../../src/stellar/fixtures', 'testnet-read.json');
+  return JSON.parse(readFileSync(existsSync(here) ? here : source, 'utf8')) as ReadFixture;
 }
 
 /** The function a transaction invokes and its arguments. */
@@ -128,6 +72,10 @@ export function invoked(tx: Transaction): {
 }
 
 const CALLER_FUNCTIONS = new Set([
+  'request_payout',
+  'request_payouts',
+  'execute',
+  'execute_batch',
   'pause',
   'approve',
   'reject',
@@ -190,9 +138,12 @@ export class FakeRpc implements StellarRpc {
         rpc.reads.set(invoked(tx as Transaction).fn, call.result as unknown as RawSimulation);
       }
     }
-    upgradeRecorded(rpc, fixture);
     return rpc;
   }
+
+  /** Replaced by a test that needs events; none otherwise. */
+  getEvents: (request: RpcEventRequest) => Promise<RpcEventPage> = () =>
+    Promise.resolve({ events: [], cursor: null, latestLedger: this.latest.sequence });
 
   getLatestLedger(): Promise<RpcLatestLedger> {
     this.calls.push('getLatestLedger');

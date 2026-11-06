@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Qomira Labs. All rights reserved.
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
+import type { CountryCode } from '@ujira/chain-adapter';
+import { countryPolicyHash } from '@ujira/identity';
 import { randomBytes, randomUUID } from 'node:crypto';
 
 import { sql } from 'kysely';
@@ -310,13 +312,17 @@ describe('the country policy', () => {
     expect(await codeOf(create('maybe', ['NG']))).toBe('23514');
   });
 
-  it('an instance keeps the attester key and the policy hash, at their exact lengths', async () => {
+  it('an instance keeps the attester key at its exact length, and hashes its own policy', async () => {
+    const countries = ['NG', 'GH'];
     const mandate = await db
       .tenant(tenant)
-      .transaction(async (tx) => mandates.create(tx, { name: 'Attested' }));
-    const create = (attesterPublicKey: Buffer | null, countryPolicyHash: Buffer | null) =>
+      .transaction(async (tx) =>
+        mandates.create(tx, { name: 'Attested', countryPolicy: { mode: 'allow', countries } }),
+      );
+    const create = (attesterPublicKey: Buffer | null) =>
       db.tenant(tenant).transaction(async (tx) =>
         mandateInstances.create(tx, {
+          network: 'stellar:testnet',
           mandateId: mandate.id,
           chain: 'stellar',
           contractAddress: `C${randomUUID()}`,
@@ -324,17 +330,17 @@ describe('the country policy', () => {
           asset: 'USDC',
           scale: 7,
           attesterPublicKey,
-          countryPolicyHash,
         }),
       );
     // An ed25519 key is 32 bytes; the 65 of a secp256k1 key is refused.
-    expect(await codeOf(create(randomBytes(65), null))).toBe('23514');
-    expect(await codeOf(create(null, randomBytes(31)))).toBe('23514');
+    expect(await codeOf(create(randomBytes(65)))).toBe('23514');
     const key = randomBytes(32);
-    const hash = randomBytes(32);
-    const instance = await create(key, hash);
+    const instance = await create(key);
     expect(instance.attesterPublicKey?.equals(key)).toBe(true);
-    expect(instance.countryPolicyHash?.equals(hash)).toBe(true);
+    // The attester rebuilds the same hash from the same list.
+    const expected = countryPolicyHash(countries as CountryCode[]);
+    expect(`0x${instance.countryPolicyHash?.toString('hex') ?? ''}`).toBe(expected);
+    expect(instance.status).toBe('deploying');
   });
 });
 

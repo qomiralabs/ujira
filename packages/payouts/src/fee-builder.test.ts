@@ -2,7 +2,7 @@
 // Proprietary and confidential. Unauthorized copying is prohibited.
 
 /*
- * Contract for the fee builder (fee-builder.ts).
+ * Contract for the fee builder (fee-builder.ts), CHAINOPS-FEE-002.
  *
  * - applyFee applies min(rate, max_fee_bps), or 0 for internal_at_cost terms,
  *   and the fee is feeCap(total, bps) exactly: UJIRA's take and nothing else.

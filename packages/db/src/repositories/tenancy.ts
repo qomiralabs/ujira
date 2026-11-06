@@ -14,13 +14,23 @@ import { randomUUID } from 'node:crypto';
 import { sql, type Kysely } from 'kysely';
 
 import type { Schema } from '../schema.generated.js';
+import { audit, type AuditActor } from './audit.js';
 import { checkedLimit, pageOf, type Page, type PageRequest } from './page.js';
+import type { CashoutCostBearer } from './payouts.js';
 import { managedSigners } from './signers.js';
 
 type Tx = Kysely<Schema>;
 
 const CURRENT_PRINCIPAL = sql<string>`ujira.current_principal_id()`;
 const CURRENT_PROJECT = sql<string>`ujira.current_project_id()`;
+
+export type ChainFallback = 'off' | 'verified_methods';
+
+export interface ProjectSettings {
+  readonly cashoutCostBearer: CashoutCostBearer;
+  readonly chainFallback: ChainFallback;
+  readonly fundingHoldMaxSeconds: number;
+}
 
 export interface Principal {
   readonly id: string;
@@ -183,7 +193,130 @@ export const projects = {
       .executeTakeFirst();
     return result.numUpdatedRows > 0n;
   },
+
+  // The settings of the transaction's own project.
+  settings: async (db: Tx): Promise<ProjectSettings | undefined> => {
+    const row = await db
+      .selectFrom('ujira.projects')
+      .select(['cashout_cost_bearer', 'chain_fallback', 'funding_hold_max_seconds'])
+      .where('id', '=', CURRENT_PROJECT)
+      .executeTakeFirst();
+    return row === undefined
+      ? undefined
+      : {
+          cashoutCostBearer: row.cashout_cost_bearer as CashoutCostBearer,
+          chainFallback: row.chain_fallback as ChainFallback,
+          fundingHoldMaxSeconds: Number(row.funding_hold_max_seconds),
+        };
+  },
+
+  // The project's identity settings as saved, or null for the defaults. The identity
+  // service validates what it reads, so this hands back whatever is there.
+  identitySettings: async (db: Tx): Promise<unknown> => {
+    const row = await db
+      .selectFrom('ujira.projects')
+      .select('identity_settings')
+      .where('id', '=', CURRENT_PROJECT)
+      .executeTakeFirst();
+    return row?.identity_settings ?? null;
+  },
+
+  // The transaction's own project. Null goes back to the defaults.
+  setIdentitySettings: async (
+    db: Tx,
+    settings: Readonly<Record<string, unknown>> | null,
+  ): Promise<boolean> => {
+    const result = await db
+      .updateTable('ujira.projects')
+      .set({ identity_settings: settings === null ? null : JSON.stringify(settings) })
+      .where('id', '=', CURRENT_PROJECT)
+      .executeTakeFirst();
+    return result.numUpdatedRows > 0n;
+  },
+
+  // Each of these changes the setting and writes its audit row in one transaction.
+  // Setting what is already there changes nothing and writes nothing. Payouts
+  // already created keep the bearer they were created under.
+  setCashoutBearer: async (
+    db: Tx,
+    bearer: CashoutCostBearer,
+    actor: AuditActor,
+  ): Promise<boolean> => {
+    const current = await lockedSettings(db);
+    if (current.cashout_cost_bearer === bearer) return false;
+    await db
+      .updateTable('ujira.projects')
+      .set({ cashout_cost_bearer: bearer })
+      .where('id', '=', CURRENT_PROJECT)
+      .execute();
+    await audit.record(db, {
+      action: 'project.cashout_bearer_changed',
+      actor,
+      metadata: {
+        setting: 'cashout_cost_bearer',
+        old_value: current.cashout_cost_bearer,
+        new_value: bearer,
+      },
+    });
+    return true;
+  },
+
+  // One audit row per setting that changed.
+  setRoutingSettings: async (
+    db: Tx,
+    settings: {
+      readonly chainFallback?: ChainFallback;
+      readonly fundingHoldMaxSeconds?: number;
+    },
+    actor: AuditActor,
+  ): Promise<number> => {
+    const current = await lockedSettings(db);
+    const seconds = settings.fundingHoldMaxSeconds?.toString();
+    const fallback = settings.chainFallback;
+    const changes: { setting: string; old_value: string; new_value: string }[] = [];
+    if (fallback !== undefined && fallback !== current.chain_fallback) {
+      changes.push({
+        setting: 'chain_fallback',
+        old_value: current.chain_fallback,
+        new_value: fallback,
+      });
+    }
+    if (seconds !== undefined && seconds !== current.funding_hold_max_seconds) {
+      changes.push({
+        setting: 'funding_hold_max_seconds',
+        old_value: current.funding_hold_max_seconds,
+        new_value: seconds,
+      });
+    }
+    if (changes.length === 0) return 0;
+    await db
+      .updateTable('ujira.projects')
+      .set({
+        ...(fallback === undefined ? {} : { chain_fallback: fallback }),
+        ...(seconds === undefined ? {} : { funding_hold_max_seconds: seconds }),
+      })
+      .where('id', '=', CURRENT_PROJECT)
+      .execute();
+    for (const metadata of changes) {
+      await audit.record(db, { action: 'project.routing_settings_changed', actor, metadata });
+    }
+    return changes.length;
+  },
 };
+
+// Locked, so the old value an audit row records is the one really replaced.
+async function lockedSettings(db: Tx): Promise<{
+  cashout_cost_bearer: string;
+  chain_fallback: string;
+  funding_hold_max_seconds: string;
+}> {
+  return db
+    .selectFrom('ujira.projects')
+    .select(['cashout_cost_bearer', 'chain_fallback', 'funding_hold_max_seconds'])
+    .where('id', '=', CURRENT_PROJECT)
+    .forUpdate()
+    .executeTakeFirstOrThrow();
+}
 
 const memberColumns = ['user_id', 'role', 'created_at'] as const;
 

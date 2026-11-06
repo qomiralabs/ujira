@@ -8,6 +8,8 @@
 // Stellar envelopes for any account a test names. Test code only; nothing
 // here reaches a network.
 
+export { createMemoryAccountLedger } from './account-ledger.js';
+export type { MemoryAccountLedger } from './account-ledger.js';
 export {
   accountAddress,
   accountFromSeed,
@@ -47,9 +49,16 @@ export type {
   SuiteMandateOptions,
 } from './conformance.js';
 export { MandateEngine } from './engine.js';
+export { MemoryEventIntakeStore } from './event-intake-store.js';
 export { FakeChainAdapter, signFakeRequest } from './fake-adapter.js';
 export type { FakeChainAdapterOptions, FakeChainAdapterPorts } from './fake-adapter.js';
-export { FAKE_GENESIS, FAKE_TX_FEE, FakeNetwork, PUBNET_PASSPHRASE } from './fake-network.js';
+export {
+  FAKE_GENESIS,
+  FAKE_TX_FEE,
+  FakeNetwork,
+  PUBNET_PASSPHRASE,
+  mandateTenantTag,
+} from './fake-network.js';
 export type {
   FakeDeposit,
   FakeNetworkOptions,

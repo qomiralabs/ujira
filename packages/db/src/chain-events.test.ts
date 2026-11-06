@@ -38,7 +38,7 @@ async function asIndexer<T>(
   context: ProjectContext,
   work: (tx: Kysely<Schema>) => Promise<T>,
 ): Promise<T> {
-  return db.withTenant('worker', { ...context, scope: 'project' }, work);
+  return db.withTenant('indexer', { ...context, scope: 'project' }, work);
 }
 
 async function codeOf(promise: Promise<unknown>): Promise<string | undefined> {
@@ -63,10 +63,14 @@ function event(overrides: { txHash?: Buffer; eventIndex?: bigint; chain?: string
   };
 }
 
-async function newInstance(context: ProjectContext): Promise<MandateInstance> {
+async function newInstance(
+  context: ProjectContext,
+  network = 'stellar:testnet',
+): Promise<MandateInstance> {
   return db.tenant(context).transaction(async (tx) => {
     const mandate = await mandates.create(tx, { name: 'Payroll' });
     return mandateInstances.create(tx, {
+      network,
       mandateId: mandate.id,
       chain: 'stellar',
       contractAddress: `C${randomUUID()}`,
@@ -197,8 +201,9 @@ describe('chain events', () => {
 describe('resolve_mandate_instance', () => {
   it('finds the tenant of a contract, and nothing for one that is not ours', async () => {
     const found = await db.unscoped(
-      async (tx) => entryPoints.resolveMandateInstance(tx, 'stellar', instance.contractAddress),
-      'worker',
+      async (tx) =>
+        entryPoints.resolveMandateInstance(tx, 'stellar:testnet', instance.contractAddress),
+      'indexer',
     );
     expect(found).toEqual({
       principalId: tenant.principalId,
@@ -209,17 +214,36 @@ describe('resolve_mandate_instance', () => {
     });
     expect(
       await db.unscoped(
-        async (tx) => entryPoints.resolveMandateInstance(tx, 'stellar', 'Cnot-ours'),
-        'worker',
+        async (tx) => entryPoints.resolveMandateInstance(tx, 'stellar:testnet', 'Cnot-ours'),
+        'indexer',
       ),
     ).toBeUndefined();
+  });
+
+  // One chain, two networks. The scan of one must never be answered with an instance
+  // on the other, or a testnet deposit could be booked against a mainnet mandate.
+  it('finds a contract only on the network its instance is on', async () => {
+    const pubnet = await newInstance(tenant, 'stellar:pubnet');
+    const resolve = (network: string, address: string) =>
+      db.unscoped(
+        async (tx) => entryPoints.resolveMandateInstance(tx, network, address),
+        'indexer',
+      );
+    expect((await resolve('stellar:testnet', instance.contractAddress))?.mandateInstanceId).toBe(
+      instance.id,
+    );
+    expect((await resolve('stellar:pubnet', pubnet.contractAddress))?.mandateInstanceId).toBe(
+      pubnet.id,
+    );
+    expect(await resolve('stellar:pubnet', instance.contractAddress)).toBeUndefined();
+    expect(await resolve('stellar:testnet', pubnet.contractAddress)).toBeUndefined();
   });
 
   it('is for the indexer alone', async () => {
     expect(
       await codeOf(
         db.unscoped(async (tx) =>
-          entryPoints.resolveMandateInstance(tx, 'stellar', instance.contractAddress),
+          entryPoints.resolveMandateInstance(tx, 'stellar:testnet', instance.contractAddress),
         ),
       ),
     ).toBe('42501');

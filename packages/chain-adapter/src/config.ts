@@ -290,11 +290,24 @@ const stellarNetwork = z
     // UJIRA's login key for each anchor it pays out through.
     sep10: sep10Keys,
     signingWindowSeconds: z.int().min(30).max(SECONDS_PER_HOUR),
+    // How long a tenant's claim on a contract counts as waiting for its factory's
+    // event. A real create registers within minutes, and a day leaves room for an
+    // outage. After it the contract is refused as untrusted, so a payout held on one
+    // that will never register does resolve.
+    pendingMandateMaxAgeSeconds: z
+      .int()
+      .min(SECONDS_PER_HOUR)
+      .max(7 * 24 * SECONDS_PER_HOUR)
+      .default(24 * SECONDS_PER_HOUR),
     // The operations team's pause-only guardian, added to new mandates
     // unless the principal opts out. An address only: the key is held by
     // people, not by the signer. Optional so a network can run before one
     // is assigned; creation then needs an explicit opt out.
     operationsGuardian: stellarAccount.optional(),
+    // Every address the guardian had before the current one. Mandates made before a
+    // rotation still hold an old one, and it is still the guardian UJIRA gave them,
+    // not one the principal took away. Never add the current address here.
+    retiredOperationsGuardians: z.array(stellarAccount).max(32).default([]),
   })
   .superRefine((network, ctx) => {
     // One key, one role. The signer picks its policy from the ref it is
@@ -320,6 +333,21 @@ const stellarNetwork = z
     if (network.operationsGuardian !== undefined && addresses.has(network.operationsGuardian)) {
       ctx.addIssue({ code: 'custom', message: 'key used twice', path: ['operationsGuardian'] });
     }
+    // A past address that was also a signing key, the current guardian, or another
+    // past address would make one removal mean two things.
+    const guardians = new Set<string>(
+      network.operationsGuardian === undefined ? [] : [network.operationsGuardian],
+    );
+    network.retiredOperationsGuardians.forEach((retired, index) => {
+      if (addresses.has(retired) || guardians.has(retired)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'key used twice',
+          path: ['retiredOperationsGuardians', index],
+        });
+      }
+      guardians.add(retired);
+    });
   });
 
 /** zod schema for the networks section, for the routing document to compose. */

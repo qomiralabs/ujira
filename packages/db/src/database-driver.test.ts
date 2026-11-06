@@ -20,6 +20,7 @@ const URLS: DatabaseEnvironment = {
   // in this file reaches a server.
   UJIRA_DB_APP_URL: 'postgresql://app:secret@127.0.0.1:1/postgres',
   UJIRA_DB_WORKER_URL: 'postgresql://worker:secret@127.0.0.1:1/postgres',
+  UJIRA_DB_INDEXER_URL: 'postgresql://indexer:secret@127.0.0.1:1/postgres',
   UJIRA_DB_READER_URL: 'postgresql://reader:secret@127.0.0.1:1/postgres',
   UJIRA_DB_MIGRATION_URL: 'postgresql://migrator:secret@127.0.0.1:1/postgres',
   UJIRA_DB_ACQUIRE_TIMEOUT_MS: '500',

@@ -25,6 +25,8 @@ const app = createApp({
   authenticate: access.authenticate,
   authenticateEmbed: access.authenticateEmbed,
   rateLimit: access.rateLimit,
+  addressRateLimit: access.addressRateLimit,
+  trustedProxy: config.trustedProxy,
   logger: stdoutLogger,
   requestTimeoutMs: config.requestTimeoutMs,
   bodyLimitBytes: config.bodyLimitBytes,

@@ -63,6 +63,12 @@ export default defineConfig({
           testTimeout: 60_000,
           globalSetup: ['../db/src/testing/global-setup.ts'],
         },
+        // A deposit's attribution is only shown across the real keys and policies.
+        '@ujira/indexer': {
+          hookTimeout: 180_000,
+          testTimeout: 60_000,
+          globalSetup: ['../db/src/testing/global-setup.ts'],
+        },
         // The conformance suites sign and verify hundreds of times.
         '@ujira/signer': { testTimeout: 60_000, hookTimeout: 60_000 },
         '@ujira/payouts': {
@@ -167,6 +173,14 @@ export default defineConfig({
         // A receipt is the permanent proof of a payment and its hash must
         // never drift, so it carries the money bar too.
         'packages/receipts/src/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
+        // The indexer decides which contracts count as mandates and what is booked
+        // to whom, so it carries the money bar too.
+        'packages/indexer/src/**': {
           lines: 95,
           functions: 95,
           branches: 95,

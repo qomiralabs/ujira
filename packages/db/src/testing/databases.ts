@@ -4,10 +4,11 @@
 // A Database for one test database that connects as the real service roles,
 // so row level security applies exactly as in production.
 //
-// The worker pool logs in as ujira_indexer. That role has no connection of its
-// own yet, and it is the only way to exercise the policies written for it. In
-// production the worker login has no rights on tenant tables at all, so this
-// is a test arrangement rather than a picture of the deployment.
+// The indexer pool logs in as ujira_indexer, as it does in production. The
+// worker login has no rights on tenant tables, and its role does not exist in
+// these databases until the worker roles land, so for now the worker pool logs in
+// as ujira_ops, which holds none either. Nothing here writes tenant rows through
+// it.
 
 import { loadDatabaseConfig } from '../config.js';
 import { createDatabase, type Database } from '../database.js';
@@ -22,7 +23,8 @@ export function databaseAsServiceRoles(
     loadDatabaseConfig({
       UJIRA_DB_APP_URL: roleUrl(roleUrls, 'ujira_app', database.name),
       UJIRA_DB_READER_URL: roleUrl(roleUrls, 'ujira_reader', database.name),
-      UJIRA_DB_WORKER_URL: roleUrl(roleUrls, 'ujira_indexer', database.name),
+      UJIRA_DB_WORKER_URL: roleUrl(roleUrls, 'ujira_ops', database.name),
+      UJIRA_DB_INDEXER_URL: roleUrl(roleUrls, 'ujira_indexer', database.name),
       UJIRA_DB_MIGRATION_URL: database.url,
       UJIRA_DB_TLS: 'off',
       UJIRA_DB_APP_POOL_SIZE: String(appPoolSize),

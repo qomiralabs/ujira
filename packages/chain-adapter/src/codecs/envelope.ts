@@ -142,6 +142,23 @@ export function decodeTransactionEnvelope(text: string, network: NetworkId): Dec
   return decodeV1(envelope.v1(), checked);
 }
 
+/**
+ * The authorization entries a transaction's one contract call carries, as base64
+ * XDR, in order. Empty when it carries none or is not a contract call.
+ */
+export function invocationAuthEntries(text: string, network: NetworkId): readonly string[] {
+  checkNetwork(network);
+  const envelope = readEnvelope(text);
+  if (envelope.switch().name !== 'envelopeTypeTx') throw invalid(FIELD, 'wrong_envelope_type');
+  const [op] = envelope.v1().tx().operations();
+  const body = op?.body();
+  if (body?.switch().name !== 'invokeHostFunction') return [];
+  return body
+    .invokeHostFunctionOp()
+    .auth()
+    .map((entry) => entry.toXDR('base64'));
+}
+
 /** A fee bump envelope as plain data, with its hash and its inner transaction's on `network`. */
 export function decodeFeeBumpEnvelope(text: string, network: NetworkId): DecodedFeeBump {
   const checked = checkNetwork(network);

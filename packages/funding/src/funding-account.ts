@@ -5,13 +5,17 @@
 // sources. Only a public key ever enters here, the secret stays in the wallet, and
 // the schemas are strict so a secret sent by mistake is refused rather than carried.
 //
+// Every step names a mandate instance and takes the network from it, never from
+// the caller. An address reads the same on every network, so a caller able to say
+// which network it meant could be shown a test account for a mandate holding real
+// money, and an exchange would send to it.
+//
 // Confirming is safe to repeat, and has to be: the chain step and the funding
 // source are two writes with a crash possible between them. A repeat finds the
 // account already recorded and the source already made.
 //
 // This package knows no chain. Each network's flow comes from the chain adapter.
 
-import { NETWORK_IDS } from '@ujira/chain-adapter';
 import type {
   CallOptions,
   FundingAccountFlow,
@@ -35,81 +39,73 @@ const MAX_SIGNED = 16_384;
 
 const uuid = z.string().regex(UUID);
 const scope = z.strictObject({ principalId: uuid, projectId: uuid });
-const network = z.enum(NETWORK_IDS);
 const address = z.string().min(1).max(MAX_ADDRESS);
 const id = z.string().min(1).max(MAX_ID);
 
 const startSchema = z.strictObject({
   scope,
-  network,
+  mandateInstanceId: uuid,
   publicKey: address,
   businessVerified: z.boolean(),
 });
 const submitSchema = z.strictObject({
   scope,
-  network,
+  mandateInstanceId: uuid,
   requestId: id,
   signed: z.string().min(1).max(MAX_SIGNED),
   correlationId: id,
 });
 const confirmSchema = z.strictObject({
   scope,
-  network,
-  requestId: id,
   mandateInstanceId: uuid,
+  requestId: id,
 });
-const attachSchema = z.strictObject({ scope, network, mandateInstanceId: uuid });
-const optionsSchema = z.strictObject({ scope, network, mandate: address });
+const instanceSchema = z.strictObject({ scope, mandateInstanceId: uuid });
 
-export interface StartFundingAccount {
+/** A mandate instance a funding account would fund. */
+export interface FundingInstanceRequest {
   readonly scope: TenantScope;
-  readonly network: NetworkId;
+  readonly mandateInstanceId: string;
+}
+
+export interface StartFundingAccount extends FundingInstanceRequest {
   /** The public key the principal's wallet generated. Never a secret. */
   readonly publicKey: string;
   readonly businessVerified: boolean;
 }
 
-export interface SubmitFundingAccount {
-  readonly scope: TenantScope;
-  readonly network: NetworkId;
+export interface SubmitFundingAccount extends FundingInstanceRequest {
   readonly requestId: string;
   /** What the wallet signed. */
   readonly signed: string;
   readonly correlationId: string;
 }
 
-export interface ConfirmFundingAccount {
-  readonly scope: TenantScope;
-  readonly network: NetworkId;
+export interface ConfirmFundingAccount extends FundingInstanceRequest {
   readonly requestId: string;
-  /** The mandate instance the account was set up to fund. */
-  readonly mandateInstanceId: string;
 }
 
 export interface ConfirmedFundingAccount {
   readonly account: FundingAccountRecord;
-  /** Null when the account is not one to fund from: rejected, or held by another project. */
+  /** Null when the account is not one to fund from, because it was rejected. */
   readonly fundingSourceId: string | null;
 }
 
-export interface AttachFundingAccount {
-  readonly scope: TenantScope;
-  readonly network: NetworkId;
-  readonly mandateInstanceId: string;
-}
-
-export interface FundingAccountOptionsRequest {
-  readonly scope: TenantScope;
-  readonly network: NetworkId;
-  /** The mandate's address on that network. */
-  readonly mandate: string;
+/** What a funding account needs to know of the mandate instance it funds. */
+export interface FundingInstance {
+  /** Null for a network this build does not know, which nothing may fund. */
+  readonly network: NetworkId | null;
+  readonly contractAddress: string;
 }
 
 /** Keeps one funding source per mandate instance, under the tenant's transaction. */
 export interface FundingSourceStore {
+  /** This tenant's instance, or null when it has no such instance. */
+  instance(scope: TenantScope, mandateInstanceId: string): Promise<FundingInstance | null>;
   /**
    * The source's id, made the first time it is asked for. Null when this tenant
    * has no active account on the network, or the instance cannot use that one.
+   * Throws FundingAccountInUseError when the account already funds another instance.
    */
   attach(
     scope: TenantScope,
@@ -130,9 +126,9 @@ export interface FundingAccountService {
   /** Waits for the account, verifies it on chain and makes the instance's funding source. */
   confirm(req: ConfirmFundingAccount, opts: CallOptions): Promise<ConfirmedFundingAccount>;
   /** Points another mandate instance at the account the project already has. */
-  attach(req: AttachFundingAccount): Promise<string>;
-  /** The addresses to show for funding a mandate. */
-  options(req: FundingAccountOptionsRequest): Promise<FundingAccountOptions>;
+  attach(req: FundingInstanceRequest): Promise<string>;
+  /** The addresses to show for funding this mandate instance. */
+  options(req: FundingInstanceRequest): Promise<FundingAccountOptions>;
 }
 
 export function createFundingAccountService(
@@ -140,15 +136,17 @@ export function createFundingAccountService(
 ): FundingAccountService {
   const { flowFor, sources } = options;
 
-  const flowOf = (on: NetworkId): FundingAccountFlow => {
-    const flow = flowFor(on);
+  const located = async (req: FundingInstanceRequest) => {
+    const instance = await sources.instance(req.scope, req.mandateInstanceId);
+    if (instance?.network === null || instance === null) throw new FundingAccountStateError();
+    const flow = flowFor(instance.network);
     if (flow === null) throw new FundingInputError(['request.network (not_offered)']);
-    return flow;
+    return { flow, network: instance.network, contractAddress: instance.contractAddress };
   };
 
-  const sourceOf = async (req: AttachFundingAccount): Promise<string> => {
+  const sourceOf = async (req: FundingInstanceRequest, network: NetworkId): Promise<string> => {
     const sourceId = await sources.attach(req.scope, {
-      network: req.network,
+      network,
       mandateInstanceId: req.mandateInstanceId,
     });
     if (sourceId === null) throw new FundingAccountStateError();
@@ -158,7 +156,8 @@ export function createFundingAccountService(
   return {
     async start(req, opts) {
       parsed(startSchema, req, 'request');
-      return flowOf(req.network).prepare(
+      const { flow } = await located(req);
+      return flow.prepare(
         { scope: req.scope, publicKey: req.publicKey, businessVerified: req.businessVerified },
         opts,
       );
@@ -166,7 +165,8 @@ export function createFundingAccountService(
 
     async submit(req, opts) {
       parsed(submitSchema, req, 'request');
-      return flowOf(req.network).submit(
+      const { flow } = await located(req);
+      return flow.submit(
         {
           scope: req.scope,
           requestId: req.requestId,
@@ -179,28 +179,26 @@ export function createFundingAccountService(
 
     async confirm(req, opts) {
       parsed(confirmSchema, req, 'request');
-      const account = await flowOf(req.network).confirm(
-        { scope: req.scope, requestId: req.requestId },
-        opts,
-      );
+      const { flow, network } = await located(req);
+      const account = await flow.confirm({ scope: req.scope, requestId: req.requestId }, opts);
       // A rejected account is on the record and flagged, but nothing is ever to
-      // be funded from it. Another project's stays with that project.
-      if (account.status !== 'active' || account.projectId !== req.scope.projectId) {
-        return { account, fundingSourceId: null };
-      }
-      return { account, fundingSourceId: await sourceOf(req) };
+      // be funded from it.
+      if (account.status !== 'active') return { account, fundingSourceId: null };
+      return { account, fundingSourceId: await sourceOf(req, network) };
     },
 
     async attach(req) {
-      parsed(attachSchema, req, 'request');
-      const account = await flowOf(req.network).account(req.scope);
+      parsed(instanceSchema, req, 'request');
+      const { flow, network } = await located(req);
+      const account = await flow.account(req.scope);
       if (account?.status !== 'active') throw new FundingAccountStateError();
-      return sourceOf(req);
+      return sourceOf(req, network);
     },
 
     async options(req) {
-      parsed(optionsSchema, req, 'request');
-      return flowOf(req.network).fundingOptions({ scope: req.scope, mandate: req.mandate });
+      parsed(instanceSchema, req, 'request');
+      const { flow, contractAddress } = await located(req);
+      return flow.fundingOptions({ scope: req.scope, mandate: contractAddress });
     },
   };
 }

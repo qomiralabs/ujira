@@ -4,6 +4,7 @@
 export {
   FUNDING_ERROR_CODES,
   FundingAccountConflictError,
+  FundingAccountInUseError,
   FundingAccountStateError,
   FundingError,
   FundingInputError,
@@ -12,14 +13,19 @@ export {
   SweepTimeoutError,
 } from './errors.js';
 export type { FundingErrorCode } from './errors.js';
+export {
+  FUNDING_ACCOUNT_WATCH_INTERVAL_SECONDS,
+  createFundingAccountWatch,
+} from './account-watch.js';
+export type { FundingAccountWatch, FundingAccountWatchOptions } from './account-watch.js';
 export { createFundingAccountService } from './funding-account.js';
 export type {
-  AttachFundingAccount,
   ConfirmFundingAccount,
   ConfirmedFundingAccount,
   FundingAccountService,
   FundingAccountServiceOptions,
-  FundingAccountOptionsRequest,
+  FundingInstance,
+  FundingInstanceRequest,
   FundingSourceStore,
   StartFundingAccount,
   SubmitFundingAccount,
@@ -44,6 +50,7 @@ export {
 export type {
   DepositEvent,
   ObservedTransfer,
+  SweepAccounts,
   SweepAlertKind,
   SweepChain,
   SweepChainResult,

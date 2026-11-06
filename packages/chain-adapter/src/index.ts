@@ -22,6 +22,7 @@ export {
   InvalidInputError,
   LiquidityUnavailableError,
   MandateRuleError,
+  MandatePendingError,
   MandateUntrustedError,
   MemoOnContractCallError,
   QuoteExpiredError,
@@ -66,7 +67,8 @@ export {
   readProviderDepositInstruction,
 } from './destination.js';
 export type { BindableDestination, DestinationInput, DestinationMemoType } from './destination.js';
-export { operationsGuardianOf } from './guardian.js';
+export { operationsGuardianOf, operationsGuardiansOf } from './guardian.js';
+export { isUnpayableAddress, settlementAddressesOf } from './unpayable.js';
 export {
   SIGNER_DOWN,
   SPONSOR_LOW,
@@ -120,6 +122,7 @@ export {
 } from './retry.js';
 export type { AlertKind, RetryDecision, RetryRule, SignerErrorCode } from './retry.js';
 export type * from './funding-account.js';
+export type * from './funding-sweep.js';
 export type * from './signer.js';
 export { createRentWatch, utcDay } from './stellar/rent-watch.js';
 export type {
@@ -151,3 +154,52 @@ export type {
 } from './stellar/xlm-rate.js';
 export { CHAIN_ADAPTER_INTERFACE_VERSION } from './types.js';
 export type * from './types.js';
+export {
+  DEFAULT_WALLET_PROOF_TTL_SECONDS,
+  MAX_WALLET_PROOF_TTL_SECONDS,
+  WALLET_PROOF_PURPOSES,
+  WALLET_PROOF_VERSION,
+  parsePublicConfig,
+  publicConfigSchema,
+  walletProofChallenge,
+  walletProofNonce,
+  walletProofText,
+} from './wallet-proof.js';
+export type {
+  PublicConfig,
+  VerifyWalletProofRequest,
+  WalletProofChallenge,
+  WalletProofChallengeRequest,
+  WalletProofDeps,
+  WalletProofInvalidReason,
+  WalletProofPurpose,
+  WalletProofResult,
+} from './wallet-proof.js';
+
+export { INSTANCE_MOVES, createEventIntake } from './intake.js';
+export type {
+  EventBooking,
+  EventIntake,
+  EventIntakeOptions,
+  EventIntakeStore,
+  InstanceMove,
+  MandateFlagReason,
+  EventJson,
+  IgnoredReason,
+  IntakeOutcome,
+  LedgerEvent,
+  MandateTenant,
+  NewRegistration,
+} from './intake.js';
+
+export { sweepDepositOf } from './deposit-event.js';
+export type { SweepDepositEvent } from './deposit-event.js';
+
+export { createEventScan, eventStream } from './event-scan.js';
+export type {
+  CursorStore,
+  EventPage,
+  EventScanOptions,
+  EventSource,
+  ScanResult,
+} from './event-scan.js';

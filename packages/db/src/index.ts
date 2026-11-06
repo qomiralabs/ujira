@@ -33,9 +33,65 @@ export {
   type Member,
   type MemberRole,
   type NewApiToken,
+  type ChainFallback,
   type Principal,
   type Project,
+  type ProjectSettings,
 } from './repositories/tenancy.js';
+export {
+  AmountBelowMinimumError,
+  MinimumNotComparableError,
+  PAYOUT_MINIMUM_METHODS,
+  requiredMinimum,
+  type MinimumAmount,
+  type MinimumReason,
+  type PayoutMinimumContext,
+  type PayoutMinimumMethod,
+  type RequiredMinimum,
+  type ToUsd,
+} from './payout-minimum.js';
+export {
+  ATTEMPT_STATUS_VALUES,
+  fundingHolds,
+  IdempotencyConflictError,
+  IllegalTransitionError,
+  AttemptWithoutLegsError,
+  LiveAttemptError,
+  PAYOUT_STATUS_VALUES,
+  payoutAttempts,
+  payoutBatches,
+  payoutMinimums,
+  payouts,
+  RequestedAmountModeError,
+  type AttemptStatusValue,
+  type BatchItemResult,
+  type CashoutCostBearer,
+  type CreatedBatch,
+  type CreatedPayout,
+  type FundingHold,
+  type FundingHoldInput,
+  type NewPayout,
+  type NetworkId,
+  type NewPayoutAttempt,
+  type Payout,
+  type PayoutAttempt,
+  type PayoutBatch,
+  type PayoutStatusReason,
+  type PayoutStatusValue,
+  type NewPayoutLeg,
+  type ProjectPayoutMinimum,
+} from './repositories/payouts.js';
+export {
+  approvals,
+  LEG_STATUS_VALUES,
+  payoutLegs,
+  type Approval,
+  type ApprovalDecision,
+  type LegStatusValue,
+  type NewApproval,
+  type PayoutLeg,
+  type RecordedApproval,
+} from './repositories/payout-legs.js';
 export {
   managedSigners,
   signingKeys,
@@ -46,6 +102,7 @@ export {
   type SigningKeyPurpose,
 } from './repositories/signers.js';
 export {
+  FundingAccountInUse,
   fundingAccounts,
   type FundingAccount,
   type FundingAccountStatus,
@@ -55,9 +112,24 @@ export {
   entryPoints,
   type CreatedPrincipal,
   type NewPrincipal,
+  type ResolvedFundingAddress,
+  type ResolvedFundingInstance,
   type ResolvedInstance,
   type TokenRecord,
 } from './repositories/entry-points.js';
+export {
+  mandateEventStore,
+  mandateRegistry,
+  payoutBookings,
+  type IntakeBooking,
+  type IntakeTenant,
+  type MandateAlert,
+  type MandateFlagReason,
+  type MandateRegistryRow,
+  type NewMandateRegistration,
+  type PayoutBooking,
+  type PayoutBookingEvent,
+} from './repositories/mandate-registry.js';
 export {
   audit,
   AuditScopeError,
@@ -120,6 +192,7 @@ export {
   type WalletChallengeRow,
 } from './repositories/identity-evidence.js';
 export {
+  chainCursors,
   emailQuota,
   executors,
   identityProviderEvents,
@@ -186,3 +259,25 @@ export {
 export { TENANT_SETTINGS, type TenantContext, type TenantScope } from './tenant.js';
 export { DatabaseConfigError, SessionStateError, TenantContextError } from './errors.js';
 export { DatabaseUnavailableError } from './unavailable.js';
+export {
+  databaseAttestationLog,
+  databaseIdentityStore,
+  databasePayoutLegSource,
+  databaseProviderEventStore,
+} from './identity-store.js';
+export type { IdentityStoreOptions } from './identity-store.js';
+export type { AttestationLeg } from './repositories/payout-legs.js';
+export type { MandateInstanceStatus } from './repositories/mandates.js';
+export type { NewIdentityRecord } from './repositories/recipients.js';
+
+export { createComplianceStore, type ComplianceStoreOptions } from './compliance-store.js';
+export {
+  compliance,
+  type ComplianceCloseReason,
+  type ComplianceMarkRow,
+  type ComplianceNoticeRow,
+  type ComplianceReason,
+  type ComplianceTransition,
+  type NewComplianceNotice,
+  type ParkedJob,
+} from './repositories/compliance.js';

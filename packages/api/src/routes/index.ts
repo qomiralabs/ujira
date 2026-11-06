@@ -11,6 +11,8 @@ import type { Route } from '../route.js';
 import { EMBED_NOT_CONFIGURED, embedRoutes } from './embed.js';
 import type { EmbedDependencies } from './embed.js';
 import { healthRoute } from './health.js';
+import { RECEIPTS_NOT_CONFIGURED, receiptRoutes } from './receipts.js';
+import type { ReceiptReads } from './receipts.js';
 import { SELF_WEBHOOK_NOT_CONFIGURED, selfWebhookRoute } from './self-webhook.js';
 import type { SelfWebhookHandler } from './self-webhook.js';
 import {
@@ -25,6 +27,8 @@ export interface RouteDependencies {
   readonly walletProof: WalletProofFlow;
   /** Refuses everything when left out, until a database is configured. */
   readonly embed?: EmbedDependencies;
+  /** Answers 503 when left out, until the receipts tables are in. */
+  readonly receipts?: ReceiptReads;
 }
 
 export function v1Routes(deps: RouteDependencies): readonly Route[] {
@@ -34,6 +38,7 @@ export function v1Routes(deps: RouteDependencies): readonly Route[] {
     walletChallengeRoute(deps.walletProof),
     walletProofRoute(deps.walletProof),
     ...embedRoutes(deps.embed ?? EMBED_NOT_CONFIGURED),
+    ...receiptRoutes(deps.receipts ?? RECEIPTS_NOT_CONFIGURED),
   ]);
 }
 

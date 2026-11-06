@@ -22,6 +22,7 @@ import type { EngineEvent } from '@ujira/chain-adapter/testing';
 
 import {
   NETWORK,
+  NEXT_OPS_GUARDIAN,
   OPS_GUARDIAN,
   OWN_GUARDIAN,
   PRINCIPAL,
@@ -174,5 +175,72 @@ describe('guardian-removal', () => {
     const err: unknown = await onRoleRemoved(key(), event, deps(failing)).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(PolicyStoreError);
     expect((err as Error).cause).toBe(cause);
+  });
+});
+
+describe('after the operations guardian address is rotated', () => {
+  // NEXT_OPS_GUARDIAN is the current address, and OPS_GUARDIAN the one it replaced.
+  function rotated(d: CreationDeps): CreationDeps {
+    return { ...d, networks: () => networks(NEXT_OPS_GUARDIAN, [OPS_GUARDIAN]) };
+  }
+
+  it('reconciliation after a rotation records no opt out', async () => {
+    const before = deps();
+    const { mandate } = await mandateWithGuardian(before);
+    const after = rotated(before);
+    expect(await reconcileOperationsGuardian(key(), onChainGuardians(mandate), after)).not.toBe(
+      'absent',
+    );
+    expect(await after.optOuts.hasOptedOut(key(), OPTS)).toBe(false);
+    // A new instance of the same logical mandate still gets the guardian.
+    const again = await planMandateCreation(
+      { key: key(), network: NETWORK, config: principalConfig() },
+      after,
+    );
+    expect(again.operationsGuardian).toBe('present');
+  });
+
+  it('reports a mandate holding a past address as outdated, not as having no guardian', async () => {
+    const d = deps();
+    const { mandate } = await mandateWithGuardian(d);
+    expect(await reconcileOperationsGuardian(key(), onChainGuardians(mandate), rotated(d))).toBe(
+      'outdated',
+    );
+  });
+
+  it('counts removing a past address as the principal removing the guardian', async () => {
+    const d = rotated(deps());
+    const event = { network: NETWORK, role: 'guardian' as const, account: at(OPS_GUARDIAN) };
+    expect(await onRoleRemoved(key(), event, d)).toBe('recorded');
+    expect(await d.optOuts.hasOptedOut(key(), OPTS)).toBe(true);
+  });
+
+  it('does not count moving from a past address to the current one as an opt out', async () => {
+    const d = rotated(deps());
+    const event = {
+      network: NETWORK,
+      role: 'guardian' as const,
+      account: at(OPS_GUARDIAN),
+      guardiansAfter: [at(NEXT_OPS_GUARDIAN)],
+    };
+    expect(await onRoleRemoved(key(), event, d)).toBe('ignored');
+    expect(await d.optOuts.hasOptedOut(key(), OPTS)).toBe(false);
+    const both = { network: NETWORK, guardians: [at(OPS_GUARDIAN), at(NEXT_OPS_GUARDIAN)] };
+    expect(await reconcileOperationsGuardian(key(), both, d)).toBe('present');
+  });
+
+  it('gives new mandates only the current address', async () => {
+    const plan = await planMandateCreation(
+      { key: key(), network: NETWORK, config: principalConfig() },
+      rotated(deps()),
+    );
+    expect(plan.config.guardians).toEqual([at(NEXT_OPS_GUARDIAN)]);
+  });
+
+  it('still records an opt out when no address UJIRA ever used is on chain', async () => {
+    const d = rotated(deps());
+    const own = { network: NETWORK, guardians: [at(OWN_GUARDIAN)] };
+    expect(await reconcileOperationsGuardian(key(), own, d)).toBe('absent');
+    expect(await d.optOuts.hasOptedOut(key(), OPTS)).toBe(true);
   });
 });
