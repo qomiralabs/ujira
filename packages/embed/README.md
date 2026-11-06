@@ -95,7 +95,7 @@ If you need a recipient's answers kept from your own page, a shadow root is not 
 | Name           | Type                      | Default | What it does                                                                                                                                |
 | -------------- | ------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `mode`         | `light`, `dark`, `system` | `light` | Which set of default colours to use                                                                                                         |
-| `locale`       | language tag              | `en`    | Which language file to read. Unknown languages give English                                                                                 |
+| `locale`       | language tag              | empty   | Which language to show. Empty follows the reader's browser. A language not ready yet, or unknown, gives English                             |
 | `busy`         | boolean                   | `false` | Holds the step and says the answer is being saved                                                                                           |
 | `error`        | string                    | empty   | A message from the integrator, shown in place of ours                                                                                       |
 | `sessionToken` | string                    | empty   | The embed token your server minted for this recipient. Attribute `session-token`. With `apiBase`, the widget saves through UJIRA itself     |
@@ -175,7 +175,11 @@ Recipients paid in local currency see only their own currency. The wallet method
 
 ## Copy
 
-Every string is in `src/i18n/en.ts`. A test fails if any word a person reads is typed into a template, and another fails if a key in the catalogue is never used. Other languages are a file next to `en.ts`, registered in `catalogue.ts`, each with native speaker review before it ships.
+Every string is in `src/i18n/en.ts`, the source. A test fails if any word a person reads is typed into a template, and another fails if a key in the catalogue is never used.
+
+Each other language is a file next to it with every key, registered in `catalogue.ts`: Hausa (`ha`), Yoruba (`yo`), Igbo (`ig`), Swahili (`sw`), French (`fr`), Portuguese (`pt`) and Spanish (`es`). A string nobody has translated yet is `null`, flagged for a translator with the English above it, never a guess. A language is offered only when none of its strings is flagged, so a person never sees half a screen in one language and half in another; until then a request for it gets English. Today Swahili, French, Portuguese and Spanish are complete, and Hausa, Yoruba and Igbo wait for a translator. Every language still needs native speaker review before release.
+
+The language comes from `locale` when the page sets it, then from the reader's browser languages in order, then English. French, Portuguese, Spanish, Yoruba, Igbo and Hausa text gets a line height of at least 1.6, and the three with stacked diacritics get it on headings too.
 
 ## Checks
 

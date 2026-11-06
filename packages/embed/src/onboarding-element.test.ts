@@ -6,10 +6,12 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { encodeAccountAddress } from './destination.js';
 import { en } from './i18n/en.js';
+import { fr } from './i18n/fr.js';
+import { sw } from './i18n/sw.js';
 import { define, TAG_NAME } from './index.js';
 import {
   COMPLETE_EVENT,
@@ -270,7 +272,7 @@ describe('ujira-onboarding', () => {
     expect(rows.map(([name]) => name).sort()).toEqual(declared);
     expect(Object.fromEntries(rows)).toEqual({
       mode: 'light',
-      locale: 'en',
+      locale: 'empty',
       busy: 'false',
       error: 'empty',
       sessionToken: 'empty',
@@ -280,7 +282,7 @@ describe('ujira-onboarding', () => {
     });
     // The documented defaults are the ones a fresh element really has.
     expect(widget.mode).toBe('light');
-    expect(widget.locale).toBe('en');
+    expect(widget.locale).toBe('');
     expect(widget.busy).toBe(false);
     expect(widget.error).toBe('');
     expect(widget.sessionToken).toBe('');
@@ -293,3 +295,37 @@ describe('ujira-onboarding', () => {
 function readmeText(): string {
   return readFileSync(join(import.meta.dirname, '..', 'README.md'), 'utf8');
 }
+
+describe('the language it speaks', () => {
+  it('speaks the language the page asks for, and says which it is', async () => {
+    const widget = document.createElement(TAG_NAME);
+    widget.setAttribute('locale', 'sw');
+    document.body.replaceChildren(widget);
+    await widget.updateComplete;
+    const shadow = widget.shadowRoot;
+    expect(shadow?.querySelector('.heading')?.textContent).toBe(sw['name.heading']);
+    expect(shadow?.querySelector('section')?.getAttribute('lang')).toBe('sw');
+  });
+
+  it('follows the browser when the page does not choose', async () => {
+    const languages = vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['de-DE', 'fr-FR']);
+    try {
+      const widget = document.createElement(TAG_NAME);
+      document.body.replaceChildren(widget);
+      await widget.updateComplete;
+      expect(widget.shadowRoot?.querySelector('.heading')?.textContent).toBe(fr['name.heading']);
+      expect(widget.shadowRoot?.querySelector('section')?.getAttribute('lang')).toBe('fr');
+    } finally {
+      languages.mockRestore();
+    }
+  });
+
+  it('speaks English, and says so, for a language still waiting for a translator', async () => {
+    const widget = document.createElement(TAG_NAME);
+    widget.setAttribute('locale', 'yo');
+    document.body.replaceChildren(widget);
+    await widget.updateComplete;
+    expect(widget.shadowRoot?.querySelector('section')?.getAttribute('lang')).toBe('en');
+    expect(widget.shadowRoot?.querySelector('.heading')?.textContent).toBe(en['name.heading']);
+  });
+});

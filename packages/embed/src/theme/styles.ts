@@ -352,6 +352,20 @@ const widget = css`
     height: 16px;
   }
 
+  /*
+   * Text with diacritics gets a line height of 1.6 or more, as the brand
+   * asks. English and Swahili need none. Yoruba, Igbo and Hausa stack a dot
+   * below and a tone mark on one letter, so their headings open up too.
+   */
+  .widget:is(:lang(fr), :lang(pt), :lang(es), :lang(yo), :lang(ig), :lang(ha))
+    :is(.hint, .label, .alert, .status, .choice-line, .statement-line, .answer-value, .footer) {
+    line-height: 1.6;
+  }
+
+  .widget:is(:lang(yo), :lang(ig), :lang(ha)) :is(.heading, .choice-name, .statement-name) {
+    line-height: 1.6;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .primary {
       transition: none;

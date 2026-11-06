@@ -26,7 +26,7 @@ import type {
   VerificationStatus,
   WalletChallenge,
 } from './api/contract.js';
-import { DEFAULT_LOCALE, translator, type MessageKey, type Translate } from './i18n/catalogue.js';
+import { resolveLocale, translator, type MessageKey, type Translate } from './i18n/catalogue.js';
 import { methodById, PAYOUT_METHODS, type MethodId } from './methods.js';
 import { afterProofFailed, afterSaveFailed, receivabilityMessage } from './outcomes.js';
 import {
@@ -141,7 +141,10 @@ export class UjiraOnboarding extends LitElement {
   /** light, dark, or system to follow the reader's setting. */
   declare mode: WidgetMode;
 
-  /** A language tag. Unknown languages fall back to English. */
+  /**
+   * A language tag. Empty follows the reader's browser. A language that is
+   * not ready yet, or unknown, gives English.
+   */
   declare locale: string;
 
   /** Set while the integrator saves an answer: the step waits, and says so. */
@@ -195,7 +198,7 @@ export class UjiraOnboarding extends LitElement {
   constructor() {
     super();
     this.mode = 'light';
-    this.locale = DEFAULT_LOCALE;
+    this.locale = '';
     this.busy = false;
     this.error = '';
     this.sessionToken = '';
@@ -284,10 +287,19 @@ export class UjiraOnboarding extends LitElement {
   }
 
   protected override render(): TemplateResult {
-    const t = translator(this.locale);
+    const locale = resolveLocale(
+      this.locale,
+      this.ownerDocument.defaultView?.navigator.languages ?? [],
+    );
+    const t = translator(locale);
     const waiting = this.waiting();
     if (waiting !== undefined) {
-      return html`<section class="widget" part="widget" aria-label=${t('widget.label')}>
+      return html`<section
+        class="widget"
+        part="widget"
+        lang=${locale}
+        aria-label=${t('widget.label')}
+      >
         ${waitingView(t, waiting)} ${footer(t('footer.byline'))}
       </section>`;
     }
@@ -343,7 +355,12 @@ export class UjiraOnboarding extends LitElement {
             },
           }),
     };
-    return html`<section class="widget" part="widget" aria-label=${t('widget.label')}>
+    return html`<section
+      class="widget"
+      part="widget"
+      lang=${locale}
+      aria-label=${t('widget.label')}
+    >
       ${this.chrome(t)} ${stepView(this.step, ctx)} ${footer(t('footer.byline'))}
     </section>`;
   }
