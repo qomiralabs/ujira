@@ -434,3 +434,48 @@ export const PayoutListQuery = z
 export type PayoutListQuery = z.infer<typeof PayoutListQuery>;
 
 export const PayoutParams = z.strictObject({ id: Uuid });
+
+/**
+ * The caller's own reference for the work a payout pays for. Kept to an id's
+ * characters, because the answer to a create is stored for replay and must
+ * never carry anything personal.
+ */
+export const TaskId = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(/^[A-Za-z0-9._:/-]+$/, 'letters, digits and . _ : / - only');
+
+/**
+ * A payout to make inside a mandate. The amount is what the principal asks to
+ * pay, in minor units: US dollars, paid as USDC at par, when the recipient bears
+ * the cash-out cost, or the local currency the recipient must receive when the
+ * principal does.
+ */
+export const CreatePayoutRequest = z.strictObject({
+  mandateId: Uuid,
+  recipientId: Uuid,
+  amount: Money,
+  /** Left out, the recipient's first active payout method. */
+  method: PayoutMethod.optional(),
+  taskId: TaskId.optional(),
+});
+export type CreatePayoutRequest = z.infer<typeof CreatePayoutRequest>;
+
+/**
+ * A payout taken on. It runs from here in the background, so the answer says
+ * only what was asked for and that it is queued; read the payout to follow it.
+ * Nothing in it is personal, because it is stored to answer a retry.
+ */
+export const PayoutAccepted = z.strictObject({
+  ...tenantFields,
+  id: Uuid,
+  status: PayoutStatus,
+  mandateId: Uuid,
+  recipientId: Uuid,
+  requested: Money,
+  method: PayoutMethod,
+  taskId: TaskId.nullable(),
+  createdAt: Timestamp,
+});
+export type PayoutAccepted = z.infer<typeof PayoutAccepted>;

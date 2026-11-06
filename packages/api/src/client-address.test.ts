@@ -17,6 +17,7 @@ import { refuseAllCredentials } from './auth.js';
 import { clientAddress, normalizeAddress } from './client-address.js';
 import type { TrustedProxy } from './client-address.js';
 import { RouteRegistryError } from './errors.js';
+import { memoryIdempotencyStore } from './idempotency.js';
 import { memoryLogger } from './log.js';
 import { withOpenApiRoute } from './openapi.js';
 import { databaseBucketStore } from './postgres-stores.js';
@@ -228,6 +229,7 @@ function pipeline(options: {
     routes: options.routes,
     authenticate: refuseAllCredentials,
     rateLimit: allowEveryRequest,
+    idempotency: memoryIdempotencyStore(),
     addressRateLimit: createAddressRateLimit(options.store, HMAC_KEY),
     ...(options.proxy === undefined ? {} : { trustedProxy: options.proxy }),
     logger,
@@ -466,6 +468,7 @@ describe('the limit in the pipeline', () => {
         routes: [route],
         authenticate: refuseAllCredentials,
         rateLimit: allowEveryRequest,
+        idempotency: memoryIdempotencyStore(),
         logger: memoryLogger(),
       }),
     ).toThrow(RouteRegistryError);
@@ -586,6 +589,7 @@ describe('the limit against a real database', () => {
       routes: [route],
       authenticate: refuseAllCredentials,
       rateLimit: allowEveryRequest,
+      idempotency: memoryIdempotencyStore(),
       addressRateLimit: createAddressRateLimit(databaseBucketStore(db), HMAC_KEY, {
         ...ADDRESS_LIMIT_DEFAULTS,
         invite_exchange: rule,

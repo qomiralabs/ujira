@@ -42,5 +42,25 @@ export type TenantScope = z.infer<typeof TenantScope>;
 /** Display text for people and things, bounded so a row can never be megabytes. */
 export const DisplayName = z.string().min(1).max(200);
 
+const PERSONAL_DATA_META = 'x-ujira-personal-data';
+
+/**
+ * Marks a field as personal data, for a name no pattern could catch. A tenant
+ * write's answer is stored for replay, so the API refuses to serve a write route
+ * whose response has one. See storedResponseProblems in the API.
+ */
+export function personalData<T extends z.ZodType>(schema: T): T {
+  return schema.meta({ [PERSONAL_DATA_META]: true });
+}
+
+/** Whether a field's JSON Schema says it is personal data. */
+export function isPersonalDataSchema(schema: unknown): boolean {
+  return (
+    typeof schema === 'object' &&
+    schema !== null &&
+    (schema as Record<string, unknown>)[PERSONAL_DATA_META] === true
+  );
+}
+
 /** Shown in place of an account or phone number; never the full value. */
 export const MaskedDestination = z.string().min(1).max(32);

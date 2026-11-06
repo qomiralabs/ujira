@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
 import type { Database } from './database.js';
 import {
+  ALLOWED_STATUS_VALUES,
   ATTEMPT_STATUS_VALUES,
   IllegalTransitionError,
   LiveAttemptError,
@@ -74,14 +75,35 @@ let fixture: PayoutFixture;
 
 interface Observed {
   readonly payoutStatus: string;
+  readonly facts: {
+    readonly blocked: boolean;
+    readonly allowed: boolean;
+    readonly settledAt: Date | null;
+  };
   readonly attempts: readonly { id: string; status: string; total: string; legs: string }[];
 }
 
+// The statuses only an executed payout reaches, each of them through settling.
+const EXECUTED: ReadonlySet<string> = new Set([
+  'settling',
+  'delivering',
+  'partly_paid',
+  'paid',
+  'needs_attention',
+]);
+
 async function observe(payoutId: string): Promise<Observed> {
-  const payout = await admin.query<{ status: string }>(
-    'select status from ujira.payouts where id = $1',
+  const payout = await admin.query<{
+    status: string;
+    blocked: boolean;
+    allowed: boolean;
+    settled_at: Date | null;
+  }>(
+    `select status, blocked_by is not null as blocked, allowed_by is not null as allowed, settled_at
+       from ujira.payouts where id = $1`,
     [payoutId],
   );
+  const row = payout.rows[0];
   const attempts = await admin.query<{ id: string; status: string; total: string; legs: string }>(
     `select a.id, a.status, a.total_amount::text as total,
             coalesce((select sum(l.amount) from ujira.payout_legs as l where l.attempt_id = a.id), 0)::text as legs
@@ -90,10 +112,28 @@ async function observe(payoutId: string): Promise<Observed> {
       order by a.attempt_number`,
     [payoutId],
   );
-  return { payoutStatus: payout.rows[0]?.status ?? '', attempts: attempts.rows };
+  return {
+    payoutStatus: row?.status ?? '',
+    facts: {
+      blocked: row?.blocked ?? false,
+      allowed: row?.allowed ?? false,
+      settledAt: row?.settled_at ?? null,
+    },
+    attempts: attempts.rows,
+  };
 }
 
 function checkInvariants(before: Observed | undefined, now: Observed): void {
+  const status = now.payoutStatus;
+  expect(now.facts.blocked, 'a blocked payout names its rule, no other does').toBe(
+    status === 'blocked',
+  );
+  expect(now.facts.allowed, 'an allowed payout names its rule, no other does').toBe(
+    ALLOWED_STATUS_VALUES.has(status as PayoutStatusValue),
+  );
+  if (EXECUTED.has(status)) {
+    expect(now.facts.settledAt, 'an executed payout knows when it settled').not.toBeNull();
+  }
   for (const attempt of now.attempts) {
     expect(attempt.legs, 'the legs of an attempt sum to its total').toBe(attempt.total);
   }
@@ -155,6 +195,8 @@ async function apply(payoutId: string, move: Step, now: Observed): Promise<void>
           await payouts.transition(tx, payoutId, {
             from: now.payoutStatus as PayoutStatusValue,
             to: move.to,
+            ...(move.to === 'blocked' ? { blockedBy: 'DAILY_CAP_EXCEEDED' } : {}),
+            ...(ALLOWED_STATUS_VALUES.has(move.to) ? { allowedBy: 'allowlist_auto' as const } : {}),
           });
           return;
       }

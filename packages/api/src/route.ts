@@ -14,7 +14,13 @@
 // - defineWebhookRoute: a provider's signed delivery, handed over as the
 //   exact bytes, because parsing first would verify something else.
 
-import { OPENAPI_COMPONENTS, PROBLEM_CODES, ROUTES, parseQuery } from '@ujira/api-schema';
+import {
+  OPENAPI_COMPONENTS,
+  PROBLEM_CODES,
+  ROUTES,
+  isPersonalDataSchema,
+  parseQuery,
+} from '@ujira/api-schema';
 import type { FieldError, ProblemCode, RouteId, RouteQuery } from '@ujira/api-schema';
 import { z } from 'zod';
 
@@ -42,6 +48,12 @@ export interface RequestContext {
   /** Pass to every chain adapter call, so the request id travels with it. */
   readonly call: CallOptions;
   readonly log: RequestLog;
+  /**
+   * The client's key on a tenant write, null anywhere else. A handler that moves
+   * money writes it under a unique constraint of its own, which is what stops a
+   * retry paying twice if a process dies mid request.
+   */
+  readonly idempotencyKey: string | null;
 }
 
 export interface TenantRequestContext extends RequestContext {
@@ -137,6 +149,62 @@ export function routeAccessProblems(routes: readonly Route[]): string[] {
   return problems;
 }
 
+/** Every write a tenant route takes needs an Idempotency-Key. */
+export function requiresIdempotencyKey(route: Pick<Route, 'access' | 'method'>): boolean {
+  return route.access.kind === 'tenant' && route.method !== 'GET';
+}
+
+// The names that say personal data whatever they hold, matching the check on the
+// database's columns. `name`, `address` and `country` are not here, because they
+// mean something else in this API: a mandate's name, a chain address, a corridor.
+const PERSONAL_FIELD =
+  /(?:^|_)(?:email|phone|msisdn|first_name|last_name|full_name|given_name|family_name|middle_name|recipient_name|account_name|birth|birthdate|dob|date_of_birth|national_id|passport|tax_id|ssn|nin|bvn|home_address|street|street_address|postal_address|postcode|zipcode|city)(?:_|$)/i;
+
+function snakeCase(name: string): string {
+  return name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+}
+
+// Every property in a JSON Schema, however deep, that is personal data by its name
+// or by its mark.
+function personalFields(schema: unknown, at: string): string[] {
+  if (Array.isArray(schema)) return schema.flatMap((inner) => personalFields(inner, at));
+  if (typeof schema !== 'object' || schema === null) return [];
+  const found: string[] = [];
+  for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
+    if (key === 'properties' && typeof value === 'object' && value !== null) {
+      for (const [name, property] of Object.entries(value as Record<string, unknown>)) {
+        const path = at === '' ? name : `${at}.${name}`;
+        if (PERSONAL_FIELD.test(snakeCase(name)) || isPersonalDataSchema(property)) {
+          found.push(path);
+        }
+        found.push(...personalFields(property, path));
+      }
+    } else {
+      found.push(...personalFields(value, at));
+    }
+  }
+  return found;
+}
+
+/**
+ * A tenant write's answer is stored in clear for 7 days so a retry can get it back,
+ * and personal data has one home, encrypted. So a write route cannot be declared
+ * with personal data in its response: a read route serves it instead, which is not
+ * stored. The rule is on the kind of route rather than on each author's memory.
+ */
+export function storedResponseProblems(routes: readonly Route[]): string[] {
+  return routes
+    .filter((route) => requiresIdempotencyKey(route))
+    .flatMap((route) =>
+      personalFields(
+        z.toJSONSchema(route.response.schema, { io: 'output', unrepresentable: 'any' }),
+        '',
+      ).map(
+        (field) => `route ${route.id} stores its answer for replay, and ${field} is personal data`,
+      ),
+    );
+}
+
 const NoInput = z.strictObject({});
 type NoInput = typeof NoInput;
 
@@ -198,6 +266,7 @@ function errorStatuses(
   hasParams: boolean,
   hasBody: boolean,
   extra: readonly ProblemCode[],
+  write: boolean,
 ): number[] {
   const codes: ProblemCode[] = ['INVALID_FILTER', 'INTERNAL', 'DB_UNAVAILABLE', ...extra];
   // A path id that does not parse cannot name anything.
@@ -205,6 +274,9 @@ function errorStatuses(
   if (access.kind === 'tenant') codes.push('TOKEN_INVALID', 'INSUFFICIENT_SCOPE', 'RATE_LIMITED');
   if (access.kind === 'public' && access.addressLimit !== undefined) codes.push('RATE_LIMITED');
   if (hasBody) codes.push('INVALID_REQUEST', 'PAYLOAD_TOO_LARGE', 'UNSUPPORTED_MEDIA_TYPE');
+  if (write) {
+    codes.push('IDEMPOTENCY_KEY_INVALID', 'IDEMPOTENCY_IN_PROGRESS', 'IDEMPOTENCY_KEY_REUSED');
+  }
   return [...new Set(statusesOf(codes))].sort((a, b) => a - b);
 }
 
@@ -276,6 +348,7 @@ function build<
       Object.keys(params.shape).length > 0,
       spec.body !== undefined || rawBody !== null,
       spec.errors ?? [],
+      requiresIdempotencyKey({ access, method: spec.method }),
     ),
     handle,
   });

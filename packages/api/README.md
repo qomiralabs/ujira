@@ -85,8 +85,9 @@ export const createPayoutRoute = defineTenantRoute({
   path: '/v1/payouts',
   summary: 'Request a payout',
   scope: 'payouts:write',
+  rateLimit: 'payout_creation',
   body: CreatePayoutRequest,
-  response: { status: 201, name: 'PayoutDetail', schema: PayoutDetail },
+  response: { status: 202, name: 'PayoutAccepted', schema: PayoutAccepted },
   errors: ['DESTINATION_INVALID', 'MANDATE_REFUSED'],
   handler: async ({ body }, { tenant, call, log }) => {
     /* ... */
@@ -123,7 +124,7 @@ tables are in, `v1Routes` has no `ReceiptReads` and all of these answer 503.
 In order: a request id (the `Request-Id` header, and `call.correlationId` for
 adapter calls); a deadline (`signal`, which aborts after the request timeout);
 for tenant routes, the credential, the rate limits and then the route's scope; path, query and
-body validation; the handler; the response, parsed by its schema; for tenant
+body validation; for tenant writes, the `Idempotency-Key`; the handler; the response, parsed by its schema; for tenant
 routes, a check that no `principalId` or `projectId` in the body belongs to
 someone else; and one access log line.
 
@@ -149,17 +150,21 @@ is stored. Nothing here writes a key, a prefix or a hash to a log.
 
 A key goes in `Authorization: Bearer`, and nowhere else. What is checked, in order:
 
-| Check                                 | Refused with                     | Costs a query |
-| ------------------------------------- | -------------------------------- | ------------- |
-| `Origin`, if sent, is an embed        | `403 ORIGIN_NOT_ALLOWED`         | no            |
-| The header, format and checksum       | `401 TOKEN_MALFORMED`            | no            |
-| The key's environment                 | `401 TOKEN_ENVIRONMENT_MISMATCH` | no            |
-| Known, secret, not expired or revoked | `401 TOKEN_INVALID`, all alike   | yes           |
-| The rate limits                       | `429 RATE_LIMITED`               | yes           |
-| The route's scope                     | `403 INSUFFICIENT_SCOPE`         | no            |
+| Check                                 | Refused with                     | Costs a query    |
+| ------------------------------------- | -------------------------------- | ---------------- |
+| `Origin`, if sent, is an embed        | `403 ORIGIN_NOT_ALLOWED`         | no               |
+| The header, format and checksum       | `401 TOKEN_MALFORMED`            | no               |
+| The key's environment                 | `401 TOKEN_ENVIRONMENT_MISMATCH` | records an event |
+| Known, secret, not expired or revoked | `401 TOKEN_INVALID`, all alike   | yes              |
+| The rate limits                       | `429 RATE_LIMITED`               | yes              |
+| The route's scope                     | `403 INSUFFICIENT_SCOPE`         | no               |
 
 `test` keys work only in the sandbox and `live` keys only in production. `/v1`
 sends no CORS headers to anyone.
+
+A key refused on its environment or at the lookup is recorded in
+`ops.security_events` by its public prefix, and kept for 90 days. If the record
+cannot be written the client still gets its refusal, and the failure is logged.
 
 A good lookup is cached for at most 30 seconds, so a revoked key stops working
 within that time on every instance. `last_used_at` is written at most once per
@@ -189,6 +194,118 @@ with `rateLimit: 'payout_creation'`. Tenant responses carry `RateLimit-Limit`,
 429 adds `Retry-After`. If the buckets cannot be reached the answer is 503, never
 an unlimited request.
 
+## Mandates
+
+`POST /v1/mandates` takes the limits, the recipient mode, the fee cap and, per chain,
+the roles. A principal's own wallet signs everything that changes a mandate, so it
+answers with one signing request per chain, along with the address the contract
+will deploy at, the fee cap beside the agreed rate, whether the operations guardian
+is on it, and any warning about a single key principal.
+
+| Route                                              | Prepares or reads                     |
+| -------------------------------------------------- | ------------------------------------- |
+| `GET /v1/mandates/{id}`                            | Limits, usage, roles, pending changes |
+| `GET /v1/mandates/{id}/funding`                    | Per chain funding instructions        |
+| `POST /v1/mandates/{id}/lower-fee-cap`             | `lower_fee_cap`                       |
+| `POST /v1/mandates/{id}/revoke`                    | `revoke`, and what to withdraw after  |
+| `POST /v1/mandates/{id}/withdraw`                  | `withdraw` of the whole balance       |
+| `POST /v1/mandates/{id}/cancel-principal-proposal` | `cancel_principal_proposal`           |
+
+A mandate reads as `deploying` until its factory's `mandate_created` event has been
+read, whatever is at its address. After a revoke, the mandate names the withdrawal
+as its next action until the balance is gone. A withdrawal the principal cannot
+receive answers `422 TRANSFER_FAILED` with a `fixes` entry, and nothing changes on
+chain; prepare it again with a new key once that is fixed.
+
+A second run of a request, after a process died mid way, finds the rows the first
+run wrote, under a unique constraint on the request's key, and hands back the same
+mandate and the same things to sign. The create salt comes from the key too, so a
+retry can only ever target the same contract.
+
+The served table uses `MANDATES_NOT_CONFIGURED` until an assembled chain adapter and
+the production stores exist.
+
+## Recipients
+
+| Route                              | Scope              | Shows                                        |
+| ---------------------------------- | ------------------ | -------------------------------------------- |
+| `POST /v1/recipients`              | `recipients:write` | The id, country and status, nothing personal |
+| `GET /v1/recipients`               | `recipients:read`  | The same for each, nothing personal          |
+| `GET /v1/recipients/{id}`          | `recipients:read`  | Personal data and payout methods             |
+| `POST /v1/recipients/{id}/methods` | `recipients:write` | The method, without its details              |
+
+Personal data and method details are encrypted through the `PersonalDataCipher` port before anything stores them, under a key bound to the tenant and the recipient. They reach only `recipient_pii` and the method's encrypted columns. A write's answer is stored for replay, so it never holds them, and the server refuses to start with a write route that declares any.
+
+Every destination goes through the capture onboarding uses, so these routes refuse exactly what it refuses, including a muxed or memo destination the rail cannot pay, and an address where a payout would be burned, such as the settlement asset's issuer. `createRecipientEndpoints` takes those addresses as `neverPayable`, from `settlementAddressesOf`. The detail on a refusal is `DESTINATION_INVALID`.
+
+A `reference` names one recipient in a project, so sending it again finds the same recipient, and the first personal data given for it stands. It is stored only as a keyed hash. Without a reference, the idempotency key plays that part, so a retry of one request finds the recipient its first run made.
+
+Until the data keys exist the served table uses `RECIPIENTS_NOT_CONFIGURED`, which answers 503, so nothing personal can be stored unencrypted.
+
+## Payouts
+
+| Route                  | Scope           | Answers                                                        |
+| ---------------------- | --------------- | -------------------------------------------------------------- |
+| `POST /v1/payouts`     | `payouts:write` | 202 with the id, what was asked for and `queued`               |
+| `GET /v1/payouts`      | `payouts:read`  | A page, newest first, under the contract's filters             |
+| `GET /v1/payouts/{id}` | `payouts:read`  | Legs, charges, timeline, the rule that allowed it, the receipt |
+
+A create takes the mandate, the recipient, the amount in minor units, and optionally
+the method and a task id. A project whose recipients bear the cash-out cost asks in
+US dollars, held as the mandate's dollar token at par; one whose principal bears it
+asks in the currency the recipient must receive. Leaving out the method takes the
+recipient's first active one. A split is not taken yet.
+
+The payout and the worker's job are written in one transaction through a
+`PayoutScheduler`, and the answer comes back at once; the payout runs from there.
+The payout carries the request's `Idempotency-Key` under a unique constraint of its
+own, so a handler run again after its process died finds the first payout, and
+schedules nothing. The create takes from the payout creation bucket as well.
+
+A list cursor is signed with the server's cursor key over the caller, the route and
+the filters, so an altered cursor, another tenant's, or one sent with other filters
+is `400 INVALID_CURSOR`. The page size can change between pages.
+
+`charges` restates the settlement total, the take, the agreed rate and what is
+charged, the total plus the take. Until the fee tables are in, the take is the sum of
+the live attempt's leg fees. `approvals.required` reads 0 until approvals record
+their quorum. A recipient's name is decrypted for the read through `recipientNames`,
+and a recipient with none shows a label from its id.
+
+The served table uses `PAYOUTS_NOT_CONFIGURED`, which answers 503, until the worker's
+queue is in, so no payout is taken that nothing would run.
+
+## Idempotency
+
+Every tenant write, meaning anything but a `GET`, needs an `Idempotency-Key` header
+of up to 255 characters from `A-Za-z0-9_.:-`. Without one the answer is
+`400 IDEMPOTENCY_KEY_INVALID`, after the key, the limits and the scope have been
+checked and before the handler runs. A key belongs to one project, for 7 days.
+
+| A request with a key that is    | Gets                                             |
+| ------------------------------- | ------------------------------------------------ |
+| New                             | Runs the handler                                 |
+| The same request, finished      | The stored answer, unchanged                     |
+| The same request, still running | `409 IDEMPOTENCY_IN_PROGRESS` with `Retry-After` |
+| A different request             | `422 IDEMPOTENCY_KEY_REUSED`                     |
+
+"The same request" means the method, the path, the query and the exact body bytes.
+A replay carries `Idempotent-Replayed: true` and the `Request-Id` of the attempt it
+repeats. A 5xx or a 429 is not stored, because it says to try again, so a retry
+runs. A body that fails validation uses up nothing, because nothing ran.
+
+The `unique (principal_id, project_id, idempotency_key)` constraint is what decides
+who wins a key, so all of this holds across instances. It cannot cover a process
+that dies mid request: the lease runs out after two minutes and a retry runs the
+handler again. So **a handler that moves money must also write
+`context.idempotencyKey` under a unique constraint of its own**.
+
+A write's answer is stored in clear for those 7 days, and personal data has one
+home, encrypted. So a write route cannot be declared with personal data in its
+response: the server refuses to start with one, by the field's name or by
+`personalData()` in the schema. `storedResponseProblems` runs that over the route
+table. A read route serves personal data instead, which is not stored.
+
 ## Errors
 
 Every failure is an RFC 9457 problem body with a stable `code`, a fixed
@@ -205,8 +322,8 @@ Every failure is an RFC 9457 problem body with a stable `code`, a fixed
   `MANDATE_ERROR_MAP`, which covers every rule in the vendored spec table, `DatabaseUnavailableError` from `@ujira/db` is
   `DB_UNAVAILABLE`, and anything unknown is `INTERNAL`, logged by class name
   only.
-- `DB_UNAVAILABLE`, `CHAIN_UNAVAILABLE`, `REQUEST_TIMEOUT` (503) and
-  `RATE_LIMITED` (429) carry `Retry-After`. An adapter error's `retryAfterMs`
+- `DB_UNAVAILABLE`, `CHAIN_UNAVAILABLE`, `REQUEST_TIMEOUT` (503),
+  `RATE_LIMITED` (429) and `IDEMPOTENCY_IN_PROGRESS` (409) carry `Retry-After`. An adapter error's `retryAfterMs`
   can lengthen it.
 - A path id that does not parse is `NOT_FOUND`. A bad query is
   `INVALID_FILTER` (or, for contract routes, `INVALID_CURSOR` and

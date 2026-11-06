@@ -31,10 +31,33 @@ export {
   toApiError,
 } from './errors.js';
 export type { ApiErrorOptions } from './errors.js';
+export {
+  IDEMPOTENCY_HEADER,
+  IDEMPOTENCY_LEASE_SECONDS,
+  idempotencyKeyOf,
+  isFinalStatus,
+  memoryIdempotencyStore,
+  requestFingerprint,
+} from './idempotency.js';
+export type {
+  FinishRequest,
+  IdempotencyStore,
+  Reservation,
+  ReserveRequest,
+} from './idempotency.js';
 export { errorNameOf, jsonLogger, memoryLogger, stdoutLogger } from './log.js';
 export type { LogFields, LogLevel, LogRecord, Logger, RequestLog } from './log.js';
 export { OPENAPI_PATH, buildOpenApiDocument, withOpenApiRoute } from './openapi.js';
-export { databaseBucketStore, databaseTokenStore } from './postgres-stores.js';
+export {
+  databaseBucketStore,
+  databaseIdempotencyStore,
+  databaseMandateRecords,
+  databasePayoutRecords,
+  databaseRecipientRecords,
+  databaseSecurityEvents,
+  databaseTokenStore,
+} from './postgres-stores.js';
+export type { PayoutScheduler } from './postgres-stores.js';
 export {
   ADDRESS_LIMIT_DEFAULTS,
   RATE_LIMIT_DEFAULTS,
@@ -60,13 +83,53 @@ export type {
   RateLimitRules,
   RateLimitSubject,
 } from './rate-limit.js';
+export { MAX_FEE_CAP_BPS, SWEEP_GRACE_SECONDS, createMandateEndpoints } from './mandate-service.js';
+export type {
+  ChainDefaults,
+  MandateRecords,
+  MandateServiceDeps,
+  NewStoredMandate,
+  StoredMandate,
+  TransferFix,
+} from './mandate-service.js';
+export { MANDATES_NOT_CONFIGURED, mandateRoutes } from './routes/mandates.js';
+export type { MandateEndpoints } from './routes/mandates.js';
+export { createPayoutEndpoints } from './payout-service.js';
+export type {
+  NewPayoutRequest,
+  PayoutCreation,
+  PayoutReceiptLinks,
+  PayoutRecords,
+  PayoutServiceDeps,
+  RecipientNames,
+} from './payout-service.js';
+export type { PayoutReceiptLink } from './payout-wire.js';
+export { PAYOUTS_NOT_CONFIGURED, payoutRoutes } from './routes/payouts.js';
+export type { PayoutEndpoints } from './routes/payouts.js';
+export { createRecipientEndpoints, recipientNames } from './recipient-service.js';
+export type {
+  EncryptedValue,
+  PersonalDataCipher,
+  RecipientRecords,
+  RecipientServiceDeps,
+  StoredMethod,
+  StoredRecipient,
+} from './recipient-service.js';
+export {
+  CreateMethodRequest,
+  RECIPIENTS_NOT_CONFIGURED,
+  recipientRoutes,
+} from './routes/recipients.js';
+export type { RecipientEndpoints } from './routes/recipients.js';
 export {
   contractRoute,
   definePublicRoute,
   defineTenantRoute,
   defineWebhookRoute,
   queryParser,
+  requiresIdempotencyKey,
   routeAccessProblems,
+  storedResponseProblems,
 } from './route.js';
 export type {
   Access,
@@ -102,5 +165,11 @@ export {
   TokenRecordError,
   createTokenAuthenticator,
 } from './token-auth.js';
-export type { TokenAuthOptions, TokenLookup, TokenStore } from './token-auth.js';
+export type {
+  SecurityEventSink,
+  TokenAuthOptions,
+  TokenLookup,
+  TokenSecurityEvent,
+  TokenStore,
+} from './token-auth.js';
 export type { RunningServer, ServeOptions } from './serve.js';

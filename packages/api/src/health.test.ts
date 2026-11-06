@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createApp } from './app.js';
 import { refuseAllCredentials } from './auth.js';
+import { memoryIdempotencyStore } from './idempotency.js';
 import { memoryLogger } from './log.js';
 import { allowEveryAddress, allowEveryRequest } from './rate-limit.js';
 import { V1_ROUTES } from './routes/index.js';
@@ -16,6 +17,7 @@ describe('health', () => {
       routes: V1_ROUTES,
       authenticate: refuseAllCredentials,
       rateLimit: allowEveryRequest,
+      idempotency: memoryIdempotencyStore(),
       addressRateLimit: allowEveryAddress,
       logger,
     });
@@ -46,6 +48,7 @@ describe('health', () => {
       routes: V1_ROUTES,
       authenticate: refuseAllCredentials,
       rateLimit: allowEveryRequest,
+      idempotency: memoryIdempotencyStore(),
       addressRateLimit: allowEveryAddress,
       logger: memoryLogger(),
     });

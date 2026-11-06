@@ -69,6 +69,40 @@ export type PayoutStatusReason =
 
 export type CashoutCostBearer = 'recipient' | 'principal';
 
+// The mandate rules a payout can be allowed by, as the mandate reports them.
+export const ALLOWED_BY_VALUES = [
+  'allowlist_auto',
+  'allowlist_approved',
+  'attestation_auto',
+  'attestation_approved',
+  'allowlist_and_attestation_auto',
+  'allowlist_and_attestation_approved',
+] as const;
+
+export type AllowedBy = (typeof ALLOWED_BY_VALUES)[number];
+
+// The statuses a payout is in only once the mandate allowed it. The table's
+// check keeps allowed_by set in exactly these.
+export const ALLOWED_STATUS_VALUES: ReadonlySet<PayoutStatusValue> = new Set<PayoutStatusValue>([
+  'approved',
+  'settling',
+  'delivering',
+  'partly_paid',
+  'paid',
+  'needs_attention',
+]);
+
+// A move that has to say why, and did not, or said why where nothing asks. The
+// table would refuse the first, but as a check violation nobody can act on.
+export class TransitionFactError extends Error {
+  readonly code = 'TRANSITION_FACT';
+
+  constructor(detail: string) {
+    super(detail);
+    this.name = 'TransitionFactError';
+  }
+}
+
 // The same key came back with a different body. Answering with the first payout
 // would tell the caller something was done that they did not ask for.
 export class IdempotencyConflictError extends Error {
@@ -127,6 +161,9 @@ export interface NewPayout {
   readonly method: PayoutMinimumMethod;
   readonly requested: Money | TokenAmount;
   readonly minimum?: PayoutMinimumContext;
+  // The caller's own reference for the work this pays for. Part of the request,
+  // so the same key with another task id is a different request.
+  readonly taskId?: string | null;
 }
 
 export interface Payout {
@@ -141,6 +178,15 @@ export interface Payout {
   readonly status: string;
   readonly publicStatus: string;
   readonly statusReason: string | null;
+  readonly taskId: string | null;
+  // The spec error name of the rule that blocked it, set exactly when blocked.
+  readonly blockedBy: string | null;
+  // Set exactly in the statuses the mandate allowed it into.
+  readonly allowedBy: AllowedBy | null;
+  // When it reached each step, set by the database from the status.
+  readonly approvedAt: Date | null;
+  readonly settledAt: Date | null;
+  readonly deliveredAt: Date | null;
   readonly createdAt: Date;
   readonly updatedAt: Date;
 }
@@ -171,12 +217,18 @@ const payoutColumns = [
   'status',
   'public_status',
   'status_reason',
+  'task_id',
+  'blocked_by',
+  'allowed_by',
+  'approved_at',
+  'settled_at',
+  'delivered_at',
   'request_hash',
   'created_at',
   'updated_at',
 ] as const;
 
-interface PayoutRow {
+export interface PayoutRow {
   readonly id: string;
   readonly batch_id: string | null;
   readonly recipient_id: string;
@@ -196,9 +248,24 @@ interface PayoutRow {
   readonly status: string;
   readonly public_status: string;
   readonly status_reason: string | null;
+  readonly task_id: string | null;
+  readonly blocked_by: string | null;
+  readonly allowed_by: string | null;
+  readonly approved_at: Date | null;
+  readonly settled_at: Date | null;
+  readonly delivered_at: Date | null;
   readonly request_hash: Buffer;
   readonly created_at: Date;
   readonly updated_at: Date;
+}
+
+function allowedByOf(value: string | null): AllowedBy | null {
+  if (value === null) return null;
+  // The table's check holds the same list, so another value cannot be stored.
+  if (!(ALLOWED_BY_VALUES as readonly string[]).includes(value)) {
+    throw new Error('a payout row has an allowed_by outside its check');
+  }
+  return value as AllowedBy;
 }
 
 function requestedFromRow(row: PayoutRow): Money | TokenAmount {
@@ -241,7 +308,7 @@ function totalFromRow(row: PayoutRow): TokenAmount | null {
   });
 }
 
-function toPayout(row: PayoutRow): Payout {
+export function toPayout(row: PayoutRow): Payout {
   return {
     id: row.id,
     batchId: row.batch_id,
@@ -254,6 +321,12 @@ function toPayout(row: PayoutRow): Payout {
     status: row.status,
     publicStatus: row.public_status,
     statusReason: row.status_reason,
+    taskId: row.task_id,
+    blockedBy: row.blocked_by,
+    allowedBy: allowedByOf(row.allowed_by),
+    approvedAt: row.approved_at,
+    settledAt: row.settled_at,
+    deliveredAt: row.delivered_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -274,6 +347,8 @@ function payoutRequestHash(input: NewPayout, batchId: string | null): Buffer {
     input.requested.amount.toString(),
     String(input.requested.scale),
     ...unit,
+    // Only when given, so a request made before task ids keeps its hash.
+    ...(input.taskId == null ? [] : ['task', input.taskId]),
   ];
   const hash = createHash('sha256');
   for (const field of fields) hash.update(`${String(field.length)}:${field}`);
@@ -365,6 +440,7 @@ async function createPayout(
       requested_token_scale: input.requested.kind === 'token' ? input.requested.scale : null,
       requested_currency: input.requested.kind === 'fiat' ? input.requested.currency : null,
       requested_currency_scale: input.requested.kind === 'fiat' ? input.requested.scale : null,
+      task_id: input.taskId ?? null,
     })
     .onConflict((conflict) =>
       conflict.columns(['principal_id', 'project_id', 'idempotency_key']).doNothing(),
@@ -412,6 +488,13 @@ export const payouts = {
     return row === undefined ? undefined : toPayout(row);
   },
 
+  // The payout a key already made, so a retry can be answered before anything it
+  // would work out again, such as a default method, can have changed.
+  findByKey: async (db: Tx, idempotencyKey: string): Promise<Payout | undefined> => {
+    const row = await existingPayout(db, idempotencyKey);
+    return row === undefined ? undefined : toPayout(row);
+  },
+
   list: async (db: Tx, page: PageRequest): Promise<Page<Payout>> => {
     const limit = checkedLimit(page.limit);
     let query = db
@@ -426,6 +509,10 @@ export const payouts = {
   // Compare and set: undefined when the payout is not at `from`, so of two workers
   // racing the same move one matches nothing. A move the machine does not list is
   // refused here, and by the trigger for anyone who comes around this method.
+  //
+  // A move into blocked names the rule that blocked it, and a move into the
+  // allowed statuses from outside them names the rule that allowed it. Moving on
+  // inside them keeps the rule unless a new one is given; leaving them clears it.
   transition: async (
     db: Tx,
     id: string,
@@ -433,12 +520,29 @@ export const payouts = {
       readonly from: PayoutStatusValue;
       readonly to: PayoutStatusValue;
       readonly statusReason?: PayoutStatusReason | null;
+      readonly blockedBy?: string;
+      readonly allowedBy?: AllowedBy;
     },
   ): Promise<Payout | undefined> => {
     await assertTransition(db, 'payout', move.from, move.to);
+    if ((move.to === 'blocked') !== (move.blockedBy !== undefined)) {
+      throw new TransitionFactError('blockedBy is given exactly on a move into blocked');
+    }
+    const allowed = ALLOWED_STATUS_VALUES.has(move.to);
+    if (!allowed && move.allowedBy !== undefined) {
+      throw new TransitionFactError(`a payout in ${move.to} is not allowed by any rule`);
+    }
+    if (allowed && !ALLOWED_STATUS_VALUES.has(move.from) && move.allowedBy === undefined) {
+      throw new TransitionFactError(`a move into ${move.to} names the rule that allowed it`);
+    }
     const row = await db
       .updateTable('ujira.payouts')
-      .set({ status: move.to, status_reason: move.statusReason ?? null })
+      .set((eb) => ({
+        status: move.to,
+        status_reason: move.statusReason ?? null,
+        blocked_by: move.blockedBy ?? null,
+        allowed_by: allowed ? (move.allowedBy ?? eb.ref('allowed_by')) : null,
+      }))
       .where('id', '=', id)
       .where('status', '=', move.from)
       .returning(payoutColumns)

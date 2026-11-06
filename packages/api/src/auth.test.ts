@@ -14,6 +14,7 @@ import { z } from 'zod';
 
 import { createApp } from './app.js';
 import type { Tenant } from './auth.js';
+import { memoryIdempotencyStore } from './idempotency.js';
 import { memoryLogger } from './log.js';
 import { allowEveryRequest } from './rate-limit.js';
 import { defineTenantRoute } from './route.js';
@@ -21,7 +22,12 @@ import type { Route } from './route.js';
 import { formatToken, hashSecret, issueToken } from './token.js';
 import type { TokenEnvironment } from './token.js';
 import { createTokenAuthenticator, TOKEN_CACHE_MAX_TTL_MS } from './token-auth.js';
-import type { TokenLookup, TokenStore } from './token-auth.js';
+import type {
+  SecurityEventSink,
+  TokenLookup,
+  TokenSecurityEvent,
+  TokenStore,
+} from './token-auth.js';
 
 const TENANT: Tenant = { principalId: randomUUID(), projectId: randomUUID() };
 const OTHER: Tenant = { principalId: randomUUID(), projectId: randomUUID() };
@@ -100,13 +106,20 @@ function served(
     now?: () => Date;
     cacheTtlMs?: number;
     cacheMaxEntries?: number;
+    securityEvents?: SecurityEventSink;
   } = {},
 ) {
   const logger = memoryLogger();
+  const events: TokenSecurityEvent[] = [];
+  const recorded: SecurityEventSink = (event) => {
+    events.push(event);
+    return Promise.resolve();
+  };
   const app = createApp({
     routes: [createPayout],
     authenticate: createTokenAuthenticator({
       store: memory.store,
+      securityEvents: options.securityEvents ?? recorded,
       environment: options.environment ?? 'test',
       embedOrigins: [EMBED_ORIGIN],
       logger,
@@ -117,17 +130,18 @@ function served(
         : { cacheMaxEntries: options.cacheMaxEntries }),
     }),
     rateLimit: allowEveryRequest,
+    idempotency: memoryIdempotencyStore(),
     logger,
   });
   const post = (headers: Record<string, string>, body: unknown = {}, path = '/v1/payouts') =>
     app.request(path, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...headers },
+      headers: { 'content-type': 'application/json', 'idempotency-key': randomUUID(), ...headers },
       body: JSON.stringify(body),
     });
   const withKey = (token: string, headers: Record<string, string> = {}, body: unknown = {}) =>
     post({ authorization: `Bearer ${token}`, ...headers }, body);
-  return { app, logger, post, withKey };
+  return { app, logger, events, post, withKey };
 }
 
 async function codeOf(response: Response): Promise<string> {
@@ -271,6 +285,62 @@ describe('what never reaches the database', () => {
     const response = await served(memory, { environment: 'test' }).withKey(token);
     expect(await codeOf(response)).toBe('TOKEN_ENVIRONMENT_MISMATCH');
     expect(memory.counts.finds).toBe(0);
+  });
+});
+
+describe('security events', () => {
+  it('records a key that fails the lookup, by its prefix only', async () => {
+    const memory = memoryStore();
+    const api = served(memory);
+    const unknown = issueToken('test');
+    await api.withKey(unknown.token);
+    expect(api.events).toEqual([{ kind: 'token_invalid', tokenPrefix: unknown.prefix }]);
+    expect(JSON.stringify(api.events)).not.toContain(unknown.token);
+  });
+
+  it('records a wrong secret, an expired key and a revoked key alike', async () => {
+    const memory = memoryStore();
+    const api = served(memory);
+    const good = put(memory);
+    const expired = put(memory, { expiresAt: PAST });
+    const revoked = put(memory, { revokedAt: PAST });
+    await api.withKey(formatToken(good.prefix, 'a'.repeat(52)));
+    await api.withKey(expired.token);
+    await api.withKey(revoked.token);
+    expect(api.events).toEqual([
+      { kind: 'token_invalid', tokenPrefix: good.prefix },
+      { kind: 'token_invalid', tokenPrefix: expired.prefix },
+      { kind: 'token_invalid', tokenPrefix: revoked.prefix },
+    ]);
+  });
+
+  it('records a key from the wrong environment', async () => {
+    const memory = memoryStore();
+    const issued = put(memory);
+    const api = served(memory, { environment: 'live' });
+    await api.withKey(issued.token);
+    expect(api.events).toEqual([{ kind: 'token_env_mismatch', tokenPrefix: issued.prefix }]);
+  });
+
+  it('records nothing for a good key, or for a string that is not a key', async () => {
+    const memory = memoryStore();
+    const api = served(memory);
+    await api.withKey(put(memory).token);
+    await api.withKey('not-a-key');
+    await api.post({});
+    expect(api.events).toEqual([]);
+  });
+
+  it('still refuses when the record cannot be written, and logs that it was lost', async () => {
+    const memory = memoryStore();
+    const api = served(memory, { securityEvents: () => Promise.reject(new Error('down')) });
+    const response = await api.withKey(issueToken('test').token);
+    expect(response.status).toBe(401);
+    expect(await codeOf(response)).toBe('TOKEN_INVALID');
+    expect(api.logger.records.find((r) => r.event === 'security_event_failed')).toMatchObject({
+      level: 'warn',
+      errorName: 'Error',
+    });
   });
 });
 

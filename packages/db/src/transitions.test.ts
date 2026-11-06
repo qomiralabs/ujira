@@ -53,15 +53,30 @@ function pairs<S extends string>(machine: string, statuses: readonly S[], wantAl
   return found;
 }
 
+// The rule a status needs said, which the table's checks hold to the status. A
+// move made by hand has to say it as the repository would.
+function allowedByFor(status: string): string {
+  return `case when ${status} in ('approved', 'settling', 'delivering', 'partly_paid', 'paid',
+    'needs_attention') then 'allowlist_auto' end`;
+}
+
+function blockedByFor(status: string): string {
+  return `case when ${status} = 'blocked' then 'DAILY_CAP_EXCEEDED' end`;
+}
+
+const MOVE = `update ujira.payouts
+   set status = $2, allowed_by = ${allowedByFor('$2::text')}, blocked_by = ${blockedByFor('$2::text')}
+ where id = $1`;
+
 async function insertPayout(status: string): Promise<string> {
   const { tenant, recipientId, mandateId } = fixture;
   const inserted = await admin.query<{ id: string }>(
     `insert into ujira.payouts
        (principal_id, project_id, idempotency_key, request_hash, recipient_id, mandate_id, method,
         cashout_cost_bearer, requested_amount, requested_asset, requested_chain,
-        requested_token_scale, status)
+        requested_token_scale, status, allowed_by, blocked_by)
      values ($1, $2, gen_random_uuid()::text, $3, $4, $5, 'stellar_wallet', 'recipient', 1,
-             'USDC', 'stellar', 7, $6)
+             'USDC', 'stellar', 7, $6, ${allowedByFor('$6::text')}, ${blockedByFor('$6::text')})
      returning id`,
     [tenant.principalId, tenant.projectId, Buffer.alloc(32), recipientId, mandateId, status],
   );
@@ -155,10 +170,7 @@ describe('the payout machine', () => {
       const disallowed = pairs<PayoutStatusValue>('payout', PAYOUT_STATUS_VALUES, false);
       expect(disallowed.length).toBeGreaterThan(100);
       for (const [from, to] of disallowed) {
-        const code = await attemptUpdate(`update ujira.payouts set status = $2 where id = $1`, [
-          payoutRows.get(from),
-          to,
-        ]);
+        const code = await attemptUpdate(MOVE, [payoutRows.get(from), to]);
         expect(code, `${from} to ${to}`).toBe('UJ004');
       }
     } finally {
@@ -181,10 +193,7 @@ describe('the payout machine', () => {
     await admin.query('begin');
     try {
       for (const [from, to] of pairs<PayoutStatusValue>('payout', PAYOUT_STATUS_VALUES, true)) {
-        const code = await attemptUpdate(`update ujira.payouts set status = $2 where id = $1`, [
-          payoutRows.get(from),
-          to,
-        ]);
+        const code = await attemptUpdate(MOVE, [payoutRows.get(from), to]);
         expect(code, `${from} to ${to}`).toBeUndefined();
       }
     } finally {

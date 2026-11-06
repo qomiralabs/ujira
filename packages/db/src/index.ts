@@ -51,6 +51,8 @@ export {
   type ToUsd,
 } from './payout-minimum.js';
 export {
+  ALLOWED_BY_VALUES,
+  ALLOWED_STATUS_VALUES,
   ATTEMPT_STATUS_VALUES,
   fundingHolds,
   IdempotencyConflictError,
@@ -63,6 +65,8 @@ export {
   payoutMinimums,
   payouts,
   RequestedAmountModeError,
+  TransitionFactError,
+  type AllowedBy,
   type AttemptStatusValue,
   type BatchItemResult,
   type CashoutCostBearer,
@@ -92,6 +96,18 @@ export {
   type PayoutLeg,
   type RecordedApproval,
 } from './repositories/payout-legs.js';
+export {
+  PayoutPositionError,
+  payoutViewRepositories,
+  payoutViews,
+  type PayoutAmountBound,
+  type PayoutAttemptSummary,
+  type PayoutListFilter,
+  type PayoutListing,
+  type PayoutListPage,
+  type PayoutPosition,
+  type PayoutView,
+} from './repositories/payout-views.js';
 export {
   managedSigners,
   signingKeys,
@@ -131,8 +147,10 @@ export {
   type PayoutBookingEvent,
 } from './repositories/mandate-registry.js';
 export {
+  AUDIT_ACTIONS,
   audit,
   AuditScopeError,
+  type AuditAction,
   type AuditActor,
   type AuditChainBreak,
   type AuditEntry,
@@ -169,6 +187,22 @@ export {
   type RecipientStatus,
 } from './repositories/recipients.js';
 export {
+  mandateActionRequests,
+  mandateTerms,
+  type MandateActionOp,
+  type MandateActionRequest,
+  type MandateLimitsRecord,
+  type MandateTerms,
+  type NewMandateActionRequest,
+  type NewMandateTerms,
+} from './repositories/mandate-terms.js';
+export {
+  idempotencyKeys,
+  type FinishedRequest,
+  type NewReservation,
+  type Reservation,
+} from './repositories/idempotency.js';
+export {
   agentIdentityLinks,
   attestations,
   destinationVerifications,
@@ -191,6 +225,7 @@ export {
   type WalletChallengeRow,
 } from './repositories/identity-evidence.js';
 export {
+  SECURITY_EVENT_KINDS,
   chainCursors,
   emailQuota,
   executors,
@@ -199,8 +234,11 @@ export {
   type EmailKind,
   type EmailQuotaRequest,
   routingConfig,
+  securityEvents,
   type IdentityProviderEvent,
   type ExecutorLease,
+  type NewSecurityEvent,
+  type SecurityEventKind,
   type RateLimitBucket,
   type RateLimitTaken,
   type RoutingConfig,
