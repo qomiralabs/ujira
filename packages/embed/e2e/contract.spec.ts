@@ -112,8 +112,9 @@ test('every property an integrator is offered changes something from their page'
   browser,
 }) => {
   // Twenty properties, several states and a full digest of the rendering for
-  // each candidate value: this is slow by design, not stuck.
-  test.slow();
+  // each candidate value: this is slow by design, not stuck. Slow machines
+  // took 2.4 to 2.9 minutes, so five gives room without hiding a hang.
+  test.setTimeout(5 * 60_000);
   // Declared, spent and documented are all checked inside the package. This
   // is the only check made from where an integrator sits, and a property
   // that silently does nothing is worse than an undocumented one, because
@@ -192,8 +193,8 @@ function rgb(hex: string): string {
   return `rgb(${String(r)}, ${String(g)}, ${String(b)})`;
 }
 
-const DEFAULT_RING = `2px solid ${rgb(themeBase['--ujira-embed-focus'])}`;
-const DEFAULT_BAND = `${rgb(themeBase['--ujira-embed-focus-inner'])} 0px 0px 0px 2px`;
+const DEFAULT_RING = `${themeBase['--ujira-embed-focus-width']} solid ${rgb(themeBase['--ujira-embed-focus'])}`;
+const DEFAULT_BAND = `${rgb(themeBase['--ujira-embed-focus-inner'])} 0px 0px 0px ${themeBase['--ujira-embed-focus-inner-width']}`;
 
 test('a focus colour the page cannot parse leaves the default ring standing', async ({ page }) => {
   // The likeliest thing a real integrator does is point a colour at one of
@@ -219,6 +220,21 @@ test('a focus colour on an ancestor does not reach the widget', async ({ page })
   await page.keyboard.press('Tab');
   await page.addStyleTag({ content: 'main { --ujira-embed-focus: rgb(1, 2, 3); }' });
   expect((await focusPaint(page)).outline).toBe(DEFAULT_RING);
+});
+
+test('an unregistered property on an ancestor does not reach the widget', async ({ page }) => {
+  // The same rule for a property that is not registered, so no typed
+  // fallback is involved: the accent is declared on the element and wins.
+  await open(page);
+  const fill = async (): Promise<string> =>
+    primary(page).evaluate((element: Element) => getComputedStyle(element).backgroundColor);
+  const before = await fill();
+  expect(before).toBe(rgb(themeModes.light['--ujira-embed-accent']));
+  await page.addStyleTag({ content: 'main { --ujira-embed-accent: rgb(1, 2, 3); }' });
+  expect(await fill()).toBe(before);
+  // And the probe can see a change at all: on the element it paints.
+  await setProperty(page, '--ujira-embed-accent', 'rgb(1, 2, 3)');
+  expect(await fill()).toBe('rgb(1, 2, 3)');
 });
 
 test('an unusable focus colour falls back to what an ancestor set', async ({ page }) => {

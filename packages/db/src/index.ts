@@ -272,6 +272,7 @@ export type { NewIdentityRecord } from './repositories/recipients.js';
 export { createComplianceStore, type ComplianceStoreOptions } from './compliance-store.js';
 export {
   compliance,
+  type ComplianceCloseReason,
   type ComplianceMarkRow,
   type ComplianceNoticeRow,
   type ComplianceReason,
