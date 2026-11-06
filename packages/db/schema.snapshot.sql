@@ -122,6 +122,24 @@ $$;
 ALTER FUNCTION ops.active_signing_keys(purposes text[]) OWNER TO ujira_ops;
 
 --
+-- Name: advance_alert_delivery_cursor(text, bigint); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.advance_alert_delivery_cursor(target_sink text, delivered_id bigint) RETURNS void
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  insert into ops.alert_delivery_cursors as c (sink, last_alert_id)
+  values (target_sink, delivered_id)
+  on conflict (sink) do update
+    set last_alert_id = greatest(c.last_alert_id, excluded.last_alert_id),
+        updated_at = now()
+$$;
+
+
+ALTER FUNCTION ops.advance_alert_delivery_cursor(target_sink text, delivered_id bigint) OWNER TO ujira_ops;
+
+--
 -- Name: advance_chain_cursor(text, text); Type: FUNCTION; Schema: ops; Owner: ujira_ops
 --
 
@@ -136,6 +154,23 @@ $$;
 
 
 ALTER FUNCTION ops.advance_chain_cursor(target_network text, next_cursor text) OWNER TO ujira_ops;
+
+--
+-- Name: alert_delivery_cursor(text); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.alert_delivery_cursor(target_sink text) RETURNS bigint
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select coalesce(
+    (select c.last_alert_id from ops.alert_delivery_cursors as c where c.sink = target_sink),
+    0
+  )
+$$;
+
+
+ALTER FUNCTION ops.alert_delivery_cursor(target_sink text) OWNER TO ujira_ops;
 
 --
 -- Name: chain_cursor(text); Type: FUNCTION; Schema: ops; Owner: ujira_ops
@@ -1560,6 +1595,21 @@ ALTER FUNCTION ujira.touch() OWNER TO ujira_owner;
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
+
+--
+-- Name: alert_delivery_cursors; Type: TABLE; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TABLE ops.alert_delivery_cursors (
+    sink text NOT NULL,
+    last_alert_id bigint NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT alert_delivery_cursors_last_alert_id CHECK ((last_alert_id >= 0)),
+    CONSTRAINT alert_delivery_cursors_sink_format CHECK ((sink ~ '^[a-z][a-z0-9_]{0,63}$'::text))
+);
+
+
+ALTER TABLE ops.alert_delivery_cursors OWNER TO ujira_owner;
 
 --
 -- Name: chain_cursors; Type: TABLE; Schema: ops; Owner: ujira_owner
@@ -3098,6 +3148,14 @@ ALTER TABLE ujira.wallet_proof_challenges OWNER TO ujira_owner;
 --
 
 ALTER TABLE ONLY public.ujira_migrations ALTER COLUMN id SET DEFAULT nextval('public.ujira_migrations_id_seq'::regclass);
+
+
+--
+-- Name: alert_delivery_cursors alert_delivery_cursors_pkey; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.alert_delivery_cursors
+    ADD CONSTRAINT alert_delivery_cursors_pkey PRIMARY KEY (sink);
 
 
 --
@@ -7255,11 +7313,27 @@ GRANT ALL ON FUNCTION ops.active_signing_keys(purposes text[]) TO ujira_app;
 
 
 --
+-- Name: FUNCTION advance_alert_delivery_cursor(target_sink text, delivered_id bigint); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.advance_alert_delivery_cursor(target_sink text, delivered_id bigint) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.advance_alert_delivery_cursor(target_sink text, delivered_id bigint) TO ujira_indexer;
+
+
+--
 -- Name: FUNCTION advance_chain_cursor(target_network text, next_cursor text); Type: ACL; Schema: ops; Owner: ujira_ops
 --
 
 REVOKE ALL ON FUNCTION ops.advance_chain_cursor(target_network text, next_cursor text) FROM PUBLIC;
 GRANT ALL ON FUNCTION ops.advance_chain_cursor(target_network text, next_cursor text) TO ujira_indexer;
+
+
+--
+-- Name: FUNCTION alert_delivery_cursor(target_sink text); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.alert_delivery_cursor(target_sink text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.alert_delivery_cursor(target_sink text) TO ujira_indexer;
 
 
 --
@@ -7654,6 +7728,13 @@ GRANT ALL ON FUNCTION ujira.resolve_mandate_instance(target_chain text, target_a
 --
 
 REVOKE ALL ON FUNCTION ujira.touch() FROM PUBLIC;
+
+
+--
+-- Name: TABLE alert_delivery_cursors; Type: ACL; Schema: ops; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE ops.alert_delivery_cursors TO ujira_ops;
 
 
 --
