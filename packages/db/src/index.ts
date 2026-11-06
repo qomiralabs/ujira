@@ -224,6 +224,26 @@ export {
   type WalletChallengeRow,
 } from './repositories/identity-evidence.js';
 export {
+  outbox,
+  webhookDeliveries,
+  webhookEndpoints,
+  type NewOutboxEvent,
+  type NewWebhookDelivery,
+  type NewWebhookEndpoint,
+  type OutboxEvent,
+  type WebhookDelivery,
+  type WebhookDeliveryStatus,
+  type WebhookEndpoint,
+  type WebhookEndpointStatus,
+} from './repositories/outbox.js';
+export {
+  RETENTION_BATCH_SIZE,
+  retention,
+  runRetention,
+  type RetentionCounts,
+  type RetentionTable,
+} from './repositories/retention.js';
+export {
   SECURITY_EVENT_KINDS,
   chainCursors,
   emailQuota,

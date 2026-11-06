@@ -537,6 +537,17 @@ export interface UjiraMigrations {
   run_on: Timestamp;
 }
 
+export interface UjiraOutboxEvents {
+  created_at: Generated<Timestamp>;
+  event_type: string;
+  id: Generated<string>;
+  payload: Json;
+  principal_id: string;
+  project_id: string;
+  seq: Generated<Int8>;
+  tx_id: Generated<string>;
+}
+
 export interface UjiraPayoutAttempts {
   asset: string;
   attempt_number: Int8;
@@ -787,6 +798,32 @@ export interface UjiraWalletProofChallenges {
   tag: Numeric | null;
 }
 
+export interface UjiraWebhookDeliveries {
+  attempt: Int8;
+  created_at: Generated<Timestamp>;
+  endpoint_id: string;
+  error_code: string | null;
+  event_created_at: Timestamp;
+  event_id: string;
+  id: Generated<string>;
+  principal_id: string;
+  project_id: string;
+  response_status: Int8 | null;
+  status: string;
+}
+
+export interface UjiraWebhookEndpoints {
+  created_at: Generated<Timestamp>;
+  event_types: string[];
+  id: Generated<string>;
+  principal_id: string;
+  project_id: string;
+  secret_ref: string;
+  status: Generated<string>;
+  updated_at: Generated<Timestamp>;
+  url: string;
+}
+
 export interface Schema {
   'ops.chain_cursors': OpsChainCursors;
   'ops.email_quota_usage': OpsEmailQuotaUsage;
@@ -832,6 +869,7 @@ export interface Schema {
   'ujira.mandate_state_snapshots': UjiraMandateStateSnapshots;
   'ujira.mandate_terms': UjiraMandateTerms;
   'ujira.mandates': UjiraMandates;
+  'ujira.outbox_events': UjiraOutboxEvents;
   'ujira.payout_attempts': UjiraPayoutAttempts;
   'ujira.payout_batches': UjiraPayoutBatches;
   'ujira.payout_bookings': UjiraPayoutBookings;
@@ -849,4 +887,6 @@ export interface Schema {
   'ujira.settlement_tokens': UjiraSettlementTokens;
   'ujira.status_transitions': UjiraStatusTransitions;
   'ujira.wallet_proof_challenges': UjiraWalletProofChallenges;
+  'ujira.webhook_deliveries': UjiraWebhookDeliveries;
+  'ujira.webhook_endpoints': UjiraWebhookEndpoints;
 }

@@ -10,7 +10,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { money, tokenAmount } from '@ujira/core';
 import type { Kysely } from 'kysely';
 import pg from 'pg';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 
 import type { Database, ProjectContext } from './database.js';
 import type { Schema } from './schema.generated.js';
@@ -60,6 +60,12 @@ import {
   identityEvidenceRepositories,
   walletChallenges,
 } from './repositories/identity-evidence.js';
+import {
+  outbox,
+  outboxRepositories,
+  webhookDeliveries,
+  webhookEndpoints,
+} from './repositories/outbox.js';
 import {
   apiTokens,
   members,
@@ -111,6 +117,8 @@ interface Tenant {
   readonly verificationId: string;
   readonly attestationId: string;
   readonly agentLinkId: string;
+  readonly outboxEventId: string;
+  readonly endpointId: string;
 }
 
 const REPOSITORIES = {
@@ -127,6 +135,7 @@ const REPOSITORIES = {
   ...legRepositories,
   ...payoutViewRepositories,
   payoutBookings,
+  ...outboxRepositories,
 };
 
 let database: TestDatabase;
@@ -279,6 +288,21 @@ async function tenant(name: string): Promise<Tenant> {
       };
     },
   );
+  const { outboxEventId, endpointId } = await db.tenant(first).transaction(async (tx) => {
+    const event = await outbox.append(tx, { eventType: 'payout.held', payload: { name } });
+    const endpoint = await webhookEndpoints.create(tx, {
+      url: `https://example.com/${name}`,
+      secretRef: `ref-${name}`,
+      eventTypes: ['payout.held'],
+    });
+    await webhookDeliveries.record(tx, {
+      endpointId: endpoint.id,
+      eventId: event.id,
+      attempt: 1,
+      status: 'succeeded',
+    });
+    return { outboxEventId: event.id, endpointId: endpoint.id };
+  });
   const destinationAddress = `G${randomUUID()}`;
   const evidence = await db.tenant(first).transaction(async (tx) => {
     const recipient = await recipients.create(tx, {
@@ -462,6 +486,8 @@ async function tenant(name: string): Promise<Tenant> {
     attemptId,
     heldPayoutId,
     legId,
+    outboxEventId,
+    endpointId,
   };
 }
 
@@ -718,6 +744,82 @@ const cases: Record<string, () => Promise<void>> = {
       }),
     );
     expect(await asA(async (tx) => mandateActionRequests.createsOf(tx, b.mandateId))).toEqual([]);
+  },
+  'outbox.append': async () => {
+    const written = await asA(async (tx) =>
+      outbox.append(tx, { eventType: 'payout.held', payload: {} }),
+    );
+    expect(await ownerOf('ujira.outbox_events', 'id', written.id)).toBe(a.first.principalId);
+  },
+  'outbox.after': async () => {
+    // Under A's context nothing of B's is there to read, at any cursor.
+    await vi.waitFor(async () => {
+      const events = await acrossA(async (tx) => outbox.after(tx, 0n, 100));
+      const ids = events.map((event) => event.id);
+      expect(ids).toContain(a.outboxEventId);
+      expect(ids).not.toContain(b.outboxEventId);
+    });
+  },
+  'webhookEndpoints.create': async () => {
+    const created = await asA(async (tx) =>
+      webhookEndpoints.create(tx, {
+        url: `https://example.com/${randomUUID()}`,
+        secretRef: 'ref',
+        eventTypes: ['payout.held'],
+      }),
+    );
+    expect(await ownerOf('ujira.webhook_endpoints', 'id', created.id)).toBe(a.first.principalId);
+  },
+  'webhookEndpoints.get': async () => {
+    expect(await acrossA(async (tx) => webhookEndpoints.get(tx, b.endpointId))).toBeUndefined();
+    expect(await acrossA(async (tx) => webhookEndpoints.get(tx, a.endpointId))).toBeDefined();
+  },
+  'webhookEndpoints.list': async () => {
+    const page = await acrossA(async (tx) => webhookEndpoints.list(tx, { limit: 100 }));
+    const ids = page.items.map((endpoint) => endpoint.id);
+    expect(ids).toContain(a.endpointId);
+    expect(ids).not.toContain(b.endpointId);
+  },
+  'webhookEndpoints.setStatus': async () => {
+    expect(await asA(async (tx) => webhookEndpoints.setStatus(tx, b.endpointId, 'disabled'))).toBe(
+      false,
+    );
+    const row = await admin.query<{ status: string }>(
+      'select status from ujira.webhook_endpoints where id = $1',
+      [b.endpointId],
+    );
+    expect(row.rows[0]?.status).toBe('enabled');
+  },
+  'webhookDeliveries.record': async () => {
+    // B's event is out of sight, so nothing is recorded against it.
+    expect(
+      await asA(async (tx) =>
+        webhookDeliveries.record(tx, {
+          endpointId: a.endpointId,
+          eventId: b.outboxEventId,
+          attempt: 9,
+          status: 'failed',
+        }),
+      ),
+    ).toBeUndefined();
+    // A's own event with B's endpoint fails the composite foreign key.
+    const attempt = asA(async (tx) =>
+      webhookDeliveries.record(tx, {
+        endpointId: b.endpointId,
+        eventId: a.outboxEventId,
+        attempt: 9,
+        status: 'failed',
+      }),
+    );
+    expect(await codeOf(attempt)).toBe('23503');
+  },
+  'webhookDeliveries.forEvent': async () => {
+    expect(
+      await acrossA(async (tx) => webhookDeliveries.forEvent(tx, b.endpointId, b.outboxEventId)),
+    ).toEqual([]);
+    expect(
+      await acrossA(async (tx) => webhookDeliveries.forEvent(tx, a.endpointId, a.outboxEventId)),
+    ).toHaveLength(1);
   },
   'idempotencyKeys.reserve': async () => {
     // The same key in another tenant is a different key, however it was used.
