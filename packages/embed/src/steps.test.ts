@@ -7,6 +7,7 @@ import { encodeAccountAddress } from './destination.js';
 import { PAYOUT_METHODS, type MethodId, type PayoutMethod } from './methods.js';
 import {
   CONNECTED_STEPS,
+  VERIFIED_STEPS,
   findProblem,
   firstStep,
   HANDED,
@@ -52,6 +53,7 @@ describe('step framework', () => {
     expect(STEP_IDS).toEqual([
       'name',
       'method',
+      'verify',
       'destination',
       'review',
       'prove',
@@ -196,5 +198,27 @@ describe('the connected flow', () => {
       'destination.wallet.unpayable',
     );
     expect(problem('destination', answers({ destination: ISSUER }))).toBeUndefined();
+  });
+});
+
+describe('the connected flow with an identity check', () => {
+  const VERIFYING: Flow = { ...CONNECTED, verify: true };
+
+  it('puts the check straight after the choice, before any destination is saved', () => {
+    expect(VERIFIED_STEPS).toEqual(['method', 'verify', 'destination', 'review', 'prove']);
+    expect(nextStep('method', VERIFYING)).toBe('verify');
+    expect(nextStep('verify', VERIFYING)).toBe('destination');
+    expect(stepCount(VERIFYING)).toBe(5);
+    expect(stepNumber('prove', VERIFYING)).toBe(5);
+  });
+
+  it('goes back past the check, which is not an answer a person changes', () => {
+    expect(previousStep('destination', VERIFYING)).toBe('method');
+    expect(previousStep('verify', VERIFYING)).toBe('method');
+  });
+
+  it('has no check without one to do', () => {
+    expect(nextStep('method', CONNECTED)).toBe('destination');
+    expect(isQuestionStep('verify', CONNECTED)).toBe(false);
   });
 });

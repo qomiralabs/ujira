@@ -18,10 +18,22 @@ import {
   OnboardingSession,
   Problem,
   SavedMethod,
+  VerificationHandoff,
+  VerificationState,
   WalletChallenge,
   WalletProofAccepted,
   type ApiMethod,
 } from './contract.js';
+
+/**
+ * What the widget tells UJIRA when a person says they finished a check, or
+ * gave up on it. Only this: a status, and the opaque reference of the check.
+ * The documents stay with the provider, and nothing personal is ever sent.
+ */
+export interface VerificationReport {
+  status: 'completed' | 'cancelled';
+  reference: string;
+}
 
 export interface DestinationBody {
   network: string;
@@ -53,6 +65,17 @@ export interface OnboardingClient {
   ): Promise<WalletProofAccepted>;
   requestActivation(recipientId: string, methodId: string): Promise<ActivationOffer>;
   submitActivation(activationId: string, signedTransaction: string): Promise<ActivationLanded>;
+  /**
+   * Starts the identity check a method needs, or hands back the one already
+   * open, so a person who left can carry on where they were.
+   */
+  startVerification(recipientId: string, method: ApiMethod): Promise<VerificationHandoff>;
+  reportVerification(
+    recipientId: string,
+    verificationId: string,
+    report: VerificationReport,
+  ): Promise<VerificationState>;
+  verificationState(recipientId: string, verificationId: string): Promise<VerificationState>;
 }
 
 /** The API said no, in its own words. */
@@ -163,5 +186,17 @@ export function httpClient(options: HttpClientOptions): OnboardingClient {
       call(ActivationLanded, 'POST', `/v1/embed/activations/${segment(activationId)}/submissions`, {
         signedTransaction,
       }),
+    startVerification: (id, chosen) =>
+      call(VerificationHandoff, 'POST', `${recipient(id)}/verifications`, { method: chosen }),
+    // Built field by field, so nothing a caller adds to the report is sent.
+    reportVerification: (id, verificationId, report) =>
+      call(
+        VerificationState,
+        'POST',
+        `${recipient(id)}/verifications/${segment(verificationId)}/reports`,
+        { status: report.status, reference: report.reference },
+      ),
+    verificationState: (id, verificationId) =>
+      call(VerificationState, 'GET', `${recipient(id)}/verifications/${segment(verificationId)}`),
   };
 }

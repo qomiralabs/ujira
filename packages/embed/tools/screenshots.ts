@@ -95,6 +95,12 @@ try {
         }
         await shoot(connected, shot(name));
       }
+
+      // The identity check a mode that needs Self puts before the address.
+      await openPage(connected, `${running.url}/connected.html?scenario=self-wallet`, mode);
+      await press(connected);
+      await connected.locator(`${WIDGET} .progress`).getByText('Step 2 of 5').waitFor();
+      await shoot(connected, shot('verify'));
       await context.close();
     }
   }

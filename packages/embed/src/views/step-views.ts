@@ -7,8 +7,8 @@
 
 import { html, nothing, type TemplateResult } from 'lit';
 
-import type { WalletChallenge } from '../api/contract.js';
-import type { Translate } from '../i18n/catalogue.js';
+import type { Verifier, WalletChallenge } from '../api/contract.js';
+import type { MessageKey, Translate } from '../i18n/catalogue.js';
 import { methodById, type MethodId, type PayoutMethod } from '../methods.js';
 import { offered, type Answers, type Flow, type StepId } from '../steps.js';
 import { alertBlock, busyBlock, primaryAction, textButton, textField } from './parts.js';
@@ -34,6 +34,20 @@ export interface StepContext {
   goTo: (step: StepId) => void;
   /** The connected flow's wallet step. */
   proof?: ProofContext;
+  /** The identity check, when the chosen method needs one. */
+  verification?: VerifyContext;
+}
+
+/**
+ * The identity check. The person goes to the provider's own page, and the
+ * widget only ever learns the status: no document passes through it.
+ */
+export interface VerifyContext {
+  provider: Verifier;
+  /** Before it starts, while the person is on the provider's page, or how it ended. */
+  state: 'start' | 'waiting' | 'rejected' | 'expired';
+  /** The provider's page, once the check is open, so it can be opened again. */
+  url: string | undefined;
 }
 
 export interface ProofContext {
@@ -336,9 +350,61 @@ export function doneStep(ctx: StepContext): TemplateResult {
   </div>`;
 }
 
+const START_WORDS: Readonly<Record<Verifier, { hint: MessageKey; action: MessageKey }>> = {
+  self: { hint: 'verify.self.hint', action: 'verify.self.action' },
+  anchor: { hint: 'verify.anchor.hint', action: 'verify.anchor.action' },
+};
+
+const ENDED: Readonly<Record<'rejected' | 'expired', MessageKey>> = {
+  rejected: 'verify.rejected',
+  expired: 'verify.expired',
+};
+
+/**
+ * Starts the check, waits for the person to finish it on the provider's
+ * page, and says plainly how it ended. The action is always one: start,
+ * say you have finished, or start again.
+ */
+export function verifyStep(ctx: StepContext): TemplateResult {
+  const { t } = ctx;
+  const check = ctx.verification;
+  if (check === undefined) {
+    return html`<div class="step">${heading(t('verify.heading'))}</div>`;
+  }
+  const words = START_WORDS[check.provider];
+  if (check.state === 'waiting') {
+    // A link rather than a script, so it opens even where pop-ups are blocked.
+    const reopen =
+      check.url === undefined
+        ? nothing
+        : html`<a class="text-button" href=${check.url} target="_blank" rel="noopener noreferrer"
+            >${t('verify.reopen')}</a
+          >`;
+    return html`<form class="step" novalidate @submit=${ctx.submit}>
+      ${heading(t('verify.waiting.heading'))}
+      <p class="hint">${t('verify.waiting.hint')}</p>
+      ${alertBlock(ctx.message)} ${reopen}
+      ${primaryAction({ label: t('verify.finished'), busy: ctx.busy })}
+      ${busyBlock(ctx.busyLabel ?? t('verify.waiting.status'), true)}
+    </form>`;
+  }
+  const ended = check.state === 'start' ? undefined : ENDED[check.state];
+  return html`<form class="step" novalidate @submit=${ctx.submit}>
+    ${heading(t('verify.heading'))}
+    <p class="hint">${t(words.hint)}</p>
+    ${alertBlock(ended === undefined ? ctx.message : t(ended))}
+    ${primaryAction({
+      label: t(ended === undefined ? words.action : 'verify.retry'),
+      busy: ctx.busy,
+    })}
+    ${busyLine(ctx)}
+  </form>`;
+}
+
 const VIEWS: Readonly<Record<StepId, (ctx: StepContext) => TemplateResult>> = {
   name: nameStep,
   method: methodStep,
+  verify: verifyStep,
   destination: destinationStep,
   review: reviewStep,
   prove: proveStep,

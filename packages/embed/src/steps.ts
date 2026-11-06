@@ -27,6 +27,7 @@ import {
 export const STEP_IDS = [
   'name',
   'method',
+  'verify',
   'destination',
   'review',
   'prove',
@@ -42,7 +43,16 @@ export const QUESTION_STEPS = ['name', 'method', 'destination', 'review'] as con
 /** The questions of the connected flow, in order. */
 export const CONNECTED_STEPS = ['method', 'destination', 'review', 'prove'] as const;
 
-export type QuestionStep = (typeof QUESTION_STEPS)[number] | (typeof CONNECTED_STEPS)[number];
+/**
+ * The connected flow when the chosen method needs an identity check first:
+ * it comes straight after the choice, before any destination is saved.
+ */
+export const VERIFIED_STEPS = ['method', 'verify', 'destination', 'review', 'prove'] as const;
+
+export type QuestionStep =
+  | (typeof QUESTION_STEPS)[number]
+  | (typeof CONNECTED_STEPS)[number]
+  | (typeof VERIFIED_STEPS)[number];
 
 export interface Answers {
   name: string;
@@ -61,12 +71,19 @@ export interface Flow {
   corridor?: readonly ApiMethod[];
   /** Addresses a payout can never reach, from the session. */
   neverPayable: readonly string[];
+  /**
+   * The chosen method needed an identity check when the session started.
+   * It stays true once the check passes, so the count a person was shown
+   * never shrinks under them.
+   */
+  verify?: boolean;
 }
 
 export const HANDED: Flow = { connected: false, methods: PAYOUT_METHODS, neverPayable: [] };
 
 function questions(flow: Flow): readonly StepId[] {
-  return flow.connected ? CONNECTED_STEPS : QUESTION_STEPS;
+  if (!flow.connected) return QUESTION_STEPS;
+  return flow.verify === true ? VERIFIED_STEPS : CONNECTED_STEPS;
 }
 
 export function firstStep(flow: Flow = HANDED): StepId {
@@ -108,10 +125,14 @@ export function nextStep(step: StepId, flow: Flow = HANDED): StepId {
   return index < 0 ? 'done' : (order[index + 1] ?? 'done');
 }
 
-/** Where Back goes. Nowhere once the answers are saved: they cannot be unsaved. */
+/**
+ * Where Back goes. Nowhere once the answers are saved: they cannot be
+ * unsaved. And past the identity check rather than into it, since a check
+ * is not an answer a person changes.
+ */
 export function previousStep(step: StepId, flow: Flow = HANDED): StepId | undefined {
   if (step === 'prove' || step === 'activate') return undefined;
-  const order = questions(flow);
+  const order = questions(flow).filter((id) => id !== 'verify' || step === 'verify');
   const index = order.indexOf(step);
   return index > 0 ? order[index - 1] : undefined;
 }

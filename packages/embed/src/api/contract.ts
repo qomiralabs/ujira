@@ -18,6 +18,28 @@ export type ApiMethod = (typeof API_METHODS)[number];
 
 const Text = z.string().check(z.minLength(1), z.maxLength(4_096));
 
+/**
+ * Who checks a recipient's identity: Self for someone paid to their own
+ * wallet, or the anchor that pays out locally, through its SEP-12 KYC.
+ */
+export const VERIFIERS = ['self', 'anchor'] as const;
+export type Verifier = (typeof VERIFIERS)[number];
+
+/** Where a verification stands. UJIRA learns this, and never the documents. */
+export const VERIFICATION_STATUSES = ['pending', 'verified', 'rejected', 'expired'] as const;
+export type VerificationStatus = (typeof VERIFICATION_STATUSES)[number];
+
+/** One check a method needs before its destination is saved, and how far it got. */
+export const VerificationNeed = z.object({
+  method: z.enum(API_METHODS),
+  provider: z.enum(VERIFIERS),
+  /** Null before the recipient has started it. */
+  status: z.nullable(z.enum(VERIFICATION_STATUSES)),
+  /** The open verification, so a recipient who left can carry on. */
+  verificationId: z.optional(Text),
+});
+export type VerificationNeed = z.infer<typeof VerificationNeed>;
+
 /** What the widget needs to know before the first question. */
 export const OnboardingSession = z.object({
   recipientId: Text,
@@ -31,8 +53,30 @@ export const OnboardingSession = z.object({
   neverPayable: z.array(Text).check(z.maxLength(100)),
   /** Whether UJIRA pays to activate this recipient's wallet. */
   activation: z.object({ offered: z.boolean() }),
+  /**
+   * The identity checks the corridor and the recipient mode need, per
+   * method. A method that is not listed needs none: a wallet recipient in
+   * allowlist mode, for one.
+   */
+  verification: z._default(z.array(VerificationNeed).check(z.maxLength(10)), []),
 });
 export type OnboardingSession = z.infer<typeof OnboardingSession>;
+
+/** Where to send the recipient to be checked. The page is the provider's. */
+export const VerificationHandoff = z.object({
+  verificationId: Text,
+  provider: z.enum(VERIFIERS),
+  /** The provider's page, https only. */
+  url: z.string().check(z.maxLength(2_048), z.regex(/^https:\/\/[^\s]+$/)),
+  expiresAt: Text,
+});
+export type VerificationHandoff = z.infer<typeof VerificationHandoff>;
+
+export const VerificationState = z.object({
+  verificationId: Text,
+  status: z.enum(VERIFICATION_STATUSES),
+});
+export type VerificationState = z.infer<typeof VerificationState>;
 
 export const SavedMethod = z.object({
   id: Text,

@@ -18,7 +18,14 @@
 import { html, LitElement, nothing, type CSSResultGroup, type TemplateResult } from 'lit';
 
 import { httpClient, isExpiry, type OnboardingClient } from './api/client.js';
-import type { OnboardingSession, ReceivabilityReason, WalletChallenge } from './api/contract.js';
+import type {
+  ApiMethod,
+  OnboardingSession,
+  ReceivabilityReason,
+  VerificationNeed,
+  VerificationStatus,
+  WalletChallenge,
+} from './api/contract.js';
 import { DEFAULT_LOCALE, translator, type MessageKey, type Translate } from './i18n/catalogue.js';
 import { methodById, PAYOUT_METHODS, type MethodId } from './methods.js';
 import { afterProofFailed, afterSaveFailed, receivabilityMessage } from './outcomes.js';
@@ -95,6 +102,16 @@ const LIFT = [
 
 type Loading = 'idle' | 'loading' | 'failed';
 
+/** The identity check on screen: the need, how far it got, and its page. */
+interface Check {
+  need: VerificationNeed;
+  state: 'start' | 'waiting' | 'verified' | 'rejected' | 'expired';
+  url: string | undefined;
+}
+
+/** How often to look while the person is on the provider's page. */
+const POLL_MS = 5_000;
+
 export class UjiraOnboarding extends LitElement {
   static override styles: CSSResultGroup = widgetStyles;
 
@@ -118,6 +135,7 @@ export class UjiraOnboarding extends LitElement {
     challengeFailed: { state: true },
     signature: { state: true },
     copied: { state: true },
+    check: { state: true },
   };
 
   /** light, dark, or system to follow the reader's setting. */
@@ -155,7 +173,14 @@ export class UjiraOnboarding extends LitElement {
   declare private challengeFailed: boolean;
   declare private signature: string;
   declare private copied: boolean;
+  declare private check: Check | undefined;
 
+  /**
+   * The checks the session said were still to do when it started, by
+   * method. Kept as they were, so a check that passes stays in the count.
+   */
+  private toVerify = new Map<ApiMethod, VerificationNeed>();
+  private poll: ReturnType<typeof setTimeout> | undefined;
   private problemField: 'answer' | 'memo' = 'answer';
   private methodId = '';
   private activationReason: ReceivabilityReason | undefined;
@@ -188,6 +213,12 @@ export class UjiraOnboarding extends LitElement {
     this.challengeFailed = false;
     this.signature = '';
     this.copied = false;
+    this.check = undefined;
+  }
+
+  override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.stopPolling();
   }
 
   /** The step on screen. */
@@ -230,11 +261,13 @@ export class UjiraOnboarding extends LitElement {
   private get flow(): Flow {
     const session = this.session;
     if (session === undefined) return HANDED;
+    const chosen = methodById(this.answers.method);
     return {
       connected: true,
       methods: PAYOUT_METHODS,
       corridor: session.methods,
       neverPayable: session.neverPayable,
+      verify: chosen !== undefined && this.toVerify.has(chosen.api),
     };
   }
 
@@ -300,6 +333,15 @@ export class UjiraOnboarding extends LitElement {
           this.declineActivation();
         },
       },
+      ...(this.check === undefined
+        ? {}
+        : {
+            verification: {
+              provider: this.check.need.provider,
+              state: this.check.state === 'verified' ? 'start' : this.check.state,
+              url: this.check.url,
+            },
+          }),
     };
     return html`<section class="widget" part="widget" aria-label=${t('widget.label')}>
       ${this.chrome(t)} ${stepView(this.step, ctx)} ${footer(t('footer.byline'))}
@@ -340,6 +382,11 @@ export class UjiraOnboarding extends LitElement {
     try {
       const session = await api.session();
       if (ticket !== this.loads) return;
+      this.toVerify = new Map(
+        session.verification
+          .filter((need) => need.status !== 'verified')
+          .map((need) => [need.method, need]),
+      );
       this.session = session;
       this.loading = 'idle';
       this.answers = initialAnswers(this.flow);
@@ -394,6 +441,7 @@ export class UjiraOnboarding extends LitElement {
     const flow = this.flow;
     if (this.step === 'prove') return this.prove();
     if (this.step === 'activate') return this.activate();
+    if (this.step === 'verify') return this.verify();
     const found = findProblem(this.step, this.answers, flow);
     if (found !== undefined) {
       this.show(found.key, found.field);
@@ -401,7 +449,9 @@ export class UjiraOnboarding extends LitElement {
     }
     this.message = '';
     if (this.step !== 'review') {
-      this.goTo(nextStep(this.step, flow));
+      const next = nextStep(this.step, flow);
+      if (next === 'verify') return this.enterCheck();
+      this.goTo(next);
       return;
     }
     if (flow.connected) return this.save();
@@ -414,6 +464,144 @@ export class UjiraOnboarding extends LitElement {
       }),
     );
     if (accepted) this.goTo('done');
+  }
+
+  /**
+   * Opens the identity check step for the chosen method, where the session
+   * left it. A check already open is picked up again, with its page, so a
+   * person who left half way carries on rather than starting over.
+   */
+  private async enterCheck(): Promise<void> {
+    const chosen = methodById(this.answers.method);
+    const need = chosen === undefined ? undefined : this.toVerify.get(chosen.api);
+    if (need === undefined) return;
+    if (this.check?.need.method === need.method && this.check.state === 'verified') {
+      this.goTo('destination');
+      return;
+    }
+    const state =
+      need.status === null ? 'start' : need.status === 'pending' ? 'waiting' : need.status;
+    this.check = { need, state: state === 'verified' ? 'start' : state, url: undefined };
+    this.goTo('verify');
+    if (this.check.state === 'waiting') {
+      await this.openCheck(false);
+    }
+  }
+
+  /** The one action on the check step: start it, or say it is finished. */
+  private async verify(): Promise<void> {
+    const check = this.check;
+    if (check === undefined) return;
+    if (check.state === 'waiting') return this.finishCheck();
+    return this.openCheck(true);
+  }
+
+  /**
+   * Starts the check, or picks up the open one. With `show`, the provider's
+   * page opens in a new window: opened blank first, inside the press, so a
+   * pop-up blocker lets it through, and cut off from this page before the
+   * provider's address is loaded into it.
+   */
+  private async openCheck(show: boolean): Promise<void> {
+    const api = this.api;
+    const session = this.session;
+    const check = this.check;
+    if (api === undefined || session === undefined || check === undefined) return;
+    const view = this.ownerDocument.defaultView;
+    const popup = show ? (view?.open('about:blank', '_blank') ?? null) : null;
+    if (popup !== null) popup.opener = null;
+    this.working = 'widget.loading';
+    try {
+      const handoff = await api.startVerification(session.recipientId, check.need.method);
+      this.working = '';
+      this.check = {
+        need: { ...check.need, verificationId: handoff.verificationId, status: 'pending' },
+        state: 'waiting',
+        url: handoff.url,
+      };
+      this.message = '';
+      popup?.location.replace(handoff.url);
+      this.startPolling();
+    } catch (error) {
+      this.working = '';
+      popup?.close();
+      if (isExpiry(error)) {
+        this.expired = true;
+        return;
+      }
+      this.show('verify.failed');
+    }
+  }
+
+  /** The person says they finished: ask UJIRA where the check stands. */
+  private async finishCheck(): Promise<void> {
+    const api = this.api;
+    const session = this.session;
+    const id = this.check?.need.verificationId;
+    if (api === undefined || session === undefined || id === undefined) return;
+    this.working = 'verify.waiting.status';
+    try {
+      const state = await api.reportVerification(session.recipientId, id, {
+        status: 'completed',
+        reference: id,
+      });
+      this.working = '';
+      this.settleCheck(state.status, true);
+    } catch (error) {
+      this.working = '';
+      if (isExpiry(error)) {
+        this.expired = true;
+        return;
+      }
+      this.show('widget.saveFailed');
+    }
+  }
+
+  /** Acts on where the check stands: on to the destination, or how it ended. */
+  private settleCheck(status: VerificationStatus, asked: boolean): void {
+    const check = this.check;
+    if (check === undefined || this.step !== 'verify') return;
+    if (status === 'pending') {
+      if (asked) this.show('verify.pending');
+      return;
+    }
+    this.stopPolling();
+    this.check = { ...check, need: { ...check.need, status }, state: status };
+    if (status === 'verified') this.goTo('destination');
+  }
+
+  /** Looks again every few seconds while the person is on the provider's page. */
+  private startPolling(): void {
+    this.stopPolling();
+    this.poll = setTimeout(() => {
+      this.poll = undefined;
+      void this.pollOnce();
+    }, POLL_MS);
+  }
+
+  private async pollOnce(): Promise<void> {
+    const api = this.api;
+    const session = this.session;
+    const id = this.check?.need.verificationId;
+    if (api === undefined || session === undefined || id === undefined) return;
+    if (!this.waitingOnCheck()) return;
+    try {
+      const state = await api.verificationState(session.recipientId, id);
+      this.settleCheck(state.status, false);
+    } catch {
+      // A missed look is not worth troubling the person with; look again.
+    }
+    if (this.waitingOnCheck()) this.startPolling();
+  }
+
+  /** A method, not an inline test: the answer changes while a look is out. */
+  private waitingOnCheck(): boolean {
+    return this.step === 'verify' && this.check?.state === 'waiting';
+  }
+
+  private stopPolling(): void {
+    if (this.poll !== undefined) clearTimeout(this.poll);
+    this.poll = undefined;
   }
 
   /** Saves the method through UJIRA, then asks the wallet to confirm it. */

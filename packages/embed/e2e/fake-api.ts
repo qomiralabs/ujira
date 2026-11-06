@@ -16,6 +16,10 @@ export const SCENARIOS: Readonly<Record<string, Partial<FakeScenario>>> = {
   'ke-wallet': { country: 'KE', methods: ['stellar_wallet'] },
   /** A signed mobile money partner in Kenya, alongside the wallet. */
   'ke-mobile': { country: 'KE', methods: ['stellar_wallet', 'mobile_money'] },
+  /** A wallet recipient in a mode that needs Self before the address is saved. */
+  'self-wallet': {
+    verifications: [{ method: 'stellar_wallet', provider: 'self', status: null }],
+  },
   /** A wallet with no account yet, where UJIRA offers to activate it. */
   activation: { activationOffered: true, receivability: 'ACCOUNT_NOT_FOUND' },
 };

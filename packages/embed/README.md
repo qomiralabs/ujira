@@ -118,9 +118,10 @@ Mint the token on your server, for one recipient you have already registered, wi
 Connected, the widget:
 
 1. Reads the recipient's corridor and offers only the methods a partner pays out there and the widget has finished. It skips the name question, because UJIRA already holds it.
-2. Checks the destination the way UJIRA does before anything is sent: a Stellar address with a valid checksum, a memo only as a number, and never an address a payout would burn, such as the USDC issuer. UJIRA checks it again and has the last word; a refusal comes back in plain words on the same step.
-3. Has the wallet sign a short message to show the address belongs to the recipient. That moves no money.
-4. When the wallet cannot receive USDC yet, because the account is not active or has no USDC line, and the session offers it, it offers "Activate this account for free" first. The wallet signs the activation, UJIRA pays for it, and the signature in step 3 follows; activation is never itself the proof.
+1. When the corridor or the recipient mode needs an identity check for the chosen method, runs it next, before any destination is saved: Self for someone paid to their own wallet, or the paying anchor's own KYC for a local currency method. The person does it on the provider's page, opened in a new window that cannot reach back into yours, and comes back. The widget only ever sends UJIRA a status and an opaque reference; documents never pass through it or your page. A check left half way is picked up again next time. A wallet recipient in allowlist mode needs none, and sees no such step.
+1. Checks the destination the way UJIRA does before anything is sent: a Stellar address with a valid checksum, a memo only as a number, and never an address a payout would burn, such as the USDC issuer. UJIRA checks it again and has the last word; a refusal comes back in plain words on the same step.
+1. Has the wallet sign a short message to show the address belongs to the recipient. That moves no money.
+1. When the wallet cannot receive USDC yet, because the account is not active or has no USDC line, and the session offers it, it offers "Activate this account for free" first. The wallet signs the activation, UJIRA pays for it, and the signature in step 3 follows; activation is never itself the proof.
 
 It fires `ujira-onboarding-complete` once the wallet has confirmed the address, and that one cannot be cancelled: there is nothing left for you to save.
 
@@ -138,7 +139,7 @@ document.querySelector('ujira-onboarding').wallet = {
 };
 ```
 
-The widget calls these routes with the token, all under `/v1/embed/`: `GET onboarding`, then for the recipient in it `POST recipients/{id}/methods`, `POST recipients/{id}/methods/{methodId}/wallet-challenges`, `POST recipients/{id}/methods/{methodId}/wallet-proofs`, `POST recipients/{id}/methods/{methodId}/activations`, and `POST activations/{activationId}/submissions`. Every answer is checked against its schema before it is used.
+The widget calls these routes with the token, all under `/v1/embed/`: `GET onboarding`, then for the recipient in it `POST recipients/{id}/methods`, `POST recipients/{id}/methods/{methodId}/wallet-challenges`, `POST recipients/{id}/methods/{methodId}/wallet-proofs`, `POST recipients/{id}/methods/{methodId}/activations`, `POST activations/{activationId}/submissions`, and for the identity check `POST recipients/{id}/verifications` with `{ method }`, `POST recipients/{id}/verifications/{verificationId}/reports` with `{ status, reference }`, and `GET recipients/{id}/verifications/{verificationId}`. Every answer is checked against its schema before it is used.
 
 ## Events
 

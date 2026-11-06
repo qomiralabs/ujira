@@ -102,6 +102,26 @@ export const en = {
   'review.change.name': 'Change {thing}',
   'review.action': 'Finish setting up',
 
+  'verify.heading': 'Confirm who you are',
+  'verify.self.hint':
+    'Self checks your ID on your phone. We only learn that you passed, never anything from your documents.',
+  'verify.self.action': 'Verify with Self',
+  'verify.anchor.hint':
+    'The partner that pays you out checks your ID, as the law asks them to. We only learn whether you passed.',
+  'verify.anchor.action': 'Continue to the ID check',
+  'verify.waiting.heading': 'Finish the check in the new window',
+  'verify.waiting.hint':
+    'When you are done there, come back here. If you closed it by mistake, open it again.',
+  'verify.waiting.status': 'Waiting for the result',
+  'verify.finished': 'I have finished',
+  'verify.reopen': 'Open the check again',
+  'verify.pending': 'The result is not in yet. It can take a few minutes.',
+  'verify.rejected':
+    'Your ID could not be confirmed. Check that it is valid and not expired, then try again.',
+  'verify.expired': 'The check closed before it was finished. Start it again.',
+  'verify.retry': 'Start the check again',
+  'verify.failed': 'We could not start the check. Try again in a moment.',
+
   'prove.heading': 'Confirm this wallet is yours',
   'prove.hint': 'Your wallet signs a short message. It moves no money and costs nothing.',
   'prove.action': 'Sign with my wallet',

@@ -39,6 +39,16 @@ describe('copy', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('the identity check an anchor runs speaks the same local language', () => {
+    // These show on a bank, mobile money or cash path, and on the wallet path
+    // too, so they carry no chain words whichever path a person is on.
+    const keys = (Object.keys(en) as (keyof typeof en)[]).filter(
+      (key) => key.startsWith('verify.') && !key.startsWith('verify.self.'),
+    );
+    expect(keys.length).toBeGreaterThan(10);
+    expect(keys.filter((key) => CHAIN_WORDS.test(en[key]))).toEqual([]);
+  });
+
   it('would catch a chain word if one slipped in', () => {
     expect(CHAIN_WORDS.test('Paid in USDC to your bank')).toBe(true);
     expect(CHAIN_WORDS.test('Sent over the Stellar network')).toBe(true);

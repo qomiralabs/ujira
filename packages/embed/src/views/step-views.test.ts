@@ -23,6 +23,8 @@ import {
   SIGNATURE_ID,
   stepView,
   waitingView,
+  verifyStep,
+  type VerifyContext,
   type ProofContext,
   type StepContext,
 } from './step-views.js';
@@ -435,5 +437,52 @@ describe('before the first question', () => {
     draw(waitingView(t, { kind: 'expired' }));
     expect(host.querySelector('.alert')?.textContent.trim()).toBe(en['widget.expired']);
     expect(host.querySelector('.primary')).toBeNull();
+  });
+});
+
+describe('confirming who you are', () => {
+  function check(overrides: Partial<VerifyContext> = {}): VerifyContext {
+    return { provider: 'self', state: 'start', url: undefined, ...overrides };
+  }
+
+  it('names Self for a wallet recipient, and says what is and is not learned', () => {
+    draw(verifyStep(context({ flow: CONNECTED, verification: check() })));
+    expect(host.querySelector('.heading')?.textContent).toBe(en['verify.heading']);
+    expect(text()).toContain(en['verify.self.hint']);
+    expect(host.querySelector('.primary')?.textContent.trim()).toBe(en['verify.self.action']);
+  });
+
+  it('hands an anchor corridor to the partner that pays out, in local words', () => {
+    draw(verifyStep(context({ flow: CONNECTED, verification: check({ provider: 'anchor' }) })));
+    expect(text()).toContain(en['verify.anchor.hint']);
+    expect(host.querySelector('.primary')?.textContent.trim()).toBe(en['verify.anchor.action']);
+  });
+
+  it('waits with the page to open again, and one thing to press', () => {
+    draw(
+      verifyStep(
+        context({
+          flow: CONNECTED,
+          verification: check({ state: 'waiting', url: 'https://verify.example/anchor/c-1' }),
+        }),
+      ),
+    );
+    expect(host.querySelector('.heading')?.textContent).toBe(en['verify.waiting.heading']);
+    const link = host.querySelector('a.text-button');
+    expect(link?.getAttribute('href')).toBe('https://verify.example/anchor/c-1');
+    expect(link?.getAttribute('target')).toBe('_blank');
+    expect(host.querySelectorAll('.primary')).toHaveLength(1);
+    expect(host.querySelector('.status')?.textContent).toContain(en['verify.waiting.status']);
+  });
+
+  it('says how it ended, and offers to start again', () => {
+    for (const [state, key] of [
+      ['rejected', 'verify.rejected'],
+      ['expired', 'verify.expired'],
+    ] as const) {
+      draw(verifyStep(context({ flow: CONNECTED, verification: check({ state }) })));
+      expect(host.querySelector('.alert')?.textContent.trim()).toBe(en[key]);
+      expect(host.querySelector('.primary')?.textContent.trim()).toBe(en['verify.retry']);
+    }
   });
 });

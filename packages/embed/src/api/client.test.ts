@@ -44,9 +44,77 @@ const SESSION = {
   methods: ['stellar_wallet'],
   neverPayable: [],
   activation: { offered: false },
+  verification: [],
 };
 
 describe('the HTTP client', () => {
+  it('reads a session that lists no identity checks as needing none', async () => {
+    const { verification, ...without } = SESSION;
+    expect(verification).toEqual([]);
+    const api = answering(200, without);
+    const client = httpClient({ baseUrl: 'https://api.example', token: 't', fetch: api.fetch });
+    expect((await client.session()).verification).toEqual([]);
+  });
+
+  it('starts, reports and reads a check at its paths, sending only what it must', async () => {
+    const sent: { url: string; body: unknown }[] = [];
+    const client = httpClient({
+      baseUrl: 'https://api.example',
+      token: 't',
+      fetch: (input, init) => {
+        const url = urlOf(input);
+        sent.push({ url, body: bodyOf({ url, init: init ?? {} }) });
+        const json = url.endsWith('/verifications')
+          ? {
+              verificationId: 'c-1',
+              provider: 'self',
+              url: 'https://self.example/c-1',
+              expiresAt: 'x',
+            }
+          : { verificationId: 'c-1', status: 'pending' };
+        return Promise.resolve(new Response(JSON.stringify(json), { status: 200 }));
+      },
+    });
+    await client.startVerification('r', 'stellar_wallet');
+    // A caller that adds to the report cannot get the extra field sent.
+    const report = { status: 'completed', reference: 'c-1', name: 'Amara Eze' } as const;
+    await client.reportVerification('r', 'c-1', report);
+    await client.verificationState('r', 'c-1');
+    expect(sent).toEqual([
+      {
+        url: 'https://api.example/v1/embed/recipients/r/verifications',
+        body: { method: 'stellar_wallet' },
+      },
+      {
+        url: 'https://api.example/v1/embed/recipients/r/verifications/c-1/reports',
+        body: { status: 'completed', reference: 'c-1' },
+      },
+      { url: 'https://api.example/v1/embed/recipients/r/verifications/c-1', body: undefined },
+    ]);
+  });
+
+  it('refuses a provider page that is not https', async () => {
+    const client = httpClient({
+      baseUrl: 'https://api.example',
+      token: 't',
+      fetch: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              verificationId: 'c-1',
+              provider: 'self',
+              url: 'javascript:alert(1)',
+              expiresAt: 'x',
+            }),
+            { status: 200 },
+          ),
+        ),
+    });
+    await expect(client.startVerification('r', 'stellar_wallet')).rejects.toBeInstanceOf(
+      ApiUnreachable,
+    );
+  });
+
   it('sends the embed token and no cookies', async () => {
     const api = answering(200, SESSION);
     const client = httpClient({
