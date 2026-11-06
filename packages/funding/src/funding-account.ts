@@ -87,7 +87,7 @@ export interface ConfirmFundingAccount extends FundingInstanceRequest {
 
 export interface ConfirmedFundingAccount {
   readonly account: FundingAccountRecord;
-  /** Null when the account is not one to fund from: rejected, or held by another project. */
+  /** Null when the account is not one to fund from, because it was rejected. */
   readonly fundingSourceId: string | null;
 }
 
@@ -182,10 +182,8 @@ export function createFundingAccountService(
       const { flow, network } = await located(req);
       const account = await flow.confirm({ scope: req.scope, requestId: req.requestId }, opts);
       // A rejected account is on the record and flagged, but nothing is ever to
-      // be funded from it. Another project's stays with that project.
-      if (account.status !== 'active' || account.projectId !== req.scope.projectId) {
-        return { account, fundingSourceId: null };
-      }
+      // be funded from it.
+      if (account.status !== 'active') return { account, fundingSourceId: null };
       return { account, fundingSourceId: await sourceOf(req, network) };
     },
 

@@ -56,8 +56,11 @@ const keyRef = (name: string): Record<string, unknown> => ({
   address: account(name),
 });
 
-/** A valid networks section with the given operations guardian, or none. */
-export function networks(guardian: string | null = OPS_GUARDIAN): NetworksConfig {
+/** A valid networks section with the given operations guardian, or none, and the ones it replaced. */
+export function networks(
+  guardian: string | null = OPS_GUARDIAN,
+  retired: readonly string[] = [],
+): NetworksConfig {
   return parseNetworksConfig({
     [NETWORK]: {
       enabled: true,
@@ -89,6 +92,7 @@ export function networks(guardian: string | null = OPS_GUARDIAN): NetworksConfig
         hysteresisChecks: 3,
       },
       ...(guardian === null ? {} : { operationsGuardian: guardian }),
+      ...(retired.length === 0 ? {} : { retiredOperationsGuardians: [...retired] }),
     },
   });
 }

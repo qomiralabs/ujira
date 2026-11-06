@@ -52,6 +52,10 @@ function isScope(a: SweepScope, b: SweepScope): boolean {
   return a.principalId === b.principalId && a.projectId === b.projectId;
 }
 
+function accountKey(scope: SweepScope, network: NetworkId): string {
+  return `${scope.principalId}|${scope.projectId}|${network}`;
+}
+
 export class MemorySweepStore implements SweepStore {
   /** The next setStatus throws this, as a crash before the write would. */
   failNextSetStatus: Error | null = null;
@@ -190,12 +194,12 @@ export class MemoryFundingAccounts implements FundingAccountStore, FundingSource
     return Promise.resolve(held !== undefined && isScope(held.scope, scope) ? held.instance : null);
   }
 
-  forPrincipal(scope: TenantScope, network: NetworkId): Promise<FundingAccountRecord | null> {
-    return Promise.resolve(this.#accounts.get(`${scope.principalId}|${network}`) ?? null);
+  forProject(scope: TenantScope, network: NetworkId): Promise<FundingAccountRecord | null> {
+    return Promise.resolve(this.#accounts.get(accountKey(scope, network)) ?? null);
   }
 
   record(row: FundingAccountRecord): Promise<void> {
-    const key = `${row.principalId}|${row.network}`;
+    const key = accountKey(row, row.network);
     const held = this.#accounts.get(key);
     const taken = [...this.#accounts.values()].some(
       (other) =>
@@ -211,7 +215,7 @@ export class MemoryFundingAccounts implements FundingAccountStore, FundingSource
   }
 
   recordCheck(row: FundingAccountRecord): Promise<void> {
-    this.#accounts.set(`${row.principalId}|${row.network}`, row);
+    this.#accounts.set(accountKey(row, row.network), row);
     return Promise.resolve();
   }
 
@@ -224,11 +228,11 @@ export class MemoryFundingAccounts implements FundingAccountStore, FundingSource
       this.failNextAttach = null;
       return Promise.reject(error);
     }
-    const account = this.#accounts.get(`${scope.principalId}|${input.network}`);
+    const key = accountKey(scope, input.network);
+    const account = this.#accounts.get(key);
     const held = this.#instances.get(input.mandateInstanceId);
     if (
       account?.status !== 'active' ||
-      account.projectId !== scope.projectId ||
       held === undefined ||
       !isScope(held.scope, scope) ||
       held.instance.network !== input.network
@@ -237,7 +241,6 @@ export class MemoryFundingAccounts implements FundingAccountStore, FundingSource
     }
     const existing = this.#sources.get(input.mandateInstanceId);
     if (existing !== undefined) return Promise.resolve(existing);
-    const key = `${scope.principalId}|${input.network}`;
     if (this.#funding.has(key)) return Promise.reject(new FundingAccountInUseError());
     this.#funding.set(key, input.mandateInstanceId);
     const id = randomUUID();
