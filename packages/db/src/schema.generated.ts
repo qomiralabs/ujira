@@ -52,8 +52,11 @@ export interface OpsEmailQuotaUsage {
 
 export interface OpsExecutorAccounts {
   account_ref: string;
+  active: Generated<boolean>;
+  key_id: string | null;
   lease_expires_at: Timestamp | null;
   lease_holder: string | null;
+  lease_id: string | null;
   network: string;
   next_sequence: Generated<Int8>;
 }
@@ -244,6 +247,42 @@ export interface UjiraChainEvents {
 
 export interface UjiraChains {
   code: string;
+}
+
+export interface UjiraChainSubmissionEvents {
+  from_state: string | null;
+  id: Generated<string>;
+  occurred_at: Generated<Timestamp>;
+  principal_id: string;
+  project_id: string;
+  seq: Generated<Int8>;
+  submission_id: string;
+  to_state: string;
+}
+
+export interface UjiraChainSubmissions {
+  attempt: Int8 | null;
+  correlation_id: string;
+  created_at: Timestamp;
+  error_code: string | null;
+  id: Generated<string>;
+  landed_at_height: Int8 | null;
+  mandate: string | null;
+  max_time: Timestamp | null;
+  network: string;
+  op: string;
+  payout_id: string | null;
+  principal_id: string;
+  project_id: string;
+  replaces_tx_hash: string | null;
+  reservation_id: string | null;
+  sequence_or_nonce: Numeric;
+  signer_address: string;
+  spec_code: Int8 | null;
+  state: Generated<string>;
+  submitted_at_ledger: Int8 | null;
+  tx_hash: string;
+  updated_at: Generated<Timestamp>;
 }
 
 export interface UjiraComplianceMarks {
@@ -459,6 +498,26 @@ export interface UjiraLedgerReconciliation {
   state_pending: Numeric | null;
   state_spent: Numeric | null;
   taken_at: Timestamp | null;
+}
+
+export interface UjiraLegDeliveries {
+  destination_address: string;
+  destination_tag: Numeric | null;
+  expires_at: Timestamp | null;
+  id: Generated<string>;
+  leg_key: string;
+  live: Generated<boolean>;
+  network: string;
+  principal_id: string;
+  project_id: string;
+  provider: string;
+  provider_ref: string | null;
+  quote_id: string | null;
+  rail: string;
+  raw_status: string | null;
+  raw_status_at: Timestamp | null;
+  state: string;
+  updated_at: Timestamp;
 }
 
 export interface UjiraManagedSigners {
@@ -753,6 +812,35 @@ export interface UjiraSettlementTokens {
   token_scale: number;
 }
 
+export interface UjiraSigningRequests {
+  consumed_at: Timestamp | null;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  network: string;
+  principal_id: string;
+  project_id: string;
+  request: Json;
+  request_id: string;
+  signer: string;
+  valid_until: Timestamp;
+}
+
+export interface UjiraSponsorshipLedger {
+  actual_fee_native: Numeric | null;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  intent: string;
+  max_fee_native: Numeric;
+  native_asset: string;
+  network: string;
+  principal_id: string;
+  project_id: string;
+  reservation_id: string;
+  scale: number;
+  state: Generated<string>;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface UjiraStatusTransitions {
   from_status: string;
   machine: string;
@@ -815,6 +903,8 @@ export interface Schema {
   'ujira.audit_log': UjiraAuditLog;
   'ujira.audit_metadata_keys': UjiraAuditMetadataKeys;
   'ujira.chain_events': UjiraChainEvents;
+  'ujira.chain_submission_events': UjiraChainSubmissionEvents;
+  'ujira.chain_submissions': UjiraChainSubmissions;
   'ujira.chains': UjiraChains;
   'ujira.compliance_marks': UjiraComplianceMarks;
   'ujira.compliance_notices': UjiraComplianceNotices;
@@ -834,6 +924,7 @@ export interface Schema {
   'ujira.ledger_entries': UjiraLedgerEntries;
   'ujira.ledger_journals': UjiraLedgerJournals;
   'ujira.ledger_reconciliation': UjiraLedgerReconciliation;
+  'ujira.leg_deliveries': UjiraLegDeliveries;
   'ujira.managed_signers': UjiraManagedSigners;
   'ujira.mandate_instance_roles': UjiraMandateInstanceRoles;
   'ujira.mandate_instances': UjiraMandateInstances;
@@ -854,6 +945,8 @@ export interface Schema {
   'ujira.recipient_pii': UjiraRecipientPii;
   'ujira.recipients': UjiraRecipients;
   'ujira.settlement_tokens': UjiraSettlementTokens;
+  'ujira.signing_requests': UjiraSigningRequests;
+  'ujira.sponsorship_ledger': UjiraSponsorshipLedger;
   'ujira.status_transitions': UjiraStatusTransitions;
   'ujira.unpaid_fee_items': UjiraUnpaidFeeItems;
   'ujira.wallet_proof_challenges': UjiraWalletProofChallenges;

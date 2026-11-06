@@ -153,6 +153,7 @@ describe('grants on ujira', () => {
         ...context,
         'function ujira.exchange_embed_invite(bytea,bytea,text,integer,text)',
         'function ujira.recipient_identity_scope(uuid)',
+        'function ujira.unresolved_chain_submissions(text,timestamp with time zone,integer)',
       ].sort(),
     );
     expect(await executable('ujira_auth')).toEqual(
@@ -188,6 +189,7 @@ describe('roles', () => {
       'ujira_app',
       'ujira_auth',
       'ujira_fn_audit',
+      'ujira_fn_chain',
       'ujira_fn_identities',
       'ujira_fn_instances',
       'ujira_fn_ledger',
@@ -205,6 +207,7 @@ describe('roles', () => {
     const nologin = new Set([
       'ujira_owner',
       'ujira_fn_audit',
+      'ujira_fn_chain',
       'ujira_fn_identities',
       'ujira_fn_instances',
       'ujira_fn_ledger',
@@ -231,8 +234,11 @@ describe('roles', () => {
       { fn: 'ujira.audit_chain()', owner: 'ujira_fn_audit' },
       { fn: 'ujira.authenticate_embed_token(bytea)', owner: 'ujira_fn_tokens' },
       { fn: 'ujira.authenticate_token(text)', owner: 'ujira_fn_tokens' },
+      { fn: 'ujira.chain_submission_event()', owner: 'ujira_fn_chain' },
       { fn: 'ujira.check_payout_booking()', owner: 'ujira_fn_instances' },
+      { fn: 'ujira.clear_stale_delivery_status(integer)', owner: 'ujira_fn_chain' },
       { fn: 'ujira.create_principal(text,text,uuid,text)', owner: 'ujira_fn_principals' },
+      { fn: 'ujira.delete_stale_signing_requests(integer)', owner: 'ujira_fn_chain' },
       {
         fn: 'ujira.exchange_embed_invite(bytea,bytea,text,integer,text)',
         owner: 'ujira_fn_tokens',
@@ -243,6 +249,10 @@ describe('roles', () => {
       { fn: 'ujira.resolve_funding_address(text,text)', owner: 'ujira_fn_instances' },
       { fn: 'ujira.resolve_mandate_address(text,text)', owner: 'ujira_fn_instances' },
       { fn: 'ujira.resolve_mandate_instance(text,text)', owner: 'ujira_fn_instances' },
+      {
+        fn: 'ujira.unresolved_chain_submissions(text,timestamp with time zone,integer)',
+        owner: 'ujira_fn_chain',
+      },
     ]);
     // Each holds only what its one function needs, and never CREATE.
     const rights = await client.query<{ grantee: string; object: string; privilege: string }>(
@@ -258,6 +268,11 @@ describe('roles', () => {
       { grantee: 'ujira_fn_audit', object: 'audit_heads', privilege: 'SELECT' },
       { grantee: 'ujira_fn_audit', object: 'audit_heads', privilege: 'UPDATE' },
       { grantee: 'ujira_fn_audit', object: 'audit_metadata_keys', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_chain', object: 'chain_submission_events', privilege: 'INSERT' },
+      { grantee: 'ujira_fn_chain', object: 'chain_submissions', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_chain', object: 'leg_deliveries', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_chain', object: 'signing_requests', privilege: 'DELETE' },
+      { grantee: 'ujira_fn_chain', object: 'signing_requests', privilege: 'SELECT' },
       { grantee: 'ujira_fn_instances', object: 'funding_account_sources', privilege: 'SELECT' },
       { grantee: 'ujira_fn_instances', object: 'funding_accounts', privilege: 'SELECT' },
       { grantee: 'ujira_fn_instances', object: 'mandate_instances', privilege: 'SELECT' },
