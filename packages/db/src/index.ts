@@ -281,3 +281,17 @@ export {
   type NewComplianceNotice,
   type ParkedJob,
 } from './repositories/compliance.js';
+export {
+  HeldPayoutUnreadableError,
+  RouteLegMethodError,
+  UnsupportedSpecVersionError,
+  createRouteStores,
+  type RouteStoreOptions,
+  type RouteStores,
+} from './route-stores.js';
+export {
+  routing,
+  type HeldRow,
+  type InstanceOfMandate,
+  type UsableMethod,
+} from './repositories/routing.js';

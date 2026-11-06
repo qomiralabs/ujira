@@ -16,6 +16,7 @@ import type { Database, ProjectContext } from './database.js';
 import type { Schema } from './schema.generated.js';
 import { compliance, complianceRepositories } from './repositories/compliance.js';
 import { audit, auditRepositories } from './repositories/audit.js';
+import { routing, routingRepositories } from './repositories/routing.js';
 import { entryPoints } from './repositories/entry-points.js';
 import { fundingAccountRepositories, fundingAccounts } from './repositories/funding-accounts.js';
 import { approvals, legRepositories, payoutLegs } from './repositories/payout-legs.js';
@@ -117,6 +118,7 @@ const REPOSITORIES = {
   ...identityEvidenceRepositories,
   ...auditRepositories,
   ...payoutRepositories,
+  ...routingRepositories,
   ...legRepositories,
   payoutBookings,
 };
@@ -1472,6 +1474,38 @@ const cases: Record<string, () => Promise<void>> = {
       [b.heldPayoutId],
     );
     expect(left.rows).toHaveLength(1);
+  },
+  'routing.heldOnNetwork': async () => {
+    const held = await acrossA(async (tx) => routing.heldOnNetwork(tx, 'stellar:testnet', 100));
+    const ids = held.map((row) => row.payoutId);
+    expect(ids).toContain(a.heldPayoutId);
+    expect(ids).not.toContain(b.heldPayoutId);
+  },
+  'routing.recordTotal': async () => {
+    expect(
+      await asA(async (tx) =>
+        routing.recordTotal(tx, b.heldPayoutId, tokenAmount(1n, 'USDC', 'stellar')),
+      ),
+    ).toBe(false);
+  },
+  'routing.moveHeldToRouted': async () => {
+    expect(
+      await asA(async (tx) =>
+        routing.moveHeldToRouted(tx, b.heldPayoutId, tokenAmount(1n, 'USDC', 'stellar')),
+      ),
+    ).toBe(false);
+  },
+  'routing.moveHeldToExpired': async () => {
+    expect(await asA(async (tx) => routing.moveHeldToExpired(tx, b.heldPayoutId))).toBe(false);
+  },
+  'routing.instancesOfMandate': async () => {
+    expect(await acrossA(async (tx) => routing.instancesOfMandate(tx, b.mandateId))).toEqual([]);
+  },
+  'routing.unrequestedOnInstance': async () => {
+    expect(await acrossA(async (tx) => routing.unrequestedOnInstance(tx, b.instanceId))).toBe(0n);
+  },
+  'routing.usableMethods': async () => {
+    expect(await acrossA(async (tx) => routing.usableMethods(tx, b.recipientId))).toEqual([]);
   },
   'fundingHolds.oldestOnNetwork': async () => {
     const holds = await acrossA(async (tx) =>
