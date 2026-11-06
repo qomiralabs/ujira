@@ -32,6 +32,18 @@ const OPEN_SELECT = [
 // it, so the extra images would show a closed control instead of the thing
 // the story exists for.
 const RESPONSIVE = new Set([
+  // The rendered amount in the four currencies whose sign comes from the
+  // second mono face, and a column of amounts: a font or alignment change
+  // shows here before it shows anywhere else.
+  'money-amount--alignment',
+  'money-amount--launch-signs',
+  // The table becomes stacked cards below the tablet width.
+  'patterns-datatable--default',
+  // The meter legend stacks on a phone; the cards go from one column to two;
+  // the badges wrap.
+  'payments-mandatemeter--default',
+  'payments-payoutcard--list',
+  'payments-statusbadge--every-status',
   'primitives-button--variants',
   'primitives-button--with-icon',
   'primitives-field--with-react-hook-form',

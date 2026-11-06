@@ -202,6 +202,7 @@ export {
   type WalletChallengeRow,
 } from './repositories/identity-evidence.js';
 export {
+  alertDeliveryCursors,
   chainCursors,
   emailQuota,
   executors,
