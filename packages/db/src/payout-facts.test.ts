@@ -93,7 +93,9 @@ describe('the rule that blocked a payout', () => {
     ).rejects.toBeInstanceOf(TransitionFactError);
   });
 
-  it('cannot be written around the repository in the wrong status', async () => {
+  // Tying the rule to the blocked status waits for a contract migration, since the
+  // code already deployed moves payouts without it. Its form is checked now.
+  it('cannot be written around the repository as anything but a rule name', async () => {
     const { id } = await created();
     const code = await codeOf(
       db
@@ -101,7 +103,7 @@ describe('the rule that blocked a payout', () => {
         .transaction(async (tx) =>
           tx
             .updateTable('ujira.payouts')
-            .set({ blocked_by: 'DAILY_CAP_EXCEEDED' })
+            .set({ blocked_by: 'over the daily cap' })
             .where('id', '=', id)
             .execute(),
         ),

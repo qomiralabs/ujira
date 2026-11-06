@@ -4,9 +4,11 @@
 -- each step of its timeline.
 --
 -- The rule columns are written by whatever moves the payout, in the same update,
--- and the checks keep each one present exactly in the statuses it describes. The
--- step times are set by a trigger from the status, so no caller can write a time
--- that disagrees with it, and the app has no grant to write them at all.
+-- and the repository refuses a move that leaves one out. Checks here hold only
+-- their values: tying each to its statuses would refuse the code already deployed,
+-- which does not write them yet, so that is a later contract migration. The step
+-- times are set by a trigger from the status, so no caller can write a time that
+-- disagrees with it, and the app has no grant to write them at all.
 
 -- Up Migration
 set local lock_timeout = '5s';
@@ -29,8 +31,6 @@ alter table ujira.payouts
     check (char_length(task_id) between 1 and 255) not valid,
   add constraint payouts_blocked_by_format
     check (blocked_by ~ '^[A-Z][A-Z0-9_]{1,63}$') not valid,
-  add constraint payouts_blocked_by_when
-    check ((blocked_by is not null) = (status = 'blocked')) not valid,
   add constraint payouts_allowed_by_value
     check (
       allowed_by in (
@@ -40,12 +40,6 @@ alter table ujira.payouts
         'attestation_approved',
         'allowlist_and_attestation_auto',
         'allowlist_and_attestation_approved'
-      )
-    ) not valid,
-  add constraint payouts_allowed_by_when
-    check (
-      (allowed_by is not null) = (
-        status in ('approved', 'settling', 'delivering', 'partly_paid', 'paid', 'needs_attention')
       )
     ) not valid;
 
