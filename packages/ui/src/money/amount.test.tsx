@@ -60,7 +60,8 @@ describe('localeDirection', () => {
     accessor: PropertyDescriptor,
     run: () => void,
   ): void {
-    const proto = Intl.Locale.prototype;
+    // The DOM library types the prototype as any.
+    const proto = Intl.Locale.prototype as object;
     const saved = ['getTextInfo', 'textInfo'].map(
       (key) => [key, Object.getOwnPropertyDescriptor(proto, key)] as const,
     );
