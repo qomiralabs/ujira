@@ -117,6 +117,10 @@ the package declares for itself.
 | @stellar/stellar-base | 15.0.0 | Apache-2.0 | https://github.com/stellar/js-stellar-base |
 | @stellar/stellar-sdk | 17.2.1 | Apache-2.0 | https://github.com/stellar/js-stellar-sdk |
 | @swc/helpers | 0.5.23 | Apache-2.0 | https://github.com/swc-project/swc |
+| @tanstack/react-table | 8.21.3 | MIT | https://github.com/TanStack/table |
+| @tanstack/react-virtual | 3.14.21 | MIT | https://github.com/TanStack/virtual |
+| @tanstack/table-core | 8.21.3 | MIT | https://github.com/TanStack/table |
+| @tanstack/virtual-core | 3.19.6 | MIT | https://github.com/TanStack/virtual |
 | @types/json-schema | 7.0.15 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/react | 19.3.0 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/react-dom | 19.3.0 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
@@ -1101,7 +1105,7 @@ Files that do not come from npm, from `assets.licenses.json`.
 | packages/embed/e2e/__screenshots__/**/*.png | 2 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-21 |
 | packages/ui/assets/brand/*.svg | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-17 |
 | packages/ui/assets/brand/Tokens.json | 1 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-17 |
-| packages/ui/e2e/__snapshots__/*.png | 180 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-20 |
+| packages/ui/e2e/__snapshots__/*.png | 262 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-20 |
 | packages/ui/fonts/OFL.txt | 1 | OFL-1.1 | Noto Sans Mono: Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic) | https://github.com/google/fonts/tree/097bc1b8c04c3224087c2ae95f7a923859b778cf/ofl/notosansmono | 2026-10-20 |
 | packages/ui/fonts/noto-sans-mono-currency-signs.woff2 | 1 | OFL-1.1 | Noto Sans Mono: Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic) | https://github.com/google/fonts/tree/097bc1b8c04c3224087c2ae95f7a923859b778cf/ofl/notosansmono | 2026-10-20 |
 | scripts/fixtures/embedded-metadata/clean.* | 3 | LicenseRef-QomiraLabs-Proprietary | Qomira Labs | https://github.com/qomiralabs/ujira | 2026-10-17 |

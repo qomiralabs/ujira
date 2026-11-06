@@ -19,6 +19,7 @@ The UJIRA design system, shared by the dashboard and the website. It holds the d
 | `src/icons/brand-icons.generated.ts` | Generated. The nine icon names and their shapes, read from the sprite                                                              |
 | `src/icons/brand-icon.tsx`           | `<BrandIcon name="payout" />`                                                                                                      |
 | `src/primitives/`                    | The form primitives, shadcn/ui on Radix restyled to the brand                                                                      |
+| `src/money/`                         | `Amount`, `TokenAmount`, `AmountProvider` and `formatMoney`, on the core money model                                               |
 | `src/lib/cn.ts`                      | `cn()`, the class merge that knows the brand type steps, radii and shadows                                                         |
 | `stories/`                           | One story file per primitive, every variant and state                                                                              |
 | `.storybook/`                        | The catalogue: light and dark, the three widths, the axe addon                                                                     |
@@ -102,6 +103,136 @@ Rules the primitives hold to:
 - Free standing overlays (dialog, alert dialog, sheet) use the 14px radius; a menu anchored to its
   trigger uses the control's 6px. All use the one overlay shadow and the dimmed teal ink ground.
 - Popover, tabs, scroll area, toast and the date pickers follow in a second change.
+
+## Money
+
+Every amount on screen goes through the core money model in `@ujira/core`. Nothing here formats,
+rounds or converts on its own, and no amount is ever a JavaScript `number`.
+
+```tsx
+import { Amount, AmountProvider, TokenAmount, formatMoney } from '@ujira/ui';
+
+<Amount minor="2000000" currency="NGN" />                  // ₦20,000.00
+<Amount value={payout.amount} size="data" />                // a core Money
+<Amount minor="2000000" currency="NGN" secondary={usdc} />  // USDC under it, smaller
+<TokenAmount value={usdc} />                                // 12.50 USDC
+formatMoney(2_000_000n, 'NGN', 'en');                       // the same text, as a string
+```
+
+- `Amount` takes a core `Money`, or integer minor units (a `bigint` or its decimal string, as the
+  API sends it) with a currency. A number does not compile, and `ujira/no-number-amount` refuses
+  one that gets through a cast, in every package and app.
+- The text is exactly what the core `formatMoney` returns: the brand symbol, two decimals, the true
+  minus sign and no-break spaces. A property test holds the rendered text to it.
+- Every amount is set in the mono stack with tabular figures and never wraps. The naira, cedi, peso
+  and rupee signs come from the second mono face at the same width, so a column of amounts lines up.
+  Right align the cell in a table; `size` picks the step (`data`, `large`, `hero`), and `hero`
+  steps down on a phone rather than push the page sideways.
+- Each amount is its own bidirectional run with the locale's direction, so in Arabic or Hebrew a
+  negative amount is the positive one with a sign, and nothing else moves.
+- `signDisplay` is `auto` (a minus when negative), `exceptZero` (a plus too, for a change) or
+  `never` (for a column whose heading says the direction).
+- `secondary` is the USD or USDC equivalent, shown under the amount in a smaller size. Screen
+  readers hear it as "equal to"; `secondaryLabel` changes the words.
+
+`AmountProvider` sets the locale for everything inside it. Principal views also pass the currencies
+of the principal's corridors once, at the top:
+
+```tsx
+<AmountProvider locale="en" corridorCurrencies={['USD', 'COP', 'NGN']}>
+```
+
+When two of those print as `$`, every dollar amount carries its ISO code (`$96.00 USD`,
+`$1,500.00 COP`), decided by the core `dollarSignAmbiguous`. It is the corridors and not the rows on
+screen, so filtering a table never changes how its amounts read. Recipient surfaces never set the
+corridors and keep the plain sign.
+
+When a corridor in a new currency is added, check its sign against JetBrains Mono. The second mono
+face carries exactly the four signs the brand face lacks today; a sign neither face draws falls to
+a system font at another width, and the column drifts again until the sign is added to the subset.
+
+## Payments
+
+```tsx
+import { MandateMeter, PayoutCard, StatusBadge } from '@ujira/ui';
+
+<StatusBadge status={payout.status} />
+<PayoutCard recipient="Wanjiru Kamau" amount={amount} status="paid"
+  method="USDC to Stellar wallet" corridor="Kenya" action={<Button>Review payout</Button>} />
+<MandateMeter budget={budget} used={used} committed={committed} label="Budget this month" />
+```
+
+- `StatusBadge` takes every public payout status from `@ujira/api-schema`, plus the approval states
+  (`approval_waiting`, `approval_approved`, `approval_rejected`) and the delivery states
+  (`in_transit`, `arrived`, `verified`). Each has a fixed word, an icon and a tone. The word is
+  always shown and is what screen readers hear; the icon is hidden from them. The map is typed over
+  the whole union, so a status the API adds does not compile here until it has a word, a tone and
+  an icon.
+- Tones: paid (green) for paid, arrived and verified; waiting (amber) for everything still moving;
+  blocked (red) for blocked, failed, rejected and needs attention; neutral for cancelled and an
+  approval that was given, which are settled but are not payment outcomes. Saffron is never a
+  status, and `no-saffron-status.test.ts` holds that.
+- The word and the icon take the status text colour, which holds AA on `bg` and `surface` in both
+  modes. The light waiting fill is under 3:1 on cream, so nothing that carries meaning uses it.
+- `PayoutCard` is the stacked form of a payout row and the item of the approvals queue: who and how
+  much lead, then the status, then under a dotted rule the method, corridor and an optional timing
+  row. One action at most. It narrows in a grid column (`min-w-0`), so a long name truncates
+  instead of pushing a phone screen sideways. The dotted rule stands in for the brand perforation
+  until that component lands.
+- `MandateMeter` is a bullet bar, never a gauge. `meterSegments` splits the budget in integer basis
+  points: used and committed are rounded down, committed is held to what used leaves, and remaining
+  takes the rest, so the three always fill the bar exactly. Committed is hatched as well as
+  coloured. Screen readers hear one sentence with every amount, and how far over an overrun budget
+  is.
+
+## Data table
+
+```tsx
+import { ColumnChooser, DataTable, DensityToggle, compareMoney, type DataColumn } from '@ujira/ui';
+
+const columns: DataColumn<Payout>[] = [
+  { id: 'recipient', header: 'Recipient', hideable: false, cell: (p) => p.name },
+  {
+    id: 'amount',
+    header: 'Amount',
+    align: 'end',
+    width: '11rem',
+    cell: (p) => <Amount value={p.amount} size="data" />,
+    compare: (a, b) => compareMoney(a.usd, b.usd),
+  },
+];
+
+<DataTable
+  caption="Payouts"
+  data={payouts}
+  columns={columns}
+  getRowId={(p) => p.id}
+  rowLabel={(p) => p.name}
+  sorting={sorting}
+  onSortingChange={setSorting}
+  density={density}
+  onRowOpen={open}
+  activeRowId={openId}
+  renderCard={(p) => <PayoutCard {...cardProps(p)} />}
+/>;
+```
+
+- Columns are `DataColumn`: an id, a header in plain words (also the sort button's name and the
+  column chooser's label), a cell, and optionally `align: 'end'` for figures, `compare` to make it
+  sortable, `hideable: false` and a fixed `width`. Every sortable column sorts ascending, then
+  descending, then not at all.
+- Sort, column visibility, density and selection can each be passed in with their change handler,
+  so a screen keeps them in the URL. Leave sort or selection out and the table keeps its own.
+  `ColumnChooser` and `DensityToggle` only report, so they sit wherever the screen's toolbar is.
+- Above 100 rows (`VIRTUALIZE_ABOVE`) only the rows in view are in the page. The table stays a real
+  table, with `aria-rowcount` and `aria-rowindex`.
+- One row is in the tab order. The arrow keys, Home, End, Page Up and Page Down move it; Enter and a
+  click call `onRowOpen`. A click on a selection checkbox never opens the row.
+- `loading` draws skeleton rows in the final layout. With no rows, `empty` shows, or `noResults`
+  when `filtered` is set; both should say what to do next.
+- With `renderCard`, phones (below 768px) get the rows as stacked cards instead of the table.
+- `compareMoney` keeps currencies together and orders exactly by amount within one. Sort a column of
+  mixed currencies on the USD equivalent.
 
 ## Catalogue
 
