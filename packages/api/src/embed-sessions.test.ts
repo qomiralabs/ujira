@@ -21,7 +21,7 @@ import { createEmbedAuthenticator } from './embed-auth.js';
 import type { EmbedTokenLookup } from './embed-auth.js';
 import { issueEmbedCredential } from './embed-token.js';
 import { memoryLogger } from './log.js';
-import { allowEveryRequest } from './rate-limit.js';
+import { allowEveryRequest, allowEveryAddress } from './rate-limit.js';
 import { defineTenantRoute } from './route.js';
 import { EMBED_TOKEN_SECONDS, embedRoutes } from './routes/embed.js';
 import type { EmbedStore, NewEmbedRow } from './routes/embed.js';
@@ -95,6 +95,7 @@ function served(scopes: readonly ApiScope[] = ['recipients:write']) {
       now,
     }),
     rateLimit: allowEveryRequest,
+    addressRateLimit: allowEveryAddress,
     logger: memoryLogger(),
     now,
   });

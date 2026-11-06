@@ -160,6 +160,8 @@ export function embedRoutes(deps: EmbedDependencies): readonly Route[] {
     }),
     definePublicRoute({
       id: 'exchangeEmbedInvite',
+      // The invite secret is long and single use, but each guess still costs a lookup.
+      addressLimit: 'invite_exchange',
       method: 'POST',
       path: '/v1/embed/invites/exchange',
       summary: 'Exchange an invite secret for a token, once',

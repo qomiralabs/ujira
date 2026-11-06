@@ -78,6 +78,7 @@ beforeAll(async () => {
       UJIRA_DB_APP_URL: roleUrl(roleUrls, 'ujira_app', database.name),
       UJIRA_DB_READER_URL: roleUrl(roleUrls, 'ujira_reader', database.name),
       UJIRA_DB_WORKER_URL: roleUrl(roleUrls, 'ujira_retention', database.name),
+      UJIRA_DB_INDEXER_URL: roleUrl(roleUrls, 'ujira_indexer', database.name),
       UJIRA_DB_MIGRATION_URL: database.url,
       UJIRA_DB_TLS: 'off',
     }),

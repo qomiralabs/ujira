@@ -18,7 +18,7 @@ import { createEmbedAuthenticator } from './embed-auth.js';
 import { issueEmbedCredential } from './embed-token.js';
 import { memoryLogger } from './log.js';
 import { databaseEmbedStore } from './postgres-stores.js';
-import { allowEveryRequest } from './rate-limit.js';
+import { allowEveryRequest, allowEveryAddress } from './rate-limit.js';
 import { EMBED_INVITE_SECONDS, embedRoutes } from './routes/embed.js';
 
 declare module 'vitest' {
@@ -117,6 +117,7 @@ beforeAll(async () => {
     authenticate,
     authenticateEmbed: createEmbedAuthenticator({ store, environment: 'test' }),
     rateLimit: allowEveryRequest,
+    addressRateLimit: allowEveryAddress,
     logger: memoryLogger(),
   });
 });
