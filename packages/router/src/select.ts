@@ -41,7 +41,11 @@ type DeliveryCurrency = FiatCurrencyCode | TokenAsset;
 
 export interface RouteLeg {
   readonly method: PayoutMethod;
-  readonly currency: DeliveryCurrency;
+  /**
+   * What the recipient must receive it in, when the payout says. A payout
+   * asked for in the token leaves it open, and the corridor decides.
+   */
+  readonly currency?: DeliveryCurrency;
   readonly amount: TokenAmount;
 }
 
@@ -161,6 +165,7 @@ export interface RoutedOutcome {
   readonly network: NetworkId;
   readonly mandateInstanceId: string;
   readonly mandate: MandateRef;
+  readonly total: TokenAmount;
   readonly legs: readonly SelectedLeg[];
   /** The total plus the fee: what the mandate's free balance must cover. */
   readonly charged: TokenAmount;
@@ -184,7 +189,11 @@ export type UnavailableReason = 'network_down' | 'rail_down' | 'unreadable';
 export type RouteOutcome =
   | RoutedOutcome
   /** Every candidate network is short of funds. Nothing is requested on chain. */
-  | { readonly kind: 'hold'; readonly networks: readonly NetworkShortfall[] }
+  | {
+      readonly kind: 'hold';
+      readonly total: TokenAmount;
+      readonly networks: readonly NetworkShortfall[];
+    }
   /** Something could serve this, but not right now. */
   | {
       readonly kind: 'unavailable';
@@ -321,7 +330,7 @@ class Selection {
           c.enabled &&
           c.country === this.#req.country &&
           c.method === leg.method &&
-          c.currency === leg.currency,
+          (leg.currency === undefined || c.currency === leg.currency),
       );
     const asked = legs.map((leg): LegSpec => ({ amount: leg.amount, corridors: own(leg) }));
     const attempts: {
@@ -561,7 +570,7 @@ class Selection {
     const short = assessed.flatMap(({ state }) =>
       state.kind === 'short' ? [state.shortfall] : [],
     );
-    if (short.length > 0) return { kind: 'hold', networks: short };
+    if (short.length > 0) return { kind: 'hold', total: this.#req.total, networks: short };
     return { kind: 'no_route' };
   }
 
@@ -616,6 +625,7 @@ class Selection {
       network: best.state.network,
       mandateInstanceId: best.state.instance.mandateInstanceId,
       mandate: best.state.instance.ref,
+      total: this.#req.total,
       charged: best.state.charged,
       collapsed,
       methodFallback,

@@ -37,6 +37,7 @@
   "devDependencies": {
     "@testcontainers/postgresql": "12.2.0",
     "@types/pg": "8.23.1",
+    "@ujira/router": "workspace:*",
     "@ujira/api-schema": "workspace:*",
     "@ujira/mandates": "workspace:*",
     "fast-check": "4.10.2",
