@@ -14,11 +14,13 @@ import { createDatabase, loadDatabaseConfig } from '@ujira/db';
 import type { DatabaseEnvironment } from '@ujira/db';
 
 import { refuseAllCredentials } from './auth.js';
+import { createEmbedAuthenticator, refuseAllEmbedTokens } from './embed-auth.js';
+import type { AuthenticateEmbed } from './embed-auth.js';
 import type { Authenticate } from './auth.js';
 import type { ApiConfig, DeploymentEnvironment } from './config.js';
 import { ApiConfigError } from './errors.js';
 import type { Logger } from './log.js';
-import { databaseBucketStore, databaseTokenStore } from './postgres-stores.js';
+import { databaseBucketStore, databaseEmbedStore, databaseTokenStore } from './postgres-stores.js';
 import {
   allowEveryAddress,
   allowEveryRequest,
@@ -26,6 +28,8 @@ import {
   createRateLimit,
 } from './rate-limit.js';
 import type { AddressRateLimit, RateLimit } from './rate-limit.js';
+import { EMBED_NOT_CONFIGURED } from './routes/embed.js';
+import type { EmbedDependencies } from './routes/embed.js';
 import type { TokenEnvironment } from './token.js';
 import { createTokenAuthenticator } from './token-auth.js';
 
@@ -34,6 +38,8 @@ export const KEY_ENVIRONMENT: Readonly<Record<DeploymentEnvironment, TokenEnviro
 
 export interface ApiAccess {
   readonly authenticate: Authenticate;
+  readonly authenticateEmbed: AuthenticateEmbed;
+  readonly embed: EmbedDependencies;
   readonly rateLimit: RateLimit;
   readonly addressRateLimit: AddressRateLimit;
   readonly close: () => Promise<void>;
@@ -74,6 +80,8 @@ export function apiAccessFromEnv(
     }
     return {
       authenticate: refuseAllCredentials,
+      authenticateEmbed: refuseAllEmbedTokens,
+      embed: EMBED_NOT_CONFIGURED,
       rateLimit: allowEveryRequest,
       addressRateLimit: allowEveryAddress,
       close: () => Promise.resolve(),
@@ -90,8 +98,12 @@ export function apiAccessFromEnv(
     });
   }
   const db = createDatabase(loadDatabaseConfig(env));
+  const environment = KEY_ENVIRONMENT[config.environment];
+  const store = databaseEmbedStore(db);
   const buckets = databaseBucketStore(db);
   return {
+    authenticateEmbed: createEmbedAuthenticator({ store, environment }),
+    embed: { store, environment },
     authenticate: createTokenAuthenticator({
       store: databaseTokenStore(db),
       environment: KEY_ENVIRONMENT[config.environment],

@@ -26,6 +26,7 @@ import type {
   CallOptions,
   Tenant,
 } from './auth.js';
+import { isEmbedCredential } from './embed-token.js';
 import { errorNameOf, requestLog } from './log.js';
 import type { Logger } from './log.js';
 import { hashSecret, parseToken } from './token.js';
@@ -142,10 +143,13 @@ export function createTokenAuthenticator(options: TokenAuthOptions): Authenticat
   };
 
   return async (credentials, call) => {
+    const presented = BEARER.exec(credentials.authorization ?? '')?.[1];
+    // The widget's token, sent from the widget's page to a route it can never reach.
+    // That is a bad credential, not a bad origin, whichever page it came from.
+    if (presented !== undefined && isEmbedCredential(presented)) return refused('TOKEN_INVALID');
     if (credentials.origin !== null && !origins.has(credentials.origin)) {
       return refused('ORIGIN_NOT_ALLOWED');
     }
-    const presented = BEARER.exec(credentials.authorization ?? '')?.[1];
     const parsed = presented === undefined ? null : parseToken(presented);
     if (parsed === null) return refused('TOKEN_MALFORMED');
     if (parsed.environment !== options.environment) return refused('TOKEN_ENVIRONMENT_MISMATCH');

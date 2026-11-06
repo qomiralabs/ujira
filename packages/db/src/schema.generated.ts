@@ -318,6 +318,7 @@ export interface UjiraEmbedSessions {
   created_by_token: string | null;
   expires_at: Timestamp;
   id: Generated<string>;
+  kind: Generated<string>;
   principal_id: string;
   project_id: string;
   purpose: string;
