@@ -122,6 +122,24 @@ $$;
 ALTER FUNCTION ops.active_signing_keys(purposes text[]) OWNER TO ujira_ops;
 
 --
+-- Name: advance_alert_delivery_cursor(text, bigint); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.advance_alert_delivery_cursor(target_sink text, delivered_id bigint) RETURNS void
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  insert into ops.alert_delivery_cursors as c (sink, last_alert_id)
+  values (target_sink, delivered_id)
+  on conflict (sink) do update
+    set last_alert_id = greatest(c.last_alert_id, excluded.last_alert_id),
+        updated_at = now()
+$$;
+
+
+ALTER FUNCTION ops.advance_alert_delivery_cursor(target_sink text, delivered_id bigint) OWNER TO ujira_ops;
+
+--
 -- Name: advance_chain_cursor(text, text); Type: FUNCTION; Schema: ops; Owner: ujira_ops
 --
 
@@ -136,6 +154,23 @@ $$;
 
 
 ALTER FUNCTION ops.advance_chain_cursor(target_network text, next_cursor text) OWNER TO ujira_ops;
+
+--
+-- Name: alert_delivery_cursor(text); Type: FUNCTION; Schema: ops; Owner: ujira_ops
+--
+
+CREATE FUNCTION ops.alert_delivery_cursor(target_sink text) RETURNS bigint
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select coalesce(
+    (select c.last_alert_id from ops.alert_delivery_cursors as c where c.sink = target_sink),
+    0
+  )
+$$;
+
+
+ALTER FUNCTION ops.alert_delivery_cursor(target_sink text) OWNER TO ujira_ops;
 
 --
 -- Name: chain_cursor(text); Type: FUNCTION; Schema: ops; Owner: ujira_ops
@@ -679,6 +714,23 @@ $$;
 ALTER FUNCTION ujira.audit_row_hash(prev_hash bytea, principal_id uuid, project_id uuid, seq bigint, action text, actor_kind text, actor_id uuid, metadata jsonb, occurred_at timestamp with time zone) OWNER TO ujira_owner;
 
 --
+-- Name: authenticate_embed_token(bytea); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_tokens
+--
+
+CREATE FUNCTION ujira.authenticate_embed_token(token_sha256 bytea) RETURNS TABLE(session_id uuid, principal_id uuid, project_id uuid, recipient_id uuid, purpose text, allowed_origins text[], expires_at timestamp with time zone, consumed_at timestamp with time zone)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select s.id, s.principal_id, s.project_id, s.recipient_id, s.purpose, s.allowed_origins,
+         s.expires_at, s.consumed_at
+    from ujira.embed_sessions as s
+   where s.token_hash = token_sha256::ujira.hash32 and s.kind = 'token'
+$$;
+
+
+ALTER FUNCTION ujira.authenticate_embed_token(token_sha256 bytea) OWNER TO ujira_fn_tokens;
+
+--
 -- Name: authenticate_token(text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_tokens
 --
 
@@ -920,6 +972,47 @@ $$;
 
 
 ALTER FUNCTION ujira.current_project_id() OWNER TO ujira_owner;
+
+--
+-- Name: exchange_embed_invite(bytea, bytea, text, integer, text); Type: FUNCTION; Schema: ujira; Owner: ujira_fn_tokens
+--
+
+CREATE FUNCTION ujira.exchange_embed_invite(invite_sha256 bytea, new_token_sha256 bytea, new_token_prefix text, token_seconds integer, request_origin text) RETURNS TABLE(session_id uuid, recipient_id uuid, expires_at timestamp with time zone)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+declare
+  spent ujira.embed_sessions%rowtype;
+begin
+  if token_seconds is null or token_seconds < 1 then
+    raise exception using errcode = '22023', message = 'a token lasts at least a second';
+  end if;
+  update ujira.embed_sessions as s
+     set consumed_at = now()
+   where s.token_hash = invite_sha256::ujira.hash32
+     and s.kind = 'invite'
+     and s.consumed_at is null
+     and s.expires_at > now()
+     and request_origin = any (s.allowed_origins)
+  returning s.* into spent;
+  if not found then
+    return;
+  end if;
+  return query
+    insert into ujira.embed_sessions as s (
+      principal_id, project_id, token_hash, token_prefix, recipient_id, purpose,
+      allowed_origins, created_by_token, expires_at, kind
+    ) values (
+      spent.principal_id, spent.project_id, new_token_sha256::ujira.hash32, new_token_prefix,
+      spent.recipient_id, spent.purpose, spent.allowed_origins, null,
+      now() + make_interval(secs => token_seconds), 'token'
+    )
+    returning s.id, s.recipient_id, s.expires_at;
+end
+$$;
+
+
+ALTER FUNCTION ujira.exchange_embed_invite(invite_sha256 bytea, new_token_sha256 bytea, new_token_prefix text, token_seconds integer, request_origin text) OWNER TO ujira_fn_tokens;
 
 --
 -- Name: forbid_mutation(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
@@ -1244,6 +1337,27 @@ $$;
 ALTER FUNCTION ujira.legs_match_attempt() OWNER TO ujira_owner;
 
 --
+-- Name: mandate_instance_recipient_mode_once(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE FUNCTION ujira.mandate_instance_recipient_mode_once() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+begin
+  if old.recipient_mode is not null and new.recipient_mode is distinct from old.recipient_mode then
+    raise exception using
+      errcode = 'UJ022',
+      message = 'a mandate''s recipient mode is fixed once it is known';
+  end if;
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION ujira.mandate_instance_recipient_mode_once() OWNER TO ujira_owner;
+
+--
 -- Name: payout_instance_matches(); Type: FUNCTION; Schema: ujira; Owner: ujira_owner
 --
 
@@ -1502,6 +1616,21 @@ ALTER FUNCTION ujira.touch() OWNER TO ujira_owner;
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
+
+--
+-- Name: alert_delivery_cursors; Type: TABLE; Schema: ops; Owner: ujira_owner
+--
+
+CREATE TABLE ops.alert_delivery_cursors (
+    sink text NOT NULL,
+    last_alert_id bigint NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT alert_delivery_cursors_last_alert_id CHECK ((last_alert_id >= 0)),
+    CONSTRAINT alert_delivery_cursors_sink_format CHECK ((sink ~ '^[a-z][a-z0-9_]{0,63}$'::text))
+);
+
+
+ALTER TABLE ops.alert_delivery_cursors OWNER TO ujira_owner;
 
 --
 -- Name: chain_cursors; Type: TABLE; Schema: ops; Owner: ujira_owner
@@ -2189,6 +2318,8 @@ CREATE TABLE ujira.embed_sessions (
     expires_at timestamp with time zone NOT NULL,
     consumed_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    kind text DEFAULT 'token'::text NOT NULL,
+    CONSTRAINT embed_sessions_kind CHECK ((kind = ANY (ARRAY['token'::text, 'invite'::text]))),
     CONSTRAINT embed_sessions_origins_count CHECK (((cardinality(allowed_origins) >= 1) AND (cardinality(allowed_origins) <= 10))),
     CONSTRAINT embed_sessions_prefix_format CHECK ((token_prefix ~ '^ujes_(live|test)_[A-Za-z0-9]{8}$'::text)),
     CONSTRAINT embed_sessions_purpose CHECK ((purpose = ANY (ARRAY['onboarding'::text, 'method_change'::text, 'identity'::text])))
@@ -2533,9 +2664,11 @@ CREATE TABLE ujira.mandate_instances (
     country_policy_hash ujira.hash32,
     network ujira.network_id NOT NULL,
     status text DEFAULT 'deploying'::text NOT NULL,
+    recipient_mode text,
     CONSTRAINT mandate_instances_address_length CHECK (((char_length(contract_address) >= 1) AND (char_length(contract_address) <= 128))),
     CONSTRAINT mandate_instances_attester_key_length CHECK ((octet_length(attester_public_key) = 32)),
     CONSTRAINT mandate_instances_network_on_chain CHECK (((network IS NULL) OR (split_part((network)::text, ':'::text, 1) = chain))),
+    CONSTRAINT mandate_instances_recipient_mode CHECK ((recipient_mode = ANY (ARRAY['allowlist'::text, 'attested'::text, 'both'::text]))),
     CONSTRAINT mandate_instances_spec_length CHECK (((char_length(spec_version) >= 1) AND (char_length(spec_version) <= 32))),
     CONSTRAINT mandate_instances_status CHECK ((status = ANY (ARRAY['deploying'::text, 'active'::text, 'paused'::text, 'revoked'::text, 'expired'::text, 'deploy_failed'::text])))
 );
@@ -3038,6 +3171,14 @@ ALTER TABLE ujira.wallet_proof_challenges OWNER TO ujira_owner;
 --
 
 ALTER TABLE ONLY public.ujira_migrations ALTER COLUMN id SET DEFAULT nextval('public.ujira_migrations_id_seq'::regclass);
+
+
+--
+-- Name: alert_delivery_cursors alert_delivery_cursors_pkey; Type: CONSTRAINT; Schema: ops; Owner: ujira_owner
+--
+
+ALTER TABLE ONLY ops.alert_delivery_cursors
+    ADD CONSTRAINT alert_delivery_cursors_pkey PRIMARY KEY (sink);
 
 
 --
@@ -4035,6 +4176,13 @@ CREATE INDEX deposits_by_instance ON ujira.deposits USING btree (principal_id, p
 
 
 --
+-- Name: destination_verifications_embed_session; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX destination_verifications_embed_session ON ujira.destination_verifications USING btree (principal_id, project_id, embed_session_id) WHERE (embed_session_id IS NOT NULL);
+
+
+--
 -- Name: destination_verifications_latest; Type: INDEX; Schema: ujira; Owner: ujira_owner
 --
 
@@ -4046,6 +4194,20 @@ CREATE INDEX destination_verifications_latest ON ujira.destination_verifications
 --
 
 CREATE UNIQUE INDEX destination_verifications_one_session ON ujira.destination_verifications USING btree (principal_id, project_id, method_id) WHERE (level = 'wallet_session'::text);
+
+
+--
+-- Name: embed_sessions_open; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX embed_sessions_open ON ujira.embed_sessions USING btree (principal_id, project_id, recipient_id) WHERE (consumed_at IS NULL);
+
+
+--
+-- Name: embed_sessions_retention; Type: INDEX; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE INDEX embed_sessions_retention ON ujira.embed_sessions USING btree (expires_at);
 
 
 --
@@ -4508,6 +4670,13 @@ CREATE TRIGGER managed_signers_transition BEFORE UPDATE ON ujira.managed_signers
 --
 
 CREATE TRIGGER mandate_instance_roles_touch BEFORE UPDATE ON ujira.mandate_instance_roles FOR EACH ROW EXECUTE FUNCTION ujira.touch();
+
+
+--
+-- Name: mandate_instances mandate_instances_recipient_mode_once; Type: TRIGGER; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE TRIGGER mandate_instances_recipient_mode_once BEFORE UPDATE OF recipient_mode ON ujira.mandate_instances FOR EACH ROW EXECUTE FUNCTION ujira.mandate_instance_recipient_mode_once();
 
 
 --
@@ -5459,6 +5628,13 @@ CREATE POLICY authenticate ON ujira.api_tokens FOR SELECT TO ujira_fn_tokens USI
 
 
 --
+-- Name: embed_sessions authenticate; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY authenticate ON ujira.embed_sessions FOR SELECT TO ujira_fn_tokens USING (true);
+
+
+--
 -- Name: chain_events; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
 --
 
@@ -5520,6 +5696,20 @@ ALTER TABLE ujira.destination_verifications ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE ujira.embed_sessions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: embed_sessions exchange_invite; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY exchange_invite ON ujira.embed_sessions FOR UPDATE TO ujira_fn_tokens USING ((kind = 'invite'::text)) WITH CHECK ((kind = 'invite'::text));
+
+
+--
+-- Name: embed_sessions exchange_token; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY exchange_token ON ujira.embed_sessions FOR INSERT TO ujira_fn_tokens WITH CHECK ((kind = 'token'::text));
+
 
 --
 -- Name: funding_account_checks; Type: ROW SECURITY; Schema: ujira; Owner: ujira_owner
@@ -6157,6 +6347,31 @@ CREATE POLICY resolve_funding_address ON ujira.funding_accounts FOR SELECT TO uj
 --
 
 CREATE POLICY resolve_instance ON ujira.mandate_instances FOR SELECT TO ujira_fn_instances USING (true);
+
+
+--
+-- Name: embed_sessions retention_delete; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY retention_delete ON ujira.embed_sessions FOR DELETE TO ujira_retention USING (((expires_at < (now() - '7 days'::interval)) AND (NOT (EXISTS ( SELECT
+   FROM ujira.destination_verifications v
+  WHERE ((v.principal_id = embed_sessions.principal_id) AND (v.project_id = embed_sessions.project_id) AND (v.embed_session_id = embed_sessions.id)))))));
+
+
+--
+-- Name: destination_verifications retention_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY retention_read ON ujira.destination_verifications FOR SELECT TO ujira_retention USING ((embed_session_id IS NOT NULL));
+
+
+--
+-- Name: embed_sessions retention_read; Type: POLICY; Schema: ujira; Owner: ujira_owner
+--
+
+CREATE POLICY retention_read ON ujira.embed_sessions FOR SELECT TO ujira_retention USING (((expires_at < (now() - '7 days'::interval)) AND (NOT (EXISTS ( SELECT
+   FROM ujira.destination_verifications v
+  WHERE ((v.principal_id = embed_sessions.principal_id) AND (v.project_id = embed_sessions.project_id) AND (v.embed_session_id = embed_sessions.id)))))));
 
 
 --
@@ -7078,6 +7293,7 @@ GRANT ALL ON TYPE ujira.hash32 TO ujira_retention;
 GRANT ALL ON TYPE ujira.hash32 TO ujira_auth;
 GRANT ALL ON TYPE ujira.hash32 TO ujira_indexer;
 GRANT ALL ON TYPE ujira.hash32 TO ujira_fn_audit;
+GRANT ALL ON TYPE ujira.hash32 TO ujira_fn_tokens;
 
 
 --
@@ -7127,11 +7343,27 @@ GRANT ALL ON FUNCTION ops.active_signing_keys(purposes text[]) TO ujira_app;
 
 
 --
+-- Name: FUNCTION advance_alert_delivery_cursor(target_sink text, delivered_id bigint); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.advance_alert_delivery_cursor(target_sink text, delivered_id bigint) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.advance_alert_delivery_cursor(target_sink text, delivered_id bigint) TO ujira_indexer;
+
+
+--
 -- Name: FUNCTION advance_chain_cursor(target_network text, next_cursor text); Type: ACL; Schema: ops; Owner: ujira_ops
 --
 
 REVOKE ALL ON FUNCTION ops.advance_chain_cursor(target_network text, next_cursor text) FROM PUBLIC;
 GRANT ALL ON FUNCTION ops.advance_chain_cursor(target_network text, next_cursor text) TO ujira_indexer;
+
+
+--
+-- Name: FUNCTION alert_delivery_cursor(target_sink text); Type: ACL; Schema: ops; Owner: ujira_ops
+--
+
+REVOKE ALL ON FUNCTION ops.alert_delivery_cursor(target_sink text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ops.alert_delivery_cursor(target_sink text) TO ujira_indexer;
 
 
 --
@@ -7286,6 +7518,15 @@ GRANT ALL ON FUNCTION ujira.audit_row_hash(prev_hash bytea, principal_id uuid, p
 
 
 --
+-- Name: FUNCTION authenticate_embed_token(token_sha256 bytea); Type: ACL; Schema: ujira; Owner: ujira_fn_tokens
+--
+
+REVOKE ALL ON FUNCTION ujira.authenticate_embed_token(token_sha256 bytea) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.authenticate_embed_token(token_sha256 bytea) TO ujira_app;
+GRANT ALL ON FUNCTION ujira.authenticate_embed_token(token_sha256 bytea) TO ujira_auth;
+
+
+--
 -- Name: FUNCTION authenticate_token(token_prefix text); Type: ACL; Schema: ujira; Owner: ujira_fn_tokens
 --
 
@@ -7362,6 +7603,15 @@ GRANT ALL ON FUNCTION ujira.current_project_id() TO ujira_indexer;
 
 
 --
+-- Name: FUNCTION exchange_embed_invite(invite_sha256 bytea, new_token_sha256 bytea, new_token_prefix text, token_seconds integer, request_origin text); Type: ACL; Schema: ujira; Owner: ujira_fn_tokens
+--
+
+REVOKE ALL ON FUNCTION ujira.exchange_embed_invite(invite_sha256 bytea, new_token_sha256 bytea, new_token_prefix text, token_seconds integer, request_origin text) FROM PUBLIC;
+GRANT ALL ON FUNCTION ujira.exchange_embed_invite(invite_sha256 bytea, new_token_sha256 bytea, new_token_prefix text, token_seconds integer, request_origin text) TO ujira_app;
+GRANT ALL ON FUNCTION ujira.exchange_embed_invite(invite_sha256 bytea, new_token_sha256 bytea, new_token_prefix text, token_seconds integer, request_origin text) TO ujira_auth;
+
+
+--
 -- Name: FUNCTION forbid_mutation(); Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
@@ -7429,6 +7679,13 @@ REVOKE ALL ON FUNCTION ujira.ledger_stamp() FROM PUBLIC;
 --
 
 REVOKE ALL ON FUNCTION ujira.legs_match_attempt() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION mandate_instance_recipient_mode_once(); Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+REVOKE ALL ON FUNCTION ujira.mandate_instance_recipient_mode_once() FROM PUBLIC;
 
 
 --
@@ -7508,6 +7765,13 @@ GRANT ALL ON FUNCTION ujira.resolve_mandate_instance(target_chain text, target_a
 --
 
 REVOKE ALL ON FUNCTION ujira.touch() FROM PUBLIC;
+
+
+--
+-- Name: TABLE alert_delivery_cursors; Type: ACL; Schema: ops; Owner: ujira_owner
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE ops.alert_delivery_cursors TO ujira_ops;
 
 
 --
@@ -7799,10 +8063,61 @@ GRANT SELECT ON TABLE ujira.destination_verifications TO ujira_reader;
 
 
 --
+-- Name: COLUMN destination_verifications.principal_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(principal_id) ON TABLE ujira.destination_verifications TO ujira_retention;
+
+
+--
+-- Name: COLUMN destination_verifications.project_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(project_id) ON TABLE ujira.destination_verifications TO ujira_retention;
+
+
+--
+-- Name: COLUMN destination_verifications.embed_session_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(embed_session_id) ON TABLE ujira.destination_verifications TO ujira_retention;
+
+
+--
 -- Name: TABLE embed_sessions; Type: ACL; Schema: ujira; Owner: ujira_owner
 --
 
 GRANT SELECT,INSERT,UPDATE ON TABLE ujira.embed_sessions TO ujira_app;
+GRANT DELETE ON TABLE ujira.embed_sessions TO ujira_retention;
+GRANT SELECT,INSERT,UPDATE ON TABLE ujira.embed_sessions TO ujira_fn_tokens;
+
+
+--
+-- Name: COLUMN embed_sessions.principal_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(principal_id) ON TABLE ujira.embed_sessions TO ujira_retention;
+
+
+--
+-- Name: COLUMN embed_sessions.project_id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(project_id) ON TABLE ujira.embed_sessions TO ujira_retention;
+
+
+--
+-- Name: COLUMN embed_sessions.id; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(id) ON TABLE ujira.embed_sessions TO ujira_retention;
+
+
+--
+-- Name: COLUMN embed_sessions.expires_at; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT SELECT(expires_at) ON TABLE ujira.embed_sessions TO ujira_retention;
 
 
 --
@@ -7926,6 +8241,13 @@ GRANT SELECT ON TABLE ujira.mandate_instances TO ujira_indexer;
 --
 
 GRANT UPDATE(status) ON TABLE ujira.mandate_instances TO ujira_indexer;
+
+
+--
+-- Name: COLUMN mandate_instances.recipient_mode; Type: ACL; Schema: ujira; Owner: ujira_owner
+--
+
+GRANT UPDATE(recipient_mode) ON TABLE ujira.mandate_instances TO ujira_app;
 
 
 --

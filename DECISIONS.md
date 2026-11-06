@@ -27,6 +27,46 @@ Smaller design decisions, each with what it was choosing between. Newest first.
 
 **Evidence.** The conformance suite checks the adapter call: the principal gets the whole balance and nobody else, and an open mandate, the grace, a pending change and a refused transfer are each refused before anything is sent. `return-funds.test.ts` covers the job, and `mandate-returns.test.ts` covers the booking against Postgres. `sweep.integration.test.ts` runs the call on Stellar testnet.
 
+## Who hears of a flagged mandate, and what its deposits do
+
+**Problem.** Intake flags a mandate whose tag does not match its tenant, or whose attester key is one anyone can rebuild, and records why in `ops.mandate_alerts`. From then on it reads none of the mandate's events. Nobody read the alerts, so the mirror went quiet with nobody told.
+
+**Options.**
+
+1. Tell operations and the principal.
+2. Tell operations only, and leave the principal to operations.
+
+**Decision.** Option 2.
+
+- A mandate made directly through the factory may have no instance row, so there may be no tenant to tell. Both reasons are about a contract UJIRA will not trust, which is for operations to take up with the principal when there is one.
+- Delivery reads the alerts in order from where the last one stopped, one position per sink in `ops.alert_delivery_cursors`, and moves the position after each alert the sink takes. A restart loses none and repeats none. A process that dies between the sink answering and the position moving tells that one alert again, under the same idempotency key.
+- The sink is a port. Until a pager is wired, the default writes one error log line per alert, naming only the alert, the contract and the reason, all of which are public on the chain.
+- Deposits to a flagged mandate stay uncredited, as they already are: funding credits a deposit only to an unflagged registration. The money stays in the mandate on chain, under the principal's control.
+
+**Trade offs and risks.** Nothing runs the delivery on a schedule until the job queue lands (#90). Until then it is one call to `createMandateAlertDelivery(...).deliverPending()`.
+
+**Evidence.** `packages/indexer/src/alerts.db.test.ts` and `packages/db/src/alert-delivery-cursors.test.ts`.
+
+## A mandate's recipient mode is recorded when its instance is
+
+**Problem.** The signer must refuse a key UJIRA holds while it is seated on a mandate that pays attested recipients only. The seat comes from the chain's role events, but the mode was not stored off chain anywhere, so there was nothing to check a seat against.
+
+**Options.**
+
+1. The indexer writes the mode from the chain, out of the `mandate_created` event or a config read. It is the chain's own answer, but the factory event does not carry the mode, so every new instance needs an extra read, and an instance is unknown until that read lands.
+2. Whoever records the instance writes the mode, from the config the contract was created with: the create flow, which built that config, or a claim, which reads it from the chain before it claims. It is known from the first moment the instance exists, with no read of its own.
+3. Read the mode from the chain on every signature. It is always current, but every signature then waits on a node, and an outage of the node becomes an outage of signing.
+
+We chose option 2.
+
+- The contract fixes the mode at creation and nothing changes it, so the database holds it to the same rule. It is written once, a second write of another value is refused (`UJ022`), and the same value again changes nothing.
+- While the mode is unknown the signer refuses a key seated there, as unavailable rather than denied. A guess could be the one mode that is not allowed, and an unknown mode is a gap to fill, not a breach.
+- Seats are the mirror of the role events the indexer's intake store records, kept in the same transaction as the event. So a key the principal seats straight on the contract counts as soon as its event is read.
+- A seat on another tenant's mandate never decides this tenant's key: seats are read under the key's own tenant.
+- A refusal is logged at error level as `custody_refused`, because it means a key UJIRA holds is seated where it must never be.
+
+**Evidence.** `packages/db/src/managed-agent-custody.test.ts` runs from the role event through the intake store to a refused signature, against real Postgres. `packages/signer/src/service/custody.test.ts` covers the service's guard, its slow and failed lookups, and the alert.
+
 ## Only the chain makes a mandate instance active
 
 **Problem.** Eligibility refuses to pay under an instance that is not active, and nothing moved one there. Whatever does has to be something an API call cannot fake, because an active instance is one UJIRA will attest payouts under.

@@ -177,6 +177,7 @@ export {
   agentIdentityLinks,
   attestations,
   destinationVerifications,
+  embedSessionRetention,
   embedSessions,
   identityEvidenceRepositories,
   walletChallenges,
@@ -196,6 +197,7 @@ export {
   type WalletChallengeRow,
 } from './repositories/identity-evidence.js';
 export {
+  alertDeliveryCursors,
   chainCursors,
   emailQuota,
   executors,
@@ -285,3 +287,14 @@ export {
   type NewComplianceNotice,
   type ParkedJob,
 } from './repositories/compliance.js';
+export {
+  SeatRecipientModeUnknownError,
+  createManagedAgentPorts,
+  type ManagedAgentPorts,
+} from './managed-agent-ports.js';
+export {
+  managedAgents,
+  type ManagedAgentSeat,
+  type SeatRecipientMode,
+} from './repositories/managed-agents.js';
+export { RoleEventMalformedError } from './repositories/mandate-registry.js';

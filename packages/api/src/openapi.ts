@@ -65,7 +65,8 @@ const RATE_LIMIT_HEADERS = {
 };
 
 function operation(route: Route): JsonObject {
-  const limited = route.access.kind === 'tenant' || route.access.addressLimit !== undefined;
+  // A key or a session is always limited; a public route only when it names a group.
+  const limited = route.access.kind !== 'public' || route.access.addressLimit !== undefined;
   const limits = limited ? RATE_LIMIT_HEADERS : {};
   const responses: JsonObject = {
     [String(route.response.status)]: {
@@ -96,7 +97,7 @@ function operation(route: Route): JsonObject {
   return {
     operationId: route.id,
     summary: route.summary,
-    security: tenant ? [{ bearer: [] }] : [],
+    security: tenant ? [{ bearer: [] }] : route.access.kind === 'embed' ? [{ embedToken: [] }] : [],
     ...(route.access.kind === 'tenant' ? { 'x-ujira-scope': route.access.scope } : {}),
     parameters: [
       ...openApiParameters('path', route.params),
@@ -170,7 +171,10 @@ export function buildOpenApiDocument(routes: readonly Route[]): JsonObject {
     paths,
     components: {
       schemas: reachable(paths, schemas),
-      securitySchemes: { bearer: { type: 'http', scheme: 'bearer' } },
+      securitySchemes: {
+        bearer: { type: 'http', scheme: 'bearer' },
+        embedToken: { type: 'http', scheme: 'bearer' },
+      },
     },
   };
 }

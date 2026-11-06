@@ -4,11 +4,18 @@
 // The payout methods the widget can offer, and the one field each of them
 // needs from a recipient.
 //
-// Only the wallet method is open at the testnet launch (issue #128). The
-// three anchor methods are built behind the same step and switched off, so
-// turning one on is a flag change, not new UI. The method step renders a
-// single open method as a plain statement rather than a choice of one.
+// Two things decide whether a method is offered, and both must say yes:
+//   - `open` here: the widget's path for that method is finished. Only the
+//     wallet is, at the testnet launch. Bank, mobile money and cash pickup
+//     are built behind the same step and stay closed until their anchor
+//     hand-off is, so opening one is a flag change, not new UI.
+//   - the corridor: UJIRA's session lists the methods a signed partner pays
+//     out in the recipient's country. With no session, as when the page
+//     saves the answers itself, every open method counts.
+// The method step renders a single offered method as a plain statement
+// rather than a choice of one.
 
+import type { ApiMethod } from './api/contract.js';
 import type { MessageKey } from './i18n/catalogue.js';
 
 export const METHOD_IDS = ['wallet', 'bank', 'mobile', 'cash'] as const;
@@ -28,14 +35,16 @@ export interface MethodDestination {
   autocomplete: string;
   /**
    * A shape check, so an obvious typo is caught before anything is saved.
-   * The ledger checks the destination for real when the payout is made.
+   * The wallet method has none: it reads the address in full; see destination.ts.
    */
-  shape: RegExp;
+  shape?: RegExp;
 }
 
 export interface PayoutMethod {
   id: MethodId;
-  /** Open to recipients today. */
+  /** The name the API knows the method by. */
+  api: ApiMethod;
+  /** The widget's path for this method is finished. */
   open: boolean;
   name: MessageKey;
   line: MessageKey;
@@ -45,6 +54,7 @@ export interface PayoutMethod {
 export const PAYOUT_METHODS: readonly PayoutMethod[] = [
   {
     id: 'wallet',
+    api: 'stellar_wallet',
     open: true,
     name: 'method.wallet.name',
     line: 'method.wallet.line',
@@ -57,11 +67,11 @@ export const PAYOUT_METHODS: readonly PayoutMethod[] = [
       invalid: 'destination.wallet.invalid',
       inputMode: 'text',
       autocomplete: 'off',
-      shape: /^G[A-Z2-7]{55}$/,
     },
   },
   {
     id: 'bank',
+    api: 'bank',
     open: false,
     name: 'method.bank.name',
     line: 'method.bank.line',
@@ -79,6 +89,7 @@ export const PAYOUT_METHODS: readonly PayoutMethod[] = [
   },
   {
     id: 'mobile',
+    api: 'mobile_money',
     open: false,
     name: 'method.mobile.name',
     line: 'method.mobile.line',
@@ -96,6 +107,7 @@ export const PAYOUT_METHODS: readonly PayoutMethod[] = [
   },
   {
     id: 'cash',
+    api: 'cash_pickup',
     open: false,
     name: 'method.cash.name',
     line: 'method.cash.line',
@@ -113,10 +125,17 @@ export const PAYOUT_METHODS: readonly PayoutMethod[] = [
   },
 ];
 
+/**
+ * The methods to offer: open in the widget and, when a corridor is known,
+ * paid out there. `corridor` is the session's list, or undefined without one.
+ */
 export function openMethods(
   methods: readonly PayoutMethod[] = PAYOUT_METHODS,
+  corridor?: readonly ApiMethod[],
 ): readonly PayoutMethod[] {
-  return methods.filter((method) => method.open);
+  return methods.filter(
+    (method) => method.open && (corridor === undefined || corridor.includes(method.api)),
+  );
 }
 
 export function methodById(

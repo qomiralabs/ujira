@@ -101,7 +101,12 @@ describe('grants on ujira', () => {
       expect(mine).toContainEqual({ object: 'schema ujira', grantee: role, privilege: 'USAGE' });
       const relations = mine.filter((grant) => grant.object.startsWith('relation '));
       expect(relations.length).toBeGreaterThan(0);
-      if (role !== 'ujira_app' && role !== 'ujira_indexer') {
+      if (role === 'ujira_retention') {
+        // Retention removes what its policies say has lapsed, and writes nothing.
+        expect(relations.filter((grant) => grant.privilege !== 'SELECT')).toEqual([
+          { object: 'relation embed_sessions', grantee: role, privilege: 'DELETE' },
+        ]);
+      } else if (role !== 'ujira_app' && role !== 'ujira_indexer') {
         expect(relations.filter((grant) => grant.privilege !== 'SELECT')).toEqual([]);
       }
     }
@@ -109,7 +114,7 @@ describe('grants on ujira', () => {
 
   it('gives the roles with no tables of their own yet read access to the reference data only', async () => {
     const all = await grants();
-    for (const role of ['ujira_retention', 'ujira_auth']) {
+    for (const role of ['ujira_auth']) {
       const relations = all
         .filter((grant) => grant.grantee === role && grant.object.startsWith('relation '))
         .map((grant) => grant.object)
@@ -139,17 +144,25 @@ describe('grants on ujira', () => {
     ];
     const auditHash =
       'function ujira.audit_row_hash(bytea,uuid,uuid,bigint,text,text,uuid,jsonb,timestamp with time zone)';
-    expect(await executable('ujira_app')).toEqual([
-      auditHash,
-      'function ujira.authenticate_token(text)',
-      'function ujira.create_principal(text,text,uuid,text)',
-      ...context,
-      'function ujira.recipient_identity_scope(uuid)',
-    ]);
-    expect(await executable('ujira_auth')).toEqual([
-      'function ujira.authenticate_token(text)',
-      ...context,
-    ]);
+    expect(await executable('ujira_app')).toEqual(
+      [
+        'function ujira.authenticate_embed_token(bytea)',
+        auditHash,
+        'function ujira.authenticate_token(text)',
+        'function ujira.create_principal(text,text,uuid,text)',
+        ...context,
+        'function ujira.exchange_embed_invite(bytea,bytea,text,integer,text)',
+        'function ujira.recipient_identity_scope(uuid)',
+      ].sort(),
+    );
+    expect(await executable('ujira_auth')).toEqual(
+      [
+        'function ujira.authenticate_embed_token(bytea)',
+        'function ujira.authenticate_token(text)',
+        ...context,
+        'function ujira.exchange_embed_invite(bytea,bytea,text,integer,text)',
+      ].sort(),
+    );
     expect(await executable('ujira_reader')).toEqual([auditHash, ...context]);
     expect(await executable('ujira_indexer')).toEqual([
       ...context,
@@ -216,9 +229,14 @@ describe('roles', () => {
     expect(definers.rows).toEqual([
       { fn: 'ujira.attestation_pending(bytea)', owner: 'ujira_signer_read' },
       { fn: 'ujira.audit_chain()', owner: 'ujira_fn_audit' },
+      { fn: 'ujira.authenticate_embed_token(bytea)', owner: 'ujira_fn_tokens' },
       { fn: 'ujira.authenticate_token(text)', owner: 'ujira_fn_tokens' },
       { fn: 'ujira.check_payout_booking()', owner: 'ujira_fn_instances' },
       { fn: 'ujira.create_principal(text,text,uuid,text)', owner: 'ujira_fn_principals' },
+      {
+        fn: 'ujira.exchange_embed_invite(bytea,bytea,text,integer,text)',
+        owner: 'ujira_fn_tokens',
+      },
       { fn: 'ujira.ledger_balanced()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.ledger_stamp()', owner: 'ujira_fn_ledger' },
       { fn: 'ujira.recipient_identity_scope(uuid)', owner: 'ujira_fn_identities' },
@@ -250,6 +268,9 @@ describe('roles', () => {
       { grantee: 'ujira_fn_principals', object: 'principals', privilege: 'INSERT' },
       { grantee: 'ujira_fn_principals', object: 'projects', privilege: 'INSERT' },
       { grantee: 'ujira_fn_tokens', object: 'api_tokens', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_tokens', object: 'embed_sessions', privilege: 'INSERT' },
+      { grantee: 'ujira_fn_tokens', object: 'embed_sessions', privilege: 'SELECT' },
+      { grantee: 'ujira_fn_tokens', object: 'embed_sessions', privilege: 'UPDATE' },
     ]);
     const create = await client.query<{ role: string }>(
       `select r.rolname as role from pg_roles r

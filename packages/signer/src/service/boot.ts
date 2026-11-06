@@ -44,6 +44,7 @@ import { LOCAL_PROVIDER, verifySignerStartup } from '../startup.js';
 import { agentPolicy } from './agent-policy.js';
 import { attestPolicy } from './attest-policy.js';
 import type { ServiceCaller } from './auth.js';
+import { guardAgentSigner } from './custody.js';
 import { chainPolicy } from './chain-policy.js';
 import type { ChainNetworkPolicy } from './chain-policy.js';
 import { jsonSignerLogger, writeLog } from './log.js';
@@ -58,6 +59,7 @@ import {
 import type { ServicePolicy } from './policy.js';
 import type {
   AttestationLog,
+  ManagedAgentSeats,
   ManagedSignerStore,
   MandateIndex,
   PrincipalRateLimiter,
@@ -104,7 +106,17 @@ const environmentSchema = z.object({
     .pipe(z.int().max(65_535)),
 });
 
+/** Refuses every lookup, so an agent service started without its seats signs nothing. */
+const seatsNotConfigured: ManagedAgentSeats = {
+  recipientModesOf: () => Promise.reject(new Error('agent seats are not configured')),
+};
+
 export interface SignerStores {
+  /**
+   * Where each managed agent key is seated. When left out every agent signature is
+   * refused, because no seats known is not the same as no seats.
+   */
+  readonly agentSeats?: ManagedAgentSeats;
   readonly mandates: MandateIndex;
   readonly sponsorships: SponsorshipLedger;
   readonly signers: ManagedSignerStore;
@@ -265,11 +277,20 @@ export async function bootSignerService(
   if (networks.length === 0) throw refused('UJIRA_NETWORKS_CONFIG (no_networks)');
   const stores = options.stores ?? emptyStores();
   const callers = callersOf(role, env);
-  const provider = backendFor(
+  const backend = backendFor(
     settings.UJIRA_SIGNER_BACKEND,
     () => kmsKeyResolver(role, env, config, networks, stores),
     options,
   );
+  // Every signature of the agent service passes the custody guard, so no caller can
+  // reach a managed key around it.
+  const provider =
+    role === 'agent'
+      ? guardAgentSigner(backend, {
+          seats: stores.agentSeats ?? seatsNotConfigured,
+          logger,
+        })
+      : backend;
   const app = createSignerService({
     provider,
     policy: policyFor(role, config, networks, stores),

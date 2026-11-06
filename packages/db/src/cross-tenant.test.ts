@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
 import type { Database, ProjectContext } from './database.js';
 import type { Schema } from './schema.generated.js';
+import { managedAgentRepositories, managedAgents } from './repositories/managed-agents.js';
 import { compliance, complianceRepositories } from './repositories/compliance.js';
 import { audit, auditRepositories } from './repositories/audit.js';
 import { entryPoints } from './repositories/entry-points.js';
@@ -108,6 +109,7 @@ interface Tenant {
 }
 
 const REPOSITORIES = {
+  ...managedAgentRepositories,
   ...complianceRepositories,
   ...tenancyRepositories,
   ...mandateRepositories,
@@ -510,6 +512,15 @@ afterAll(async () => {
 });
 
 // Tenant A's first project, and every project of A read only.
+// Whether another tenant's call reached the session, read past the policies.
+const ownerRead = async (sessionId: string): Promise<Date | null> => {
+  const { rows } = await admin.query<{ consumed_at: Date | null }>(
+    'select consumed_at from ujira.embed_sessions where id = $1',
+    [sessionId],
+  );
+  return rows[0]?.consumed_at ?? null;
+};
+
 const asA = async <T>(work: (tx: Kysely<Schema>) => Promise<T>): Promise<T> =>
   db.tenant(a.first).transaction(work);
 const acrossA = async <T>(work: (tx: Kysely<Schema>) => Promise<T>): Promise<T> =>
@@ -517,6 +528,19 @@ const acrossA = async <T>(work: (tx: Kysely<Schema>) => Promise<T>): Promise<T> 
 
 // One case per repository method, each run as tenant A.
 const cases: Record<string, () => Promise<void>> = {
+  'managedAgents.seats': async () => {
+    expect(await acrossA(async (tx) => managedAgents.seats(tx, randomUUID()))).toEqual([]);
+  },
+  'managedAgents.isManaged': async () => {
+    expect(
+      await acrossA(async (tx) => managedAgents.isManaged(tx, 'stellar:testnet', 'GNONE')),
+    ).toBe(false);
+  },
+  'mandateInstances.setRecipientMode': async () => {
+    expect(
+      await asA(async (tx) => mandateInstances.setRecipientMode(tx, b.instanceId, 'attested')),
+    ).toBe(false);
+  },
   'compliance.mark': async () => {
     expect(await acrossA(async (tx) => compliance.mark(tx, b.instanceId))).toBeUndefined();
   },
@@ -1062,6 +1086,14 @@ const cases: Record<string, () => Promise<void>> = {
       }),
     );
     expect(await codeOf(attempt)).toBe('23503');
+  },
+  'embedSessions.consume': async () => {
+    expect(await asA(async (tx) => embedSessions.consume(tx, b.sessionId))).toBe(false);
+    expect(await ownerRead(b.sessionId)).toBeNull();
+  },
+  'embedSessions.consumeOpen': async () => {
+    expect(await asA(async (tx) => embedSessions.consumeOpen(tx, b.recipientId))).toBe(0);
+    expect(await ownerRead(b.sessionId)).toBeNull();
   },
   'embedSessions.get': async () => {
     expect(await acrossA(async (tx) => embedSessions.get(tx, b.sessionId))).toBeUndefined();
