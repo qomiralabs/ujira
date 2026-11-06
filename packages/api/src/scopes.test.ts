@@ -37,11 +37,15 @@ describe('every route in the registry', () => {
   });
 
   it.each(ALL_ROUTES.map((route) => [`${route.method} ${route.path}`, route] as const))(
-    '%s declares a scope from the list, or says why it needs no key',
+    '%s declares a scope from the list, the roles that may act, or why it needs no key',
     (_name, route) => {
       expect(routeAccessProblems([route])).toEqual([]);
       if (route.access.kind === 'tenant') {
         expect(API_SCOPES).toContain(route.access.scope);
+      } else if (route.access.kind === 'member') {
+        expect(route.access.roles.length).toBeGreaterThan(0);
+        // Every member route so far changes something a person must confirm.
+        expect(route.access.stepUp).toBe(true);
       } else {
         expect(route.access.reason.trim().length).toBeGreaterThanOrEqual(10);
       }
@@ -50,6 +54,14 @@ describe('every route in the registry', () => {
 });
 
 describe('the check', () => {
+  it('finds a member route that allows no role', () => {
+    const noRole = {
+      ...thing,
+      access: { kind: 'member', roles: [], stepUp: true },
+    } as unknown as Route;
+    expect(routeAccessProblems([noRole])).toEqual([`route ${noRole.id} allows no role`]);
+  });
+
   const noScope = { ...thing, access: { kind: 'tenant' } } as unknown as Route;
   const madeUpScope = {
     ...thing,

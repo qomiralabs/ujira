@@ -7,7 +7,9 @@
 
 import type { WalletProofFlow } from '@ujira/identity';
 
+import type { ApiKeyEndpoints } from '../api-key-service.js';
 import type { Route } from '../route.js';
+import { API_KEYS_NOT_CONFIGURED, apiKeyRoutes } from './api-keys.js';
 import { healthRoute } from './health.js';
 import { MANDATES_NOT_CONFIGURED, mandateRoutes } from './mandates.js';
 import type { MandateEndpoints } from './mandates.js';
@@ -35,6 +37,7 @@ export interface RouteDependencies {
   readonly receipts?: ReceiptReads;
   /** Answers 503 when left out, until the worker's queue is in. */
   readonly payouts?: PayoutEndpoints;
+  readonly apiKeys: ApiKeyEndpoints;
 }
 
 export function v1Routes(deps: RouteDependencies): readonly Route[] {
@@ -47,6 +50,7 @@ export function v1Routes(deps: RouteDependencies): readonly Route[] {
     ...recipientRoutes(deps.recipients),
     ...receiptRoutes(deps.receipts ?? RECEIPTS_NOT_CONFIGURED),
     ...payoutRoutes(deps.payouts ?? PAYOUTS_NOT_CONFIGURED),
+    ...apiKeyRoutes(deps.apiKeys),
   ]);
 }
 
@@ -57,4 +61,5 @@ export const V1_ROUTES: readonly Route[] = v1Routes({
   walletProof: WALLET_PROOF_NOT_CONFIGURED,
   mandates: MANDATES_NOT_CONFIGURED,
   recipients: RECIPIENTS_NOT_CONFIGURED,
+  apiKeys: API_KEYS_NOT_CONFIGURED,
 });

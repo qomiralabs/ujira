@@ -6,10 +6,12 @@
 // everything else: authentication, validation, the deadline, response
 // checks, errors and logs. Handlers stay small and cannot skip a step.
 //
-// There are four ways in:
+// There are five ways in:
 // - contractRoute: a read route already described in @ujira/api-schema;
 //   its path, schemas and query rules come from there.
 // - defineTenantRoute: any other route that acts for a tenant.
+// - defineMemberRoute: an action a person takes in the dashboard, which no key
+//   can reach.
 // - definePublicRoute: a route with no tenant, which must say why.
 // - defineWebhookRoute: a provider's signed delivery, handed over as the
 //   exact bytes, because parsing first would verify something else.
@@ -25,7 +27,7 @@ import type { FieldError, ProblemCode, RouteId, RouteQuery } from '@ujira/api-sc
 import { z } from 'zod';
 
 import { API_SCOPES } from './auth.js';
-import type { ApiScope, CallOptions, Tenant } from './auth.js';
+import type { ApiScope, AuthenticatedMember, CallOptions, MemberRole, Tenant } from './auth.js';
 import { ApiError, RouteRegistryError } from './errors.js';
 import type { RequestLog } from './log.js';
 import type { AddressLimitGroup, RateLimitGroup } from './rate-limit.js';
@@ -61,6 +63,11 @@ export interface TenantRequestContext extends RequestContext {
   readonly tenant: Tenant;
 }
 
+export interface MemberRequestContext extends TenantRequestContext {
+  /** Who is acting, from the session only. */
+  readonly member: AuthenticatedMember;
+}
+
 export interface RouteInput<P, Q, B> {
   readonly params: P;
   readonly query: Q;
@@ -83,6 +90,13 @@ export type Access =
       readonly scope: ApiScope;
       /** A tighter limit on top of the ones every tenant route has. */
       readonly rateLimit?: RateLimitGroup;
+    }
+  | {
+      readonly kind: 'member';
+      /** Who may take this action. Never empty. */
+      readonly roles: readonly MemberRole[];
+      /** True: this needs a second factor passed within the last five minutes. */
+      readonly stepUp: boolean;
     };
 
 /** A route as the pipeline sees it, with its types erased. */
@@ -107,11 +121,12 @@ export interface Route {
   };
   /** Statuses this route can answer with besides its success status. */
   readonly errorStatuses: readonly number[];
-  /** tenant is null exactly when access is public. */
+  /** tenant is null exactly when access is public, and member set exactly on a member route. */
   readonly handle: (
     input: RouteInput<unknown, unknown, unknown>,
     context: RequestContext,
     tenant: Tenant | null,
+    member?: AuthenticatedMember | null,
   ) => Promise<unknown>;
 }
 
@@ -138,6 +153,8 @@ export function routeAccessProblems(routes: readonly Route[]): string[] {
       if (!KNOWN_SCOPES.has(access.scope)) {
         problems.push(`route ${route.id} has no scope from the closed list`);
       }
+    } else if (access?.kind === 'member') {
+      if (access.roles.length === 0) problems.push(`route ${route.id} allows no role`);
     } else if (access?.kind === 'public') {
       if (access.reason.trim().length < 10) {
         problems.push(`route ${route.id} must say why it needs no key`);
@@ -271,7 +288,9 @@ function errorStatuses(
   const codes: ProblemCode[] = ['INVALID_FILTER', 'INTERNAL', 'DB_UNAVAILABLE', ...extra];
   // A path id that does not parse cannot name anything.
   if (hasParams) codes.push('NOT_FOUND');
-  if (access.kind === 'tenant') codes.push('TOKEN_INVALID', 'INSUFFICIENT_SCOPE', 'RATE_LIMITED');
+  if (access.kind === 'tenant' || access.kind === 'member') {
+    codes.push('TOKEN_INVALID', 'INSUFFICIENT_SCOPE', 'RATE_LIMITED');
+  }
   if (access.kind === 'public' && access.addressLimit !== undefined) codes.push('RATE_LIMITED');
   if (hasBody) codes.push('INVALID_REQUEST', 'PAYLOAD_TOO_LARGE', 'UNSUPPORTED_MEDIA_TYPE');
   if (write) {
@@ -419,6 +438,34 @@ export function defineDownloadRoute<
 
 function publicAccess(reason: string, addressLimit: AddressLimitGroup | undefined): Access {
   return { kind: 'public', reason, ...(addressLimit === undefined ? {} : { addressLimit }) };
+}
+
+/**
+ * An action a person takes in the dashboard. The pipeline refuses an API key by
+ * its form before anything else, so a key cannot reach this however it is scoped,
+ * and then checks the role and how fresh the second factor is.
+ */
+export function defineMemberRoute<
+  R extends z.ZodType,
+  P extends z.ZodObject = NoInput,
+  Q extends z.ZodType = NoInput,
+  B extends z.ZodType = z.ZodUndefined,
+>(
+  spec: RouteSpec<P, Q, B, R> & {
+    readonly roles: readonly MemberRole[];
+    readonly stepUp: boolean;
+    readonly handler: (input: Input<P, Q, B>, context: MemberRequestContext) => Promise<z.input<R>>;
+  },
+): Route {
+  if (spec.roles.length === 0) throw new RouteRegistryError(`route ${spec.id} allows no role`);
+  const access: Access = { kind: 'member', roles: spec.roles, stepUp: spec.stepUp };
+  return build(spec, access, (input, context, tenant, member) => {
+    // The pipeline authenticates first, so this is a bug in it, and it fails closed.
+    if (tenant === null || member === undefined || member === null) {
+      return Promise.reject(new ApiError('INTERNAL'));
+    }
+    return spec.handler(input as Input<P, Q, B>, { ...context, tenant, member });
+  });
 }
 
 /**

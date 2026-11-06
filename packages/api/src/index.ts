@@ -5,7 +5,47 @@ export { KEY_ENVIRONMENT, apiAccessFromEnv } from './access.js';
 export type { ApiAccess } from './access.js';
 export { API_DEFAULTS, createApp, newRequestId } from './app.js';
 export type { ApiDependencies } from './app.js';
-export { API_SCOPES, AuthenticatedTenantSchema, refuseAllCredentials } from './auth.js';
+export {
+  API_KEY_DEFAULT_EXPIRY_DAYS,
+  API_KEY_MAX_ACTIVE,
+  API_KEY_MAX_EXPIRY_DAYS,
+  API_KEY_MAX_OVERLAP_HOURS,
+  API_KEY_PRESETS,
+  createApiKeyEndpoints,
+} from './api-key-service.js';
+export type {
+  ApiKeyEndpoints,
+  ApiKeyPreset,
+  ApiKeyRecords,
+  ApiKeyServiceDeps,
+  ApiKeyView,
+  RotateOutcome,
+  StoredApiKey,
+} from './api-key-service.js';
+export {
+  API_KEY_WARNING_THRESHOLDS,
+  WARNING_CLAIM_SECONDS,
+  sendApiKeyExpiryWarnings,
+} from './api-key-warnings.js';
+export type {
+  ApiKeyExpiryNotifier,
+  ApiKeyExpiryWarning,
+  ApiKeyWarningDeps,
+  ApiKeyWarningRecords,
+  SweepResult,
+  WarnedKey,
+  WarningTarget,
+  WarningThreshold,
+} from './api-key-warnings.js';
+export {
+  API_SCOPES,
+  AuthenticatedMemberSchema,
+  AuthenticatedTenantSchema,
+  MEMBER_ROLES,
+  STEP_UP_MAX_AGE_SECONDS,
+  refuseAllCredentials,
+  refuseAllMembers,
+} from './auth.js';
 export type {
   ApiScope,
   AuthFailureCode,
@@ -13,7 +53,12 @@ export type {
   Authenticate,
   AuthenticatedTenant,
   CallOptions,
+  AuthenticatedMember,
+  AuthenticateMember,
   Credentials,
+  MemberAuthResult,
+  MemberCredentials,
+  MemberRole,
   Tenant,
 } from './auth.js';
 export { clientAddress, normalizeAddress } from './client-address.js';
@@ -49,6 +94,8 @@ export { errorNameOf, jsonLogger, memoryLogger, stdoutLogger } from './log.js';
 export type { LogFields, LogLevel, LogRecord, Logger, RequestLog } from './log.js';
 export { OPENAPI_PATH, buildOpenApiDocument, withOpenApiRoute } from './openapi.js';
 export {
+  databaseApiKeyRecords,
+  databaseApiKeyWarningRecords,
   databaseBucketStore,
   databaseIdempotencyStore,
   databaseMandateRecords,
@@ -123,6 +170,7 @@ export {
 export type { RecipientEndpoints } from './routes/recipients.js';
 export {
   contractRoute,
+  defineMemberRoute,
   definePublicRoute,
   defineTenantRoute,
   defineWebhookRoute,
@@ -142,6 +190,15 @@ export type {
   TenantRequestContext,
   WebhookInput,
 } from './route.js';
+export {
+  API_KEYS_NOT_CONFIGURED,
+  ApiKeyIssued,
+  ApiKeyRotated,
+  ApiKeyView as ApiKeyViewSchema,
+  CreateApiKeyRequest,
+  RotateApiKeyRequest,
+  apiKeyRoutes,
+} from './routes/api-keys.js';
 export { V1_ROUTES, v1Routes } from './routes/index.js';
 export type { RouteDependencies } from './routes/index.js';
 export {

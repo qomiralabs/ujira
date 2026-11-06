@@ -29,8 +29,20 @@ import { buildProblem } from '@ujira/api-schema';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
-import { AuthenticatedTenantSchema } from './auth.js';
-import type { AuthenticatedTenant, Authenticate, CallOptions, Tenant } from './auth.js';
+import {
+  AuthenticatedMemberSchema,
+  AuthenticatedTenantSchema,
+  STEP_UP_MAX_AGE_SECONDS,
+  refuseAllMembers,
+} from './auth.js';
+import type {
+  AuthenticatedMember,
+  AuthenticatedTenant,
+  Authenticate,
+  AuthenticateMember,
+  CallOptions,
+  Tenant,
+} from './auth.js';
 import { parseJsonBody, readRawBody } from './body.js';
 import { clientAddress } from './client-address.js';
 import type { TrustedProxy } from './client-address.js';
@@ -64,6 +76,8 @@ export const API_DEFAULTS = Object.freeze({
 export interface ApiDependencies {
   readonly routes: readonly Route[];
   readonly authenticate: Authenticate;
+  /** Left out, every member route refuses: sessions are not a way around this. */
+  readonly authenticateMember?: AuthenticateMember;
   /** Required, so a server cannot be built that forgot its limits. */
   readonly rateLimit: RateLimit;
   /** Required, so a server cannot be built whose writes have no replay protection. */
@@ -301,6 +315,7 @@ export function createApp(deps: ApiDependencies): Hono {
     }, timeoutMs);
     const call: CallOptions = { signal: controller.signal, correlationId: requestId };
     let tenant: Tenant | null = null;
+    let member: AuthenticatedMember | null = null;
     let limitHeaders: Record<string, string> = {};
     let outcome: Outcome;
     try {
@@ -325,7 +340,11 @@ export function createApp(deps: ApiDependencies): Hono {
                 detail: `This route needs the ${route.access.scope} scope`,
               });
             }
-          } else if (route.access.addressLimit !== undefined && addressRateLimit !== undefined) {
+          } else if (
+            route.access.kind === 'public' &&
+            route.access.addressLimit !== undefined &&
+            addressRateLimit !== undefined
+          ) {
             const decision = await addressRateLimit(
               {
                 group: route.access.addressLimit,
@@ -341,6 +360,34 @@ export function createApp(deps: ApiDependencies): Hono {
               throw new ApiError('RATE_LIMITED', {
                 retryAfterSeconds: decision.retryAfterSeconds,
               });
+            }
+          }
+          if (route.access.kind === 'member') {
+            const caller = await authenticateMemberRequest(
+              deps.authenticateMember ?? refuseAllMembers,
+              c.req.raw,
+              call,
+              log,
+            );
+            tenant = { principalId: caller.principalId, projectId: caller.projectId };
+            member = caller;
+            const decision = await deps.rateLimit(
+              { tenant, tokenId: caller.userId, group: null },
+              call,
+            );
+            limitHeaders = rateLimitHeaders(decision);
+            if (!decision.allowed) {
+              throw new ApiError('RATE_LIMITED', {
+                retryAfterSeconds: decision.retryAfterSeconds,
+              });
+            }
+            if (!route.access.roles.includes(caller.role)) {
+              throw new ApiError('INSUFFICIENT_SCOPE', {
+                detail: 'Your role cannot do this',
+              });
+            }
+            if (route.access.stepUp && !steppedUpRecently(caller, now())) {
+              throw new ApiError('STEP_UP_REQUIRED');
             }
           }
           const idempotencyKey = requiresIdempotencyKey(route)
@@ -372,6 +419,7 @@ export function createApp(deps: ApiDependencies): Hono {
               { params: params.data, query: query.data, body },
               { requestId, signal: controller.signal, call, log, idempotencyKey },
               tenant,
+              member,
             );
             return checkedResponse(route, result, tenant, requestId, log);
           };
@@ -526,6 +574,49 @@ async function answerOnce(
   }
   await finish(response);
   return response;
+}
+
+// Any key, valid or not, is refused for being a key. It never reaches the session
+// check or the database, so no scope and no bug there can let one through.
+const KEY_BEARER = /^Bearer ujk_/i;
+
+async function authenticateMemberRequest(
+  authenticate: AuthenticateMember,
+  request: Request,
+  call: CallOptions,
+  log: RequestLog,
+): Promise<AuthenticatedMember> {
+  const authorization = request.headers.get('authorization');
+  if (authorization !== null && KEY_BEARER.test(authorization)) {
+    throw new ApiError('INSUFFICIENT_SCOPE', {
+      detail: 'An API key cannot do this. Sign in to the dashboard',
+    });
+  }
+  const result = await authenticate(
+    {
+      authorization,
+      cookie: request.headers.get('cookie'),
+      origin: request.headers.get('origin'),
+    },
+    call,
+  );
+  if (!result.ok) throw new ApiError(result.code);
+  // As with a key: what this returns becomes the tenant of every query.
+  const checked = AuthenticatedMemberSchema.safeParse(result.member);
+  if (!checked.success) {
+    log.error('authenticator_contract_violation', {
+      issues: checked.error.issues.map((issue) => issue.path.join('.')),
+    });
+    throw new ApiError('INTERNAL');
+  }
+  return checked.data;
+}
+
+function steppedUpRecently(member: AuthenticatedMember, at: Date): boolean {
+  if (member.steppedUpAt === null) return false;
+  const age = at.getTime() - member.steppedUpAt.getTime();
+  // Negative is a clock that disagrees, which is not evidence of anything recent.
+  return age >= 0 && age <= STEP_UP_MAX_AGE_SECONDS * 1000;
 }
 
 async function authenticateRequest(

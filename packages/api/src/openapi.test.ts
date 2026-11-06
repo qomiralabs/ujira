@@ -69,6 +69,9 @@ describe('OpenAPI document', () => {
     const doc = withOpenApiRoute(V1_ROUTES).document as unknown as Document;
     expect(doc.openapi).toBe('3.1.1');
     expect(Object.keys(doc.paths).sort()).toEqual([
+      '/v1/api-keys',
+      '/v1/api-keys/{id}/revoke',
+      '/v1/api-keys/{id}/rotate',
       '/v1/health',
       '/v1/identity/self-webhook',
       '/v1/mandates',
@@ -103,6 +106,9 @@ describe('OpenAPI document', () => {
     for (const ref of refs) expect(doc.components.schemas[ref], ref).toBeDefined();
     // Only what the routes reach: no contract shape the server does not send yet.
     expect(Object.keys(doc.components.schemas).sort()).toEqual([
+      'ApiKeyIssued',
+      'ApiKeyRotated',
+      'ApiKeyView',
       'CountryPolicy',
       'Health',
       'LowBalance',

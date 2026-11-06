@@ -22,6 +22,7 @@ import { allowEveryAddress, allowEveryRequest } from '../rate-limit.js';
 import { V1_ROUTES, v1Routes } from './index.js';
 import { MANDATES_NOT_CONFIGURED } from './mandates.js';
 import { RECIPIENTS_NOT_CONFIGURED } from './recipients.js';
+import { API_KEYS_NOT_CONFIGURED } from './api-keys.js';
 import { SELF_WEBHOOK_NOT_CONFIGURED } from './self-webhook.js';
 
 const TOKEN_ID = randomUUID();
@@ -62,6 +63,7 @@ function served(w: WalletProofWorld, flow: WalletProofFlow = w.flow) {
       walletProof: flow,
       mandates: MANDATES_NOT_CONFIGURED,
       recipients: RECIPIENTS_NOT_CONFIGURED,
+      apiKeys: API_KEYS_NOT_CONFIGURED,
     }),
     authenticate: authFor(w),
     rateLimit: allowEveryRequest,

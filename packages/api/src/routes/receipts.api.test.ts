@@ -27,6 +27,7 @@ import { memoryIdempotencyStore } from '../idempotency.js';
 import { memoryLogger } from '../log.js';
 import { buildOpenApiDocument } from '../openapi.js';
 import { allowEveryAddress, allowEveryRequest } from '../rate-limit.js';
+import { API_KEYS_NOT_CONFIGURED } from './api-keys.js';
 import { V1_ROUTES, v1Routes } from './index.js';
 import { MANDATES_NOT_CONFIGURED } from './mandates.js';
 import { toPrincipalReceipt } from './receipts.js';
@@ -199,6 +200,7 @@ function served(with_: ReceiptReads = reads()) {
       walletProof: WALLET_PROOF_NOT_CONFIGURED,
       mandates: MANDATES_NOT_CONFIGURED,
       recipients: RECIPIENTS_NOT_CONFIGURED,
+      apiKeys: API_KEYS_NOT_CONFIGURED,
       receipts: with_,
     }),
     authenticate,

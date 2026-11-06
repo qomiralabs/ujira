@@ -194,6 +194,26 @@ with `rateLimit: 'payout_creation'`. Tenant responses carry `RateLimit-Limit`,
 429 adds `Retry-After`. If the buckets cannot be reached the answer is 503, never
 an unlimited request.
 
+### Creating, rotating and revoking keys
+
+People do this in the dashboard, with a second factor passed in the last five minutes. No API key can, whatever it holds: `defineMemberRoute` refuses a key by its form before anything else runs.
+
+| Route                           | Does                                                                                                |
+| ------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `POST /v1/api-keys`             | A name, 1 to 10 scopes or a preset (`read_only`, `payouts`, `full`), and `expiresInDays`, 1 to 730  |
+| `POST /v1/api-keys/{id}/rotate` | A new key with the same name, scopes and lifetime. The old one stops after `overlapHours`, 0 to 168 |
+| `POST /v1/api-keys/{id}/revoke` | Stops the key now, and everywhere within the 30 second cache                                        |
+
+- The whole key is in the response that creates it and nowhere else. These routes do not write to the idempotency store, which holds answers in clear.
+- `expiresInDays` is required by the API. The dashboard fills in `API_KEY_DEFAULT_EXPIRY_DAYS`, 365, where a person can see it.
+- A project has at most 20 active keys. A key in its rotation overlap does not count, so rotating works at the limit.
+- A key is rotated once, by a unique index, and an overlap can only bring an expiry forward.
+- Only owners and admins can do this, until the permission table exists.
+
+`sendApiKeyExpiryWarnings` sends the 30 and 7 day warnings, once each. A warning is claimed, sent, then marked, so a crash can repeat one and never loses one. Nothing schedules it yet, and its notifier is a port, because the queue and the webhook outbox are not merged.
+
+Until sessions exist, `authenticateMember` is left out and every one of these routes refuses, and the served table uses `API_KEYS_NOT_CONFIGURED`.
+
 ## Mandates
 
 `POST /v1/mandates` takes the limits, the recipient mode, the fee cap and, per chain,
