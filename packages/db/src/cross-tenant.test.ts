@@ -790,13 +790,18 @@ const cases: Record<string, () => Promise<void>> = {
     expect(await ownerOf('ujira.outbox_events', 'id', written.id)).toBe(a.first.principalId);
   },
   'outbox.after': async () => {
-    // Under A's context nothing of B's is there to read, at any cursor.
-    await vi.waitFor(async () => {
-      const events = await acrossA(async (tx) => outbox.after(tx, 0n, 100));
-      const ids = events.map((event) => event.id);
-      expect(ids).toContain(a.outboxEventId);
-      expect(ids).not.toContain(b.outboxEventId);
-    });
+    // Under A's context nothing of B's is there to read, at any cursor. An event
+    // shows only once every older transaction in the cluster has ended, and the
+    // other test files share the cluster, so this waits as long as theirs take.
+    await vi.waitFor(
+      async () => {
+        const events = await acrossA(async (tx) => outbox.after(tx, 0n, 100));
+        const ids = events.map((event) => event.id);
+        expect(ids).toContain(a.outboxEventId);
+        expect(ids).not.toContain(b.outboxEventId);
+      },
+      { timeout: 30_000, interval: 200 },
+    );
   },
   'webhookEndpoints.create': async () => {
     const created = await asA(async (tx) =>
