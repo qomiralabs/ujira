@@ -189,6 +189,9 @@ importers:
       '@types/node':
         specifier: 24.19.2
         version: 24.19.2
+      '@ujira/chain-adapter':
+        specifier: workspace:*
+        version: link:packages/chain-adapter
       '@vitest/coverage-v8':
         specifier: 5.0.5
         version: 5.0.5(vitest@5.0.5)
